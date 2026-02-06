@@ -1,0 +1,20 @@
+<UserControl
+    x:Class="PhotoLibrarian.Views.FolderNavigationPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Library" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,12" />
+
+        <TreeView Grid.Row="1" x:Name="FolderTree">
+            <TreeView.RootNodes>
+                <TreeViewNode Content="No folders added yet" />
+            </TreeView.RootNodes>
+        </TreeView>
+    </Grid>
+</UserControl>

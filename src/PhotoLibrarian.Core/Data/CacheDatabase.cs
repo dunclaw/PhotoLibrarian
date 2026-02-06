@@ -1,0 +1,149 @@
+using Microsoft.Data.Sqlite;
+
+namespace PhotoLibrarian.Core.Data;
+
+/// <summary>
+/// Manages the SQLite cache database. This is a performance cache only —
+/// all authoritative data lives in image file metadata (EXIF/XMP/IPTC).
+/// The database can be safely deleted and rebuilt by re-scanning.
+/// </summary>
+public sealed class CacheDatabase : IDisposable
+{
+    private readonly string _connectionString;
+    private SqliteConnection? _connection;
+
+    public CacheDatabase(string databasePath)
+    {
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared
+        }.ToString();
+    }
+
+    public async Task InitializeAsync()
+    {
+        _connection = new SqliteConnection(_connectionString);
+        await _connection.OpenAsync();
+
+        // WAL mode for concurrent reads during writes
+        await ExecuteNonQueryAsync("PRAGMA journal_mode=WAL;");
+        // 64KB page size for better BLOB performance
+        await ExecuteNonQueryAsync("PRAGMA page_size=65536;");
+        // Performance tuning
+        await ExecuteNonQueryAsync("PRAGMA synchronous=NORMAL;");
+        await ExecuteNonQueryAsync("PRAGMA temp_store=MEMORY;");
+        await ExecuteNonQueryAsync("PRAGMA mmap_size=268435456;"); // 256MB memory map
+
+        await CreateTablesAsync();
+    }
+
+    private async Task CreateTablesAsync()
+    {
+        const string schema = """
+            CREATE TABLE IF NOT EXISTS watched_folders (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                path        TEXT    NOT NULL UNIQUE,
+                include_sub INTEGER NOT NULL DEFAULT 1,
+                date_added  TEXT    NOT NULL DEFAULT (datetime('now')),
+                last_scanned TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS images (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path       TEXT    NOT NULL UNIQUE,
+                file_name       TEXT    NOT NULL,
+                file_hash       TEXT,
+                file_size       INTEGER NOT NULL DEFAULT 0,
+                width           INTEGER NOT NULL DEFAULT 0,
+                height          INTEGER NOT NULL DEFAULT 0,
+                date_taken      TEXT,
+                date_modified   TEXT    NOT NULL,
+                date_indexed    TEXT    NOT NULL DEFAULT (datetime('now')),
+                camera_make     TEXT,
+                camera_model    TEXT,
+                lens_model      TEXT,
+                focal_length    REAL,
+                aperture        REAL,
+                exposure_time   TEXT,
+                iso             INTEGER,
+                gps_latitude    REAL,
+                gps_longitude   REAL,
+                rating          INTEGER,
+                orientation     INTEGER NOT NULL DEFAULT 1,
+                media_type      INTEGER NOT NULL DEFAULT 0,
+                video_duration  REAL
+            );
+
+            CREATE TABLE IF NOT EXISTS thumbnails (
+                image_id    INTEGER NOT NULL,
+                size        INTEGER NOT NULL,
+                data        BLOB    NOT NULL,
+                PRIMARY KEY (image_id, size),
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS tags (
+                image_id    INTEGER NOT NULL,
+                tag         TEXT    NOT NULL,
+                source      INTEGER NOT NULL DEFAULT 0,
+                confidence  REAL    NOT NULL DEFAULT 1.0,
+                PRIMARY KEY (image_id, tag),
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS persons (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                thumbnail   BLOB,
+                face_count  INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS face_regions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_id    INTEGER NOT NULL,
+                x           REAL    NOT NULL,
+                y           REAL    NOT NULL,
+                width       REAL    NOT NULL,
+                height      REAL    NOT NULL,
+                person_name TEXT,
+                person_id   INTEGER,
+                embedding   BLOB,
+                confidence  REAL    NOT NULL DEFAULT 0.0,
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
+                FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE SET NULL
+            );
+
+            -- Indexes for common queries
+            CREATE INDEX IF NOT EXISTS idx_images_file_path ON images(file_path);
+            CREATE INDEX IF NOT EXISTS idx_images_date_taken ON images(date_taken);
+            CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash);
+            CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+            CREATE INDEX IF NOT EXISTS idx_tags_image_id ON tags(image_id);
+            CREATE INDEX IF NOT EXISTS idx_face_regions_image_id ON face_regions(image_id);
+            CREATE INDEX IF NOT EXISTS idx_face_regions_person_id ON face_regions(person_id);
+            """;
+
+        await ExecuteNonQueryAsync(schema);
+    }
+
+    public SqliteConnection GetConnection()
+    {
+        if (_connection is null || _connection.State != System.Data.ConnectionState.Open)
+            throw new InvalidOperationException("Database not initialized. Call InitializeAsync first.");
+        return _connection;
+    }
+
+    private async Task ExecuteNonQueryAsync(string sql)
+    {
+        using var cmd = _connection!.CreateCommand();
+        cmd.CommandText = sql;
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public void Dispose()
+    {
+        _connection?.Dispose();
+    }
+}

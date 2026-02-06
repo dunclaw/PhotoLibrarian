@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PhotoLibrarian.Core/PhotoLibrarian.Core.csproj" />
+    <Project Path="src/PhotoLibrarian.ML/PhotoLibrarian.ML.csproj" />
+    <Project Path="src/PhotoLibrarian.Tests/PhotoLibrarian.Tests.csproj" />
+    <Project Path="src/PhotoLibrarian/PhotoLibrarian.csproj" />
+  </Folder>
+</Solution>

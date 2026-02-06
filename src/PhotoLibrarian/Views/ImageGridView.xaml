@@ -1,0 +1,54 @@
+<UserControl
+    x:Class="PhotoLibrarian.Views.ImageGridView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <CommandBar Grid.Row="0" DefaultLabelPosition="Right" IsOpen="False">
+            <AppBarButton Icon="Sort" Label="Sort" />
+            <AppBarButton Icon="Filter" Label="Filter" />
+            <AppBarSeparator />
+            <AppBarButton Icon="Zoom" Label="Size" />
+        </CommandBar>
+
+        <!-- Image Grid with Virtualization -->
+        <ScrollViewer Grid.Row="1" 
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+            <controls:ItemsRepeater x:Name="ImageRepeater">
+                <controls:ItemsRepeater.Layout>
+                    <controls:UniformGridLayout MinItemWidth="180"
+                                                 MinItemHeight="180"
+                                                 MinRowSpacing="4"
+                                                 MinColumnSpacing="4"
+                                                 ItemsStretch="Fill" />
+                </controls:ItemsRepeater.Layout>
+                <controls:ItemsRepeater.ItemTemplate>
+                    <DataTemplate>
+                        <Grid CornerRadius="4" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                            <Image Stretch="UniformToFill" />
+                            <TextBlock Text="No images" 
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+                    </DataTemplate>
+                </controls:ItemsRepeater.ItemTemplate>
+            </controls:ItemsRepeater>
+        </ScrollViewer>
+
+        <!-- Status Bar -->
+        <Grid Grid.Row="2" Padding="12,4" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <TextBlock x:Name="StatusText" Text="Add folders to get started" 
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+        </Grid>
+    </Grid>
+</UserControl>

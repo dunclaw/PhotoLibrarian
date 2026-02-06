@@ -1,0 +1,148 @@
+using Microsoft.Data.Sqlite;
+using PhotoLibrarian.Core.Models;
+
+namespace PhotoLibrarian.Core.Data;
+
+/// <summary>
+/// Repository for image CRUD operations against the SQLite cache.
+/// </summary>
+public sealed class ImageRepository
+{
+    private readonly CacheDatabase _db;
+
+    public ImageRepository(CacheDatabase db)
+    {
+        _db = db;
+    }
+
+    public async Task<long> UpsertImageAsync(ImageEntry image)
+    {
+        var conn = _db.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO images (file_path, file_name, file_hash, file_size, width, height,
+                                date_taken, date_modified, camera_make, camera_model, lens_model,
+                                focal_length, aperture, exposure_time, iso, gps_latitude, gps_longitude,
+                                rating, orientation, media_type, video_duration)
+            VALUES ($path, $name, $hash, $size, $w, $h, $taken, $modified,
+                    $make, $model, $lens, $focal, $aperture, $exposure, $iso,
+                    $lat, $lon, $rating, $orient, $mediatype, $duration)
+            ON CONFLICT(file_path) DO UPDATE SET
+                file_hash=excluded.file_hash, file_size=excluded.file_size,
+                width=excluded.width, height=excluded.height,
+                date_taken=excluded.date_taken, date_modified=excluded.date_modified,
+                camera_make=excluded.camera_make, camera_model=excluded.camera_model,
+                lens_model=excluded.lens_model, focal_length=excluded.focal_length,
+                aperture=excluded.aperture, exposure_time=excluded.exposure_time,
+                iso=excluded.iso, gps_latitude=excluded.gps_latitude,
+                gps_longitude=excluded.gps_longitude, rating=excluded.rating,
+                orientation=excluded.orientation, media_type=excluded.media_type,
+                video_duration=excluded.video_duration
+            RETURNING id;
+            """;
+
+        cmd.Parameters.AddWithValue("$path", image.FilePath);
+        cmd.Parameters.AddWithValue("$name", image.FileName);
+        cmd.Parameters.AddWithValue("$hash", (object?)image.FileHash ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$size", image.FileSize);
+        cmd.Parameters.AddWithValue("$w", image.Width);
+        cmd.Parameters.AddWithValue("$h", image.Height);
+        cmd.Parameters.AddWithValue("$taken", (object?)image.DateTaken?.ToString("O") ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$modified", image.DateModified.ToString("O"));
+        cmd.Parameters.AddWithValue("$make", (object?)image.CameraMake ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$model", (object?)image.CameraModel ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$lens", (object?)image.LensModel ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$focal", (object?)image.FocalLength ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$aperture", (object?)image.Aperture ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$exposure", (object?)image.ExposureTime ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$iso", (object?)image.Iso ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$lat", (object?)image.GpsLatitude ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$lon", (object?)image.GpsLongitude ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$rating", (object?)image.Rating ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$orient", image.Orientation);
+        cmd.Parameters.AddWithValue("$mediatype", (int)image.MediaType);
+        cmd.Parameters.AddWithValue("$duration", (object?)image.VideoDuration ?? DBNull.Value);
+
+        var result = await cmd.ExecuteScalarAsync();
+        return (long)result!;
+    }
+
+    public async Task<ImageEntry?> GetByPathAsync(string filePath)
+    {
+        var conn = _db.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM images WHERE file_path = $path";
+        cmd.Parameters.AddWithValue("$path", filePath);
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+
+        return ReadImageEntry(reader);
+    }
+
+    public async Task<List<ImageEntry>> GetAllAsync(string? orderBy = "date_taken", bool descending = true)
+    {
+        var conn = _db.GetConnection();
+        using var cmd = conn.CreateCommand();
+        var dir = descending ? "DESC" : "ASC";
+        var validColumns = new HashSet<string> { "date_taken", "file_name", "date_modified", "rating", "file_size" };
+        var col = validColumns.Contains(orderBy ?? "") ? orderBy : "date_taken";
+        cmd.CommandText = $"SELECT * FROM images ORDER BY {col} {dir}";
+
+        var results = new List<ImageEntry>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(ReadImageEntry(reader));
+        }
+        return results;
+    }
+
+    public async Task<int> GetCountAsync()
+    {
+        var conn = _db.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM images";
+        var result = await cmd.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
+    }
+
+    public async Task DeleteByPathAsync(string filePath)
+    {
+        var conn = _db.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM images WHERE file_path = $path";
+        cmd.Parameters.AddWithValue("$path", filePath);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static ImageEntry ReadImageEntry(SqliteDataReader reader)
+    {
+        return new ImageEntry
+        {
+            Id = reader.GetInt64(reader.GetOrdinal("id")),
+            FilePath = reader.GetString(reader.GetOrdinal("file_path")),
+            FileName = reader.GetString(reader.GetOrdinal("file_name")),
+            FileHash = reader.IsDBNull(reader.GetOrdinal("file_hash")) ? null : reader.GetString(reader.GetOrdinal("file_hash")),
+            FileSize = reader.GetInt64(reader.GetOrdinal("file_size")),
+            Width = reader.GetInt32(reader.GetOrdinal("width")),
+            Height = reader.GetInt32(reader.GetOrdinal("height")),
+            DateTaken = reader.IsDBNull(reader.GetOrdinal("date_taken")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("date_taken"))),
+            DateModified = DateTime.Parse(reader.GetString(reader.GetOrdinal("date_modified"))),
+            DateIndexed = DateTime.Parse(reader.GetString(reader.GetOrdinal("date_indexed"))),
+            CameraMake = reader.IsDBNull(reader.GetOrdinal("camera_make")) ? null : reader.GetString(reader.GetOrdinal("camera_make")),
+            CameraModel = reader.IsDBNull(reader.GetOrdinal("camera_model")) ? null : reader.GetString(reader.GetOrdinal("camera_model")),
+            LensModel = reader.IsDBNull(reader.GetOrdinal("lens_model")) ? null : reader.GetString(reader.GetOrdinal("lens_model")),
+            FocalLength = reader.IsDBNull(reader.GetOrdinal("focal_length")) ? null : reader.GetDouble(reader.GetOrdinal("focal_length")),
+            Aperture = reader.IsDBNull(reader.GetOrdinal("aperture")) ? null : reader.GetDouble(reader.GetOrdinal("aperture")),
+            ExposureTime = reader.IsDBNull(reader.GetOrdinal("exposure_time")) ? null : reader.GetString(reader.GetOrdinal("exposure_time")),
+            Iso = reader.IsDBNull(reader.GetOrdinal("iso")) ? null : reader.GetInt32(reader.GetOrdinal("iso")),
+            GpsLatitude = reader.IsDBNull(reader.GetOrdinal("gps_latitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_latitude")),
+            GpsLongitude = reader.IsDBNull(reader.GetOrdinal("gps_longitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_longitude")),
+            Rating = reader.IsDBNull(reader.GetOrdinal("rating")) ? null : reader.GetInt32(reader.GetOrdinal("rating")),
+            Orientation = reader.GetInt32(reader.GetOrdinal("orientation")),
+            MediaType = (MediaType)reader.GetInt32(reader.GetOrdinal("media_type")),
+            VideoDuration = reader.IsDBNull(reader.GetOrdinal("video_duration")) ? null : reader.GetDouble(reader.GetOrdinal("video_duration"))
+        };
+    }
+}
