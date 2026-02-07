@@ -34,6 +34,10 @@
         <views:ImageViewerOverlay x:Name="ViewerOverlay" 
                                    Visibility="Collapsed" />
 
+        <!-- Overlay: Image Editor -->
+        <views:ImageEditorView x:Name="EditorOverlay"
+                                Visibility="Collapsed" />
+
         <!-- Status bar at bottom -->
         <Grid VerticalAlignment="Bottom" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">

@@ -32,8 +32,9 @@ public partial class App : Application
         var metadataReader = new MetadataReaderService();
         var thumbnailService = new ThumbnailService(thumbRepo);
         var indexingService = new LibraryIndexingService(db, imageRepo, thumbRepo, scanner, metadataReader, thumbnailService);
+        var backupService = new OriginalBackupService();
 
-        ViewModel = new MainViewModel(db, imageRepo, thumbRepo, scanner, metadataReader, thumbnailService, indexingService);
+        ViewModel = new MainViewModel(db, imageRepo, thumbRepo, scanner, metadataReader, thumbnailService, indexingService, backupService);
 
         _window = new MainWindow();
         _window.Activate();

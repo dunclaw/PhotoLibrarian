@@ -16,10 +16,12 @@ public partial class MainViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly ThumbnailService _thumbnailService;
     private readonly LibraryIndexingService _indexingService;
+    private readonly OriginalBackupService _backupService;
 
     public FolderNavigationViewModel FolderNav { get; }
     public ImageGridViewModel ImageGrid { get; }
     public ImageViewerViewModel ImageViewer { get; }
+    public ImageEditorViewModel ImageEditor { get; }
     public MetadataPanelViewModel MetadataPanel { get; }
     public SettingsViewModel Settings { get; }
 
@@ -39,7 +41,8 @@ public partial class MainViewModel : ObservableObject
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
         ThumbnailService thumbnailService,
-        LibraryIndexingService indexingService)
+        LibraryIndexingService indexingService,
+        OriginalBackupService backupService)
     {
         _db = db;
         _imageRepo = imageRepo;
@@ -48,12 +51,14 @@ public partial class MainViewModel : ObservableObject
         _metadataReader = metadataReader;
         _thumbnailService = thumbnailService;
         _indexingService = indexingService;
+        _backupService = backupService;
 
         StatusText = "Ready";
 
         FolderNav= new FolderNavigationViewModel(db, scanner, indexingService, this);
         ImageGrid = new ImageGridViewModel(imageRepo, thumbRepo, thumbnailService, this);
         ImageViewer = new ImageViewerViewModel();
+        ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
         Settings = new SettingsViewModel(db);
 

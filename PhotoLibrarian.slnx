@@ -3,6 +3,8 @@
     <Project Path="src/PhotoLibrarian.Core/PhotoLibrarian.Core.csproj" />
     <Project Path="src/PhotoLibrarian.ML/PhotoLibrarian.ML.csproj" />
     <Project Path="src/PhotoLibrarian.Tests/PhotoLibrarian.Tests.csproj" />
-    <Project Path="src/PhotoLibrarian/PhotoLibrarian.csproj" />
+    <Project Path="src/PhotoLibrarian/PhotoLibrarian.csproj">
+      <Platform Solution="Debug|*" Project="x64" />
+    </Project>
   </Folder>
 </Solution>
