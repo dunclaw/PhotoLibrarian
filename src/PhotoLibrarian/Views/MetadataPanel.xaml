@@ -12,10 +12,111 @@
         <TextBlock Grid.Row="0" Text="Details" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,12" />
 
         <ScrollViewer Grid.Row="1">
-            <StackPanel Spacing="8">
+            <!-- Empty state -->
+            <StackPanel x:Name="EmptyContent" Visibility="Visible">
                 <TextBlock Text="Select an image to see details"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <ScrollViewer Grid.Row="1" x:Name="DetailContent" Visibility="Collapsed">
+            <StackPanel Spacing="12">
+                <!-- File info -->
+                <StackPanel Spacing="2">
+                    <TextBlock x:Name="FileNameText" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="MediaTypeText" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <!-- Date -->
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Date Taken" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="DateTakenText" />
+                </StackPanel>
+
+                <!-- Dimensions & Size -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Dimensions" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="DimensionsText" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Text="File Size" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="FileSizeText" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <!-- Camera info -->
+                <StackPanel x:Name="CameraSection" Spacing="2">
+                    <TextBlock Text="Camera" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="CameraText" />
+                    <TextBlock x:Name="LensText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+
+                <!-- Shooting info -->
+                <Grid x:Name="ShootingSection">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2" Margin="0,0,0,8">
+                        <TextBlock Text="Aperture" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="ApertureText" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2" Margin="0,0,0,8">
+                        <TextBlock Text="Exposure" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="ExposureText" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Focal Length" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="FocalLengthText" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+                        <TextBlock Text="ISO" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="IsoText" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <!-- GPS -->
+                <StackPanel x:Name="GpsSection" Spacing="2" Visibility="Collapsed">
+                    <TextBlock Text="Location" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="GpsText" />
+                </StackPanel>
+
+                <!-- File path -->
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Path" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="FilePathText" TextWrapping="Wrap" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               IsTextSelectionEnabled="True" />
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
     </Grid>

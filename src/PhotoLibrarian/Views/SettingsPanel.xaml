@@ -1,0 +1,34 @@
+<UserControl
+    x:Class="PhotoLibrarian.Views.SettingsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="24" MaxWidth="600">
+        <StackPanel Spacing="16">
+            <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <!-- Cache info -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Thumbnail Cache" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock x:Name="CacheSizeText" Text="Cache size: calculating…"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock x:Name="CachePathText" TextWrapping="Wrap" FontSize="11"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           IsTextSelectionEnabled="True" />
+                <Button Content="Rebuild Cache" Click="OnRebuildCache" Margin="0,4,0,0" />
+            </StackPanel>
+
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <!-- About -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="About" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock Text="PhotoLibrarian v0.1.0" />
+                <TextBlock Text="A local-first photo management app."
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <Button Content="Close" Click="OnClose" HorizontalAlignment="Right" />
+        </StackPanel>
+    </Grid>
+</UserControl>

@@ -8,24 +8,46 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Toolbar -->
-        <CommandBar Grid.Row="0" DefaultLabelPosition="Right" IsOpen="False">
-            <AppBarButton Icon="Sort" Label="Sort" />
-            <AppBarButton Icon="Filter" Label="Filter" />
-            <AppBarSeparator />
-            <AppBarButton Icon="Zoom" Label="Size" />
-        </CommandBar>
+        <Grid Grid.Row="0" Padding="8,4" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Sort controls -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Sort:" VerticalAlignment="Center" Margin="4,0" />
+                <Button x:Name="SortDateBtn" Content="Date" Click="OnSortDate" Padding="8,4" />
+                <Button x:Name="SortNameBtn" Content="Name" Click="OnSortName" Padding="8,4" />
+                <Button x:Name="SortRatingBtn" Content="Rating" Click="OnSortRating" Padding="8,4" />
+            </StackPanel>
+
+            <!-- Thumbnail size slider -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                <Button Click="OnDecreaseSize" Padding="6" ToolTipService.ToolTip="Smaller thumbnails">
+                    <FontIcon Glyph="&#xE71F;" FontSize="12" />
+                </Button>
+                <Slider x:Name="SizeSlider" Width="120" Minimum="100" Maximum="400" Value="180"
+                        VerticalAlignment="Center" ValueChanged="OnSizeSliderChanged" />
+                <Button Click="OnIncreaseSize" Padding="6" ToolTipService.ToolTip="Larger thumbnails">
+                    <FontIcon Glyph="&#xE8A3;" FontSize="12" />
+                </Button>
+            </StackPanel>
+        </Grid>
 
         <!-- Image Grid with Virtualization -->
-        <ScrollViewer Grid.Row="1" 
+        <ScrollViewer Grid.Row="1" x:Name="GridScrollViewer"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
-            <controls:ItemsRepeater x:Name="ImageRepeater">
+            <controls:ItemsRepeater x:Name="ImageRepeater"
+                                     ElementPrepared="OnElementPrepared">
                 <controls:ItemsRepeater.Layout>
-                    <controls:UniformGridLayout MinItemWidth="180"
+                    <controls:UniformGridLayout x:Name="GridLayout"
+                                                 MinItemWidth="180"
                                                  MinItemHeight="180"
                                                  MinRowSpacing="4"
                                                  MinColumnSpacing="4"
@@ -33,22 +55,49 @@
                 </controls:ItemsRepeater.Layout>
                 <controls:ItemsRepeater.ItemTemplate>
                     <DataTemplate>
-                        <Grid CornerRadius="4" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                            <Image Stretch="UniformToFill" />
-                            <TextBlock Text="No images" 
-                                       HorizontalAlignment="Center" 
-                                       VerticalAlignment="Center"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Grid CornerRadius="4"
+                              Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                              PointerEntered="OnThumbnailPointerEntered"
+                              PointerExited="OnThumbnailPointerExited"
+                              DoubleTapped="OnThumbnailDoubleTapped"
+                              Tapped="OnThumbnailTapped">
+                            <Image x:Name="ThumbImage" Stretch="UniformToFill" />
+                            <ProgressRing x:Name="LoadingRing" IsActive="True"
+                                          Width="24" Height="24"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <!-- File name overlay -->
+                            <Border VerticalAlignment="Bottom" CornerRadius="0,0,4,4"
+                                    Background="#99000000" Padding="6,3">
+                                <TextBlock x:Name="FileNameText" FontSize="11"
+                                           Foreground="White"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxLines="1" />
+                            </Border>
+                            <!-- Video indicator -->
+                            <FontIcon x:Name="VideoIcon" Glyph="&#xE768;"
+                                      Visibility="Collapsed"
+                                      HorizontalAlignment="Right" VerticalAlignment="Top"
+                                      Margin="4" FontSize="16" Foreground="White" />
                         </Grid>
                     </DataTemplate>
                 </controls:ItemsRepeater.ItemTemplate>
             </controls:ItemsRepeater>
         </ScrollViewer>
 
-        <!-- Status Bar -->
-        <Grid Grid.Row="2" Padding="12,4" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <TextBlock x:Name="StatusText" Text="Add folders to get started" 
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-        </Grid>
+        <!-- Empty state -->
+        <StackPanel x:Name="EmptyState" Grid.Row="1"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Spacing="8">
+            <FontIcon Glyph="&#xEB9F;" FontSize="48"
+                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                      HorizontalAlignment="Center" />
+            <TextBlock Text="No photos yet"
+                       Style="{StaticResource SubtitleTextBlockStyle}"
+                       HorizontalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock Text="Click + in the Library panel to add a folder"
+                       HorizontalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+        </StackPanel>
     </Grid>
 </UserControl>
