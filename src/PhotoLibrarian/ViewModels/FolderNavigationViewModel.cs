@@ -35,7 +35,7 @@ public partial class FolderNavigationViewModel : ObservableObject
     public async Task LoadWatchedFoldersAsync()
     {
         RootFolders.Clear();
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT id, path, include_sub FROM watched_folders ORDER BY path";
         using var reader = await cmd.ExecuteReaderAsync();
@@ -54,7 +54,7 @@ public partial class FolderNavigationViewModel : ObservableObject
         }
     }
 
-    private static void BuildChildNodes(FolderNode parent)
+    public static void BuildChildNodes(FolderNode parent)
     {
         try
         {
@@ -89,7 +89,7 @@ public partial class FolderNavigationViewModel : ObservableObject
         if (folder is null) return;
 
         // Insert into watched_folders
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR IGNORE INTO watched_folders (path, include_sub)
@@ -118,7 +118,7 @@ public partial class FolderNavigationViewModel : ObservableObject
     {
         if (SelectedFolder is null || SelectedFolder.Id <= 0) return;
 
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
 
         // Remove images from this folder
         using var delImages = conn.CreateCommand();
@@ -180,4 +180,6 @@ public partial class FolderNode : ObservableObject
     public required string Path { get; set; }
     public bool IncludeSubfolders { get; set; }
     public ObservableCollection<FolderNode> Children { get; } = [];
+
+    public override string ToString() => Name;
 }

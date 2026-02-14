@@ -10,7 +10,7 @@ namespace PhotoLibrarian.Core.Data;
 public sealed class CacheDatabase : IDisposable
 {
     private readonly string _connectionString;
-    private SqliteConnection? _connection;
+    private SqliteConnection? _initConnection;
 
     public CacheDatabase(string databasePath)
     {
@@ -18,28 +18,31 @@ public sealed class CacheDatabase : IDisposable
         {
             DataSource = databasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared
+            Cache = SqliteCacheMode.Shared,
+            Pooling = true
         }.ToString();
     }
 
     public async Task InitializeAsync()
     {
-        _connection = new SqliteConnection(_connectionString);
-        await _connection.OpenAsync();
+        // Keep one connection open to hold the shared cache alive
+        _initConnection = new SqliteConnection(_connectionString);
+        await _initConnection.OpenAsync();
 
         // WAL mode for concurrent reads during writes
-        await ExecuteNonQueryAsync("PRAGMA journal_mode=WAL;");
+        await ExecutePragmaAsync(_initConnection, "PRAGMA journal_mode=WAL;");
         // 64KB page size for better BLOB performance
-        await ExecuteNonQueryAsync("PRAGMA page_size=65536;");
+        await ExecutePragmaAsync(_initConnection, "PRAGMA page_size=65536;");
         // Performance tuning
-        await ExecuteNonQueryAsync("PRAGMA synchronous=NORMAL;");
-        await ExecuteNonQueryAsync("PRAGMA temp_store=MEMORY;");
-        await ExecuteNonQueryAsync("PRAGMA mmap_size=268435456;"); // 256MB memory map
+        await ExecutePragmaAsync(_initConnection, "PRAGMA synchronous=NORMAL;");
+        await ExecutePragmaAsync(_initConnection, "PRAGMA temp_store=MEMORY;");
+        await ExecutePragmaAsync(_initConnection, "PRAGMA mmap_size=268435456;"); // 256MB memory map
+        await ExecutePragmaAsync(_initConnection, "PRAGMA foreign_keys=ON;");
 
-        await CreateTablesAsync();
+        await CreateTablesAsync(_initConnection);
     }
 
-    private async Task CreateTablesAsync()
+    private static async Task CreateTablesAsync(SqliteConnection conn)
     {
         const string schema = """
             CREATE TABLE IF NOT EXISTS watched_folders (
@@ -125,25 +128,45 @@ public sealed class CacheDatabase : IDisposable
             CREATE INDEX IF NOT EXISTS idx_face_regions_person_id ON face_regions(person_id);
             """;
 
-        await ExecuteNonQueryAsync(schema);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = schema;
+        await cmd.ExecuteNonQueryAsync();
     }
 
+    /// <summary>
+    /// Creates and returns a new open connection from the pool.
+    /// Callers should dispose the connection when done.
+    /// </summary>
+    public SqliteConnection CreateConnection()
+    {
+        var conn = new SqliteConnection(_connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA foreign_keys=ON;";
+        cmd.ExecuteNonQuery();
+        return conn;
+    }
+
+    /// <summary>
+    /// Returns the shared connection for backward compatibility.
+    /// Prefer CreateConnection() for thread-safe access.
+    /// </summary>
     public SqliteConnection GetConnection()
     {
-        if (_connection is null || _connection.State != System.Data.ConnectionState.Open)
+        if (_initConnection is null || _initConnection.State != System.Data.ConnectionState.Open)
             throw new InvalidOperationException("Database not initialized. Call InitializeAsync first.");
-        return _connection;
+        return _initConnection;
     }
 
-    private async Task ExecuteNonQueryAsync(string sql)
+    private static async Task ExecutePragmaAsync(SqliteConnection conn, string sql)
     {
-        using var cmd = _connection!.CreateCommand();
+        using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         await cmd.ExecuteNonQueryAsync();
     }
 
     public void Dispose()
     {
-        _connection?.Dispose();
+        _initConnection?.Dispose();
     }
 }

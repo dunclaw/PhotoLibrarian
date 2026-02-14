@@ -24,7 +24,9 @@ public sealed partial class ImageEditorView : UserControl
 
     public ImageEditorView()
     {
+        _suppressSliderEvents = true;
         this.InitializeComponent();
+        _suppressSliderEvents = false;
         this.Loaded += OnLoaded;
         this.Unloaded += OnUnloaded;
     }

@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <Platforms>x64;ARM64;x86</Platforms>
   </PropertyGroup>
 
   <ItemGroup>

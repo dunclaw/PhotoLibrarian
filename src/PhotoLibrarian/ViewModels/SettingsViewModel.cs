@@ -58,7 +58,7 @@ public partial class SettingsViewModel : ObservableObject
     private async Task RebuildCacheAsync()
     {
         // Clear all thumbnails and re-index
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM thumbnails";
         await cmd.ExecuteNonQueryAsync();

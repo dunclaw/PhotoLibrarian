@@ -11,6 +11,9 @@ public sealed class ThumbnailService
 {
     private readonly ThumbnailRepository _thumbnailRepo;
 
+    // Limit concurrent decode operations to avoid thread pool starvation
+    private static readonly SemaphoreSlim s_decodeSemaphore = new(Math.Max(2, Environment.ProcessorCount / 2));
+
     public ThumbnailService(ThumbnailRepository thumbnailRepo)
     {
         _thumbnailRepo = thumbnailRepo;
@@ -42,25 +45,36 @@ public sealed class ThumbnailService
     /// </summary>
     public static async Task<byte[]?> GenerateThumbnailAsync(string filePath, int maxDimension)
     {
-        return await Task.Run(() =>
+        try
         {
+            // Try to extract embedded EXIF thumbnail first (very fast, no full decode)
+            var exifThumb = await Task.Run(() => TryExtractExifThumbnail(filePath));
+            if (exifThumb is not null && exifThumb.Length > 0)
+                return exifThumb;
+
+            // Fall back to decode + resize using WIC via BitmapDecoder (with timeout)
+            await s_decodeSemaphore.WaitAsync();
             try
             {
-                // Try to extract embedded EXIF thumbnail first (very fast)
-                var exifThumb = TryExtractExifThumbnail(filePath);
-                if (exifThumb is not null && exifThumb.Length > 0)
-                    return exifThumb;
-
-                // Fall back to decode + resize using WIC via BitmapDecoder
-                return DecodeAndResizeThumbnail(filePath, maxDimension);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var decodeTask = DecodeAndResizeThumbnailAsync(filePath, maxDimension);
+                var completed = await Task.WhenAny(decodeTask, Task.Delay(Timeout.Infinite, cts.Token));
+                return completed == decodeTask ? await decodeTask : null;
             }
-            catch
+            finally
             {
-                return null;
+                s_decodeSemaphore.Release();
             }
-        });
+        }
+        catch
+        {
+            return null;
+        }
     }
 
+    /// <summary>
+    /// Extracts the embedded EXIF thumbnail from the file using offset/length from metadata.
+    /// </summary>
     private static byte[]? TryExtractExifThumbnail(string filePath)
     {
         try
@@ -91,16 +105,16 @@ public sealed class ThumbnailService
         }
     }
 
-    private static byte[]? DecodeAndResizeThumbnail(string filePath, int maxDimension)
+    /// <summary>
+    /// Decodes and resizes an image using WIC (async, no blocking calls).
+    /// </summary>
+    private static async Task<byte[]?> DecodeAndResizeThumbnailAsync(string filePath, int maxDimension)
     {
-        // Use Windows.Graphics.Imaging (WIC) for hardware-accelerated decode
-        // For now, use a managed fallback with System.IO streams
-        // TODO: Replace with C++/WinRT native WIC component for maximum performance
         try
         {
             using var stream = File.OpenRead(filePath);
-            var decoder = Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
-                stream.AsRandomAccessStream()).AsTask().Result;
+            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
+                stream.AsRandomAccessStream());
 
             var originalWidth = decoder.PixelWidth;
             var originalHeight = decoder.PixelHeight;
@@ -118,21 +132,21 @@ public sealed class ThumbnailService
                 InterpolationMode = Windows.Graphics.Imaging.BitmapInterpolationMode.Fant
             };
 
-            var pixelData = decoder.GetPixelDataAsync(
+            var pixelData = await decoder.GetPixelDataAsync(
                 Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
                 Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
                 transform,
                 Windows.Graphics.Imaging.ExifOrientationMode.RespectExifOrientation,
                 Windows.Graphics.Imaging.ColorManagementMode.ColorManageToSRgb
-            ).AsTask().Result;
+            );
 
             var pixels = pixelData.DetachPixelData();
 
             // Encode to JPEG
             using var outStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-            var encoder = Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+            var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
                 Windows.Graphics.Imaging.BitmapEncoder.JpegEncoderId,
-                outStream).AsTask().Result;
+                outStream);
 
             encoder.SetPixelData(
                 Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
@@ -140,7 +154,7 @@ public sealed class ThumbnailService
                 newWidth, newHeight, 96, 96, pixels);
 
             encoder.BitmapTransform.InterpolationMode = Windows.Graphics.Imaging.BitmapInterpolationMode.Fant;
-            encoder.FlushAsync().AsTask().Wait();
+            await encoder.FlushAsync();
 
             using var ms = new MemoryStream();
             outStream.Seek(0);

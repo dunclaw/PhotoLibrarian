@@ -17,7 +17,7 @@ public sealed class TagRepository
 
     public async Task AddTagAsync(ImageTag tag)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR REPLACE INTO tags (image_id, tag, source, confidence)
@@ -32,7 +32,7 @@ public sealed class TagRepository
 
     public async Task<List<ImageTag>> GetTagsAsync(long imageId)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM tags WHERE image_id = $id ORDER BY confidence DESC";
         cmd.Parameters.AddWithValue("$id", imageId);
@@ -54,7 +54,7 @@ public sealed class TagRepository
 
     public async Task RemoveTagAsync(long imageId, string tag)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM tags WHERE image_id = $id AND tag = $tag";
         cmd.Parameters.AddWithValue("$id", imageId);
@@ -67,7 +67,7 @@ public sealed class TagRepository
     /// </summary>
     public async Task<List<(string Tag, int Count)>> GetAllTagsWithCountAsync()
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC";
 
@@ -85,7 +85,7 @@ public sealed class TagRepository
     /// </summary>
     public async Task<List<long>> GetImageIdsWithTagAsync(string tag)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT image_id FROM tags WHERE tag = $tag";
         cmd.Parameters.AddWithValue("$tag", tag);
@@ -104,7 +104,7 @@ public sealed class TagRepository
     /// </summary>
     public async Task RenameTagAsync(string oldTag, string newTag)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE tags SET tag = $new WHERE tag = $old";
         cmd.Parameters.AddWithValue("$old", oldTag);
@@ -117,7 +117,7 @@ public sealed class TagRepository
     /// </summary>
     public async Task MergeTagsAsync(string sourceTag, string targetTag)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
 
         // Delete where target already exists to avoid duplicates
         using var del = conn.CreateCommand();

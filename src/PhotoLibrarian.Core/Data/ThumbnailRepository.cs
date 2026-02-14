@@ -17,7 +17,7 @@ public sealed class ThumbnailRepository
 
     public async Task SaveThumbnailAsync(long imageId, ThumbnailSize size, byte[] data)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT OR REPLACE INTO thumbnails (image_id, size, data)
@@ -31,7 +31,7 @@ public sealed class ThumbnailRepository
 
     public async Task<byte[]?> GetThumbnailAsync(long imageId, ThumbnailSize size)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT data FROM thumbnails WHERE image_id = $id AND size = $size";
         cmd.Parameters.AddWithValue("$id", imageId);
@@ -43,7 +43,7 @@ public sealed class ThumbnailRepository
 
     public async Task<bool> HasThumbnailAsync(long imageId, ThumbnailSize size)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM thumbnails WHERE image_id = $id AND size = $size";
         cmd.Parameters.AddWithValue("$id", imageId);
@@ -55,7 +55,7 @@ public sealed class ThumbnailRepository
 
     public async Task DeleteThumbnailsAsync(long imageId)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM thumbnails WHERE image_id = $id";
         cmd.Parameters.AddWithValue("$id", imageId);

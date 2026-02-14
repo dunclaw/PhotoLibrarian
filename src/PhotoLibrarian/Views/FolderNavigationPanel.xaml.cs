@@ -28,12 +28,7 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         foreach (var folder in ViewModel.RootFolders)
         {
-            var node = new TreeViewNode { Content = folder.Name, IsExpanded = true };
-            foreach (var child in folder.Children)
-            {
-                var childNode = new TreeViewNode { Content = child.Name };
-                node.Children.Add(childNode);
-            }
+            var node = BuildTreeNode(folder, isExpanded: true);
             FolderTree.RootNodes.Add(node);
         }
 
@@ -41,6 +36,23 @@ public sealed partial class FolderNavigationPanel : UserControl
         {
             FolderTree.RootNodes.Add(new TreeViewNode { Content = "No folders added" });
         }
+    }
+
+    private static TreeViewNode BuildTreeNode(FolderNode folderNode, bool isExpanded = false)
+    {
+        // If this node will start expanded, eagerly resolve placeholder children
+        if (isExpanded && folderNode.Children.Count == 1 && folderNode.Children[0].Path == "")
+        {
+            folderNode.Children.Clear();
+            FolderNavigationViewModel.BuildChildNodes(folderNode);
+        }
+
+        var treeNode = new TreeViewNode { Content = folderNode, IsExpanded = isExpanded };
+        foreach (var child in folderNode.Children)
+        {
+            treeNode.Children.Add(BuildTreeNode(child));
+        }
+        return treeNode;
     }
 
     private async void OnAddFolderClick(object sender, RoutedEventArgs e)
@@ -64,24 +76,28 @@ public sealed partial class FolderNavigationPanel : UserControl
     {
         if (ViewModel is null) return;
         var node = args.InvokedItem as TreeViewNode;
-        var content = node?.Content?.ToString();
-        if (content is null || content == "No folders added") return;
+        if (node?.Content is not FolderNode folderNode) return;
+        if (folderNode.Path.Length == 0) return;
 
-        // Find the matching folder by name
-        foreach (var root in ViewModel.RootFolders)
+        ViewModel.SelectedFolder = folderNode;
+    }
+
+    private void OnFolderExpanding(TreeView sender, TreeViewExpandingEventArgs args)
+    {
+        if (ViewModel is null) return;
+        if (args.Node.Content is not FolderNode folderNode) return;
+
+        // Lazy-load: if the FolderNode has a single placeholder child, expand it
+        if (folderNode.Children.Count == 1 && folderNode.Children[0].Path == "")
         {
-            if (root.Name == content)
+            folderNode.Children.Clear();
+            FolderNavigationViewModel.BuildChildNodes(folderNode);
+
+            // Rebuild TreeViewNode children to match
+            args.Node.Children.Clear();
+            foreach (var child in folderNode.Children)
             {
-                ViewModel.SelectedFolder = root;
-                return;
-            }
-            foreach (var child in root.Children)
-            {
-                if (child.Name == content)
-                {
-                    ViewModel.SelectedFolder = child;
-                    return;
-                }
+                args.Node.Children.Add(BuildTreeNode(child));
             }
         }
     }

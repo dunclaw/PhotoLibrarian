@@ -17,7 +17,7 @@ public sealed class FaceRepository
 
     public async Task<long> AddFaceRegionAsync(FaceRegion face)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO face_regions (image_id, x, y, width, height, person_name, person_id, embedding, confidence)
@@ -39,7 +39,7 @@ public sealed class FaceRepository
 
     public async Task<List<FaceRegion>> GetFacesForImageAsync(long imageId)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM face_regions WHERE image_id = $id";
         cmd.Parameters.AddWithValue("$id", imageId);
@@ -55,7 +55,7 @@ public sealed class FaceRepository
 
     public async Task<List<FaceRegion>> GetAllFacesWithEmbeddingsAsync()
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM face_regions WHERE embedding IS NOT NULL";
 
@@ -70,7 +70,7 @@ public sealed class FaceRepository
 
     public async Task UpdatePersonAsync(long faceId, long? personId, string? personName)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE face_regions SET person_id = $pid, person_name = $name WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", faceId);
@@ -81,7 +81,7 @@ public sealed class FaceRepository
 
     public async Task<long> CreatePersonAsync(string name)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO persons (name) VALUES ($name) RETURNING id";
         cmd.Parameters.AddWithValue("$name", name);
@@ -90,7 +90,7 @@ public sealed class FaceRepository
 
     public async Task<List<Person>> GetAllPersonsAsync()
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT p.id, p.name, p.thumbnail,
@@ -115,7 +115,7 @@ public sealed class FaceRepository
 
     public async Task MergePersonsAsync(long sourcePersonId, long targetPersonId)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE face_regions SET person_id = $target WHERE person_id = $source";
         cmd.Parameters.AddWithValue("$source", sourcePersonId);

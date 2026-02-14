@@ -32,25 +32,39 @@ public sealed partial class ImageGridView : UserControl
 
     private async void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        // Lazy-load thumbnail when element becomes visible
-        if (args.Element is FrameworkElement fe && fe.DataContext is ImageThumbnailViewModel vm)
+        if (args.Element is not Grid grid) return;
+        if (grid.DataContext is not ImageThumbnailViewModel vm) return;
+
+        // Immediately update synchronous properties and reset visual state for this item
+        var image = FindChild<Image>(grid, "ThumbImage");
+        var loading = FindChild<ProgressRing>(grid, "LoadingRing");
+        var fileName = FindChild<TextBlock>(grid, "FileNameText");
+        var videoIcon = FindChild<FontIcon>(grid, "VideoIcon");
+
+        if (fileName is not null) fileName.Text = vm.FileName;
+        if (videoIcon is not null)
+            videoIcon.Visibility = vm.IsVideo ? Visibility.Visible : Visibility.Collapsed;
+
+        // Show cached thumbnail immediately if already loaded, otherwise show spinner
+        if (vm.Thumbnail is not null)
         {
-            await vm.LoadThumbnailAsync();
-
-            // Update UI elements
-            if (args.Element is not Grid grid) return;
-
-            var image = FindChild<Image>(grid, "ThumbImage");
-            var loading = FindChild<ProgressRing>(grid, "LoadingRing");
-            var fileName = FindChild<TextBlock>(grid, "FileNameText");
-            var videoIcon = FindChild<FontIcon>(grid, "VideoIcon");
-
             if (image is not null) image.Source = vm.Thumbnail;
-            if (loading is not null) loading.IsActive = vm.IsLoading;
-            if (fileName is not null) fileName.Text = vm.FileName;
-            if (videoIcon is not null)
-                videoIcon.Visibility = vm.IsVideo ? Visibility.Visible : Visibility.Collapsed;
+            if (loading is not null) loading.IsActive = false;
+            return;
         }
+
+        // Reset visual state for loading
+        if (image is not null) image.Source = null;
+        if (loading is not null) loading.IsActive = true;
+
+        // Load thumbnail asynchronously
+        await vm.LoadThumbnailAsync();
+
+        // After await, the element may have been recycled — verify it still holds the same data
+        if (!ReferenceEquals(grid.DataContext, vm)) return;
+
+        if (image is not null) image.Source = vm.Thumbnail;
+        if (loading is not null) loading.IsActive = vm.IsLoading;
     }
 
     private void OnThumbnailTapped(object sender, TappedRoutedEventArgs e)

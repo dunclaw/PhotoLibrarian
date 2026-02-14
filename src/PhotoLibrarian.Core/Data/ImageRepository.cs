@@ -17,7 +17,7 @@ public sealed class ImageRepository
 
     public async Task<long> UpsertImageAsync(ImageEntry image)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO images (file_path, file_name, file_hash, file_size, width, height,
@@ -69,7 +69,7 @@ public sealed class ImageRepository
 
     public async Task<ImageEntry?> GetByPathAsync(string filePath)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM images WHERE file_path = $path";
         cmd.Parameters.AddWithValue("$path", filePath);
@@ -82,7 +82,7 @@ public sealed class ImageRepository
 
     public async Task<List<ImageEntry>> GetAllAsync(string? orderBy = "date_taken", bool descending = true)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         var dir = descending ? "DESC" : "ASC";
         var validColumns = new HashSet<string> { "date_taken", "file_name", "date_modified", "rating", "file_size" };
@@ -100,7 +100,7 @@ public sealed class ImageRepository
 
     public async Task<int> GetCountAsync()
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM images";
         var result = await cmd.ExecuteScalarAsync();
@@ -109,7 +109,7 @@ public sealed class ImageRepository
 
     public async Task DeleteByPathAsync(string filePath)
     {
-        var conn = _db.GetConnection();
+        using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM images WHERE file_path = $path";
         cmd.Parameters.AddWithValue("$path", filePath);

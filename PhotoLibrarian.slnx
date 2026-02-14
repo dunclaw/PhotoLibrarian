@@ -1,10 +1,29 @@
 <Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
   <Folder Name="/src/">
-    <Project Path="src/PhotoLibrarian.Core/PhotoLibrarian.Core.csproj" />
-    <Project Path="src/PhotoLibrarian.ML/PhotoLibrarian.ML.csproj" />
-    <Project Path="src/PhotoLibrarian.Tests/PhotoLibrarian.Tests.csproj" />
+    <Project Path="src/PhotoLibrarian.Core/PhotoLibrarian.Core.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|x86" Project="x86" />
+    </Project>
+    <Project Path="src/PhotoLibrarian.ML/PhotoLibrarian.ML.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|x86" Project="x86" />
+    </Project>
+    <Project Path="src/PhotoLibrarian.Tests/PhotoLibrarian.Tests.csproj">
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|x86" Project="x86" />
+    </Project>
     <Project Path="src/PhotoLibrarian/PhotoLibrarian.csproj">
-      <Platform Solution="Debug|*" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|x86" Project="x86" />
     </Project>
   </Folder>
 </Solution>

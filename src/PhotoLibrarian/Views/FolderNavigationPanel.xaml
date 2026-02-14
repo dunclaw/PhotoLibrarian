@@ -32,7 +32,8 @@
 
         <!-- Folder Tree -->
         <TreeView Grid.Row="2" x:Name="FolderTree"
-                  ItemInvoked="OnFolderInvoked">
+                  ItemInvoked="OnFolderInvoked"
+                  Expanding="OnFolderExpanding">
         </TreeView>
     </Grid>
 </UserControl>

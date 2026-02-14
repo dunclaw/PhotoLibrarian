@@ -50,10 +50,15 @@ public partial class ImageGridViewModel : ObservableObject
         var images = await _imageRepo.GetAllAsync(_currentSortBy, _sortDescending);
         Images.Clear();
 
+        // Ensure folder filter ends with separator for correct prefix matching
+        var filter = _currentFolderFilter;
+        if (filter is not null && !filter.EndsWith(Path.DirectorySeparatorChar))
+            filter += Path.DirectorySeparatorChar;
+
         foreach (var img in images)
         {
-            if (_currentFolderFilter is not null &&
-                !img.FilePath.StartsWith(_currentFolderFilter, StringComparison.OrdinalIgnoreCase))
+            if (filter is not null &&
+                !img.FilePath.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             Images.Add(new ImageThumbnailViewModel(img, _thumbRepo, _thumbnailService));
