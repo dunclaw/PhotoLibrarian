@@ -17,6 +17,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ThumbnailService _thumbnailService;
     private readonly LibraryIndexingService _indexingService;
     private readonly OriginalBackupService _backupService;
+    private CancellationTokenSource? _indexingCts;
 
     public FolderNavigationViewModel FolderNav { get; }
     public ImageGridViewModel ImageGrid { get; }
@@ -56,7 +57,7 @@ public partial class MainViewModel : ObservableObject
         StatusText = "Ready";
 
         FolderNav= new FolderNavigationViewModel(db, scanner, indexingService, this);
-        ImageGrid = new ImageGridViewModel(imageRepo, thumbRepo, thumbnailService, this);
+        ImageGrid = new ImageGridViewModel(imageRepo, thumbRepo, thumbnailService, scanner, metadataReader, this);
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
@@ -72,6 +73,55 @@ public partial class MainViewModel : ObservableObject
         await ImageGrid.LoadImagesAsync();
         TotalImages = await _imageRepo.GetCountAsync();
         StatusText = TotalImages > 0 ? $"{TotalImages:N0} items" : "Add folders to get started";
+
+        // Start background indexing for all watched folders
+        StartBackgroundIndexing();
+    }
+
+    public void PauseBackgroundIndexing()
+    {
+        _indexingCts?.Cancel();
+        _indexingCts = null;
+    }
+
+    public void StartBackgroundIndexing()
+    {
+        if (FolderNav.RootFolders.Count == 0) return;
+
+        _indexingCts?.Cancel();
+        _indexingCts = new CancellationTokenSource();
+        var ct = _indexingCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            // Wait a bit before starting to let UI settle
+            await Task.Delay(2000, ct);
+
+            foreach (var folder in FolderNav.RootFolders)
+            {
+                if (ct.IsCancellationRequested) break;
+
+                try
+                {
+                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct);
+                    if (!ct.IsCancellationRequested)
+                    {
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
+                        {
+                            await RefreshAfterIndexAsync();
+                        });
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception)
+                {
+                    // Continue with next folder on error
+                }
+            }
+        }, ct);
     }
 
     private void OnIndexingProgress(object? sender, IndexingProgressEventArgs e)

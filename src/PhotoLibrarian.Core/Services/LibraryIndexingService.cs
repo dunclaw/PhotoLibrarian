@@ -1,4 +1,5 @@
 using PhotoLibrarian.Core.Data;
+using PhotoLibrarian.Core.Diagnostics;
 using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Core.Services;
@@ -41,9 +42,14 @@ public sealed class LibraryIndexingService
     {
         int processed = 0;
         int skipped = 0;
+        int errors = 0;
+
+        DebugLog.WriteLine($"IndexFolderAsync: Starting scan of '{folderPath}' (includeSubfolders={includeSubfolders})");
 
         await foreach (var filePath in _scanner.ScanFolderAsync(folderPath, includeSubfolders, ct))
         {
+            DebugLog.WriteLine($"IndexFolderAsync: Found file '{filePath}'");
+            
             try
             {
                 // Check if already indexed and unchanged
@@ -53,6 +59,7 @@ public sealed class LibraryIndexingService
                 if (existing is not null && existing.DateModified >= fileInfo.LastWriteTimeUtc)
                 {
                     skipped++;
+                    DebugLog.WriteLine($"  Skipped (already indexed and unchanged)");
                     continue;
                 }
 
@@ -64,18 +71,21 @@ public sealed class LibraryIndexingService
                 await _thumbnailService.GetOrCreateThumbnailAsync(imageId, filePath, ThumbnailSize.Small);
 
                 processed++;
+                DebugLog.WriteLine($"  Processed successfully (id={imageId})");
 
                 if (processed % 25 == 0)
                 {
                     Progress?.Invoke(this, new IndexingProgressEventArgs(processed, skipped, folderPath));
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Skip problematic files
+                errors++;
+                DebugLog.WriteLine($"  ERROR: {ex.Message}");
             }
         }
 
+        DebugLog.WriteLine($"IndexFolderAsync: Complete - processed={processed}, skipped={skipped}, errors={errors}");
         Progress?.Invoke(this, new IndexingProgressEventArgs(processed, skipped, folderPath, isComplete: true));
     }
 }

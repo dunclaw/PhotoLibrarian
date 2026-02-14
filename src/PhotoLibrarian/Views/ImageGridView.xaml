@@ -61,8 +61,10 @@
                               PointerExited="OnThumbnailPointerExited"
                               DoubleTapped="OnThumbnailDoubleTapped"
                               Tapped="OnThumbnailTapped">
-                            <Image x:Name="ThumbImage" Stretch="UniformToFill" />
-                            <ProgressRing x:Name="LoadingRing" IsActive="True"
+                            <Image x:Name="ThumbImage" Stretch="UniformToFill" 
+                                   Source="{Binding Thumbnail, Mode=OneWay}" />
+                            <ProgressRing x:Name="LoadingRing" 
+                                          IsActive="{Binding IsLoading, Mode=OneWay}"
                                           Width="24" Height="24"
                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                             <!-- File name overlay -->

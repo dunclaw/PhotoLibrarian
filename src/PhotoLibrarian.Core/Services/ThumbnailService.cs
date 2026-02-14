@@ -12,7 +12,8 @@ public sealed class ThumbnailService
     private readonly ThumbnailRepository _thumbnailRepo;
 
     // Limit concurrent decode operations to avoid thread pool starvation
-    private static readonly SemaphoreSlim s_decodeSemaphore = new(Math.Max(2, Environment.ProcessorCount / 2));
+    // Increased to allow more parallel decoding for better UI responsiveness
+    private static readonly SemaphoreSlim s_decodeSemaphore = new(Math.Max(4, Environment.ProcessorCount));
 
     public ThumbnailService(ThumbnailRepository thumbnailRepo)
     {
@@ -26,16 +27,23 @@ public sealed class ThumbnailService
     {
         // Try cache first
         var cached = await _thumbnailRepo.GetThumbnailAsync(imageId, size);
-        if (cached is not null)
+        if (cached is not null && cached.Length > 100) // Validate cached data has reasonable size
             return cached;
 
         // Generate thumbnail
         var data = await GenerateThumbnailAsync(filePath, (int)size);
-        if (data is null)
+        if (data is null || data.Length < 100)
             return null;
 
-        // Cache it
-        await _thumbnailRepo.SaveThumbnailAsync(imageId, size, data);
+        // Cache it (only if valid)
+        try
+        {
+            await _thumbnailRepo.SaveThumbnailAsync(imageId, size, data);
+        }
+        catch
+        {
+            // If caching fails, still return the generated thumbnail
+        }
         return data;
     }
 

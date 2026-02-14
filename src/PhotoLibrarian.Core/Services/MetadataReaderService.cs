@@ -103,12 +103,12 @@ public sealed class MetadataReaderService
         if (xmp?.XmpMeta is null) return;
 
         // Read rating from XMP if not already set
-        try
+        const string xapNs = "http://ns.adobe.com/xap/1.0/";
+        if (xmp.XmpMeta.DoesPropertyExist(xapNs, "xmp:Rating"))
         {
-            var ratingProp = xmp.XmpMeta.GetPropertyInteger("http://ns.adobe.com/xap/1.0/", "xmp:Rating");
+            var ratingProp = xmp.XmpMeta.GetPropertyInteger(xapNs, "xmp:Rating");
             entry.Rating ??= Math.Clamp(ratingProp, 0, 5);
         }
-        catch { /* Property not found */ }
     }
 
     /// <summary>

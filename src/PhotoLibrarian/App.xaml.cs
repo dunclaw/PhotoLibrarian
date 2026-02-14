@@ -11,9 +11,25 @@ public partial class App : Application
 
     public static MainViewModel ViewModel { get; private set; } = null!;
 
+    /// <summary>
+    /// Global logging control. Set to false to disable debug logging.
+    /// </summary>
+    public static bool EnableDebugLogging
+    {
+        get => Diagnostics.DebugLog.EnableLogging;
+        set
+        {
+            Diagnostics.DebugLog.EnableLogging = value;
+            Core.Diagnostics.DebugLog.EnableLogging = value;
+        }
+    }
+
     public App()
     {
         this.InitializeComponent();
+        
+        // Enable debug logging by default (set to false to disable)
+        EnableDebugLogging = true;
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)

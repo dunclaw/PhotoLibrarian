@@ -40,18 +40,33 @@ public sealed partial class FolderNavigationPanel : UserControl
 
     private static TreeViewNode BuildTreeNode(FolderNode folderNode, bool isExpanded = false)
     {
-        // If this node will start expanded, eagerly resolve placeholder children
-        if (isExpanded && folderNode.Children.Count == 1 && folderNode.Children[0].Path == "")
+        // Check if this node has a placeholder child (lazy-load marker)
+        bool hasPlaceholder = folderNode.Children.Count == 1 && folderNode.Children[0].Path == "";
+
+        if (isExpanded && hasPlaceholder)
         {
+            // Eagerly resolve placeholder children for expanded nodes
             folderNode.Children.Clear();
             FolderNavigationViewModel.BuildChildNodes(folderNode);
+            hasPlaceholder = false;
         }
 
         var treeNode = new TreeViewNode { Content = folderNode, IsExpanded = isExpanded };
-        foreach (var child in folderNode.Children)
+
+        if (hasPlaceholder)
         {
-            treeNode.Children.Add(BuildTreeNode(child));
+            // Don't recurse into the placeholder — just mark the node as having children
+            // so the TreeView shows an expand chevron
+            treeNode.HasUnrealizedChildren = true;
         }
+        else
+        {
+            foreach (var child in folderNode.Children)
+            {
+                treeNode.Children.Add(BuildTreeNode(child));
+            }
+        }
+
         return treeNode;
     }
 
@@ -67,6 +82,12 @@ public sealed partial class FolderNavigationPanel : UserControl
             await ViewModel.RefreshCommand.ExecuteAsync(null);
     }
 
+    private async void OnRemoveFolderClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel?.RemoveFolderCommand.CanExecute(null) == true)
+            await ViewModel.RemoveFolderCommand.ExecuteAsync(null);
+    }
+
     private void OnShowAllClick(object sender, RoutedEventArgs e)
     {
         App.ViewModel?.ImageGrid.ClearFilterCommand.Execute(null);
@@ -75,10 +96,20 @@ public sealed partial class FolderNavigationPanel : UserControl
     private void OnFolderInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
     {
         if (ViewModel is null) return;
-        var node = args.InvokedItem as TreeViewNode;
-        if (node?.Content is not FolderNode folderNode) return;
+        // InvokedItem is the TreeViewNode, get the Content from it
+        if (args.InvokedItem is not TreeViewNode node)
+        {
+            PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"OnFolderInvoked: InvokedItem is not TreeViewNode, type={args.InvokedItem?.GetType().Name}");
+            return;
+        }
+        if (node.Content is not FolderNode folderNode)
+        {
+            PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"OnFolderInvoked: Node.Content is not FolderNode, type={node.Content?.GetType().Name}");
+            return;
+        }
         if (folderNode.Path.Length == 0) return;
 
+        PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"OnFolderInvoked: Setting SelectedFolder to {folderNode.Path}");
         ViewModel.SelectedFolder = folderNode;
     }
 
@@ -87,13 +118,14 @@ public sealed partial class FolderNavigationPanel : UserControl
         if (ViewModel is null) return;
         if (args.Node.Content is not FolderNode folderNode) return;
 
-        // Lazy-load: if the FolderNode has a single placeholder child, expand it
+        // Lazy-load: if the FolderNode has a placeholder child, resolve it
         if (folderNode.Children.Count == 1 && folderNode.Children[0].Path == "")
         {
             folderNode.Children.Clear();
             FolderNavigationViewModel.BuildChildNodes(folderNode);
 
             // Rebuild TreeViewNode children to match
+            args.Node.HasUnrealizedChildren = false;
             args.Node.Children.Clear();
             foreach (var child in folderNode.Children)
             {
