@@ -21,6 +21,12 @@ public partial class ImageGridViewModel : ObservableObject
     private bool _sortDescending = true;
     private CancellationTokenSource? _loadCts;
     
+    // Queue management for viewport-aware loading
+    private readonly Queue<ImageThumbnailViewModel> _loadQueue = new();
+    private readonly HashSet<ImageThumbnailViewModel> _queuedItems = new();
+    private readonly object _queueLock = new();
+    private Task? _backgroundLoadTask;
+    
     // Limit concurrent thumbnail loading to prevent memory exhaustion
     internal static readonly SemaphoreSlim s_thumbnailLoadSemaphore = new(8, 8);
 
@@ -50,12 +56,45 @@ public partial class ImageGridViewModel : ObservableObject
         SortField = "Date Taken";
     }
     
+    /// <summary>
+    /// Cleanup method to cancel background loading on app shutdown.
+    /// </summary>
+    public void Cleanup()
+    {
+        _loadCts?.Cancel();
+        lock (_queueLock)
+        {
+            _loadQueue.Clear();
+            _queuedItems.Clear();
+        }
+    }
+    
     public async Task LoadImagesAsync()
     {
         // Cancel any pending thumbnail loads from previous folder
         _loadCts?.Cancel();
         _loadCts = new CancellationTokenSource();
         var ct = _loadCts.Token;
+        
+        // Wait for previous background task to complete
+        if (_backgroundLoadTask != null)
+        {
+            try
+            {
+                await _backgroundLoadTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when cancelling
+            }
+        }
+        
+        // Clear the queue
+        lock (_queueLock)
+        {
+            _loadQueue.Clear();
+            _queuedItems.Clear();
+        }
 
         var images = await _imageRepo.GetAllAsync(_currentSortBy, _sortDescending);
         
@@ -181,7 +220,167 @@ public partial class ImageGridViewModel : ObservableObject
         
         // Load thumbnails in batches (sequential, but fast with Windows cache)
         DebugLog.WriteLine($"LoadImagesAsync: Starting thumbnail loading for {Images.Count} items");
-        await LoadThumbnailsInBatchesAsync(Images.ToList(), ct);
+        
+        // Build initial queue with all items
+        lock (_queueLock)
+        {
+            _loadQueue.Clear();
+            _queuedItems.Clear();
+            foreach (var vm in Images)
+            {
+                _loadQueue.Enqueue(vm);
+                _queuedItems.Add(vm);
+            }
+        }
+        
+        // Start background processing
+        StartBackgroundLoadingIfNeeded();
+    }
+    
+    /// <summary>
+    /// Called from view when scroll position changes. Reorders queue to prioritize visible items.
+    /// </summary>
+    public void OnViewportChanged(int firstVisibleIndex, int lastVisibleIndex)
+    {
+        lock (_queueLock)
+        {
+            if (_loadQueue.Count == 0) return;
+            
+            // Find items in visible range that haven't loaded yet
+            var visibleItems = new List<ImageThumbnailViewModel>();
+            for (int i = firstVisibleIndex; i <= lastVisibleIndex && i < Images.Count; i++)
+            {
+                var vm = Images[i];
+                if (vm.Thumbnail == null && _queuedItems.Contains(vm))
+                {
+                    visibleItems.Add(vm);
+                }
+            }
+            
+            if (visibleItems.Count == 0) return;
+            
+            // Rebuild queue: visible items first, then everything else
+            var remaining = _loadQueue.Where(vm => !visibleItems.Contains(vm)).ToList();
+            _loadQueue.Clear();
+            
+            foreach (var vm in visibleItems)
+            {
+                _loadQueue.Enqueue(vm);
+            }
+            foreach (var vm in remaining)
+            {
+                _loadQueue.Enqueue(vm);
+            }
+            
+            DebugLog.WriteLine($"[VIEWPORT] Reordered queue: {visibleItems.Count} visible items moved to front");
+        }
+    }
+    
+    private void StartBackgroundLoadingIfNeeded()
+    {
+        if (_backgroundLoadTask?.IsCompleted == false) return; // Already running
+        
+        var ct = _loadCts?.Token ?? CancellationToken.None;
+        _backgroundLoadTask = Task.Run(async () =>
+        {
+            while (true)
+            {
+                if (ct.IsCancellationRequested) break;
+                
+                ImageThumbnailViewModel? vm = null;
+                lock (_queueLock)
+                {
+                    if (_loadQueue.Count == 0) break;
+                    vm = _loadQueue.Dequeue();
+                    _queuedItems.Remove(vm);
+                }
+                
+                if (vm != null && vm.Thumbnail == null)
+                {
+                    await LoadSingleThumbnailAsync(vm, ct);
+                }
+            }
+            
+            DebugLog.WriteLine($"[QUEUE] Background loading completed");
+        }, ct);
+    }
+    
+    private async Task LoadSingleThumbnailAsync(ImageThumbnailViewModel vm, CancellationToken ct)
+    {
+        try
+        {
+            await s_thumbnailLoadSemaphore.WaitAsync(ct);
+            try
+            {
+                // Check if we're shutting down
+                if (ct.IsCancellationRequested) return;
+                
+                // Load thumbnail stream on background thread
+                var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                if (streamBytes != null && !ct.IsCancellationRequested)
+                {
+                    // Check if MainWindow is still available (may be null during shutdown)
+                    if (App.MainWindow?.DispatcherQueue == null)
+                    {
+                        vm.IsLoading = false;
+                        return;
+                    }
+                    
+                    // Marshal to UI thread to create BitmapImage
+                    var tcs = new TaskCompletionSource<bool>();
+                    
+                    var enqueued = App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                    {
+                        try
+                        {
+                            // Double-check we're not shutting down
+                            if (ct.IsCancellationRequested)
+                            {
+                                tcs.SetResult(false);
+                                return;
+                            }
+                            
+                            await vm.LoadThumbnailFromStreamAsync(streamBytes);
+                            tcs.SetResult(true);
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLog.WriteLine($"[ERROR] LoadThumbnailFromStreamAsync failed for {vm.FileName}: {ex.Message}");
+                            vm.IsLoading = false;
+                            tcs.SetResult(false);
+                        }
+                    });
+                    
+                    // If enqueue failed (shutdown?), don't wait
+                    if (enqueued)
+                    {
+                        await tcs.Task;
+                    }
+                    else
+                    {
+                        vm.IsLoading = false;
+                    }
+                }
+                else
+                {
+                    vm.IsLoading = false;
+                }
+            }
+            finally
+            {
+                s_thumbnailLoadSemaphore.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when switching folders or shutting down
+            vm.IsLoading = false;
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"[ERROR] Failed to load thumbnail for {vm.FileName}: {ex.Message}");
+            vm.IsLoading = false;
+        }
     }
 
     private async Task ScanFolderDirectlyAsync(string folderPath, CancellationToken ct)

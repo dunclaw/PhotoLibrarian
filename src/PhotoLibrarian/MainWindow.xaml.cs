@@ -37,6 +37,15 @@ public sealed partial class MainWindow : Window
             if (e.PropertyName == nameof(ViewModel.Settings.IsOpen))
                 UpdateSettingsVisibility();
         };
+        
+        // Cleanup on window close
+        this.Closed += OnWindowClosed;
+    }
+    
+    private void OnWindowClosed(object sender, WindowEventArgs args)
+    {
+        // Cancel background loading to prevent null refs on shutdown
+        ViewModel?.ImageGrid?.Cleanup();
     }
 
     private void UpdateViewerVisibility()

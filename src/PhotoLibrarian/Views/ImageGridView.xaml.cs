@@ -24,6 +24,36 @@ public sealed partial class ImageGridView : UserControl
         ViewModel.Images.CollectionChanged += OnImagesCollectionChanged;
         EmptyState.Visibility = ViewModel.Images.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
+            
+        // Wire up scroll viewer for viewport detection
+        GridScrollViewer.ViewChanged += OnScrollViewChanged;
+    }
+    
+    private void OnScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    {
+        if (ViewModel is null || GridLayout is null) return;
+        if (ViewModel.Images.Count == 0) return;
+        
+        // Calculate which items are visible based on scroll position
+        var scrollOffset = GridScrollViewer.VerticalOffset;
+        var viewportHeight = GridScrollViewer.ViewportHeight;
+        
+        // Get layout info
+        var itemHeight = GridLayout.MinItemHeight + GridLayout.MinRowSpacing;
+        var itemWidth = GridLayout.MinItemWidth + GridLayout.MinColumnSpacing;
+        var availableWidth = GridScrollViewer.ActualWidth;
+        var columnsPerRow = Math.Max(1, (int)(availableWidth / itemWidth));
+        
+        // Calculate visible row range
+        var firstVisibleRow = (int)(scrollOffset / itemHeight);
+        var lastVisibleRow = (int)((scrollOffset + viewportHeight) / itemHeight) + 1; // +1 for partial row
+        
+        // Calculate visible item indices
+        var firstVisibleIndex = firstVisibleRow * columnsPerRow;
+        var lastVisibleIndex = Math.Min((lastVisibleRow * columnsPerRow) - 1, ViewModel.Images.Count - 1);
+        
+        // Notify ViewModel to reorder queue
+        ViewModel.OnViewportChanged(firstVisibleIndex, lastVisibleIndex);
     }
 
     private void OnImagesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
@@ -32,6 +62,18 @@ public sealed partial class ImageGridView : UserControl
         
         EmptyState.Visibility = ViewModel.Images.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
+            
+        // Trigger initial viewport detection when images first populate
+        if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset ||
+            (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add && args.NewStartingIndex == 0))
+        {
+            // Delay slightly to let layout happen
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(50);
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() => OnScrollViewChanged(null, null!));
+            });
+        }
     }
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
