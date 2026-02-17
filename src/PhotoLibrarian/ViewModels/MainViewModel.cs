@@ -65,9 +65,11 @@ public partial class MainViewModel : ObservableObject
     {
         await _db.InitializeAsync();
         await FolderNav.LoadWatchedFoldersAsync();
-        await ImageGrid.LoadImagesAsync();
+        
+        // Don't load images on startup - wait for user to select a folder
+        // This prevents showing all 535 indexed images in random order
         TotalImages = await _imageRepo.GetCountAsync();
-        StatusText = TotalImages > 0 ? $"{TotalImages:N0} items" : "Add folders to get started";
+        StatusText = TotalImages > 0 ? "Select a folder to view photos" : "Add folders to get started";
 
         // Don't start background indexing automatically - let user trigger with Refresh
         // StartBackgroundIndexing();

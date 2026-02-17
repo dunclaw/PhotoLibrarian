@@ -49,7 +49,7 @@ public partial class ImageGridViewModel : ObservableObject
         ThumbnailSize = 180;
         SortField = "Date Taken";
     }
-
+    
     public async Task LoadImagesAsync()
     {
         // Cancel any pending thumbnail loads from previous folder
@@ -108,15 +108,80 @@ public partial class ImageGridViewModel : ObservableObject
         
         DebugLog.WriteLine($"LoadImagesAsync: Added {Images.Count} images to collection (matched {matchCount}, skipped {skipCount})");
 
-        // NOTE: Eager thumbnail loading has been replaced by batch loading in ScanFolderDirectlyAsync
-        // for better performance (pre-generate thumbnails, then create BitmapImages in batches)
-
-        // If filtering by folder and no indexed images found, scan folder directly
-        if (filter is not null && Images.Count == 0 && Directory.Exists(filter.TrimEnd(Path.DirectorySeparatorChar)))
+        // Update status bar with actual grid count
+        if (Images.Count > 0)
         {
-            DebugLog.WriteLine($"LoadImagesAsync: No indexed images found, scanning folder directly...");
-            await ScanFolderDirectlyAsync(filter.TrimEnd(Path.DirectorySeparatorChar), ct);
+            _main.StatusText = $"{Images.Count:N0} items";
         }
+        else
+        {
+            _main.StatusText = "No items match the current filter";
+        }
+
+        // HYBRID APPROACH: Always scan folder to find any missing/new files not in database
+        // This ensures we show all images even if database is stale/incomplete
+        if (filter is not null && Directory.Exists(filter.TrimEnd(Path.DirectorySeparatorChar)))
+        {
+            var folderPath = filter.TrimEnd(Path.DirectorySeparatorChar);
+            DebugLog.WriteLine($"LoadImagesAsync: Scanning folder for any new/missing files...");
+            
+            // Get indexed file paths for quick lookup
+            var indexedPaths = new HashSet<string>(Images.Select(i => i.Entry.FilePath), StringComparer.OrdinalIgnoreCase);
+            var initialCount = Images.Count;
+            
+            // Scan for files not in database
+            var missingFiles = await Task.Run(() =>
+            {
+                var result = new List<string>();
+                foreach (var filePath in Directory.EnumerateFiles(folderPath, "*.*",
+                    new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }))
+                {
+                    if (ct.IsCancellationRequested) break;
+                    
+                    if (FolderScannerService.IsSupportedFile(filePath) && !indexedPaths.Contains(filePath))
+                    {
+                        result.Add(filePath);
+                    }
+                }
+                return result;
+            }, ct);
+            
+            if (missingFiles.Count > 0)
+            {
+                DebugLog.WriteLine($"LoadImagesAsync: Found {missingFiles.Count} files not in database, adding them...");
+                
+                // Create view models for missing files
+                foreach (var filePath in missingFiles)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    
+                    var entry = new ImageEntry
+                    {
+                        Id = 0, // Not indexed
+                        FilePath = filePath,
+                        FileName = Path.GetFileName(filePath),
+                        FileSize = 0,
+                        DateModified = DateTime.UtcNow,
+                        DateIndexed = DateTime.UtcNow,
+                        MediaType = FolderScannerService.IsVideoFile(filePath) ? MediaType.Video : MediaType.Image
+                    };
+                    
+                    var vm = new ImageThumbnailViewModel(entry, ct);
+                    Images.Add(vm);
+                }
+                
+                // Update status bar
+                _main.StatusText = $"{Images.Count:N0} items ({missingFiles.Count} not indexed)";
+            }
+            else
+            {
+                DebugLog.WriteLine($"LoadImagesAsync: All files are indexed, showing {Images.Count} items");
+            }
+        }
+        
+        // Load thumbnails in batches (sequential, but fast with Windows cache)
+        DebugLog.WriteLine($"LoadImagesAsync: Starting thumbnail loading for {Images.Count} items");
+        await LoadThumbnailsInBatchesAsync(Images.ToList(), ct);
     }
 
     private async Task ScanFolderDirectlyAsync(string folderPath, CancellationToken ct)
@@ -139,7 +204,7 @@ public partial class ImageGridViewModel : ObservableObject
                     if (FolderScannerService.IsSupportedFile(filePath))
                     {
                         result.Add(filePath);
-                        if (result.Count >= 100) break;
+                        // No limit - ItemsRepeater virtualizes UI, thumbnails load in batches
                     }
                 }
                 return result;
@@ -147,7 +212,15 @@ public partial class ImageGridViewModel : ObservableObject
             
             DebugLog.WriteLine($"[PERF] File enumeration complete: {enumSw.ElapsedMilliseconds}ms, found {files.Count} files");
 
-            if (files.Count == 0) return;
+            if (files.Count == 0)
+            {
+                DebugLog.WriteLine($"ScanFolderDirectlyAsync: No supported files found in '{folderPath}'");
+                _main.StatusText = "No photos or videos in this folder";
+                return;
+            }
+            
+            // Update status bar with grid count
+            _main.StatusText = $"{files.Count:N0} items";
             
             // Step 1: Create placeholder view models immediately and add to UI
             var placeholderSw = System.Diagnostics.Stopwatch.StartNew();
@@ -173,18 +246,10 @@ public partial class ImageGridViewModel : ObservableObject
             }
             DebugLog.WriteLine($"[PERF] Added {viewModels.Count} placeholders to UI: {placeholderSw.ElapsedMilliseconds}ms");
             
-            // Step 2: Process in batches to load thumbnails progressively
-            const int batchSize = 20;
-            int batchNumber = 0;
+            // Update status bar
+            _main.StatusText = $"{viewModels.Count:N0} items";
             
-            for (int i = 0; i < viewModels.Count; i += batchSize)
-            {
-                if (ct.IsCancellationRequested) break;
-                
-                batchNumber++;
-                var batchVMs = viewModels.Skip(i).Take(batchSize).ToList();
-                await LoadBatchAsync(batchVMs, batchNumber, ct);
-            }
+            // NOTE: Thumbnails load on-demand via viewport-aware loading (OnItemBecameVisible)
             
             DebugLog.WriteLine($"[PERF] TOTAL TIME: {overallSw.ElapsedMilliseconds}ms for {files.Count} images");
         }
@@ -195,6 +260,25 @@ public partial class ImageGridViewModel : ObservableObject
         catch (Exception ex)
         {
             DebugLog.WriteLine($"[PERF] Error scanning folder: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// Loads thumbnails for a list of view models in batches of 20.
+    /// Used for both indexed images (from database) and unindexed images (scanned directly).
+    /// </summary>
+    private async Task LoadThumbnailsInBatchesAsync(List<ImageThumbnailViewModel> viewModels, CancellationToken ct)
+    {
+        const int batchSize = 20;
+        int batchNumber = 0;
+        
+        for (int i = 0; i < viewModels.Count; i += batchSize)
+        {
+            if (ct.IsCancellationRequested) break;
+            
+            batchNumber++;
+            var batchVMs = viewModels.Skip(i).Take(batchSize).ToList();
+            await LoadBatchAsync(batchVMs, batchNumber, ct);
         }
     }
     
@@ -230,11 +314,16 @@ public partial class ImageGridViewModel : ObservableObject
                         {
                             // Get encoded thumbnail from Windows cache (instant if cached)
                             var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                            if (streamBytes == null)
+                            {
+                                DebugLog.WriteLine($"[WARN] Failed to get thumbnail for: {vm.FileName} at {vm.Entry.FilePath}");
+                            }
                             return (vm, streamBytes);
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        DebugLog.WriteLine($"[ERROR] Exception loading thumbnail for {vm.FileName}: {ex.Message}");
                         return (vm, null);
                     }
                     finally

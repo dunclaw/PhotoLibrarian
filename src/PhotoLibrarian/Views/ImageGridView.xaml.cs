@@ -46,9 +46,6 @@ public sealed partial class ImageGridView : UserControl
         if (fileName is not null) fileName.Text = vm.FileName;
         if (videoIcon is not null)
             videoIcon.Visibility = vm.IsVideo ? Visibility.Visible : Visibility.Collapsed;
-
-        // NOTE: Lazy thumbnail loading disabled - batch loading in ImageGridViewModel handles this now
-        // Thumbnails are pre-generated and loaded in batches for better performance
     }
 
     private void OnThumbnailTapped(object sender, TappedRoutedEventArgs e)
