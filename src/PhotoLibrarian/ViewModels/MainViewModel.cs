@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Diagnostics;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -11,10 +12,8 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly CacheDatabase _db;
     private readonly ImageRepository _imageRepo;
-    private readonly ThumbnailRepository _thumbRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
-    private readonly ThumbnailService _thumbnailService;
     private readonly LibraryIndexingService _indexingService;
     private readonly OriginalBackupService _backupService;
     private CancellationTokenSource? _indexingCts;
@@ -38,26 +37,22 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         CacheDatabase db,
         ImageRepository imageRepo,
-        ThumbnailRepository thumbRepo,
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
-        ThumbnailService thumbnailService,
         LibraryIndexingService indexingService,
         OriginalBackupService backupService)
     {
         _db = db;
         _imageRepo = imageRepo;
-        _thumbRepo = thumbRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
-        _thumbnailService = thumbnailService;
         _indexingService = indexingService;
         _backupService = backupService;
 
         StatusText = "Ready";
 
         FolderNav= new FolderNavigationViewModel(db, scanner, indexingService, this);
-        ImageGrid = new ImageGridViewModel(imageRepo, thumbRepo, thumbnailService, scanner, metadataReader, this);
+        ImageGrid = new ImageGridViewModel(imageRepo, scanner, metadataReader, this);
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
@@ -74,12 +69,45 @@ public partial class MainViewModel : ObservableObject
         TotalImages = await _imageRepo.GetCountAsync();
         StatusText = TotalImages > 0 ? $"{TotalImages:N0} items" : "Add folders to get started";
 
-        // Start background indexing for all watched folders
-        StartBackgroundIndexing();
+        // Don't start background indexing automatically - let user trigger with Refresh
+        // StartBackgroundIndexing();
+    }
+    
+    [RelayCommand]
+    public async Task RunBenchmarkAsync()
+    {
+        try
+        {
+            System.Diagnostics.Debug.WriteLine("=== STARTING WINUI BENCHMARK ===");
+            StatusText = "Running benchmark...";
+            
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await Task.Run(async () =>
+            {
+                try
+                {
+                    await Services.BenchmarkService.RunWICBenchmark();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Benchmark error: {ex.Message}");
+                }
+            });
+            sw.Stop();
+            
+            StatusText = $"Benchmark complete in {sw.ElapsedMilliseconds}ms - check debug output";
+            System.Diagnostics.Debug.WriteLine($"=== BENCHMARK COMPLETE: {sw.ElapsedMilliseconds}ms ===");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Benchmark failed: {ex.Message}");
+            StatusText = $"Benchmark failed: {ex.Message}";
+        }
     }
 
     public void PauseBackgroundIndexing()
     {
+        DebugLog.WriteLine("MainViewModel: Pausing background indexing");
         _indexingCts?.Cancel();
         _indexingCts = null;
     }

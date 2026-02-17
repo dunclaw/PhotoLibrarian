@@ -5,34 +5,28 @@ using PhotoLibrarian.Core.Models;
 namespace PhotoLibrarian.Core.Services;
 
 /// <summary>
-/// Orchestrates folder scanning, metadata reading, and thumbnail generation
-/// into a unified indexing pipeline.
+/// Orchestrates folder scanning and metadata reading into a unified indexing pipeline.
+/// Note: Thumbnail generation removed - we now use Windows thumbnail cache on-demand for better performance.
 /// </summary>
 public sealed class LibraryIndexingService
 {
     private readonly CacheDatabase _db;
     private readonly ImageRepository _imageRepo;
-    private readonly ThumbnailRepository _thumbRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
-    private readonly ThumbnailService _thumbnailService;
 
     public event EventHandler<IndexingProgressEventArgs>? Progress;
 
     public LibraryIndexingService(
         CacheDatabase db,
         ImageRepository imageRepo,
-        ThumbnailRepository thumbRepo,
         FolderScannerService scanner,
-        MetadataReaderService metadataReader,
-        ThumbnailService thumbnailService)
+        MetadataReaderService metadataReader)
     {
         _db = db;
         _imageRepo = imageRepo;
-        _thumbRepo = thumbRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
-        _thumbnailService = thumbnailService;
     }
 
     /// <summary>
@@ -48,7 +42,11 @@ public sealed class LibraryIndexingService
 
         await foreach (var filePath in _scanner.ScanFolderAsync(folderPath, includeSubfolders, ct))
         {
-            DebugLog.WriteLine($"IndexFolderAsync: Found file '{filePath}'");
+            // Check cancellation at start of loop
+            ct.ThrowIfCancellationRequested();
+            
+            if (processed % 10 == 0) // Log progress every 10 files
+                DebugLog.WriteLine($"IndexFolderAsync: Found file '{filePath}'");
             
             try
             {
@@ -59,29 +57,35 @@ public sealed class LibraryIndexingService
                 if (existing is not null && existing.DateModified >= fileInfo.LastWriteTimeUtc)
                 {
                     skipped++;
-                    DebugLog.WriteLine($"  Skipped (already indexed and unchanged)");
+                    if (processed % 10 == 0)
+                        DebugLog.WriteLine($"  Skipped (already indexed and unchanged)");
                     continue;
                 }
 
-                // Read metadata
+                // Read and store metadata only
+                // Thumbnails are generated on-demand using Windows thumbnail cache (instant for cached images)
                 var entry = _metadataReader.ReadMetadata(filePath);
                 var imageId = await _imageRepo.UpsertImageAsync(entry);
 
-                // Generate thumbnail (small size for grid)
-                await _thumbnailService.GetOrCreateThumbnailAsync(imageId, filePath, ThumbnailSize.Small);
-
                 processed++;
-                DebugLog.WriteLine($"  Processed successfully (id={imageId})");
+                if (processed % 10 == 0)
+                    DebugLog.WriteLine($"  Processed successfully (id={imageId})");
 
                 if (processed % 25 == 0)
                 {
                     Progress?.Invoke(this, new IndexingProgressEventArgs(processed, skipped, folderPath));
                 }
             }
+            catch (OperationCanceledException)
+            {
+                DebugLog.WriteLine($"IndexFolderAsync: Cancelled after {processed} processed");
+                throw; // Re-throw to stop indexing
+            }
             catch (Exception ex)
             {
                 errors++;
-                DebugLog.WriteLine($"  ERROR: {ex.Message}");
+                if (errors <= 5) // Only log first 5 errors
+                    DebugLog.WriteLine($"  ERROR: {ex.Message}");
             }
         }
 

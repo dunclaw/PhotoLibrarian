@@ -13,8 +13,6 @@ namespace PhotoLibrarian.ViewModels;
 public partial class ImageGridViewModel : ObservableObject
 {
     private readonly ImageRepository _imageRepo;
-    private readonly ThumbnailRepository _thumbRepo;
-    private readonly ThumbnailService _thumbnailService;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly MainViewModel _main;
@@ -22,6 +20,9 @@ public partial class ImageGridViewModel : ObservableObject
     private string? _currentSortBy = "date_taken";
     private bool _sortDescending = true;
     private CancellationTokenSource? _loadCts;
+    
+    // Limit concurrent thumbnail loading to prevent memory exhaustion
+    internal static readonly SemaphoreSlim s_thumbnailLoadSemaphore = new(8, 8);
 
     public ObservableCollection<ImageThumbnailViewModel> Images { get; } = [];
 
@@ -36,15 +37,11 @@ public partial class ImageGridViewModel : ObservableObject
 
     public ImageGridViewModel(
         ImageRepository imageRepo,
-        ThumbnailRepository thumbRepo,
-        ThumbnailService thumbnailService,
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
         MainViewModel main)
     {
         _imageRepo = imageRepo;
-        _thumbRepo = thumbRepo;
-        _thumbnailService = thumbnailService;
         _scanner = scanner;
         _metadataReader = metadataReader;
         _main = main;
@@ -61,7 +58,23 @@ public partial class ImageGridViewModel : ObservableObject
         var ct = _loadCts.Token;
 
         var images = await _imageRepo.GetAllAsync(_currentSortBy, _sortDescending);
+        
+        // Clear old images and dispose thumbnails to free memory
+        foreach (var img in Images)
+        {
+            if (img.Thumbnail is not null)
+            {
+                // Clear the source to allow GC to collect the bitmap data
+                img.Thumbnail = null;
+            }
+        }
         Images.Clear();
+        
+        // Hint to GC to collect disposed bitmaps
+        if (images.Count == 0) // Only if we'll be loading new ones
+        {
+            GC.Collect(0, GCCollectionMode.Optimized);
+        }
 
         // Ensure folder filter ends with separator for correct prefix matching
         var filter = _currentFolderFilter;
@@ -87,13 +100,16 @@ public partial class ImageGridViewModel : ObservableObject
             if (matchCount <= 3) // Log first 3 matches
                 DebugLog.WriteLine($"  Including '{img.FilePath}'");
 
-            Images.Add(new ImageThumbnailViewModel(img, _thumbRepo, _thumbnailService, ct));
+            Images.Add(new ImageThumbnailViewModel(img, ct));
         }
         
         if (skipCount > 2)
             DebugLog.WriteLine($"  ... and {skipCount - 2} more skipped");
         
         DebugLog.WriteLine($"LoadImagesAsync: Added {Images.Count} images to collection (matched {matchCount}, skipped {skipCount})");
+
+        // NOTE: Eager thumbnail loading has been replaced by batch loading in ScanFolderDirectlyAsync
+        // for better performance (pre-generate thumbnails, then create BitmapImages in batches)
 
         // If filtering by folder and no indexed images found, scan folder directly
         if (filter is not null && Images.Count == 0 && Directory.Exists(filter.TrimEnd(Path.DirectorySeparatorChar)))
@@ -105,55 +121,185 @@ public partial class ImageGridViewModel : ObservableObject
 
     private async Task ScanFolderDirectlyAsync(string folderPath, CancellationToken ct)
     {
+        var overallSw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            int count = 0;
-            await foreach (var filePath in _scanner.ScanFolderAsync(folderPath, includeSubfolders: true, ct))
+            DebugLog.WriteLine($"[PERF] Starting file enumeration");
+            
+            // Scan files on background thread
+            var enumSw = System.Diagnostics.Stopwatch.StartNew();
+            var files = await Task.Run(() =>
+            {
+                var result = new List<string>();
+                foreach (var filePath in Directory.EnumerateFiles(folderPath, "*.*", 
+                    new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }))
+                {
+                    if (ct.IsCancellationRequested) break;
+                    
+                    if (FolderScannerService.IsSupportedFile(filePath))
+                    {
+                        result.Add(filePath);
+                        if (result.Count >= 100) break;
+                    }
+                }
+                return result;
+            }, ct);
+            
+            DebugLog.WriteLine($"[PERF] File enumeration complete: {enumSw.ElapsedMilliseconds}ms, found {files.Count} files");
+
+            if (files.Count == 0) return;
+            
+            // Step 1: Create placeholder view models immediately and add to UI
+            var placeholderSw = System.Diagnostics.Stopwatch.StartNew();
+            var viewModels = new List<ImageThumbnailViewModel>();
+            foreach (var filePath in files)
             {
                 if (ct.IsCancellationRequested) break;
-
-                count++;
-                if (count <= 3)
-                    DebugLog.WriteLine($"  Found: '{filePath}'");
                 
-                // Create a minimal ImageEntry for display
-                var entry = _metadataReader.ReadMetadata(filePath);
-                Images.Add(new ImageThumbnailViewModel(entry, _thumbRepo, _thumbnailService, ct));
-
-                // Limit to prevent UI freeze on very large folders
-                if (count >= 100) break; // Reduced from 500 to 100
+                var entry = new ImageEntry
+                {
+                    Id = 0,
+                    FilePath = filePath,
+                    FileName = Path.GetFileName(filePath),
+                    FileSize = 0,
+                    DateModified = DateTime.UtcNow,
+                    DateIndexed = DateTime.UtcNow,
+                    MediaType = FolderScannerService.IsVideoFile(filePath) ? MediaType.Video : MediaType.Image
+                };
+                
+                var vm = new ImageThumbnailViewModel(entry, ct);
+                viewModels.Add(vm);
+                Images.Add(vm); // Add immediately to show spinner
             }
-            if (count > 3)
-                DebugLog.WriteLine($"  ... and {count - 3} more files");
-            DebugLog.WriteLine($"LoadImagesAsync: Added {count} images from direct scan");
+            DebugLog.WriteLine($"[PERF] Added {viewModels.Count} placeholders to UI: {placeholderSw.ElapsedMilliseconds}ms");
+            
+            // Step 2: Process in batches to load thumbnails progressively
+            const int batchSize = 20;
+            int batchNumber = 0;
+            
+            for (int i = 0; i < viewModels.Count; i += batchSize)
+            {
+                if (ct.IsCancellationRequested) break;
+                
+                batchNumber++;
+                var batchVMs = viewModels.Skip(i).Take(batchSize).ToList();
+                await LoadBatchAsync(batchVMs, batchNumber, ct);
+            }
+            
+            DebugLog.WriteLine($"[PERF] TOTAL TIME: {overallSw.ElapsedMilliseconds}ms for {files.Count} images");
         }
         catch (OperationCanceledException)
         {
-            DebugLog.WriteLine($"LoadImagesAsync: Direct scan cancelled");
+            DebugLog.WriteLine($"[PERF] Scan cancelled after {overallSw.ElapsedMilliseconds}ms");
         }
         catch (Exception ex)
         {
-            DebugLog.WriteLine($"LoadImagesAsync: Error scanning folder - {ex.Message}");
+            DebugLog.WriteLine($"[PERF] Error scanning folder: {ex.Message}");
         }
+    }
+    
+    private async Task LoadBatchAsync(List<ImageThumbnailViewModel> viewModels, int batchNumber, CancellationToken ct)
+    {
+        using var profiler = new Diagnostics.PerformanceProfiler($"Batch{batchNumber}");
+        profiler.Log("BATCH_START", $"Count={viewModels.Count}");
+        
+        var batchSw = System.Diagnostics.Stopwatch.StartNew();
+        DebugLog.WriteLine($"[PERF] Batch {batchNumber}: Starting thumbnail generation for {viewModels.Count} images");
+        
+        // Step 1: Get thumbnail streams (encoded PNG/BMP from cache) on background threads
+        profiler.Log("STEP1_START", "Getting thumbnail streams from cache");
+        var thumbGenSw = System.Diagnostics.Stopwatch.StartNew();
+        var thumbnailData = await Task.Run(async () =>
+        {
+            // Use semaphore to limit concurrent operations (8 is optimal)
+            var semaphore = new SemaphoreSlim(8, 8);
+            var tasks = new List<Task<(ImageThumbnailViewModel vm, byte[]? streamBytes)>>();
+            
+            foreach (var vm in viewModels)
+            {
+                tasks.Add(Task.Run(async () =>
+                {
+                    using (profiler.StartTimer("CACHE_WAIT", vm.FileName))
+                    {
+                        await semaphore.WaitAsync(ct);
+                    }
+                    
+                    try
+                    {
+                        using (profiler.StartTimer("CACHE_READ", vm.FileName))
+                        {
+                            // Get encoded thumbnail from Windows cache (instant if cached)
+                            var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                            return (vm, streamBytes);
+                        }
+                    }
+                    catch
+                    {
+                        return (vm, null);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }));
+            }
+            
+            return await Task.WhenAll(tasks);
+        }, ct);
+        
+        thumbGenSw.Stop();
+        var successCount = thumbnailData.Count(t => t.streamBytes != null);
+        profiler.Log("STEP1_COMPLETE", $"Success={successCount}/{viewModels.Count}", thumbGenSw.ElapsedMilliseconds);
+        DebugLog.WriteLine($"[PERF] Batch {batchNumber}: Cache read: {thumbGenSw.ElapsedMilliseconds}ms ({successCount}/{viewModels.Count} succeeded)");
+        
+        // Step 2: Create BitmapImages on UI thread from encoded streams (fast - no decode)
+        profiler.Log("STEP2_START", "Creating BitmapImages on UI thread");
+        var bitmapSw = System.Diagnostics.Stopwatch.StartNew();
+        
+        foreach (var (vm, streamBytes) in thumbnailData)
+        {
+            if (ct.IsCancellationRequested) break;
+            
+            if (streamBytes != null && streamBytes.Length > 0)
+            {
+                using (profiler.StartTimer("UI_CREATE_BITMAP", vm.FileName))
+                {
+                    await vm.LoadThumbnailFromStreamAsync(streamBytes);
+                }
+            }
+            else
+            {
+                vm.IsLoading = false;
+            }
+        }
+        
+        bitmapSw.Stop();
+        profiler.Log("STEP2_COMPLETE", $"Created {successCount} bitmaps", bitmapSw.ElapsedMilliseconds);
+        DebugLog.WriteLine($"[PERF] Batch {batchNumber}: BitmapImage creation: {bitmapSw.ElapsedMilliseconds}ms");
+        
+        profiler.Log("BATCH_COMPLETE", $"Total time", batchSw.ElapsedMilliseconds);
+        DebugLog.WriteLine($"[PERF] Batch {batchNumber}: TOTAL: {batchSw.ElapsedMilliseconds}ms");
     }
 
     public async Task FilterByFolderAsync(string? folderPath)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         DebugLog.WriteLine($"FilterByFolderAsync: folderPath='{folderPath ?? "null"}'");
         
         // Pause background indexing while user is browsing
         _main.PauseBackgroundIndexing();
         
         _currentFolderFilter = folderPath;
+        DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
         await LoadImagesAsync();
-        DebugLog.WriteLine($"FilterByFolderAsync: LoadImagesAsync complete, Images.Count={Images.Count}");
+        DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: LoadImagesAsync complete, Images.Count={Images.Count}");
         
-        // Resume background indexing after a delay
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(5000); // Wait 5 seconds
-            _main.StartBackgroundIndexing();
-        });
+        // Don't auto-resume indexing - let user manually trigger via Refresh button
+        // _ = Task.Run(async () =>
+        // {
+        //     await Task.Delay(5000); // Wait 5 seconds
+        //     _main.StartBackgroundIndexing();
+        // });
     }
 
     [RelayCommand]
@@ -222,15 +368,13 @@ public partial class ImageGridViewModel : ObservableObject
 
 public partial class ImageThumbnailViewModel : ObservableObject
 {
-    private readonly ThumbnailRepository _thumbRepo;
-    private readonly ThumbnailService _thumbnailService;
     private readonly CancellationToken _cancellationToken;
     private bool _thumbnailLoaded;
 
     public ImageEntry Entry { get; }
 
     [ObservableProperty]
-    public partial BitmapImage? Thumbnail { get; set; }
+    public partial Microsoft.UI.Xaml.Media.ImageSource? Thumbnail { get; set; }
 
     [ObservableProperty]
     public partial bool IsLoading { get; set; }
@@ -240,78 +384,124 @@ public partial class ImageThumbnailViewModel : ObservableObject
     public int? Rating => Entry.Rating;
     public bool IsVideo => Entry.MediaType == MediaType.Video;
 
-    public ImageThumbnailViewModel(ImageEntry entry, ThumbnailRepository thumbRepo, ThumbnailService thumbnailService, CancellationToken cancellationToken = default)
+    public ImageThumbnailViewModel(ImageEntry entry, CancellationToken cancellationToken = default)
     {
         Entry = entry;
-        _thumbRepo = thumbRepo;
-        _thumbnailService = thumbnailService;
         _cancellationToken = cancellationToken;
 
         IsLoading = true;
     }
 
     /// <summary>
-    /// Lazy-loads the thumbnail when the item becomes visible in the grid.
+    /// OBSOLETE: Lazy-loading replaced by batch loading with Windows thumbnail cache.
+    /// This method is kept for backward compatibility but should not be called.
     /// </summary>
+    [Obsolete("Use LoadThumbnailFromStreamAsync instead - called from LoadBatchAsync")]
     public async Task LoadThumbnailAsync()
     {
         if (_thumbnailLoaded)
-        {
             return;
-        }
         
         _thumbnailLoaded = true;
 
         try
         {
-            // Check cancellation before starting
             if (_cancellationToken.IsCancellationRequested)
             {
                 IsLoading = false;
                 return;
             }
 
-            byte[]? data;
-            
-            // If image is indexed (has valid ID), use cache
-            if (Entry.Id > 0)
+            // Fallback: use Windows thumbnail cache
+            var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(Entry.FilePath, 180);
+            if (streamBytes != null)
             {
-                data = await _thumbnailService.GetOrCreateThumbnailAsync(
-                    Entry.Id, Entry.FilePath, ThumbnailSize.Small);
+                await LoadThumbnailFromStreamAsync(streamBytes);
             }
             else
             {
-                // For unindexed images, generate thumbnail without caching
-                data = await ThumbnailService.GenerateThumbnailAsync(Entry.FilePath, (int)ThumbnailSize.Small);
-            }
-
-            // Check cancellation before updating UI
-            if (_cancellationToken.IsCancellationRequested)
-            {
                 IsLoading = false;
-                return;
-            }
-
-            if (data is not null)
-            {
-                var bmp = new BitmapImage();
-                using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-                await stream.WriteAsync(data.AsBuffer());
-                stream.Seek(0);
-                await bmp.SetSourceAsync(stream);
-                Thumbnail = bmp;
             }
         }
-        catch (OperationCanceledException)
+        catch
         {
-            // Expected when switching folders
+            IsLoading = false;
+        }
+    }
+    
+    /// <summary>
+    /// Loads a thumbnail from encoded stream bytes (PNG/BMP from Windows cache).
+    /// Much faster than pixel decode - just uses BitmapImage.SetSourceAsync on pre-encoded data.
+    /// </summary>
+    public async Task LoadThumbnailFromStreamAsync(byte[] streamBytes)
+    {
+        if (_thumbnailLoaded) return;
+        _thumbnailLoaded = true;
+        
+        try
+        {
+            var bitmapImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+            using (var stream = new MemoryStream(streamBytes))
+            {
+                await bitmapImage.SetSourceAsync(stream.AsRandomAccessStream());
+            }
+            Thumbnail = bitmapImage;
+            IsLoading = false;
         }
         catch (Exception ex)
         {
-            DebugLog.WriteLine($"LoadThumbnailAsync EXCEPTION for '{Entry.FilePath}': {ex.Message}");
+            DebugLog.WriteLine($"LoadThumbnailFromStreamAsync failed for {FileName}: {ex.Message}");
+            IsLoading = false;
         }
-        finally
+    }
+    
+    /// <summary>
+    /// Loads a thumbnail from raw BGRA8 pixel data. Uses WriteableBitmap for fast rendering.
+    /// Pixels are already decoded on background thread, UI thread only does memory copy.
+    /// </summary>
+    public void LoadThumbnailFromPixels(byte[] pixels, int width, int height, Diagnostics.PerformanceProfiler profiler)
+    {
+        if (_thumbnailLoaded) return;
+        _thumbnailLoaded = true;
+        
+        try
         {
+            App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+            {
+                using (profiler.StartTimer("UI_CREATE_WRITEABLEBITMAP", FileName))
+                {
+                    try
+                    {
+                        // Create WriteableBitmap and write pixels directly - should be <5ms
+                        var wb = new Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap(width, height);
+                        
+                        using (profiler.StartTimer("UI_PIXEL_COPY", FileName))
+                        {
+                            using (var pixelStream = wb.PixelBuffer.AsStream())
+                            {
+                                pixelStream.Write(pixels, 0, pixels.Length);
+                            }
+                        }
+                        
+                        using (profiler.StartTimer("UI_SET_THUMBNAIL", FileName))
+                        {
+                            Thumbnail = wb;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog.WriteLine($"LoadThumbnailFromPixels FAILED: {FileName} - {ex.Message}");
+                    }
+                    finally
+                    {
+                        IsLoading = false;
+                    }
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"LoadThumbnailFromPixels dispatch FAILED: {FileName} - {ex.Message}");
             IsLoading = false;
         }
     }

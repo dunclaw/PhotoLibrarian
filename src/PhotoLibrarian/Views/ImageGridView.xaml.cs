@@ -21,11 +21,15 @@ public sealed partial class ImageGridView : UserControl
         if (ViewModel is null) return;
 
         ImageRepeater.ItemsSource = ViewModel.Images;
-        ViewModel.Images.CollectionChanged += (s, args) =>
-        {
-            EmptyState.Visibility = ViewModel.Images.Count == 0
-                ? Visibility.Visible : Visibility.Collapsed;
-        };
+        ViewModel.Images.CollectionChanged += OnImagesCollectionChanged;
+        EmptyState.Visibility = ViewModel.Images.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnImagesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+    {
+        if (ViewModel is null) return;
+        
         EmptyState.Visibility = ViewModel.Images.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -43,9 +47,8 @@ public sealed partial class ImageGridView : UserControl
         if (videoIcon is not null)
             videoIcon.Visibility = vm.IsVideo ? Visibility.Visible : Visibility.Collapsed;
 
-        // Trigger thumbnail load if not already loaded
-        // Fire and forget - bindings will update when properties change
-        _ = vm.LoadThumbnailAsync();
+        // NOTE: Lazy thumbnail loading disabled - batch loading in ImageGridViewModel handles this now
+        // Thumbnails are pre-generated and loaded in batches for better performance
     }
 
     private void OnThumbnailTapped(object sender, TappedRoutedEventArgs e)

@@ -1,83 +1,150 @@
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace PhotoLibrarian.Core.Services;
 
 /// <summary>
-/// Generates and caches image thumbnails using Windows Imaging Component (WIC)
-/// via System.Drawing or WIC interop. Falls back to managed decode if native unavailable.
+/// DEPRECATED: Legacy thumbnail service - use WindowsThumbnailService instead.
+/// This service is kept for backward compatibility and fallback scenarios only.
+/// WindowsThumbnailService leverages Windows thumbnail cache for better performance.
 /// </summary>
 public sealed class ThumbnailService
 {
-    private readonly ThumbnailRepository _thumbnailRepo;
-
-    // Limit concurrent decode operations to avoid thread pool starvation
-    // Increased to allow more parallel decoding for better UI responsiveness
-    private static readonly SemaphoreSlim s_decodeSemaphore = new(Math.Max(4, Environment.ProcessorCount));
-
-    public ThumbnailService(ThumbnailRepository thumbnailRepo)
+    // Kept for dependency injection compatibility
+    [Obsolete("ThumbnailRepository no longer used - Windows thumbnail cache is used instead")]
+    public ThumbnailService(ThumbnailRepository? thumbnailRepo = null)
     {
-        _thumbnailRepo = thumbnailRepo;
+        // No-op constructor for DI compatibility
     }
 
     /// <summary>
-    /// Gets a cached thumbnail, or generates and caches one if missing.
+    /// OBSOLETE: Use WindowsThumbnailService.GetThumbnailStreamAsync() instead.
+    /// This method is kept for backward compatibility but should not be used.
     /// </summary>
+    [Obsolete("Use WindowsThumbnailService.GetThumbnailStreamAsync() instead")]
     public async Task<byte[]?> GetOrCreateThumbnailAsync(long imageId, string filePath, ThumbnailSize size)
     {
-        // Try cache first
-        var cached = await _thumbnailRepo.GetThumbnailAsync(imageId, size);
-        if (cached is not null && cached.Length > 100) // Validate cached data has reasonable size
-            return cached;
-
-        // Generate thumbnail
-        var data = await GenerateThumbnailAsync(filePath, (int)size);
-        if (data is null || data.Length < 100)
+        // Fallback: generate thumbnail pixels and encode to JPEG
+        var result = await GenerateThumbnailPixelsAsync(filePath, (int)size);
+        if (!result.HasValue)
             return null;
+            
+        return await EncodePixelsToJpegAsync(result.Value.pixels, result.Value.width, result.Value.height);
+    }
+    
+    private static async Task<byte[]?> EncodePixelsToJpegAsync(byte[] pixels, int width, int height)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                using var outStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                var encoder = Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+                    Windows.Graphics.Imaging.BitmapEncoder.JpegEncoderId,
+                    outStream).GetAwaiter().GetResult();
 
-        // Cache it (only if valid)
+                encoder.SetPixelData(
+                    Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                    Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
+                    (uint)width,
+                    (uint)height,
+                    96, 96,
+                    pixels);
+
+                encoder.FlushAsync().GetAwaiter().GetResult();
+
+                outStream.Seek(0);
+                var bytes = new byte[outStream.Size];
+                var buffer = bytes.AsBuffer();
+                outStream.ReadAsync(buffer, (uint)outStream.Size, Windows.Storage.Streams.InputStreamOptions.None)
+                    .GetAwaiter().GetResult();
+                    
+                return bytes;
+            }
+            catch
+            {
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Generates a JPEG thumbnail for the given image file and returns raw BGRA8 pixel data.
+    /// This can be passed directly to WriteableBitmap on the UI thread without decoding.
+    /// </summary>
+    public static async Task<(byte[] pixels, int width, int height)?> GenerateThumbnailPixelsAsync(string filePath, int maxDimension)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            await _thumbnailRepo.SaveThumbnailAsync(imageId, size, data);
+            // TEMPORARY: Skip EXIF thumbnail extraction to test WIC performance
+            // TODO: Re-enable once WIC performance is acceptable
+
+            // Decode to raw BGRA8 pixels on background thread
+            return await Task.Run(() =>
+            {
+                var wicStart = sw.ElapsedMilliseconds;
+                try
+                {
+                    using var stream = File.OpenRead(filePath);
+                    
+                    var decoder = Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
+                        stream.AsRandomAccessStream()).GetAwaiter().GetResult();
+
+                    // Use OrientedPixelWidth/Height which accounts for EXIF orientation
+                    var orientedWidth = decoder.OrientedPixelWidth;
+                    var orientedHeight = decoder.OrientedPixelHeight;
+
+                    double scale = Math.Min((double)maxDimension / orientedWidth, (double)maxDimension / orientedHeight);
+                    scale = Math.Min(scale, 1.0);
+
+                    uint newWidth = Math.Max(1, (uint)(orientedWidth * scale));
+                    uint newHeight = Math.Max(1, (uint)(orientedHeight * scale));
+
+                    var transform = new Windows.Graphics.Imaging.BitmapTransform
+                    {
+                        ScaledWidth = newWidth,
+                        ScaledHeight = newHeight,
+                        InterpolationMode = Windows.Graphics.Imaging.BitmapInterpolationMode.Fant
+                    };
+
+                    var pixelData = decoder.GetPixelDataAsync(
+                        Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                        Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
+                        transform,
+                        Windows.Graphics.Imaging.ExifOrientationMode.RespectExifOrientation,
+                        Windows.Graphics.Imaging.ColorManagementMode.DoNotColorManage
+                    ).GetAwaiter().GetResult();
+
+                    var pixels = pixelData.DetachPixelData();
+                    
+                    var wicTime = sw.ElapsedMilliseconds - wicStart;
+                    Core.Diagnostics.DebugLog.WriteLine($"    WIC decode to pixels: {Path.GetFileName(filePath)} in {wicTime}ms ({pixels.Length} bytes, {newWidth}x{newHeight})");
+                    
+                    return (pixels, (int)newWidth, (int)newHeight);
+                }
+                catch (Exception ex)
+                {
+                    Core.Diagnostics.DebugLog.WriteLine($"    WIC decode FAILED: {Path.GetFileName(filePath)} - {ex.Message}");
+                    return ((byte[] pixels, int width, int height)?)null;
+                }
+            });
         }
         catch
         {
-            // If caching fails, still return the generated thumbnail
+            return null;
         }
-        return data;
     }
-
+    
     /// <summary>
-    /// Generates a JPEG thumbnail for the given image file.
-    /// Uses embedded EXIF thumbnail when available for speed, otherwise decodes and resizes.
+    /// Legacy method for tests/benchmarks - generates JPEG thumbnail bytes.
     /// </summary>
     public static async Task<byte[]?> GenerateThumbnailAsync(string filePath, int maxDimension)
     {
-        try
-        {
-            // Try to extract embedded EXIF thumbnail first (very fast, no full decode)
-            var exifThumb = await Task.Run(() => TryExtractExifThumbnail(filePath));
-            if (exifThumb is not null && exifThumb.Length > 0)
-                return exifThumb;
-
-            // Fall back to decode + resize using WIC via BitmapDecoder (with timeout)
-            await s_decodeSemaphore.WaitAsync();
-            try
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                var decodeTask = DecodeAndResizeThumbnailAsync(filePath, maxDimension);
-                var completed = await Task.WhenAny(decodeTask, Task.Delay(Timeout.Infinite, cts.Token));
-                return completed == decodeTask ? await decodeTask : null;
-            }
-            finally
-            {
-                s_decodeSemaphore.Release();
-            }
-        }
-        catch
-        {
-            return null;
-        }
+        var result = await GenerateThumbnailPixelsAsync(filePath, maxDimension);
+        if (!result.HasValue) return null;
+        return await EncodePixelsToJpegAsync(result.Value.pixels, result.Value.width, result.Value.height);
     }
 
     /// <summary>
@@ -176,37 +243,18 @@ public sealed class ThumbnailService
     }
 
     /// <summary>
-    /// Pre-generates thumbnails for a batch of images.
+    /// OBSOLETE: Batch thumbnail generation removed - Windows thumbnail cache handles this efficiently.
+    /// This method is kept for backward compatibility but does nothing.
     /// </summary>
-    public async Task GenerateBatchAsync(
+    [Obsolete("Batch thumbnail generation removed - Windows thumbnail cache is used instead")]
+    public Task GenerateBatchAsync(
         IEnumerable<(long imageId, string filePath)> images,
         ThumbnailSize size,
         IProgress<int>? progress = null,
         CancellationToken ct = default)
     {
-        int count = 0;
-        var semaphore = new SemaphoreSlim(Environment.ProcessorCount);
-
-        var tasks = images.Select(async img =>
-        {
-            await semaphore.WaitAsync(ct);
-            try
-            {
-                ct.ThrowIfCancellationRequested();
-                if (!await _thumbnailRepo.HasThumbnailAsync(img.imageId, size))
-                {
-                    await GetOrCreateThumbnailAsync(img.imageId, img.filePath, size);
-                }
-                var c = Interlocked.Increment(ref count);
-                if (c % 50 == 0) progress?.Report(c);
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
-
-        await Task.WhenAll(tasks);
-        progress?.Report(count);
+        // No-op - Windows thumbnail cache handles pre-generation automatically
+        progress?.Report(images.Count());
+        return Task.CompletedTask;
     }
 }

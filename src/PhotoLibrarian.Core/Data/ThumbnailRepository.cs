@@ -4,8 +4,12 @@ using PhotoLibrarian.Core.Models;
 namespace PhotoLibrarian.Core.Data;
 
 /// <summary>
-/// Repository for thumbnail BLOB operations against the SQLite cache.
+/// OBSOLETE: Thumbnail caching removed in favor of Windows thumbnail cache.
+/// This class is kept for backward compatibility but does nothing.
+/// The Windows.Storage.FileProperties thumbnail provider is now used directly,
+/// which leverages the same cache that Windows Explorer uses.
 /// </summary>
+[Obsolete("Thumbnail caching removed - use WindowsThumbnailService instead")]
 public sealed class ThumbnailRepository
 {
     private readonly CacheDatabase _db;

@@ -79,13 +79,8 @@ public sealed class CacheDatabase : IDisposable
                 video_duration  REAL
             );
 
-            CREATE TABLE IF NOT EXISTS thumbnails (
-                image_id    INTEGER NOT NULL,
-                size        INTEGER NOT NULL,
-                data        BLOB    NOT NULL,
-                PRIMARY KEY (image_id, size),
-                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
-            );
+            -- Note: thumbnails table removed - we now use Windows thumbnail cache instead
+            -- This eliminates storage duplication and leverages OS-level optimization
 
             CREATE TABLE IF NOT EXISTS tags (
                 image_id    INTEGER NOT NULL,

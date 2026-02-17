@@ -38,11 +38,27 @@
         <views:ImageEditorView x:Name="EditorOverlay"
                                 Visibility="Collapsed" />
 
+        <!-- Overlay: Settings Panel -->
+        <Border x:Name="SettingsOverlay" Visibility="Collapsed"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+            <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    MaxWidth="700"
+                    Margin="40"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center">
+                <views:SettingsPanel x:Name="SettingsPanel" />
+            </Border>
+        </Border>
+
         <!-- Status bar at bottom -->
         <Grid VerticalAlignment="Bottom" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="StatusBarText" 
@@ -52,7 +68,23 @@
             <ProgressRing x:Name="IndexingProgress" 
                           Grid.Column="1"
                           IsActive="False"
-                          Width="16" Height="16" />
+                          Width="16" Height="16" 
+                          Margin="0,0,8,0" />
+            <Button x:Name="SettingsButton" 
+                    Grid.Column="2"
+                    Click="OnSettingsClick"
+                    Padding="8,4"
+                    ToolTipService.ToolTip="Settings">
+                <FontIcon Glyph="&#xE713;" FontSize="14" />
+            </Button>
+            <Button x:Name="BenchmarkButton" 
+                    Grid.Column="1"
+                    Margin="0,0,8,0"
+                    Click="OnBenchmarkClick"
+                    Padding="8,4"
+                    ToolTipService.ToolTip="Run Benchmark">
+                <FontIcon Glyph="&#xE9D9;" FontSize="14" />
+            </Button>
         </Grid>
     </Grid>
 </Window>
