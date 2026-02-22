@@ -46,8 +46,10 @@
                       MaxZoomFactor="10"
                       HorizontalScrollBarVisibility="Auto"
                       VerticalScrollBarVisibility="Auto"
+                      VerticalScrollMode="Disabled"
                       HorizontalAlignment="Stretch"
-                      VerticalAlignment="Stretch">
+                      VerticalAlignment="Stretch"
+                      PointerWheelChanged="OnPointerWheelChanged">
             <Image x:Name="FullImage"
                    Stretch="Uniform"
                    HorizontalAlignment="Center"

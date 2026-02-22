@@ -47,8 +47,9 @@ public partial class FolderNavigationViewModel : ObservableObject
             {
                 Id = reader.GetInt64(0),
                 Path = path,
-                Name = System.IO.Path.GetFileName(path) is { Length: > 0 } name ? name : path,
-                IncludeSubfolders = reader.GetInt64(2) == 1
+                Name = path, // Show full path for root folders
+                IncludeSubfolders = reader.GetInt64(2) == 1,
+                IsRootFolder = true
             };
             BuildChildNodes(node);
             RootFolders.Add(node);
@@ -237,7 +238,21 @@ public partial class FolderNode : ObservableObject
     public required string Name { get; set; }
     public required string Path { get; set; }
     public bool IncludeSubfolders { get; set; }
+    public bool IsRootFolder { get; set; }
     public ObservableCollection<FolderNode> Children { get; } = [];
 
-    public override string ToString() => Name;
+    public string DisplayName => IsRootFolder ? Name : System.IO.Path.GetFileName(Path);
+    
+    // Use Windows Explorer folder icon
+    public string IconGlyph => IsRootFolder ? "\uE8B7" : "\uE8D5"; // Library for root, folder for children
+    
+    public Windows.UI.Text.FontWeight FontWeight => IsRootFolder 
+        ? new Windows.UI.Text.FontWeight { Weight = 600 } // SemiBold
+        : new Windows.UI.Text.FontWeight { Weight = 400 }; // Normal
+    
+    public Microsoft.UI.Xaml.Visibility ShowPathVisibility => IsRootFolder 
+        ? Microsoft.UI.Xaml.Visibility.Visible 
+        : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public override string ToString() => DisplayName;
 }

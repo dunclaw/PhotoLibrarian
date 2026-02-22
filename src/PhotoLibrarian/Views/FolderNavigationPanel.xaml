@@ -7,15 +7,14 @@
     <Grid Padding="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <!-- Header with actions -->
         <Grid Grid.Row="0" Margin="0,0,0,8">
-            <TextBlock Text="Library" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+            <TextBlock Text="Browse" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                <Button x:Name="AddFolderButton" ToolTipService.ToolTip="Add folder"
+                <Button x:Name="AddFolderButton" ToolTipService.ToolTip="Add folder to library"
                         Click="OnAddFolderClick" Padding="6">
                     <FontIcon Glyph="&#xE710;" FontSize="14" />
                 </Button>
@@ -30,15 +29,37 @@
             </StackPanel>
         </Grid>
 
-        <!-- Show All button -->
-        <Button Grid.Row="1" Content="Show All Photos" HorizontalAlignment="Stretch"
-                Margin="0,0,0,8" Click="OnShowAllClick" />
+        <!-- Three sections: Library, Date, Tags -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="16">
+                
+                <!-- Library Section -->
+                <StackPanel>
+                    <TextBlock Text="Library" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TreeView x:Name="LibraryTree"
+                              SelectionMode="Multiple"
+                              ItemInvoked="OnLibraryItemInvoked"
+                              Expanding="OnLibraryExpanding"
+                              SelectionChanged="OnLibrarySelectionChanged" />
+                </StackPanel>
 
-        <!-- Folder Tree -->
-        <TreeView Grid.Row="2" x:Name="FolderTree"
-                  SelectionMode="Single"
-                  ItemInvoked="OnFolderInvoked"
-                  Expanding="OnFolderExpanding">
-        </TreeView>
+                <!-- Date Section -->
+                <StackPanel>
+                    <TextBlock Text="Date" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TreeView x:Name="DateTree"
+                              SelectionMode="Multiple"
+                              SelectionChanged="OnDateSelectionChanged" />
+                </StackPanel>
+
+                <!-- Tags Section -->
+                <StackPanel>
+                    <TextBlock Text="Tags" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TreeView x:Name="TagsTree"
+                              SelectionMode="Multiple"
+                              SelectionChanged="OnTagsSelectionChanged" />
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

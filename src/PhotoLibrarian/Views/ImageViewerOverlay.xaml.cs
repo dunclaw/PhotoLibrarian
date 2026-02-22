@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.ViewModels;
+using System;
 
 namespace PhotoLibrarian.Views;
 
@@ -36,7 +37,8 @@ public sealed partial class ImageViewerOverlay : UserControl
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
                     FullImage.Source = ViewModel.CurrentImage;
-                    ImageScrollViewer.ChangeView(null, null, 1.0f);
+                    // Reset zoom to 1.0 so whole image is visible
+                    ImageScrollViewer.ChangeView(0, 0, 1.0f);
                     break;
                 case nameof(ImageViewerViewModel.IsVideo):
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
@@ -86,7 +88,27 @@ public sealed partial class ImageViewerOverlay : UserControl
     private void OnZoomFit(object sender, RoutedEventArgs e)
     {
         ViewModel?.ZoomFitCommand.Execute(null);
-        ImageScrollViewer.ChangeView(null, null, 1.0f);
+        ImageScrollViewer.ChangeView(0, 0, 1.0f);
+    }
+
+    private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        // Handle mouse wheel for zooming instead of scrolling
+        var pointer = e.GetCurrentPoint(ImageScrollViewer);
+        var delta = pointer.Properties.MouseWheelDelta;
+
+        // Get current zoom factor
+        var currentZoom = ImageScrollViewer.ZoomFactor;
+        var zoomDelta = delta > 0 ? 1.1f : 0.9f;
+        var newZoom = currentZoom * zoomDelta;
+
+        // Clamp to min/max
+        newZoom = Math.Max(ImageScrollViewer.MinZoomFactor, Math.Min(ImageScrollViewer.MaxZoomFactor, newZoom));
+
+        // Apply zoom centered on pointer position
+        ImageScrollViewer.ChangeView(null, null, newZoom);
+        
+        e.Handled = true;
     }
 
     private async void OnKeyDown(object sender, KeyRoutedEventArgs e)

@@ -16,7 +16,7 @@ public partial class ImageGridViewModel : ObservableObject
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly MainViewModel _main;
-    private string? _currentFolderFilter;
+    private List<string>? _currentFolderFilters; // Changed to support multiple folders
     private string? _currentSortBy = "date_taken";
     private bool _sortDescending = true;
     private CancellationTokenSource? _loadCts;
@@ -115,24 +115,30 @@ public partial class ImageGridViewModel : ObservableObject
             GC.Collect(0, GCCollectionMode.Optimized);
         }
 
-        // Ensure folder filter ends with separator for correct prefix matching
-        var filter = _currentFolderFilter;
-        if (filter is not null && !filter.EndsWith(Path.DirectorySeparatorChar))
-            filter += Path.DirectorySeparatorChar;
+        // Prepare folder filters with separators for correct prefix matching
+        var filters = _currentFolderFilters?.Select(f => 
+            f.EndsWith(Path.DirectorySeparatorChar) ? f : f + Path.DirectorySeparatorChar
+        ).ToList();
 
-        DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {images.Count}, Filter: '{filter ?? "null"}'");
+        DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {images.Count}, Filters: {(filters != null ? string.Join(", ", filters.Select(f => $"'{f}'")) : "null")}");
 
         int matchCount = 0;
         int skipCount = 0;
         foreach (var img in images)
         {
-            if (filter is not null &&
-                !img.FilePath.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
+            // If filters are set, image must start with at least one filter path
+            if (filters is not null && filters.Count > 0)
             {
-                skipCount++;
-                if (skipCount <= 2) // Log first 2 skips
-                    DebugLog.WriteLine($"  Skipping '{img.FilePath}' (doesn't start with '{filter}')");
-                continue;
+                bool matchesAnyFilter = filters.Any(f => 
+                    img.FilePath.StartsWith(f, StringComparison.OrdinalIgnoreCase));
+                
+                if (!matchesAnyFilter)
+                {
+                    skipCount++;
+                    if (skipCount <= 2) // Log first 2 skips
+                        DebugLog.WriteLine($"  Skipping '{img.FilePath}' (doesn't match any filter)");
+                    continue;
+                }
             }
 
             matchCount++;
@@ -157,60 +163,69 @@ public partial class ImageGridViewModel : ObservableObject
             _main.StatusText = "No items match the current filter";
         }
 
-        // HYBRID APPROACH: Always scan folder to find any missing/new files not in database
+        // HYBRID APPROACH: Scan folders to find any missing/new files not in database
         // This ensures we show all images even if database is stale/incomplete
-        if (filter is not null && Directory.Exists(filter.TrimEnd(Path.DirectorySeparatorChar)))
+        if (filters is not null && filters.Count > 0)
         {
-            var folderPath = filter.TrimEnd(Path.DirectorySeparatorChar);
-            DebugLog.WriteLine($"LoadImagesAsync: Scanning folder for any new/missing files...");
-            
             // Get indexed file paths for quick lookup
             var indexedPaths = new HashSet<string>(Images.Select(i => i.Entry.FilePath), StringComparer.OrdinalIgnoreCase);
             var initialCount = Images.Count;
-            
-            // Scan for files not in database
-            var missingFiles = await Task.Run(() =>
+
+            foreach (var filter in filters)
             {
-                var result = new List<string>();
-                foreach (var filePath in Directory.EnumerateFiles(folderPath, "*.*",
-                    new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }))
+                var folderPath = filter.TrimEnd(Path.DirectorySeparatorChar);
+                if (!Directory.Exists(folderPath)) continue;
+
+                DebugLog.WriteLine($"LoadImagesAsync: Scanning folder '{folderPath}' for any new/missing files...");
+                
+                // Scan for files not in database
+                var missingFiles = await Task.Run(() =>
                 {
-                    if (ct.IsCancellationRequested) break;
-                    
-                    if (FolderScannerService.IsSupportedFile(filePath) && !indexedPaths.Contains(filePath))
+                    var result = new List<string>();
+                    foreach (var filePath in Directory.EnumerateFiles(folderPath, "*.*",
+                        new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }))
                     {
-                        result.Add(filePath);
+                        if (ct.IsCancellationRequested) break;
+                        
+                        if (FolderScannerService.IsSupportedFile(filePath) && !indexedPaths.Contains(filePath))
+                        {
+                            result.Add(filePath);
+                        }
+                    }
+                    return result;
+                }, ct);
+                
+                if (missingFiles.Count > 0)
+                {
+                    DebugLog.WriteLine($"LoadImagesAsync: Found {missingFiles.Count} files not in database for '{folderPath}', adding them...");
+                    
+                    // Create view models for missing files
+                    foreach (var filePath in missingFiles)
+                    {
+                        if (ct.IsCancellationRequested) break;
+                        
+                        var entry = new ImageEntry
+                        {
+                            Id = 0, // Not indexed
+                            FilePath = filePath,
+                            FileName = Path.GetFileName(filePath),
+                            FileSize = 0,
+                            DateModified = DateTime.UtcNow,
+                            DateIndexed = DateTime.UtcNow,
+                            MediaType = FolderScannerService.IsVideoFile(filePath) ? MediaType.Video : MediaType.Image
+                        };
+                        
+                        var vm = new ImageThumbnailViewModel(entry, ct);
+                        Images.Add(vm);
+                        indexedPaths.Add(filePath); // Prevent duplicates across multiple filters
                     }
                 }
-                return result;
-            }, ct);
-            
-            if (missingFiles.Count > 0)
+            }
+
+            if (Images.Count > initialCount)
             {
-                DebugLog.WriteLine($"LoadImagesAsync: Found {missingFiles.Count} files not in database, adding them...");
-                
-                // Create view models for missing files
-                foreach (var filePath in missingFiles)
-                {
-                    if (ct.IsCancellationRequested) break;
-                    
-                    var entry = new ImageEntry
-                    {
-                        Id = 0, // Not indexed
-                        FilePath = filePath,
-                        FileName = Path.GetFileName(filePath),
-                        FileSize = 0,
-                        DateModified = DateTime.UtcNow,
-                        DateIndexed = DateTime.UtcNow,
-                        MediaType = FolderScannerService.IsVideoFile(filePath) ? MediaType.Video : MediaType.Image
-                    };
-                    
-                    var vm = new ImageThumbnailViewModel(entry, ct);
-                    Images.Add(vm);
-                }
-                
-                // Update status bar
-                _main.StatusText = $"{Images.Count:N0} items ({missingFiles.Count} not indexed)";
+                DebugLog.WriteLine($"LoadImagesAsync: Added {Images.Count - initialCount} previously unindexed files from disk scan");
+                _main.StatusText = $"{Images.Count:N0} items";
             }
             else
             {
@@ -571,13 +586,18 @@ public partial class ImageGridViewModel : ObservableObject
 
     public async Task FilterByFolderAsync(string? folderPath)
     {
+        await FilterByFoldersAsync(folderPath != null ? new List<string> { folderPath } : null);
+    }
+
+    public async Task FilterByFoldersAsync(List<string>? folderPaths)
+    {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        DebugLog.WriteLine($"FilterByFolderAsync: folderPath='{folderPath ?? "null"}'");
+        DebugLog.WriteLine($"FilterByFoldersAsync: folderPaths={{{(folderPaths != null ? string.Join(", ", folderPaths.Select(p => $"'{p}'")) : "null")}}}");
         
         // Pause background indexing while user is browsing
         _main.PauseBackgroundIndexing();
         
-        _currentFolderFilter = folderPath;
+        _currentFolderFilters = folderPaths;
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
         await LoadImagesAsync();
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: LoadImagesAsync complete, Images.Count={Images.Count}");
@@ -620,7 +640,7 @@ public partial class ImageGridViewModel : ObservableObject
     [RelayCommand]
     private void ClearFilter()
     {
-        _currentFolderFilter = null;
+        _currentFolderFilters = null;
         _ = LoadImagesAsync();
     }
 
