@@ -14,13 +14,9 @@
         <Grid Grid.Row="0" Margin="0,0,0,8">
             <TextBlock Text="Browse" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                <Button x:Name="AddFolderButton" ToolTipService.ToolTip="Add folder to library"
-                        Click="OnAddFolderClick" Padding="6">
-                    <FontIcon Glyph="&#xE710;" FontSize="14" />
-                </Button>
-                <Button x:Name="RemoveFolderButton" ToolTipService.ToolTip="Remove selected folder from library"
-                        Click="OnRemoveFolderClick" Padding="6">
-                    <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                <Button x:Name="ManageFoldersButton" ToolTipService.ToolTip="Manage library folders"
+                        Click="OnManageFoldersClick" Padding="6">
+                    <FontIcon Glyph="&#xE8B7;" FontSize="14" />
                 </Button>
                 <Button x:Name="RefreshButton" ToolTipService.ToolTip="Refresh"
                         Click="OnRefreshClick" Padding="6">
@@ -48,6 +44,7 @@
                     <TextBlock Text="Date" FontWeight="SemiBold" Margin="0,0,0,8" />
                     <TreeView x:Name="DateTree"
                               SelectionMode="Multiple"
+                              ItemInvoked="OnDateItemInvoked"
                               SelectionChanged="OnDateSelectionChanged" />
                 </StackPanel>
 
@@ -56,6 +53,7 @@
                     <TextBlock Text="Tags" FontWeight="SemiBold" Margin="0,0,0,8" />
                     <TreeView x:Name="TagsTree"
                               SelectionMode="Multiple"
+                              ItemInvoked="OnTagsItemInvoked"
                               SelectionChanged="OnTagsSelectionChanged" />
                 </StackPanel>
 

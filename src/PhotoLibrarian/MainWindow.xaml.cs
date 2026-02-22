@@ -7,6 +7,11 @@ public sealed partial class MainWindow : Window
 {
     public MainViewModel ViewModel => App.ViewModel;
 
+    public async Task RefreshMetadataTreesAsync()
+    {
+        await FolderNavPanel.RefreshMetadataTreesAsync();
+    }
+
     public MainWindow()
     {
         this.InitializeComponent();
@@ -44,7 +49,8 @@ public sealed partial class MainWindow : Window
     
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
-        // Cancel background loading to prevent null refs on shutdown
+        // Cancel all background tasks to allow clean shutdown
+        ViewModel?.Cleanup();
         ViewModel?.ImageGrid?.Cleanup();
     }
 

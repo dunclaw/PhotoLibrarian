@@ -12,6 +12,7 @@ public sealed class LibraryIndexingService
 {
     private readonly CacheDatabase _db;
     private readonly ImageRepository _imageRepo;
+    private readonly TagRepository _tagRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
 
@@ -20,11 +21,13 @@ public sealed class LibraryIndexingService
     public LibraryIndexingService(
         CacheDatabase db,
         ImageRepository imageRepo,
+        TagRepository tagRepo,
         FolderScannerService scanner,
         MetadataReaderService metadataReader)
     {
         _db = db;
         _imageRepo = imageRepo;
+        _tagRepo = tagRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
     }
@@ -67,9 +70,25 @@ public sealed class LibraryIndexingService
                 var entry = _metadataReader.ReadMetadata(filePath);
                 var imageId = await _imageRepo.UpsertImageAsync(entry);
 
+                // Read and store tags from XMP metadata
+                var tags = _metadataReader.ReadTags(filePath);
+                if (tags.Count > 0)
+                {
+                    foreach (var tag in tags)
+                    {
+                        await _tagRepo.AddTagAsync(new ImageTag
+                        {
+                            ImageId = imageId,
+                            Tag = tag,
+                            Source = TagSource.Metadata,
+                            Confidence = 1.0f
+                        });
+                    }
+                }
+
                 processed++;
                 if (processed % 10 == 0)
-                    DebugLog.WriteLine($"  Processed successfully (id={imageId})");
+                    DebugLog.WriteLine($"  Processed successfully (id={imageId}, tags={tags.Count})");
 
                 if (processed % 25 == 0)
                 {

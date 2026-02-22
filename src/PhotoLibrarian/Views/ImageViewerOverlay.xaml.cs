@@ -37,8 +37,8 @@ public sealed partial class ImageViewerOverlay : UserControl
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
                     FullImage.Source = ViewModel.CurrentImage;
-                    // Reset zoom to 1.0 so whole image is visible
-                    ImageScrollViewer.ChangeView(0, 0, 1.0f);
+                    // Wait for image to load, then calculate zoom to fit
+                    FullImage.ImageOpened += OnImageOpened;
                     break;
                 case nameof(ImageViewerViewModel.IsVideo):
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
@@ -89,6 +89,43 @@ public sealed partial class ImageViewerOverlay : UserControl
     {
         ViewModel?.ZoomFitCommand.Execute(null);
         ImageScrollViewer.ChangeView(0, 0, 1.0f);
+    }
+
+    private void OnImageOpened(object sender, RoutedEventArgs e)
+    {
+        // Unhook to avoid multiple firings
+        FullImage.ImageOpened -= OnImageOpened;
+
+        // Calculate zoom factor to fit image in viewport
+        // With Stretch="Uniform", zoom 1.0 should already fit the image
+        // Set MinZoomFactor dynamically so user can't zoom out past fit
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            var imageWidth = FullImage.ActualWidth;
+            var imageHeight = FullImage.ActualHeight;
+            var viewportWidth = ImageScrollViewer.ViewportWidth;
+            var viewportHeight = ImageScrollViewer.ViewportHeight;
+
+            if (imageWidth > 0 && imageHeight > 0 && viewportWidth > 0 && viewportHeight > 0)
+            {
+                // Calculate zoom needed to fit image in viewport
+                var zoomToFitWidth = (float)(viewportWidth / imageWidth);
+                var zoomToFitHeight = (float)(viewportHeight / imageHeight);
+                var zoomToFit = Math.Min(zoomToFitWidth, zoomToFitHeight);
+
+                // Set MinZoomFactor to the fit zoom so user can't zoom out too far
+                ImageScrollViewer.MinZoomFactor = Math.Max(0.1f, zoomToFit * 0.95f);
+
+                // Start at fit zoom
+                ImageScrollViewer.ChangeView(0, 0, zoomToFit);
+            }
+            else
+            {
+                // Fallback if dimensions not available
+                ImageScrollViewer.MinZoomFactor = 0.1f;
+                ImageScrollViewer.ChangeView(0, 0, 1.0f);
+            }
+        });
     }
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)

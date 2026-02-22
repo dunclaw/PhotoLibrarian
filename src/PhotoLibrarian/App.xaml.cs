@@ -43,13 +43,14 @@ public partial class App : Application
         // Create services
         var db = new CacheDatabase(dbPath);
         var imageRepo = new ImageRepository(db);
+        var tagRepo = new TagRepository(db);
         var scanner = new FolderScannerService();
         var metadataReader = new MetadataReaderService();
-        var indexingService = new LibraryIndexingService(db, imageRepo, scanner, metadataReader);
+        var indexingService = new LibraryIndexingService(db, imageRepo, tagRepo, scanner, metadataReader);
         var backupService = new OriginalBackupService();
 
         // Note: ThumbnailRepository removed - we use Windows thumbnail cache instead
-        ViewModel = new MainViewModel(db, imageRepo, scanner, metadataReader, indexingService, backupService);
+        ViewModel = new MainViewModel(db, imageRepo, tagRepo, scanner, metadataReader, indexingService, backupService);
 
         _window = new MainWindow();
         _window.Activate();

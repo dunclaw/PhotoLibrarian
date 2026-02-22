@@ -17,6 +17,9 @@ public partial class ImageGridViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly MainViewModel _main;
     private List<string>? _currentFolderFilters; // Changed to support multiple folders
+    private List<int>? _currentYearFilters;
+    private List<(int Year, int Month)>? _currentMonthFilters;
+    private List<string>? _currentTagFilters;
     private string? _currentSortBy = "date_taken";
     private bool _sortDescending = true;
     private CancellationTokenSource? _loadCts;
@@ -120,13 +123,13 @@ public partial class ImageGridViewModel : ObservableObject
             f.EndsWith(Path.DirectorySeparatorChar) ? f : f + Path.DirectorySeparatorChar
         ).ToList();
 
-        DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {images.Count}, Filters: {(filters != null ? string.Join(", ", filters.Select(f => $"'{f}'")) : "null")}");
+        DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {images.Count}, FolderFilters: {(filters != null ? string.Join(", ", filters.Select(f => $"'{f}'")) : "null")}, YearFilters: {_currentYearFilters?.Count ?? 0}, MonthFilters: {_currentMonthFilters?.Count ?? 0}, TagFilters: {_currentTagFilters?.Count ?? 0}");
 
         int matchCount = 0;
         int skipCount = 0;
         foreach (var img in images)
         {
-            // If filters are set, image must start with at least one filter path
+            // Apply folder filter
             if (filters is not null && filters.Count > 0)
             {
                 bool matchesAnyFilter = filters.Any(f => 
@@ -135,14 +138,47 @@ public partial class ImageGridViewModel : ObservableObject
                 if (!matchesAnyFilter)
                 {
                     skipCount++;
-                    if (skipCount <= 2) // Log first 2 skips
-                        DebugLog.WriteLine($"  Skipping '{img.FilePath}' (doesn't match any filter)");
+                    if (skipCount <= 2)
+                        DebugLog.WriteLine($"  Skipping '{img.FilePath}' (folder filter)");
                     continue;
                 }
             }
 
+            // Apply date filters (year OR month - union logic)
+            if ((_currentYearFilters is not null && _currentYearFilters.Count > 0) ||
+                (_currentMonthFilters is not null && _currentMonthFilters.Count > 0))
+            {
+                if (!img.DateTaken.HasValue)
+                {
+                    // No date taken - skip when date filters active
+                    skipCount++;
+                    continue;
+                }
+
+                int year = img.DateTaken.Value.Year;
+                var yearMonth = (year, img.DateTaken.Value.Month);
+
+                // Image matches if it's in a selected year OR a selected month
+                bool matchesYear = _currentYearFilters?.Contains(year) ?? false;
+                bool matchesMonth = _currentMonthFilters?.Contains(yearMonth) ?? false;
+
+                if (!matchesYear && !matchesMonth)
+                {
+                    skipCount++;
+                    continue;
+                }
+            }
+
+            // Apply tag filter (need to query tags for this image)
+            if (_currentTagFilters is not null && _currentTagFilters.Count > 0)
+            {
+                // TODO: This is inefficient - should use JOIN in SQL query
+                // For now, skip tag filtering in LoadImagesAsync
+                // Will need to refactor to build SQL WHERE clause dynamically
+            }
+
             matchCount++;
-            if (matchCount <= 3) // Log first 3 matches
+            if (matchCount <= 3)
                 DebugLog.WriteLine($"  Including '{img.FilePath}'");
 
             Images.Add(new ImageThumbnailViewModel(img, ct));
@@ -610,6 +646,28 @@ public partial class ImageGridViewModel : ObservableObject
         // });
     }
 
+    public async Task FilterByMultipleCriteriaAsync(
+        List<string>? folderPaths,
+        List<int>? years,
+        List<(int Year, int Month)>? months,
+        List<string>? tags)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, tags={tags?.Count ?? 0}");
+        
+        // Pause background indexing while user is browsing
+        _main.PauseBackgroundIndexing();
+        
+        _currentFolderFilters = folderPaths;
+        _currentYearFilters = years;
+        _currentMonthFilters = months;
+        _currentTagFilters = tags;
+        
+        DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
+        await LoadImagesAsync();
+        DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: LoadImagesAsync complete, Images.Count={Images.Count}");
+    }
+
     [RelayCommand]
     private async Task SortByDateAsync()
     {
@@ -638,10 +696,14 @@ public partial class ImageGridViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void ClearFilter()
+    private async Task ClearFilter()
     {
         _currentFolderFilters = null;
-        _ = LoadImagesAsync();
+        _currentYearFilters = null;
+        _currentMonthFilters = null;
+        _currentTagFilters = null;
+        Images.Clear();
+        // Don't set status text here - let MainViewModel handle it
     }
 
     [RelayCommand]

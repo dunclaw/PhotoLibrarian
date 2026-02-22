@@ -19,6 +19,8 @@ public partial class MainViewModel : ObservableObject
     private CancellationTokenSource? _indexingCts;
 
     public FolderNavigationViewModel FolderNav { get; }
+    public DateNavigationViewModel DateNav { get; }
+    public TagNavigationViewModel TagNav { get; }
     public ImageGridViewModel ImageGrid { get; }
     public ImageViewerViewModel ImageViewer { get; }
     public ImageEditorViewModel ImageEditor { get; }
@@ -37,6 +39,7 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         CacheDatabase db,
         ImageRepository imageRepo,
+        TagRepository tagRepo,
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
         LibraryIndexingService indexingService,
@@ -51,7 +54,9 @@ public partial class MainViewModel : ObservableObject
 
         StatusText = "Ready";
 
-        FolderNav= new FolderNavigationViewModel(db, scanner, indexingService, this);
+        FolderNav = new FolderNavigationViewModel(db, scanner, indexingService, this);
+        DateNav = new DateNavigationViewModel(imageRepo);
+        TagNav = new TagNavigationViewModel(tagRepo);
         ImageGrid = new ImageGridViewModel(imageRepo, scanner, metadataReader, this);
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
@@ -71,8 +76,8 @@ public partial class MainViewModel : ObservableObject
         TotalImages = await _imageRepo.GetCountAsync();
         StatusText = TotalImages > 0 ? "Select a folder to view photos" : "Add folders to get started";
 
-        // Don't start background indexing automatically - let user trigger with Refresh
-        // StartBackgroundIndexing();
+        // Start background indexing to populate metadata (tags, dates)
+        StartBackgroundIndexing();
     }
     
     [RelayCommand]
@@ -126,6 +131,8 @@ public partial class MainViewModel : ObservableObject
         {
             // Wait a bit before starting to let UI settle
             await Task.Delay(2000, ct);
+            
+            DebugLog.WriteLine($"StartBackgroundIndexing: Starting scan of {FolderNav.RootFolders.Count} folders");
 
             foreach (var folder in FolderNav.RootFolders)
             {
@@ -133,7 +140,10 @@ public partial class MainViewModel : ObservableObject
 
                 try
                 {
+                    DebugLog.WriteLine($"  Indexing folder: {folder.Path}");
                     await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct);
+                    DebugLog.WriteLine($"  Completed folder: {folder.Path}");
+                    
                     if (!ct.IsCancellationRequested)
                     {
                         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
@@ -144,13 +154,17 @@ public partial class MainViewModel : ObservableObject
                 }
                 catch (OperationCanceledException)
                 {
+                    DebugLog.WriteLine($"  Indexing canceled");
                     break;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    DebugLog.WriteLine($"  ERROR indexing {folder.Path}: {ex.Message}");
                     // Continue with next folder on error
                 }
             }
+            
+            DebugLog.WriteLine($"StartBackgroundIndexing: All folders complete");
         }, ct);
     }
 
@@ -170,5 +184,26 @@ public partial class MainViewModel : ObservableObject
         await ImageGrid.LoadImagesAsync();
         TotalImages = await _imageRepo.GetCountAsync();
         StatusText = $"{TotalImages:N0} items";
+        
+        // Refresh date and tag navigation data
+        await DateNav.LoadDatesAsync();
+        await TagNav.LoadTagsAsync();
+        
+        // Update UI trees on main thread
+        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (App.MainWindow is MainWindow window)
+            {
+                await window.RefreshMetadataTreesAsync();
+            }
+        });
+    }
+
+    public void Cleanup()
+    {
+        DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
+        _indexingCts?.Cancel();
+        _indexingCts?.Dispose();
+        _scanner.Dispose();
     }
 }

@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -16,11 +17,28 @@ public sealed partial class FolderNavigationPanel : UserControl
         this.Loaded += OnLoaded;
     }
 
+    public async Task RefreshAllTreesAsync()
+    {
+        RefreshLibraryTree();
+        await RefreshDateTreeAsync();
+        await RefreshTagsTreeAsync();
+    }
+
+    public async Task RefreshMetadataTreesAsync()
+    {
+        await RefreshDateTreeAsync();
+        await RefreshTagsTreeAsync();
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null) return;
         ViewModel.RootFolders.CollectionChanged += (s, args) => RefreshLibraryTree();
         RefreshLibraryTree();
+        
+        // Initial load of date and tag trees (don't bind to CollectionChanged to avoid recursion)
+        _ = RefreshDateTreeAsync();
+        _ = RefreshTagsTreeAsync();
     }
 
     private void RefreshLibraryTree()
@@ -46,14 +64,67 @@ public sealed partial class FolderNavigationPanel : UserControl
         LibraryTree.RootNodes.Add(photoLibraryRoot);
     }
 
+    private async Task RefreshDateTreeAsync()
+    {
+        if (App.ViewModel?.DateNav is null) return;
+
+        await App.ViewModel.DateNav.LoadDatesAsync();
+        
+        // Must update UI on dispatcher queue
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            DateTree.RootNodes.Clear();
+
+            foreach (var yearNode in App.ViewModel.DateNav.YearNodes)
+            {
+                var treeNode = new TreeViewNode
+                {
+                    Content = new DateNodeWrapper(yearNode),
+                    IsExpanded = false
+                };
+
+                foreach (var monthNode in yearNode.Children)
+                {
+                    treeNode.Children.Add(new TreeViewNode
+                    {
+                        Content = new DateNodeWrapper(monthNode)
+                    });
+                }
+
+                DateTree.RootNodes.Add(treeNode);
+            }
+        });
+    }
+
+    private async Task RefreshTagsTreeAsync()
+    {
+        if (App.ViewModel?.TagNav is null) return;
+
+        await App.ViewModel.TagNav.LoadTagsAsync();
+
+        // Must update UI on dispatcher queue
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            TagsTree.RootNodes.Clear();
+
+            foreach (var tagNode in App.ViewModel.TagNav.Tags)
+            {
+                TagsTree.RootNodes.Add(new TreeViewNode
+                {
+                    Content = new TagNodeWrapper(tagNode)
+                });
+            }
+        });
+    }
+
     private static TreeViewNode BuildFolderNode(FolderNode folderNode, bool isRootFolder = false)
     {
         // Create display text with icon
         string icon = "📁";
         string displayName = folderNode.Name;
         string displayText = isRootFolder 
-            ? $"{icon} {displayName}\n    {folderNode.Path}" 
-            : $"{icon} {displayName}";
+            ? $"{icon} {folderNode.Path}"  // Show full path for root folders
+            : $"{icon} {displayName}";     // Show just name for subfolders
 
         // Store FolderNode in a wrapper for event handlers to retrieve
         var treeNode = new TreeViewNode 
@@ -81,16 +152,16 @@ public sealed partial class FolderNavigationPanel : UserControl
         return treeNode;
     }
 
-    private async void OnAddFolderClick(object sender, RoutedEventArgs e)
+    private async void OnManageFoldersClick(object sender, RoutedEventArgs e)
     {
-        if (ViewModel?.AddFolderCommand.CanExecute(null) == true)
-            await ViewModel.AddFolderCommand.ExecuteAsync(null);
-    }
-
-    private async void OnRemoveFolderClick(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel?.RemoveFolderCommand.CanExecute(null) == true)
-            await ViewModel.RemoveFolderCommand.ExecuteAsync(null);
+        var dialog = new ManageFoldersDialog
+        {
+            XamlRoot = this.XamlRoot
+        };
+        await dialog.ShowAsync();
+        
+        // Refresh tree after dialog closes
+        RefreshLibraryTree();
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
@@ -117,6 +188,42 @@ public sealed partial class FolderNavigationPanel : UserControl
 
             // Manually trigger grid update since programmatic selection change
             // might not fire SelectionChanged event
+            UpdateGridFromSelection();
+        }
+    }
+
+    private void OnDateItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItem is TreeViewNode node)
+        {
+            DebugLog.WriteLine($"OnDateItemInvoked: Node={node.Content}, IsSelected={sender.SelectedNodes.Contains(node)}");
+            
+            if (sender.SelectedNodes.Contains(node))
+            {
+                sender.SelectedNodes.Remove(node);
+            }
+            else
+            {
+                sender.SelectedNodes.Add(node);
+            }
+            
+            DebugLog.WriteLine($"  After toggle: IsSelected={sender.SelectedNodes.Contains(node)}, TotalSelected={sender.SelectedNodes.Count}");
+            UpdateGridFromSelection();
+        }
+    }
+
+    private void OnTagsItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItem is TreeViewNode node)
+        {
+            if (sender.SelectedNodes.Contains(node))
+            {
+                sender.SelectedNodes.Remove(node);
+            }
+            else
+            {
+                sender.SelectedNodes.Add(node);
+            }
             UpdateGridFromSelection();
         }
     }
@@ -154,41 +261,93 @@ public sealed partial class FolderNavigationPanel : UserControl
 
     private void OnDateSelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
     {
+        DebugLog.WriteLine($"OnDateSelectionChanged: AddedItems={args.AddedItems.Count}, RemovedItems={args.RemovedItems.Count}, TotalSelected={sender.SelectedNodes.Count}");
         UpdateGridFromSelection();
     }
 
     private void OnTagsSelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
     {
+        DebugLog.WriteLine($"OnTagsSelectionChanged: AddedItems={args.AddedItems.Count}, RemovedItems={args.RemovedItems.Count}, TotalSelected={sender.SelectedNodes.Count}");
         UpdateGridFromSelection();
     }
 
     private void UpdateGridFromSelection()
     {
-        if (ViewModel is null || App.ViewModel?.ImageGrid is null) return;
+        if (App.ViewModel?.ImageGrid is null) return;
 
-        // Collect all selected folder paths from all three trees
-        var selectedPaths = new List<string>();
-
-        // From Library tree
+        // Collect all selected folder paths
+        var selectedFolders = new List<string>();
+        bool photoLibraryRootSelected = false;
+        
         foreach (var node in LibraryTree.SelectedNodes)
         {
-            if (node.Content is FolderNodeWrapper wrapper && wrapper.FolderNode != null)
+            if (node.Content is string str && str.StartsWith("📚"))
             {
-                selectedPaths.Add(wrapper.FolderNode.Path);
+                // Photo Library root node selected - means "show all folders"
+                photoLibraryRootSelected = true;
+            }
+            else if (node.Content is FolderNodeWrapper wrapper && wrapper.FolderNode != null)
+            {
+                selectedFolders.Add(wrapper.FolderNode.Path);
             }
         }
 
-        // TODO: Add Date and Tags tree selections when implemented
-
-        // If nothing selected or "Photo Library" root selected, show all
-        if (selectedPaths.Count == 0 || selectedPaths.Any(p => p.Length == 0))
+        // Collect selected date ranges (year/month)
+        var selectedYears = new List<int>();
+        var selectedMonths = new List<(int Year, int Month)>();
+        foreach (var node in DateTree.SelectedNodes)
         {
+            if (node.Content is DateNodeWrapper wrapper)
+            {
+                DebugLog.WriteLine($"  Date node selected: Year={wrapper.DateNode.Year}, Month={wrapper.DateNode.Month}, Count={wrapper.DateNode.Count}");
+                
+                if (wrapper.DateNode.Month.HasValue)
+                {
+                    // Specific month
+                    selectedMonths.Add((wrapper.DateNode.Year, wrapper.DateNode.Month.Value));
+                }
+                else
+                {
+                    // Whole year
+                    selectedYears.Add(wrapper.DateNode.Year);
+                }
+            }
+        }
+
+        // Collect selected tags
+        var selectedTags = new List<string>();
+        foreach (var node in TagsTree.SelectedNodes)
+        {
+            if (node.Content is TagNodeWrapper wrapper)
+            {
+                selectedTags.Add(wrapper.TagNode.Tag);
+            }
+        }
+
+        DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, Years={selectedYears.Count}, Months={selectedMonths.Count}, Tags={selectedTags.Count}");
+
+        // If nothing selected anywhere, clear filters to show empty grid
+        if (!photoLibraryRootSelected && selectedFolders.Count == 0 && selectedYears.Count == 0 && 
+            selectedMonths.Count == 0 && selectedTags.Count == 0)
+        {
+            DebugLog.WriteLine("  No selections - clearing filter");
             App.ViewModel.ImageGrid.ClearFilterCommand.Execute(null);
             return;
         }
 
-        // Filter by all selected paths (union)
-        _ = App.ViewModel.ImageGrid.FilterByFoldersAsync(selectedPaths);
+        // If Photo Library root is selected and nothing else, treat as "show all from all folders"
+        if (photoLibraryRootSelected && selectedFolders.Count == 0)
+        {
+            // Add all root folder paths
+            selectedFolders.AddRange(ViewModel?.RootFolders.Select(f => f.Path) ?? []);
+        }
+
+        // Apply multi-criteria filter
+        _ = App.ViewModel.ImageGrid.FilterByMultipleCriteriaAsync(
+            selectedFolders.Count > 0 ? selectedFolders : null,
+            selectedYears.Count > 0 ? selectedYears : null,
+            selectedMonths.Count > 0 ? selectedMonths : null,
+            selectedTags.Count > 0 ? selectedTags : null);
     }
 
     // Helper class to wrap FolderNode with display text for TreeView
@@ -204,5 +363,31 @@ public sealed partial class FolderNavigationPanel : UserControl
         }
 
         public override string ToString() => DisplayText;
+    }
+
+    // Helper class to wrap DateNode for TreeView
+    private class DateNodeWrapper
+    {
+        public DateNode DateNode { get; }
+
+        public DateNodeWrapper(DateNode dateNode)
+        {
+            DateNode = dateNode;
+        }
+
+        public override string ToString() => $"📅 {DateNode.DisplayName} ({DateNode.Count})";
+    }
+
+    // Helper class to wrap TagNode for TreeView
+    private class TagNodeWrapper
+    {
+        public TagNode TagNode { get; }
+
+        public TagNodeWrapper(TagNode tagNode)
+        {
+            TagNode = tagNode;
+        }
+
+        public override string ToString() => $"🏷️ {TagNode.Tag} ({TagNode.Count})";
     }
 }

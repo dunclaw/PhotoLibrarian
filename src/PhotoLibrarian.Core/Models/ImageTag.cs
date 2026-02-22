@@ -15,5 +15,6 @@ public enum TagSource
 {
     Manual,
     AutoML,
-    Imported
+    Imported,
+    Metadata  // Tags read from XMP/IPTC metadata
 }
