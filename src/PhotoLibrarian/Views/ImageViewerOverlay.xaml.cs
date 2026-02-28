@@ -1,14 +1,19 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Services;
 using System;
+using Windows.Foundation;
 
 namespace PhotoLibrarian.Views;
 
 public sealed partial class ImageViewerOverlay : UserControl
 {
     private ImageViewerViewModel? ViewModel => App.ViewModel?.ImageViewer;
+    private ImageZoomPanController? _zoomPan;
 
     public ImageViewerOverlay()
     {
@@ -18,8 +23,23 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (ViewModel is null) return;
+        DebugLog.WriteLine("ImageViewerOverlay: OnLoaded called");
+        
+        if (ViewModel is null)
+        {
+            DebugLog.WriteLine("ImageViewerOverlay: ViewModel is null");
+            return;
+        }
+        
+        _zoomPan = new ImageZoomPanController(ImageScrollViewer, ScrollContent, ImageHost, FullImage);
+        DebugLog.WriteLine("ImageViewerOverlay: ZoomPanController created");
+        
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        
+        // Wire up mouse wheel to root grid for capture (handles all wheel events including over ScrollViewer)
+        RootGrid.AddHandler(UIElement.PointerWheelChangedEvent,
+            new PointerEventHandler(OnPointerWheelChanged), true);
+        DebugLog.WriteLine("ImageViewerOverlay: Wheel handler attached to RootGrid");
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -36,9 +56,17 @@ public sealed partial class ImageViewerOverlay : UserControl
                     if (!ViewModel.IsOpen) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
-                    FullImage.Source = ViewModel.CurrentImage;
-                    // Wait for image to load, then calculate zoom to fit
+                    // Attach handler BEFORE setting source (in case image is cached and fires immediately)
                     FullImage.ImageOpened += OnImageOpened;
+                    FullImage.Source = ViewModel.CurrentImage;
+                    
+                    // If image is already loaded (cached), manually trigger setup
+                    if (ViewModel.CurrentImage is BitmapImage bmp && bmp.PixelWidth > 0)
+                    {
+                        DebugLog.WriteLine($"ImageViewerOverlay: Image already loaded, setting up manually");
+                        _zoomPan?.SetImageSize(bmp.PixelWidth, bmp.PixelHeight);
+                        _zoomPan?.ApplyBestFit();
+                    }
                     break;
                 case nameof(ImageViewerViewModel.IsVideo):
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
@@ -83,12 +111,19 @@ public sealed partial class ImageViewerOverlay : UserControl
         await (ViewModel?.NextImageCommand.ExecuteAsync(null) ?? Task.CompletedTask);
     private async void OnPrevious(object sender, RoutedEventArgs e) =>
         await (ViewModel?.PreviousImageCommand.ExecuteAsync(null) ?? Task.CompletedTask);
-    private void OnZoomIn(object sender, RoutedEventArgs e) => ViewModel?.ZoomInCommand.Execute(null);
-    private void OnZoomOut(object sender, RoutedEventArgs e) => ViewModel?.ZoomOutCommand.Execute(null);
+    private void OnZoomIn(object sender, RoutedEventArgs e)
+    {
+        _zoomPan?.ZoomIn();
+    }
+    
+    private void OnZoomOut(object sender, RoutedEventArgs e)
+    {
+        _zoomPan?.ZoomOut();
+    }
+    
     private void OnZoomFit(object sender, RoutedEventArgs e)
     {
-        ViewModel?.ZoomFitCommand.Execute(null);
-        ImageScrollViewer.ChangeView(0, 0, 1.0f);
+        _zoomPan?.ApplyBestFit();
     }
 
     private void OnImageOpened(object sender, RoutedEventArgs e)
@@ -96,56 +131,80 @@ public sealed partial class ImageViewerOverlay : UserControl
         // Unhook to avoid multiple firings
         FullImage.ImageOpened -= OnImageOpened;
 
-        // Calculate zoom factor to fit image in viewport
-        // With Stretch="Uniform", zoom 1.0 should already fit the image
-        // Set MinZoomFactor dynamically so user can't zoom out past fit
-        DispatcherQueue.TryEnqueue(() =>
+        DebugLog.WriteLine("ImageViewerOverlay: OnImageOpened called");
+
+        if (FullImage.Source is not BitmapImage bitmap)
         {
-            var imageWidth = FullImage.ActualWidth;
-            var imageHeight = FullImage.ActualHeight;
-            var viewportWidth = ImageScrollViewer.ViewportWidth;
-            var viewportHeight = ImageScrollViewer.ViewportHeight;
+            DebugLog.WriteLine("ImageViewerOverlay: Source is not BitmapImage");
+            return;
+        }
 
-            if (imageWidth > 0 && imageHeight > 0 && viewportWidth > 0 && viewportHeight > 0)
-            {
-                // Calculate zoom needed to fit image in viewport
-                var zoomToFitWidth = (float)(viewportWidth / imageWidth);
-                var zoomToFitHeight = (float)(viewportHeight / imageHeight);
-                var zoomToFit = Math.Min(zoomToFitWidth, zoomToFitHeight);
+        var width = bitmap.PixelWidth;
+        var height = bitmap.PixelHeight;
 
-                // Set MinZoomFactor to the fit zoom so user can't zoom out too far
-                ImageScrollViewer.MinZoomFactor = Math.Max(0.1f, zoomToFit * 0.95f);
+        if (width == 0 || height == 0)
+        {
+            DebugLog.WriteLine($"ImageViewer: Invalid image dimensions: {width}x{height}");
+            return;
+        }
 
-                // Start at fit zoom
-                ImageScrollViewer.ChangeView(0, 0, zoomToFit);
-            }
-            else
-            {
-                // Fallback if dimensions not available
-                ImageScrollViewer.MinZoomFactor = 0.1f;
-                ImageScrollViewer.ChangeView(0, 0, 1.0f);
-            }
-        });
+        DebugLog.WriteLine($"ImageViewer: Image opened: {width}x{height}, ScrollViewer size: {ImageScrollViewer.ActualWidth}x{ImageScrollViewer.ActualHeight}");
+        
+        if (_zoomPan is null)
+        {
+            DebugLog.WriteLine("ImageViewerOverlay: _zoomPan is null!");
+            return;
+        }
+        
+        _zoomPan.SetImageSize(width, height);
+        _zoomPan.ApplyBestFit();
+        DebugLog.WriteLine("ImageViewerOverlay: Applied best fit");
+    }
+
+    private void ImageScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        _zoomPan?.HandleSizeChanged(e.PreviousSize);
     }
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
-        // Handle mouse wheel for zooming instead of scrolling
-        var pointer = e.GetCurrentPoint(ImageScrollViewer);
-        var delta = pointer.Properties.MouseWheelDelta;
+        DebugLog.WriteLine($"ImageViewerOverlay: Wheel changed, delta={e.GetCurrentPoint(RootGrid).Properties.MouseWheelDelta}");
+        _zoomPan?.HandlePointerWheelChanged(e);
+    }
 
-        // Get current zoom factor
-        var currentZoom = ImageScrollViewer.ZoomFactor;
-        var zoomDelta = delta > 0 ? 1.1f : 0.9f;
-        var newZoom = currentZoom * zoomDelta;
+    private void ImageScrollViewer_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _zoomPan?.HandlePointerPressed(ImageScrollViewer, e);
+    }
 
-        // Clamp to min/max
-        newZoom = Math.Max(ImageScrollViewer.MinZoomFactor, Math.Min(ImageScrollViewer.MaxZoomFactor, newZoom));
+    private void ImageScrollViewer_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        _zoomPan?.HandlePointerMoved(ImageScrollViewer, e);
+    }
 
-        // Apply zoom centered on pointer position
-        ImageScrollViewer.ChangeView(null, null, newZoom);
-        
-        e.Handled = true;
+    private void ImageScrollViewer_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        _zoomPan?.HandlePointerReleased(ImageScrollViewer, e);
+    }
+
+    private void ImageScrollViewer_PointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        _zoomPan?.HandlePointerCanceled(ImageScrollViewer, e);
+    }
+
+    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        // Kept for backwards compatibility, but not used with new zoom controller
+    }
+
+    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        // Kept for backwards compatibility, but not used with new zoom controller
+    }
+
+    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        // Kept for backwards compatibility, but not used with new zoom controller
     }
 
     private async void OnKeyDown(object sender, KeyRoutedEventArgs e)
