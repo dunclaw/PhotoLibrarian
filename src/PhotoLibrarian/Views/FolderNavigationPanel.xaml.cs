@@ -75,25 +75,28 @@ public sealed partial class FolderNavigationPanel : UserControl
         {
             DateTree.RootNodes.Clear();
 
-            foreach (var yearNode in App.ViewModel.DateNav.YearNodes)
+            foreach (var rootNode in App.ViewModel.DateNav.RootNodes)
             {
-                var treeNode = new TreeViewNode
-                {
-                    Content = new DateNodeWrapper(yearNode),
-                    IsExpanded = false
-                };
-
-                foreach (var monthNode in yearNode.Children)
-                {
-                    treeNode.Children.Add(new TreeViewNode
-                    {
-                        Content = new DateNodeWrapper(monthNode)
-                    });
-                }
-
+                var treeNode = BuildDateNode(rootNode);
                 DateTree.RootNodes.Add(treeNode);
             }
         });
+    }
+
+    private TreeViewNode BuildDateNode(DateNode dateNode)
+    {
+        var treeNode = new TreeViewNode
+        {
+            Content = new DateNodeWrapper(dateNode),
+            IsExpanded = false
+        };
+
+        foreach (var child in dateNode.Children)
+        {
+            treeNode.Children.Add(BuildDateNode(child));
+        }
+
+        return treeNode;
     }
 
     private async Task RefreshTagsTreeAsync()
@@ -107,14 +110,29 @@ public sealed partial class FolderNavigationPanel : UserControl
         {
             TagsTree.RootNodes.Clear();
 
-            foreach (var tagNode in App.ViewModel.TagNav.Tags)
+            foreach (var tagNode in App.ViewModel.TagNav.RootTags)
             {
-                TagsTree.RootNodes.Add(new TreeViewNode
-                {
-                    Content = new TagNodeWrapper(tagNode)
-                });
+                var treeNode = BuildTagNode(tagNode);
+                TagsTree.RootNodes.Add(treeNode);
             }
         });
+    }
+
+    private static TreeViewNode BuildTagNode(TagNode tagNode)
+    {
+        var treeNode = new TreeViewNode
+        {
+            Content = new TagNodeWrapper(tagNode),
+            HasUnrealizedChildren = tagNode.Children.Count > 0
+        };
+
+        // Add children
+        foreach (var child in tagNode.Children)
+        {
+            treeNode.Children.Add(BuildTagNode(child));
+        }
+
+        return treeNode;
     }
 
     private static TreeViewNode BuildFolderNode(FolderNode folderNode, bool isRootFolder = false)
@@ -292,16 +310,22 @@ public sealed partial class FolderNavigationPanel : UserControl
             }
         }
 
-        // Collect selected date ranges (year/month)
+        // Collect selected date ranges (year/month/root)
         var selectedYears = new List<int>();
         var selectedMonths = new List<(int Year, int Month)>();
+        bool dateRootSelected = false;
         foreach (var node in DateTree.SelectedNodes)
         {
             if (node.Content is DateNodeWrapper wrapper)
             {
-                DebugLog.WriteLine($"  Date node selected: Year={wrapper.DateNode.Year}, Month={wrapper.DateNode.Month}, Count={wrapper.DateNode.Count}");
+                DebugLog.WriteLine($"  Date node selected: IsRoot={wrapper.DateNode.IsRoot}, Year={wrapper.DateNode.Year}, Month={wrapper.DateNode.Month}, Count={wrapper.DateNode.Count}");
                 
-                if (wrapper.DateNode.Month.HasValue)
+                if (wrapper.DateNode.IsRoot)
+                {
+                    // Root "Dates" node - show all dated images
+                    dateRootSelected = true;
+                }
+                else if (wrapper.DateNode.Month.HasValue)
                 {
                     // Specific month
                     selectedMonths.Add((wrapper.DateNode.Year, wrapper.DateNode.Month.Value));
@@ -316,18 +340,27 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         // Collect selected tags
         var selectedTags = new List<string>();
+        bool tagRootSelected = false;
         foreach (var node in TagsTree.SelectedNodes)
         {
             if (node.Content is TagNodeWrapper wrapper)
             {
-                selectedTags.Add(wrapper.TagNode.Tag);
+                if (wrapper.TagNode.IsRoot)
+                {
+                    // Root "Tags" node - show all tagged images
+                    tagRootSelected = true;
+                }
+                else
+                {
+                    selectedTags.Add(wrapper.TagNode.FullPath);
+                }
             }
         }
 
-        DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, Years={selectedYears.Count}, Months={selectedMonths.Count}, Tags={selectedTags.Count}");
+        DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, DateRoot={dateRootSelected}, Years={selectedYears.Count}, Months={selectedMonths.Count}, TagRoot={tagRootSelected}, Tags={selectedTags.Count}");
 
         // If nothing selected anywhere, clear filters to show empty grid
-        if (!photoLibraryRootSelected && selectedFolders.Count == 0 && selectedYears.Count == 0 && 
+        if (!photoLibraryRootSelected && !dateRootSelected && !tagRootSelected && selectedFolders.Count == 0 && selectedYears.Count == 0 && 
             selectedMonths.Count == 0 && selectedTags.Count == 0)
         {
             DebugLog.WriteLine("  No selections - clearing filter");
@@ -345,8 +378,10 @@ public sealed partial class FolderNavigationPanel : UserControl
         // Apply multi-criteria filter
         _ = App.ViewModel.ImageGrid.FilterByMultipleCriteriaAsync(
             selectedFolders.Count > 0 ? selectedFolders : null,
+            dateRootSelected,
             selectedYears.Count > 0 ? selectedYears : null,
             selectedMonths.Count > 0 ? selectedMonths : null,
+            tagRootSelected,
             selectedTags.Count > 0 ? selectedTags : null);
     }
 
@@ -375,7 +410,14 @@ public sealed partial class FolderNavigationPanel : UserControl
             DateNode = dateNode;
         }
 
-        public override string ToString() => $"📅 {DateNode.DisplayName} ({DateNode.Count})";
+        public override string ToString()
+        {
+            // Root node already has emoji in DisplayName, others need the calendar icon
+            if (DateNode.IsRoot)
+                return $"{DateNode.DisplayName} ({DateNode.Count})";
+            else
+                return $"📅 {DateNode.DisplayName} ({DateNode.Count})";
+        }
     }
 
     // Helper class to wrap TagNode for TreeView
@@ -388,6 +430,13 @@ public sealed partial class FolderNavigationPanel : UserControl
             TagNode = tagNode;
         }
 
-        public override string ToString() => $"🏷️ {TagNode.Tag} ({TagNode.Count})";
+        public override string ToString()
+        {
+            // Root node already has emoji in Name, others need the tag icon
+            if (TagNode.IsRoot)
+                return $"{TagNode.Name} ({TagNode.Count})";
+            else
+                return $"🏷️ {TagNode.Name} ({TagNode.Count})";
+        }
     }
 }

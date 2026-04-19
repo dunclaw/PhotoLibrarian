@@ -13,7 +13,7 @@ public partial class DateNavigationViewModel : ObservableObject
 {
     private readonly ImageRepository _imageRepo;
 
-    public ObservableCollection<DateNode> YearNodes { get; } = [];
+    public ObservableCollection<DateNode> RootNodes { get; } = [];
 
     public DateNavigationViewModel(ImageRepository imageRepo)
     {
@@ -22,13 +22,21 @@ public partial class DateNavigationViewModel : ObservableObject
 
     public async Task LoadDatesAsync()
     {
-        YearNodes.Clear();
+        RootNodes.Clear();
 
         // Get all images with DateTaken
         var images = await _imageRepo.GetAllAsync();
         var imagesWithDates = images.Where(i => i.DateTaken.HasValue).ToList();
 
         DebugLog.WriteLine($"DateNavigationViewModel.LoadDatesAsync: Total images={images.Count}, with dates={imagesWithDates.Count}");
+
+        // Create root "Dates" node
+        var rootNode = new DateNode
+        {
+            DisplayName = "📅 Dates",
+            Count = imagesWithDates.Count,
+            IsRoot = true
+        };
 
         // Group by year, then month
         var yearGroups = imagesWithDates
@@ -61,15 +69,17 @@ public partial class DateNavigationViewModel : ObservableObject
                 yearNode.Children.Add(monthNode);
             }
 
-            YearNodes.Add(yearNode);
+            rootNode.Children.Add(yearNode);
         }
+
+        RootNodes.Add(rootNode);
         
-        DebugLog.WriteLine($"  Built {YearNodes.Count} year nodes");
+        DebugLog.WriteLine($"  Built 1 root node with {rootNode.Children.Count} year nodes");
     }
 }
 
 /// <summary>
-/// Represents a node in the date hierarchy (Year or Month).
+/// Represents a node in the date hierarchy (Root, Year or Month).
 /// </summary>
 public class DateNode
 {
@@ -77,5 +87,6 @@ public class DateNode
     public int Year { get; set; }
     public int? Month { get; set; }
     public int Count { get; set; }
+    public bool IsRoot { get; set; }
     public ObservableCollection<DateNode> Children { get; } = [];
 }

@@ -14,6 +14,13 @@ public sealed class CacheDatabase : IDisposable
 
     public CacheDatabase(string databasePath)
     {
+        // Ensure parent directory exists
+        var directory = Path.GetDirectoryName(databasePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+        
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,

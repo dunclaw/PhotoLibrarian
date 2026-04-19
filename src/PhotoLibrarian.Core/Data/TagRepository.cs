@@ -18,16 +18,41 @@ public sealed class TagRepository
     public async Task AddTagAsync(ImageTag tag)
     {
         using var conn = _db.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT OR REPLACE INTO tags (image_id, tag, source, confidence)
-            VALUES ($id, $tag, $source, $conf)
-            """;
-        cmd.Parameters.AddWithValue("$id", tag.ImageId);
-        cmd.Parameters.AddWithValue("$tag", tag.Tag);
-        cmd.Parameters.AddWithValue("$source", (int)tag.Source);
-        cmd.Parameters.AddWithValue("$conf", tag.Confidence);
-        await cmd.ExecuteNonQueryAsync();
+        
+        // For hierarchical tags like "people/family/kids", insert all parent paths too
+        // This allows efficient index-based queries for parent tags
+        var tagsToInsert = new List<string>();
+        
+        if (tag.Tag.Contains('/'))
+        {
+            var parts = tag.Tag.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            string currentPath = "";
+            
+            foreach (var part in parts)
+            {
+                currentPath = string.IsNullOrEmpty(currentPath) ? part : $"{currentPath}/{part}";
+                tagsToInsert.Add(currentPath);
+            }
+        }
+        else
+        {
+            tagsToInsert.Add(tag.Tag);
+        }
+        
+        // Insert all tag paths (including parents)
+        foreach (var tagPath in tagsToInsert)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT OR REPLACE INTO tags (image_id, tag, source, confidence)
+                VALUES ($id, $tag, $source, $conf)
+                """;
+            cmd.Parameters.AddWithValue("$id", tag.ImageId);
+            cmd.Parameters.AddWithValue("$tag", tagPath);
+            cmd.Parameters.AddWithValue("$source", (int)tag.Source);
+            cmd.Parameters.AddWithValue("$conf", tag.Confidence);
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
 
     public async Task<List<ImageTag>> GetTagsAsync(long imageId)

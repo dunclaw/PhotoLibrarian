@@ -7,8 +7,13 @@
     Title="PhotoLibrarian">
 
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
         <!-- Main 3-panel layout -->
-        <Grid x:Name="MainLayout">
+        <Grid x:Name="MainLayout" Grid.Row="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="280" MinWidth="200" />
                 <ColumnDefinition Width="Auto" />
@@ -50,11 +55,11 @@
         </Grid>
 
         <!-- Overlay: Image Editor -->
-        <views:ImageEditorView x:Name="EditorOverlay"
+        <views:ImageEditorView x:Name="EditorOverlay" Grid.Row="0"
                                 Visibility="Collapsed" />
 
         <!-- Overlay: Settings Panel -->
-        <Border x:Name="SettingsOverlay" Visibility="Collapsed"
+        <Border x:Name="SettingsOverlay" Grid.Row="0" Visibility="Collapsed"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
             <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -68,8 +73,8 @@
             </Border>
         </Border>
 
-        <!-- Status bar at bottom -->
-        <Grid VerticalAlignment="Bottom" Padding="12,6"
+        <!-- Status bar -->
+        <Grid Grid.Row="1" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

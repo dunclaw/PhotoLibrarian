@@ -1,0 +1,26 @@
+<UserControl
+    x:Class="PhotoLibrarian.Controls.VirtualizingPhotoGrid"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <Grid>
+        <!-- ScrollViewer provides scrolling -->
+        <ScrollViewer x:Name="ScrollContainer"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Visible"
+                      ViewChanged="OnScrollViewChanged">
+            <Grid>
+                <!-- Transparent placeholder for total content height (enables scrollbar) -->
+                <Border x:Name="ContentPlaceholder" 
+                        Background="Transparent"
+                        Width="1"
+                        HorizontalAlignment="Left" />
+                
+                <!-- Canvas for absolute positioning of visible elements -->
+                <Canvas x:Name="ItemsCanvas" 
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Top" />
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

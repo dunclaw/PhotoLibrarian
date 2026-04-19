@@ -13,6 +13,8 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Description -->
@@ -59,5 +61,23 @@
                 <TextBlock Text="Add Folder" />
             </StackPanel>
         </Button>
+        
+        <!-- Separator -->
+        <Border Grid.Row="3" Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,12" />
+        
+        <!-- Database maintenance -->
+        <StackPanel Grid.Row="4" Spacing="8">
+            <TextBlock Text="Database Maintenance" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" Opacity="0.7"
+                       Text="Clear the database to rebuild the index with updated metadata or fix corruption. All photos will be re-scanned and re-indexed." />
+            <Button x:Name="ClearDatabaseBtn"
+                    Click="OnClearDatabaseClick"
+                    HorizontalAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE74D;" Foreground="{ThemeResource SystemErrorTextColor}" />
+                    <TextBlock Text="Clear Database and Re-Index" />
+                </StackPanel>
+            </Button>
+        </StackPanel>
     </Grid>
 </ContentDialog>

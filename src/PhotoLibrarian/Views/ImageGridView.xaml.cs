@@ -1,8 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.ViewModels;
+using System;
+using System.Collections.Generic;
 
 namespace PhotoLibrarian.Views;
 
@@ -20,121 +20,146 @@ public sealed partial class ImageGridView : UserControl
     {
         if (ViewModel is null) return;
 
-        ImageRepeater.ItemsSource = ViewModel.Images;
-        ViewModel.Images.CollectionChanged += OnImagesCollectionChanged;
+        System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] OnLoaded - Images.Count={ViewModel.Images.Count}, GroupedImages.Count={ViewModel.GroupedImages.Count}");
+
+        // Listen for viewport changes to request thumbnail loading
+        PhotoGrid.VisibleItemsChanged += OnVisibleItemsChanged;
+        
+        // Single click → select item and show metadata
+        PhotoGrid.ItemClicked += OnItemClicked;
+        
+        // Double click → open image viewer
+        PhotoGrid.ItemDoubleClicked += OnItemDoubleClicked;
+        
+        // Listen for GroupedImages changes and update grid
+        ViewModel.GroupedImages.CollectionChanged += (s, e) =>
+        {
+            System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] GroupedImages changed: Action={e.Action}, NewItemsCount={e.NewItems?.Count ?? 0}");
+            PhotoGrid.SetGroups(ViewModel.GroupedImages);
+        };
+        
+        // Wire up custom virtualization control with initial (possibly empty) collection
+        PhotoGrid.SetGroups(ViewModel.GroupedImages);
+        
+        // Hide empty state when images are loaded
+        ViewModel.Images.CollectionChanged += (s, e) =>
+        {
+            var shouldShow = ViewModel.Images.Count == 0;
+            System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] Images changed, EmptyState visibility={shouldShow}");
+            EmptyState.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
+        };
+        
         EmptyState.Visibility = ViewModel.Images.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
             
-        // Wire up scroll viewer for viewport detection
-        GridScrollViewer.ViewChanged += OnScrollViewChanged;
+        // Initialize UI controls to match ViewModel defaults
+        UpdateGroupByCombo();
+        UpdateSortByCombo();
+        UpdateSortOrderIcon();
     }
     
-    private void OnScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    private void OnVisibleItemsChanged(object? sender, List<ImageThumbnailViewModel> visibleItems)
     {
-        if (ViewModel is null || GridLayout is null) return;
-        if (ViewModel.Images.Count == 0) return;
-        
-        // Calculate which items are visible based on scroll position
-        var scrollOffset = GridScrollViewer.VerticalOffset;
-        var viewportHeight = GridScrollViewer.ViewportHeight;
-        
-        // Get layout info
-        var itemHeight = GridLayout.MinItemHeight + GridLayout.MinRowSpacing;
-        var itemWidth = GridLayout.MinItemWidth + GridLayout.MinColumnSpacing;
-        var availableWidth = GridScrollViewer.ActualWidth;
-        var columnsPerRow = Math.Max(1, (int)(availableWidth / itemWidth));
-        
-        // Calculate visible row range
-        var firstVisibleRow = (int)(scrollOffset / itemHeight);
-        var lastVisibleRow = (int)((scrollOffset + viewportHeight) / itemHeight) + 1; // +1 for partial row
-        
-        // Calculate visible item indices
-        var firstVisibleIndex = firstVisibleRow * columnsPerRow;
-        var lastVisibleIndex = Math.Min((lastVisibleRow * columnsPerRow) - 1, ViewModel.Images.Count - 1);
-        
-        // Notify ViewModel to reorder queue
-        ViewModel.OnViewportChanged(firstVisibleIndex, lastVisibleIndex);
+        // Request thumbnails for visible items
+        System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] OnVisibleItemsChanged: {visibleItems.Count} items");
+        ViewModel?.OnViewportChangedGrouped(visibleItems);
     }
-
-    private void OnImagesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+    
+    private void OnItemClicked(object? sender, ImageThumbnailViewModel vm)
+    {
+        if (ViewModel is null) return;
+        ViewModel.SelectedImage = vm;
+    }
+    
+    private void OnItemDoubleClicked(object? sender, ImageThumbnailViewModel vm)
+    {
+        if (ViewModel is null) return;
+        ViewModel.SelectedImage = vm;
+        ViewModel.OpenViewerCommand.Execute(null);
+    }
+    
+    // Group By / Sort handlers
+    private void OnGroupByChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ViewModel is null || GroupByCombo.SelectedItem is not ComboBoxItem item) return;
+        
+        if (Enum.TryParse<GroupByOption>(item.Tag?.ToString(), out var groupBy))
+        {
+            ViewModel.GroupBy = groupBy;
+        }
+    }
+    
+    private void OnSortByChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ViewModel is null || SortByCombo.SelectedItem is not ComboBoxItem item) return;
+        
+        if (Enum.TryParse<SortByOption>(item.Tag?.ToString(), out var sortBy))
+        {
+            ViewModel.SortBy = sortBy;
+        }
+    }
+    
+    private void OnToggleSortOrder(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null) return;
         
-        EmptyState.Visibility = ViewModel.Images.Count == 0
-            ? Visibility.Visible : Visibility.Collapsed;
-            
-        // Trigger initial viewport detection when images first populate
-        if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset ||
-            (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add && args.NewStartingIndex == 0))
+        ViewModel.SortDescending = !ViewModel.SortDescending;
+        UpdateSortOrderIcon();
+    }
+    
+    private void UpdateGroupByCombo()
+    {
+        if (ViewModel is null) return;
+        
+        var index = ViewModel.GroupBy switch
         {
-            // Delay slightly to let layout happen
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(50);
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() => OnScrollViewChanged(null, null!));
-            });
-        }
+            GroupByOption.None => 0,
+            GroupByOption.FileType => 1,
+            GroupByOption.MediaType => 2,
+            GroupByOption.YearTaken => 3,
+            GroupByOption.MonthTaken => 4,
+            GroupByOption.FileSize => 5,
+            GroupByOption.ImageSize => 6,
+            GroupByOption.Rating => 7,
+            GroupByOption.Camera => 8,
+            _ => 0
+        };
+        
+        GroupByCombo.SelectedIndex = index;
     }
-
-    private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
+    
+    private void UpdateSortByCombo()
     {
-        if (args.Element is not Grid grid) return;
-        if (grid.DataContext is not ImageThumbnailViewModel vm) return;
-
-        // Update properties not bound in XAML
-        var fileName = FindChild<TextBlock>(grid, "FileNameText");
-        var videoIcon = FindChild<FontIcon>(grid, "VideoIcon");
-
-        if (fileName is not null) fileName.Text = vm.FileName;
-        if (videoIcon is not null)
-            videoIcon.Visibility = vm.IsVideo ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void OnThumbnailTapped(object sender, TappedRoutedEventArgs e)
-    {
-        if (sender is Grid grid && grid.DataContext is ImageThumbnailViewModel vm && ViewModel is not null)
+        if (ViewModel is null) return;
+        
+        var index = ViewModel.SortBy switch
         {
-            ViewModel.SelectedImage = vm;
-        }
+            SortByOption.FileName => 0,
+            SortByOption.DateTaken => 1,
+            SortByOption.DateModified => 2,
+            SortByOption.FileSize => 3,
+            SortByOption.Rating => 4,
+            _ => 1
+        };
+        
+        SortByCombo.SelectedIndex = index;
     }
-
-    private void OnThumbnailDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    
+    private void UpdateSortOrderIcon()
     {
-        if (sender is Grid grid && grid.DataContext is ImageThumbnailViewModel vm && ViewModel is not null)
-        {
-            ViewModel.SelectedImage = vm;
-            ViewModel.OpenViewerCommand.Execute(null);
-        }
+        if (ViewModel is null) return;
+        
+        // &#xE014; = SortDown (descending), &#xE015; = SortUp (ascending)
+        SortOrderIcon.Glyph = ViewModel.SortDescending ? "\uE014" : "\uE015";
+        ToolTipService.SetToolTip(SortOrderBtn, 
+            ViewModel.SortDescending ? "Descending" : "Ascending");
     }
 
-    private void OnThumbnailPointerEntered(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is Grid grid)
-            grid.Opacity = 0.85;
-    }
-
-    private void OnThumbnailPointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is Grid grid)
-            grid.Opacity = 1.0;
-    }
-
-    private async void OnSortDate(object sender, RoutedEventArgs e) =>
-        await (ViewModel?.SortByDateCommand.ExecuteAsync(null) ?? Task.CompletedTask);
-
-    private async void OnSortName(object sender, RoutedEventArgs e) =>
-        await (ViewModel?.SortByNameCommand.ExecuteAsync(null) ?? Task.CompletedTask);
-
-    private async void OnSortRating(object sender, RoutedEventArgs e) =>
-        await (ViewModel?.SortByRatingCommand.ExecuteAsync(null) ?? Task.CompletedTask);
-
+    // Thumbnail size controls
     private void OnSizeSliderChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (GridLayout is not null)
-        {
-            GridLayout.MinItemWidth = e.NewValue;
-            GridLayout.MinItemHeight = e.NewValue;
-        }
+        if (PhotoGrid is null) return;
+        PhotoGrid.ItemSize = e.NewValue;
     }
 
     private void OnDecreaseSize(object sender, RoutedEventArgs e)
@@ -145,20 +170,5 @@ public sealed partial class ImageGridView : UserControl
     private void OnIncreaseSize(object sender, RoutedEventArgs e)
     {
         SizeSlider.Value = Math.Min(SizeSlider.Value + 40, 400);
-    }
-
-    private static T? FindChild<T>(DependencyObject parent, string name) where T : FrameworkElement
-    {
-        int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
-        for (int i = 0; i < count; i++)
-        {
-            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
-            if (child is T typed && typed.Name == name)
-                return typed;
-            var found = FindChild<T>(child, name);
-            if (found is not null)
-                return found;
-        }
-        return null;
     }
 }

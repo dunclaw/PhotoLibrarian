@@ -10,6 +10,48 @@ using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace PhotoLibrarian.ViewModels;
 
+/// <summary>
+/// Options for grouping photos in the grid
+/// </summary>
+public enum GroupByOption
+{
+    None,           // No grouping (flat list - current behavior)
+    FileType,       // Group by file extension: CR3, JPG, PNG, MP4, MOV, etc.
+    MediaType,      // Group by media type: Images, Videos
+    YearTaken,      // Group by year taken: 2024, 2023, etc.
+    MonthTaken,     // Group by month taken: January 2024, February 2024, etc.
+    FileSize,       // Group by file size: Large (>10MB), Medium (1-10MB), Small (<1MB)
+    ImageSize,      // Group by resolution: 4K+ (>8MP), Full HD (2-8MP), HD (<2MP)
+    Rating,         // Group by rating: 5 stars, 4 stars, Unrated, etc.
+    Camera          // Group by camera model: Canon EOS R5, Sony A7III, etc.
+}
+
+/// <summary>
+/// Options for sorting photos within groups
+/// </summary>
+public enum SortByOption
+{
+    FileName,       // Alphabetical by file name
+    DateTaken,      // Chronological by date taken (newest first by default)
+    DateModified,   // By file system modified date
+    FileSize,       // By file size (largest first by default)
+    Rating          // By rating (highest first)
+}
+
+/// <summary>
+/// Represents a group of photos with a header
+/// </summary>
+public partial class PhotoGroup : ObservableObject
+{
+    [ObservableProperty]
+    private string _header = string.Empty;
+    
+    [ObservableProperty]
+    private ObservableCollection<ImageThumbnailViewModel> _items = [];
+    
+    public int Count => Items.Count;
+}
+
 public partial class ImageGridViewModel : ObservableObject
 {
     private readonly ImageRepository _imageRepo;
@@ -17,23 +59,51 @@ public partial class ImageGridViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly MainViewModel _main;
     private List<string>? _currentFolderFilters; // Changed to support multiple folders
+    private bool _currentDateRootSelected; // Root "Dates" node selected (show all dated images)
     private List<int>? _currentYearFilters;
     private List<(int Year, int Month)>? _currentMonthFilters;
+    private bool _currentTagRootSelected; // Root "Tags" node selected (show all tagged images)
     private List<string>? _currentTagFilters;
     private string? _currentSortBy = "date_taken";
-    private bool _sortDescending = true;
     private CancellationTokenSource? _loadCts;
     
     // Queue management for viewport-aware loading
     private readonly Queue<ImageThumbnailViewModel> _loadQueue = new();
     private readonly HashSet<ImageThumbnailViewModel> _queuedItems = new();
     private readonly object _queueLock = new();
+    private DateTime _lastScrollReorder = DateTime.MinValue;
+    private const int ScrollReorderThrottleMs = 150; // Don't reorder more than every 150ms
     private Task? _backgroundLoadTask;
     
     // Limit concurrent thumbnail loading to prevent memory exhaustion
     internal static readonly SemaphoreSlim s_thumbnailLoadSemaphore = new(8, 8);
 
     public ObservableCollection<ImageThumbnailViewModel> Images { get; } = [];
+    public ObservableCollection<PhotoGroup> GroupedImages { get; } = [];
+
+    [ObservableProperty]
+    private GroupByOption _groupBy = GroupByOption.None;
+    
+    [ObservableProperty]
+    private SortByOption _sortBy = SortByOption.DateTaken;
+    
+    [ObservableProperty]
+    private bool _sortDescending = true;
+    
+    partial void OnGroupByChanged(GroupByOption value)
+    {
+        _ = ApplyGroupingAsync();
+    }
+    
+    partial void OnSortByChanged(SortByOption value)
+    {
+        _ = ApplyGroupingAsync();
+    }
+    
+    partial void OnSortDescendingChanged(bool value)
+    {
+        _ = ApplyGroupingAsync();
+    }
 
     [ObservableProperty]
     public partial ImageThumbnailViewModel? SelectedImage { get; set; }
@@ -99,7 +169,8 @@ public partial class ImageGridViewModel : ObservableObject
             _queuedItems.Clear();
         }
 
-        var images = await _imageRepo.GetAllAsync(_currentSortBy, _sortDescending);
+        // Get all images from DB (we'll filter to union of all criteria)
+        var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending);
         
         // Clear old images and dispose thumbnails to free memory
         foreach (var img in Images)
@@ -113,75 +184,108 @@ public partial class ImageGridViewModel : ObservableObject
         Images.Clear();
         
         // Hint to GC to collect disposed bitmaps
-        if (images.Count == 0) // Only if we'll be loading new ones
+        if (allImages.Count == 0) // Only if we'll be loading new ones
         {
             GC.Collect(0, GCCollectionMode.Optimized);
         }
 
+        // Check if any filters are active
+        bool hasFolderFilter = _currentFolderFilters is not null && _currentFolderFilters.Count > 0;
+        bool hasDateFilter = _currentDateRootSelected || 
+                            (_currentYearFilters is not null && _currentYearFilters.Count > 0) ||
+                            (_currentMonthFilters is not null && _currentMonthFilters.Count > 0);
+        bool hasTagFilter = _currentTagRootSelected || 
+                           (_currentTagFilters is not null && _currentTagFilters.Count > 0);
+
+        // If no filters active, show nothing
+        if (!hasFolderFilter && !hasDateFilter && !hasTagFilter)
+        {
+            DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
+            return;
+        }
+
+        // Pre-load tag data if tag filtering active
+        HashSet<long>? taggedImageIds = null;
+        if (hasTagFilter)
+        {
+            var taggedImages = await _imageRepo.GetFilteredAsync(_currentTagRootSelected, _currentTagFilters, _currentSortBy, SortDescending);
+            taggedImageIds = new HashSet<long>(taggedImages.Select(i => i.Id));
+            DebugLog.WriteLine($"LoadImagesAsync: Loaded {taggedImageIds.Count} images matching tag filters");
+        }
+
         // Prepare folder filters with separators for correct prefix matching
-        var filters = _currentFolderFilters?.Select(f => 
+        var folderFilters = _currentFolderFilters?.Select(f => 
             f.EndsWith(Path.DirectorySeparatorChar) ? f : f + Path.DirectorySeparatorChar
         ).ToList();
 
-        DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {images.Count}, FolderFilters: {(filters != null ? string.Join(", ", filters.Select(f => $"'{f}'")) : "null")}, YearFilters: {_currentYearFilters?.Count ?? 0}, MonthFilters: {_currentMonthFilters?.Count ?? 0}, TagFilters: {_currentTagFilters?.Count ?? 0}");
+        DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {allImages.Count}, FolderFilters: {folderFilters?.Count ?? 0}, DateFilters: {hasDateFilter}, TagFilters: {hasTagFilter}");
+        DebugLog.WriteLine($"  UNION logic: Show images matching ANY filter (folder OR date OR tag)");
 
         int matchCount = 0;
         int skipCount = 0;
-        foreach (var img in images)
+        int index = 0;
+        foreach (var img in allImages)
         {
-            // Apply folder filter
-            if (filters is not null && filters.Count > 0)
+            bool matchesAnyFilter = false;
+
+            // Check folder filter
+            if (hasFolderFilter && folderFilters is not null)
             {
-                bool matchesAnyFilter = filters.Any(f => 
+                bool matchesFolder = folderFilters.Any(f => 
                     img.FilePath.StartsWith(f, StringComparison.OrdinalIgnoreCase));
                 
-                if (!matchesAnyFilter)
+                if (matchesFolder)
                 {
-                    skipCount++;
-                    if (skipCount <= 2)
-                        DebugLog.WriteLine($"  Skipping '{img.FilePath}' (folder filter)");
-                    continue;
+                    matchesAnyFilter = true;
                 }
             }
 
-            // Apply date filters (year OR month - union logic)
-            if ((_currentYearFilters is not null && _currentYearFilters.Count > 0) ||
-                (_currentMonthFilters is not null && _currentMonthFilters.Count > 0))
+            // Check date filter
+            if (!matchesAnyFilter && hasDateFilter && img.DateTaken.HasValue)
             {
-                if (!img.DateTaken.HasValue)
+                if (_currentDateRootSelected)
                 {
-                    // No date taken - skip when date filters active
-                    skipCount++;
-                    continue;
+                    // Date root selected - matches all dated images
+                    matchesAnyFilter = true;
                 }
-
-                int year = img.DateTaken.Value.Year;
-                var yearMonth = (year, img.DateTaken.Value.Month);
-
-                // Image matches if it's in a selected year OR a selected month
-                bool matchesYear = _currentYearFilters?.Contains(year) ?? false;
-                bool matchesMonth = _currentMonthFilters?.Contains(yearMonth) ?? false;
-
-                if (!matchesYear && !matchesMonth)
+                else
                 {
-                    skipCount++;
-                    continue;
+                    // Check year/month filters
+                    int year = img.DateTaken.Value.Year;
+                    var yearMonth = (year, img.DateTaken.Value.Month);
+
+                    bool matchesYear = _currentYearFilters?.Contains(year) ?? false;
+                    bool matchesMonth = _currentMonthFilters?.Contains(yearMonth) ?? false;
+
+                    if (matchesYear || matchesMonth)
+                    {
+                        matchesAnyFilter = true;
+                    }
                 }
             }
 
-            // Apply tag filter (need to query tags for this image)
-            if (_currentTagFilters is not null && _currentTagFilters.Count > 0)
+            // Check tag filter
+            if (!matchesAnyFilter && hasTagFilter && taggedImageIds is not null)
             {
-                // TODO: This is inefficient - should use JOIN in SQL query
-                // For now, skip tag filtering in LoadImagesAsync
-                // Will need to refactor to build SQL WHERE clause dynamically
+                if (taggedImageIds.Contains(img.Id))
+                {
+                    matchesAnyFilter = true;
+                }
             }
 
-            matchCount++;
-            if (matchCount <= 3)
-                DebugLog.WriteLine($"  Including '{img.FilePath}'");
+            if (matchesAnyFilter)
+            {
+                matchCount++;
+                if (matchCount <= 3)
+                    DebugLog.WriteLine($"  Including '{img.FilePath}'");
 
-            Images.Add(new ImageThumbnailViewModel(img, ct));
+                Images.Add(new ImageThumbnailViewModel(img, ct) { Index = index });
+                index++;
+            }
+            else
+            {
+                skipCount++;
+            }
         }
         
         if (skipCount > 2)
@@ -201,13 +305,13 @@ public partial class ImageGridViewModel : ObservableObject
 
         // HYBRID APPROACH: Scan folders to find any missing/new files not in database
         // This ensures we show all images even if database is stale/incomplete
-        if (filters is not null && filters.Count > 0)
+        if (hasFolderFilter && folderFilters is not null)
         {
             // Get indexed file paths for quick lookup
             var indexedPaths = new HashSet<string>(Images.Select(i => i.Entry.FilePath), StringComparer.OrdinalIgnoreCase);
             var initialCount = Images.Count;
 
-            foreach (var filter in filters)
+            foreach (var filter in folderFilters)
             {
                 var folderPath = filter.TrimEnd(Path.DirectorySeparatorChar);
                 if (!Directory.Exists(folderPath)) continue;
@@ -236,6 +340,7 @@ public partial class ImageGridViewModel : ObservableObject
                     DebugLog.WriteLine($"LoadImagesAsync: Found {missingFiles.Count} files not in database for '{folderPath}', adding them...");
                     
                     // Create view models for missing files
+                    int currentIndex = Images.Count; // Continue from current count
                     foreach (var filePath in missingFiles)
                     {
                         if (ct.IsCancellationRequested) break;
@@ -251,9 +356,10 @@ public partial class ImageGridViewModel : ObservableObject
                             MediaType = FolderScannerService.IsVideoFile(filePath) ? MediaType.Video : MediaType.Image
                         };
                         
-                        var vm = new ImageThumbnailViewModel(entry, ct);
+                        var vm = new ImageThumbnailViewModel(entry, ct) { Index = currentIndex };
                         Images.Add(vm);
                         indexedPaths.Add(filePath); // Prevent duplicates across multiple filters
+                        currentIndex++;
                     }
                 }
             }
@@ -286,44 +392,115 @@ public partial class ImageGridViewModel : ObservableObject
         
         // Start background processing
         StartBackgroundLoadingIfNeeded();
+        
+        // Apply grouping to populate GroupedImages collection
+        // Use fire-and-forget pattern to avoid blocking
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ApplyGroupingAsync();
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"[ERROR] ApplyGroupingAsync failed: {ex.Message}");
+            }
+        });
+    }
+    
+    
+    /// <summary>
+    /// Called when viewport changes in grouped layout.
+    /// Reorders thumbnail loading queue to prioritize visible items.
+    /// </summary>
+    public void OnViewportChangedGrouped(List<ImageThumbnailViewModel> visibleItems)
+    {
+        // Throttle to avoid excessive reordering
+        var now = DateTime.UtcNow;
+        if ((now - _lastScrollReorder).TotalMilliseconds < ScrollReorderThrottleMs)
+            return;
+            
+        _lastScrollReorder = now;
+        
+        lock (_queueLock)
+        {
+            // Clear and rebuild queue: visible items first, then the rest
+            var oldQueue = new List<ImageThumbnailViewModel>(_loadQueue);
+            _loadQueue.Clear();
+            _queuedItems.Clear();
+            
+            // Add visible items first
+            int visibleCount = 0;
+            foreach (var item in visibleItems)
+            {
+                if (item.Thumbnail == null || item.IsLoading)
+                {
+                    _loadQueue.Enqueue(item);
+                    _queuedItems.Add(item);
+                    visibleCount++;
+                }
+            }
+            
+            // Add non-visible items
+            int nonVisibleCount = 0;
+            foreach (var group in GroupedImages)
+            {
+                foreach (var item in group.Items)
+                {
+                    if (!_queuedItems.Contains(item) && (item.Thumbnail == null || item.IsLoading))
+                    {
+                        _loadQueue.Enqueue(item);
+                        _queuedItems.Add(item);
+                        nonVisibleCount++;
+                    }
+                }
+            }
+            
+            DebugLog.WriteLine($"[VIEWPORT] Reordered queue: {visibleCount} visible, {nonVisibleCount} non-visible");
+        }
     }
     
     /// <summary>
     /// Called from view when scroll position changes. Reorders queue to prioritize visible items.
+    /// Now uses polling instead of events to avoid layout cycles.
     /// </summary>
     public void OnViewportChanged(int firstVisibleIndex, int lastVisibleIndex)
     {
+        // Throttle queue reordering to avoid excessive work
+        var timeSinceLastReorder = (DateTime.UtcNow - _lastScrollReorder).TotalMilliseconds;
+        if (timeSinceLastReorder < ScrollReorderThrottleMs)
+        {
+            return;
+        }
+        
+        _lastScrollReorder = DateTime.UtcNow;
+        
         lock (_queueLock)
         {
-            if (_loadQueue.Count == 0) return;
+            if (_queuedItems.Count == 0) return;
             
-            // Find items in visible range that haven't loaded yet
+            // Reorder queue: visible items first, rest stay in order
+            // Use vm.Index to avoid accessing ObservableCollection
             var visibleItems = new List<ImageThumbnailViewModel>();
-            for (int i = firstVisibleIndex; i <= lastVisibleIndex && i < Images.Count; i++)
+            var nonVisibleItems = new List<ImageThumbnailViewModel>();
+            
+            foreach (var item in _loadQueue)
             {
-                var vm = Images[i];
-                if (vm.Thumbnail == null && _queuedItems.Contains(vm))
+                if (item.Index >= firstVisibleIndex && item.Index <= lastVisibleIndex)
                 {
-                    visibleItems.Add(vm);
+                    visibleItems.Add(item);
+                }
+                else
+                {
+                    nonVisibleItems.Add(item);
                 }
             }
             
-            if (visibleItems.Count == 0) return;
-            
-            // Rebuild queue: visible items first, then everything else
-            var remaining = _loadQueue.Where(vm => !visibleItems.Contains(vm)).ToList();
             _loadQueue.Clear();
+            foreach (var item in visibleItems) _loadQueue.Enqueue(item);
+            foreach (var item in nonVisibleItems) _loadQueue.Enqueue(item);
             
-            foreach (var vm in visibleItems)
-            {
-                _loadQueue.Enqueue(vm);
-            }
-            foreach (var vm in remaining)
-            {
-                _loadQueue.Enqueue(vm);
-            }
-            
-            DebugLog.WriteLine($"[VIEWPORT] Reordered queue: {visibleItems.Count} visible items moved to front");
+            DebugLog.WriteLine($"[VIEWPORT] Reordered queue: {visibleItems.Count} visible, {nonVisibleItems.Count} non-visible");
         }
     }
     
@@ -341,14 +518,23 @@ public partial class ImageGridViewModel : ObservableObject
                 ImageThumbnailViewModel? vm = null;
                 lock (_queueLock)
                 {
-                    if (_loadQueue.Count == 0) break;
+                    if (_loadQueue.Count == 0)
+                    {
+                        DebugLog.WriteLine($"[QUEUE] Queue empty, exiting");
+                        break;
+                    }
                     vm = _loadQueue.Dequeue();
                     _queuedItems.Remove(vm);
+                    DebugLog.WriteLine($"[QUEUE] Dequeued item: {vm?.Entry?.FileName ?? "null"}, Thumbnail={vm?.Thumbnail != null}, IsLoading={vm?.IsLoading}");
                 }
                 
                 if (vm != null && vm.Thumbnail == null)
                 {
                     await LoadSingleThumbnailAsync(vm, ct);
+                }
+                else if (vm != null)
+                {
+                    DebugLog.WriteLine($"[QUEUE] Skipping {vm.Entry?.FileName}: Thumbnail already set");
                 }
             }
             
@@ -360,57 +546,61 @@ public partial class ImageGridViewModel : ObservableObject
     {
         try
         {
+            DebugLog.WriteLine($"[LOAD] Loading thumbnail for {vm.Entry.FileName}");
             await s_thumbnailLoadSemaphore.WaitAsync(ct);
             try
             {
                 // Check if we're shutting down
-                if (ct.IsCancellationRequested) return;
+                if (ct.IsCancellationRequested)
+                {
+                    DebugLog.WriteLine($"[LOAD] Cancelled for {vm.Entry.FileName}");
+                    return;
+                }
                 
                 // Load thumbnail stream on background thread
                 var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                DebugLog.WriteLine($"[LOAD] Got {streamBytes?.Length ?? 0} bytes for {vm.Entry.FileName}");
+                
                 if (streamBytes != null && !ct.IsCancellationRequested)
                 {
-                    // Check if MainWindow is still available (may be null during shutdown)
+                    // Marshal to UI thread to create BitmapImage
                     if (App.MainWindow?.DispatcherQueue == null)
                     {
+                        DebugLog.WriteLine($"[LOAD] No dispatcher queue for {vm.Entry.FileName}");
                         vm.IsLoading = false;
                         return;
                     }
                     
-                    // Marshal to UI thread to create BitmapImage
                     var tcs = new TaskCompletionSource<bool>();
-                    
-                    var enqueued = App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                    App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
                     {
                         try
                         {
-                            // Double-check we're not shutting down
-                            if (ct.IsCancellationRequested)
+                            if (!ct.IsCancellationRequested)
                             {
-                                tcs.SetResult(false);
-                                return;
+                                DebugLog.WriteLine($"[LOAD] Creating BitmapImage for {vm.Entry.FileName}");
+                                // Create BitmapImage on UI thread
+                                var bitmapImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                                using (var stream = new MemoryStream(streamBytes))
+                                {
+                                    await bitmapImage.SetSourceAsync(stream.AsRandomAccessStream());
+                                }
+                                
+                                DebugLog.WriteLine($"[LOAD] Setting Thumbnail directly for {vm.Entry.FileName}");
+                                // Apply directly - no buffer/flush needed with custom virtualization
+                                vm.Thumbnail = bitmapImage;
+                                vm.IsLoading = false;
                             }
-                            
-                            await vm.LoadThumbnailFromStreamAsync(streamBytes);
                             tcs.SetResult(true);
                         }
                         catch (Exception ex)
                         {
-                            DebugLog.WriteLine($"[ERROR] LoadThumbnailFromStreamAsync failed for {vm.FileName}: {ex.Message}");
+                            DebugLog.WriteLine($"[ERROR] Failed to load thumbnail: {ex.Message}");
                             vm.IsLoading = false;
                             tcs.SetResult(false);
                         }
                     });
-                    
-                    // If enqueue failed (shutdown?), don't wait
-                    if (enqueued)
-                    {
-                        await tcs.Task;
-                    }
-                    else
-                    {
-                        vm.IsLoading = false;
-                    }
+                    await tcs.Task;
                 }
                 else
                 {
@@ -475,6 +665,7 @@ public partial class ImageGridViewModel : ObservableObject
             // Step 1: Create placeholder view models immediately and add to UI
             var placeholderSw = System.Diagnostics.Stopwatch.StartNew();
             var viewModels = new List<ImageThumbnailViewModel>();
+            int index = 0;
             foreach (var filePath in files)
             {
                 if (ct.IsCancellationRequested) break;
@@ -490,9 +681,10 @@ public partial class ImageGridViewModel : ObservableObject
                     MediaType = FolderScannerService.IsVideoFile(filePath) ? MediaType.Video : MediaType.Image
                 };
                 
-                var vm = new ImageThumbnailViewModel(entry, ct);
+                var vm = new ImageThumbnailViewModel(entry, ct) { Index = index };
                 viewModels.Add(vm);
                 Images.Add(vm); // Add immediately to show spinner
+                index++;
             }
             DebugLog.WriteLine($"[PERF] Added {viewModels.Count} placeholders to UI: {placeholderSw.ElapsedMilliseconds}ms");
             
@@ -648,8 +840,10 @@ public partial class ImageGridViewModel : ObservableObject
 
     public async Task FilterByMultipleCriteriaAsync(
         List<string>? folderPaths,
+        bool dateRootSelected,
         List<int>? years,
         List<(int Year, int Month)>? months,
+        bool tagRootSelected,
         List<string>? tags)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -659,20 +853,258 @@ public partial class ImageGridViewModel : ObservableObject
         _main.PauseBackgroundIndexing();
         
         _currentFolderFilters = folderPaths;
+        _currentDateRootSelected = dateRootSelected;
         _currentYearFilters = years;
         _currentMonthFilters = months;
+        _currentTagRootSelected = tagRootSelected;
         _currentTagFilters = tags;
         
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
         await LoadImagesAsync();
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: LoadImagesAsync complete, Images.Count={Images.Count}");
+        
+        // Apply grouping if enabled (async to avoid UI blocking)
+        await ApplyGroupingAsync();
+        
+        // Update empty state visibility
+        if (App.MainWindow?.DispatcherQueue != null)
+        {
+            App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+            {
+                // EmptyState visibility handled in view
+            });
+        }
+    }
+    
+    /// <summary>
+    /// Groups the Images collection into GroupedImages based on the current GroupBy setting.
+    /// Sorts items within each group based on SortBy setting.
+    /// Runs on background thread to avoid UI blocking with large collections.
+    /// </summary>
+    private async Task ApplyGroupingAsync()
+    {
+        var currentGroupBy = GroupBy;
+        var currentSortBy = SortBy;
+        var currentSortDesc = SortDescending;
+        var imageCount = Images.Count;
+        
+        DebugLog.WriteLine($"[GROUPING] ApplyGroupingAsync called, GroupBy={currentGroupBy}, Images.Count={imageCount}");
+        
+        if (imageCount == 0)
+        {
+            if (App.MainWindow?.DispatcherQueue != null)
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+                {
+                    GroupedImages.Clear();
+                    tcs.SetResult(true);
+                });
+                await tcs.Task;
+            }
+            DebugLog.WriteLine($"[GROUPING] No images to group");
+            return;
+        }
+        
+        // Do expensive grouping/sorting on background thread
+        var groups = await Task.Run(() =>
+        {
+            try
+            {
+                // Take snapshot of Images collection
+                var imageSnapshot = Images.ToList();
+                
+                if (currentGroupBy == GroupByOption.None)
+                {
+                    // No grouping - single flat group
+                    return new List<PhotoGroup>
+                    {
+                        new PhotoGroup
+                        {
+                            Header = $"All Photos ({imageSnapshot.Count:N0})",
+                            Items = new ObservableCollection<ImageThumbnailViewModel>(imageSnapshot)
+                        }
+                    };
+                }
+                
+                // Group images based on GroupBy option
+                var groupedData = currentGroupBy switch
+                {
+                    GroupByOption.FileType => GroupByFileType(imageSnapshot),
+                    GroupByOption.MediaType => GroupByMediaType(imageSnapshot),
+                    GroupByOption.YearTaken => GroupByYearTaken(imageSnapshot),
+                    GroupByOption.MonthTaken => GroupByMonthTaken(imageSnapshot),
+                    GroupByOption.FileSize => GroupByFileSize(imageSnapshot),
+                    GroupByOption.ImageSize => GroupByImageSize(imageSnapshot),
+                    GroupByOption.Rating => GroupByRating(imageSnapshot),
+                    GroupByOption.Camera => GroupByCamera(imageSnapshot),
+                    _ => new List<(string header, List<ImageThumbnailViewModel> items)>()
+                };
+                
+                // Sort items within each group and create PhotoGroup objects
+                var result = new List<PhotoGroup>();
+                foreach (var group in groupedData)
+                {
+                    var sortedItems = ApplySortToGroup(group.items, currentSortBy, currentSortDesc);
+                    result.Add(new PhotoGroup
+                    {
+                        Header = $"{group.header} ({group.items.Count:N0})",
+                        Items = new ObservableCollection<ImageThumbnailViewModel>(sortedItems)
+                    });
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"[GROUPING] Error: {ex.Message}");
+                return new List<PhotoGroup>();
+            }
+        });
+        
+        // Update UI on main thread
+        if (App.MainWindow?.DispatcherQueue != null)
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    GroupedImages.Clear();
+                    foreach (var group in groups)
+                    {
+                        GroupedImages.Add(group);
+                    }
+                    DebugLog.WriteLine($"[GROUPING] Added {GroupedImages.Count} groups to UI");
+                    tcs.SetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.WriteLine($"[GROUPING] Error updating UI: {ex.Message}");
+                    tcs.SetException(ex);
+                }
+            });
+            await tcs.Task;
+        }
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByFileType(List<ImageThumbnailViewModel> items)
+    {
+        return Images
+            .GroupBy(vm => Path.GetExtension(vm.Entry.FilePath).ToUpperInvariant())
+            .OrderBy(g => g.Key)
+            .Select(g => (g.Key.TrimStart('.') + " Files", g.ToList()))
+            .ToList();
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByMediaType(List<ImageThumbnailViewModel> items)
+    {
+        return items
+            .GroupBy(vm => vm.Entry.MediaType)
+            .OrderBy(g => g.Key)
+            .Select(g => (g.Key == MediaType.Video ? "Videos" : "Images", g.ToList()))
+            .ToList();
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByYearTaken(List<ImageThumbnailViewModel> items)
+    {
+        return items
+            .GroupBy(vm => vm.Entry.DateTaken?.Year ?? 0)
+            .OrderByDescending(g => g.Key)
+            .Select(g => (g.Key == 0 ? "Unknown Date" : g.Key.ToString(), g.ToList()))
+            .ToList();
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByMonthTaken(List<ImageThumbnailViewModel> items)
+    {
+        return items
+            .GroupBy(vm => vm.Entry.DateTaken != null 
+                ? new DateTime(vm.Entry.DateTaken.Value.Year, vm.Entry.DateTaken.Value.Month, 1)
+                : DateTime.MinValue)
+            .OrderByDescending(g => g.Key)
+            .Select(g => (g.Key == DateTime.MinValue ? "Unknown Date" : g.Key.ToString("MMMM yyyy"), g.ToList()))
+            .ToList();
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByFileSize(List<ImageThumbnailViewModel> items)
+    {
+        return items
+            .GroupBy(vm =>
+            {
+                var sizeMB = vm.Entry.FileSize / (1024.0 * 1024.0);
+                return sizeMB switch
+                {
+                    > 10 => (0, "Large (>10 MB)"),
+                    > 1 => (1, "Medium (1-10 MB)"),
+                    _ => (2, "Small (<1 MB)")
+                };
+            })
+            .OrderBy(g => g.Key.Item1)
+            .Select(g => (g.Key.Item2, g.ToList()))
+            .ToList();
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByImageSize(List<ImageThumbnailViewModel> items)
+    {
+        return items
+            .GroupBy(vm =>
+            {
+                var megapixels = (vm.Entry.Width * vm.Entry.Height) / 1_000_000.0;
+                return megapixels switch
+                {
+                    > 8 => (0, "4K+ (>8 MP)"),
+                    > 2 => (1, "Full HD (2-8 MP)"),
+                    _ => (2, "HD (<2 MP)")
+                };
+            })
+            .OrderBy(g => g.Key.Item1)
+            .Select(g => (g.Key.Item2, g.ToList()))
+            .ToList();
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByRating(List<ImageThumbnailViewModel> items)
+    {
+        return items
+            .GroupBy(vm => vm.Entry.Rating ?? 0)
+            .OrderByDescending(g => g.Key)
+            .Select(g => (g.Key == 0 ? "Unrated" : $"{g.Key} Stars", g.ToList()))
+            .ToList();
+    }
+    
+    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByCamera(List<ImageThumbnailViewModel> items)
+    {
+        return items
+            .GroupBy(vm => string.IsNullOrWhiteSpace(vm.Entry.CameraModel) 
+                ? "Unknown Camera" 
+                : vm.Entry.CameraModel)
+            .OrderBy(g => g.Key)
+            .Select(g => (g.Key, g.ToList()))
+            .ToList();
+    }
+    
+    private List<ImageThumbnailViewModel> ApplySortToGroup(List<ImageThumbnailViewModel> items, SortByOption sortBy, bool sortDescending)
+    {
+        var sorted = sortBy switch
+        {
+            SortByOption.FileName => items.OrderBy(vm => vm.Entry.FileName),
+            SortByOption.DateTaken => items.OrderBy(vm => vm.Entry.DateTaken ?? DateTime.MaxValue),
+            SortByOption.DateModified => items.OrderBy(vm => vm.Entry.DateModified),
+            SortByOption.FileSize => items.OrderBy(vm => vm.Entry.FileSize),
+            SortByOption.Rating => items.OrderBy(vm => vm.Entry.Rating ?? 0),
+            _ => items.AsEnumerable()
+        };
+        
+        if (sortDescending)
+            sorted = sorted.Reverse();
+            
+        return sorted.ToList();
     }
 
     [RelayCommand]
     private async Task SortByDateAsync()
     {
         _currentSortBy = "date_taken";
-        _sortDescending = true;
+        SortDescending = true;
         SortField = "Date Taken";
         await LoadImagesAsync();
     }
@@ -681,7 +1113,7 @@ public partial class ImageGridViewModel : ObservableObject
     private async Task SortByNameAsync()
     {
         _currentSortBy = "file_name";
-        _sortDescending = false;
+        SortDescending = false;
         SortField = "Name";
         await LoadImagesAsync();
     }
@@ -690,7 +1122,7 @@ public partial class ImageGridViewModel : ObservableObject
     private async Task SortByRatingAsync()
     {
         _currentSortBy = "rating";
-        _sortDescending = true;
+        SortDescending = true;
         SortField = "Rating";
         await LoadImagesAsync();
     }
@@ -699,8 +1131,10 @@ public partial class ImageGridViewModel : ObservableObject
     private async Task ClearFilter()
     {
         _currentFolderFilters = null;
+        _currentDateRootSelected = false;
         _currentYearFilters = null;
         _currentMonthFilters = null;
+        _currentTagRootSelected = false;
         _currentTagFilters = null;
         Images.Clear();
         // Don't set status text here - let MainViewModel handle it
@@ -742,6 +1176,12 @@ public partial class ImageThumbnailViewModel : ObservableObject
     private bool _thumbnailLoaded;
 
     public ImageEntry Entry { get; }
+    
+    /// <summary>
+    /// Current index in the Images collection. Updated when items are added/removed.
+    /// Used for viewport-aware loading without touching ObservableCollection during scroll.
+    /// </summary>
+    public int Index { get; set; }
 
     [ObservableProperty]
     public partial Microsoft.UI.Xaml.Media.ImageSource? Thumbnail { get; set; }
@@ -753,13 +1193,14 @@ public partial class ImageThumbnailViewModel : ObservableObject
     public string DateDisplay => Entry.DateTaken?.ToString("MMM d, yyyy") ?? "";
     public int? Rating => Entry.Rating;
     public bool IsVideo => Entry.MediaType == MediaType.Video;
+    public Microsoft.UI.Xaml.Visibility VideoIconVisibility => IsVideo ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public ImageThumbnailViewModel(ImageEntry entry, CancellationToken cancellationToken = default)
     {
         Entry = entry;
         _cancellationToken = cancellationToken;
 
-        IsLoading = true;
+        IsLoading = true; // This initial set is OK (happens before binding)
     }
 
     /// <summary>

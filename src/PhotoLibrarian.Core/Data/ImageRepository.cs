@@ -98,6 +98,65 @@ public sealed class ImageRepository
         return results;
     }
 
+    public async Task<List<ImageEntry>> GetFilteredAsync(
+        bool tagRootSelected,
+        List<string>? tagFilters,
+        string? orderBy = "date_taken",
+        bool descending = true)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        var dir = descending ? "DESC" : "ASC";
+        var validColumns = new HashSet<string> { "date_taken", "file_name", "date_modified", "rating", "file_size" };
+        var col = validColumns.Contains(orderBy ?? "") ? orderBy : "date_taken";
+
+        // Build WHERE clause for tag filtering
+        if (tagRootSelected || (tagFilters is not null && tagFilters.Count > 0))
+        {
+            if (tagRootSelected)
+            {
+                // Show all images that have ANY tag
+                cmd.CommandText = $@"
+                    SELECT DISTINCT i.* FROM images i
+                    INNER JOIN tags t ON i.id = t.image_id
+                    ORDER BY i.{col} {dir}";
+            }
+            else
+            {
+                // Show images that have any of the selected tags (OR logic)
+                // Because we store all parent paths, we can use simple equality (uses index!)
+                // Example: Selecting "people/family" will match images with that exact tag entry,
+                // which was inserted for images tagged with "people/family/kids" and its parents
+                var conditions = new List<string>();
+                for (int i = 0; i < tagFilters!.Count; i++)
+                {
+                    conditions.Add($"t.tag = $tag{i}");
+                    cmd.Parameters.AddWithValue($"$tag{i}", tagFilters[i]);
+                }
+
+                var whereClause = string.Join(" OR ", conditions);
+                cmd.CommandText = $@"
+                    SELECT DISTINCT i.* FROM images i
+                    INNER JOIN tags t ON i.id = t.image_id
+                    WHERE {whereClause}
+                    ORDER BY i.{col} {dir}";
+            }
+        }
+        else
+        {
+            // No tag filtering
+            cmd.CommandText = $"SELECT * FROM images ORDER BY {col} {dir}";
+        }
+
+        var results = new List<ImageEntry>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(ReadImageEntry(reader));
+        }
+        return results;
+    }
+
     public async Task<int> GetCountAsync()
     {
         using var conn = _db.CreateConnection();
@@ -113,6 +172,16 @@ public sealed class ImageRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM images WHERE file_path = $path";
         cmd.Parameters.AddWithValue("$path", filePath);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateRatingAsync(long imageId, int? rating)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET rating = $rating WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$rating", (object?)rating ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -144,5 +213,55 @@ public sealed class ImageRepository
             MediaType = (MediaType)reader.GetInt32(reader.GetOrdinal("media_type")),
             VideoDuration = reader.IsDBNull(reader.GetOrdinal("video_duration")) ? null : reader.GetDouble(reader.GetOrdinal("video_duration"))
         };
+    }
+
+    public async Task<List<string>> GetImageTagsAsync(long imageId)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT tag FROM tags WHERE image_id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+
+        var tags = new List<string>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            tags.Add(reader.GetString(0));
+        }
+        return tags;
+    }
+
+    public async Task<Dictionary<long, List<string>>> GetImageTagsForMultipleAsync(List<long> imageIds)
+    {
+        var result = new Dictionary<long, List<string>>();
+        
+        if (imageIds.Count == 0)
+            return result;
+
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        
+        // Build query with IN clause
+        var placeholders = string.Join(",", imageIds.Select((_, i) => $"$id{i}"));
+        cmd.CommandText = $"SELECT image_id, tag FROM tags WHERE image_id IN ({placeholders})";
+        
+        for (int i = 0; i < imageIds.Count; i++)
+        {
+            cmd.Parameters.AddWithValue($"$id{i}", imageIds[i]);
+        }
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var imageId = reader.GetInt64(0);
+            var tag = reader.GetString(1);
+            
+            if (!result.ContainsKey(imageId))
+                result[imageId] = new List<string>();
+            
+            result[imageId].Add(tag);
+        }
+        
+        return result;
     }
 }

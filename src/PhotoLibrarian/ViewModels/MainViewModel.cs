@@ -61,6 +61,7 @@ public partial class MainViewModel : ObservableObject
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
+        MetadataPanel.Initialize(imageRepo, tagRepo);
         Settings = new SettingsViewModel(db);
 
         _indexingService.Progress += OnIndexingProgress;
