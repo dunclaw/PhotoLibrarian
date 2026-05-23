@@ -49,6 +49,14 @@
 
                 <!-- ═══ Row 0: Editable sections ═══ -->
                 <StackPanel Grid.Row="0" Spacing="0">
+                    <!-- Multi-select header (visible only with multi) -->
+                    <Border x:Name="MultiSelectBanner" Visibility="Collapsed"
+                            Background="{ThemeResource AccentFillColorTertiaryBrush}"
+                            Padding="8,6" CornerRadius="4" Margin="0,8,0,0">
+                        <TextBlock x:Name="MultiSelectText"
+                                   FontWeight="SemiBold" FontSize="13" />
+                    </Border>
+
                     <TextBlock Text="People tags" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBlock Text="Add people tags" Style="{StaticResource PlaceholderStyle}" Margin="0,2,0,0" />
 
@@ -64,6 +72,11 @@
                              MaxHeight="120"
                              Margin="0,4,0,0"
                              LostFocus="OnCaptionLostFocus" />
+                    <TextBlock x:Name="CaptionMixedHint" Visibility="Collapsed"
+                               Text="Multiple captions — typing here replaces all"
+                               FontStyle="Italic" FontSize="11"
+                               Foreground="{ThemeResource SystemAccentColorLight2}"
+                               Margin="0,2,0,0" />
 
                     <TextBlock Text="Descriptive tags" Style="{StaticResource SectionHeaderStyle}" />
                     <ItemsRepeater x:Name="TagsList" Margin="0,4,0,0">
@@ -71,19 +84,24 @@
                             <StackLayout Orientation="Vertical" Spacing="2" />
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="x:String">
+                            <DataTemplate>
                                 <Grid ColumnSpacing="4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{x:Bind}" FontSize="13"
+                                    <TextBlock Grid.Column="0" Text="{Binding Tag}" FontSize="13"
                                                VerticalAlignment="Center" />
-                                    <Button Grid.Column="1" Padding="4,2"
+                                    <TextBlock Grid.Column="1" Text="{Binding CountDisplay}"
+                                               FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               VerticalAlignment="Center" Margin="4,0,0,0" />
+                                    <Button Grid.Column="2" Padding="4,2"
                                             Background="Transparent" BorderThickness="0"
                                             Click="OnRemoveTagClick"
-                                            Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="Remove tag">
+                                            Tag="{Binding Tag}"
+                                            ToolTipService.ToolTip="Remove tag from all selected">
                                         <FontIcon Glyph="&#xE10A;" FontSize="10" />
                                     </Button>
                                 </Grid>
@@ -100,10 +118,119 @@
                                  KeyDown="OnNewTagKeyDown"
                                  FontSize="13" />
                         <Button Grid.Column="1" Click="OnAddTagClick" Padding="6,4"
-                                ToolTipService.ToolTip="Add tag">
+                                ToolTipService.ToolTip="Add tag to all selected">
                             <FontIcon Glyph="&#xE109;" FontSize="12" />
                         </Button>
                     </Grid>
+
+                    <!-- Date taken — compact inline editor matching Photo Gallery -->
+                    <StackPanel x:Name="DateEditPanel" Spacing="2" Margin="0,10,0,0">
+                        <StackPanel x:Name="DateAbsoluteMode" Spacing="2">
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="80" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Date taken:"
+                                           Style="{StaticResource InfoLabelStyle}"
+                                           Width="Auto" />
+                                <TextBox x:Name="DateTakenBox" Grid.Column="1"
+                                         PlaceholderText="M/d/yyyy h:mm tt"
+                                         FontSize="13"
+                                         VerticalAlignment="Center"
+                                         LostFocus="OnDateTakenBoxLostFocus"
+                                         KeyDown="OnDateTakenBoxKeyDown" />
+                                <Button Grid.Column="2" x:Name="DatePickerBtn"
+                                        Padding="6,4"
+                                        VerticalAlignment="Center"
+                                        ToolTipService.ToolTip="Pick from calendar">
+                                    <FontIcon Glyph="&#xE787;" FontSize="12" />
+                                    <Button.Flyout>
+                                        <Flyout>
+                                            <StackPanel Spacing="8" Width="280">
+                                                <CalendarDatePicker x:Name="DatePopupCal"
+                                                                    PlaceholderText="Choose date"
+                                                                    HorizontalAlignment="Stretch" />
+                                                <TimePicker x:Name="DatePopupTime"
+                                                            ClockIdentifier="12HourClock"
+                                                            HorizontalAlignment="Stretch" />
+                                                <Button Content="Apply"
+                                                        Click="OnApplyDatePopupClick"
+                                                        HorizontalAlignment="Stretch" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </Grid>
+                            <TextBlock x:Name="DateMixedHint" Visibility="Collapsed"
+                                       Text="Multiple dates — typing here sets all selected to the same date"
+                                       FontStyle="Italic" FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="86,0,0,0"
+                                       Foreground="{ThemeResource SystemAccentColorLight2}" />
+                            <TextBlock x:Name="DateMultiHint" Visibility="Collapsed"
+                                       Text="Editing applies to all selected images"
+                                       FontStyle="Italic" FontSize="11"
+                                       Margin="86,0,0,0"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="DateParseError" Visibility="Collapsed"
+                                       Text="Couldn't parse — try format like M/d/yyyy h:mm tt"
+                                       FontSize="11"
+                                       Margin="86,0,0,0"
+                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                            <HyperlinkButton x:Name="SwitchToShiftBtn"
+                                             Content="Shift all by an offset…"
+                                             Visibility="Collapsed"
+                                             Click="OnSwitchToShift"
+                                             Margin="80,0,0,0"
+                                             Padding="6,0" FontSize="12" />
+                        </StackPanel>
+                        <StackPanel x:Name="DateShiftMode" Spacing="4" Visibility="Collapsed">
+                            <TextBlock Text="Shift each capture date by:"
+                                       FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Days" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <NumberBox x:Name="ShiftDaysBox" Value="0"
+                                               SpinButtonPlacementMode="Inline"
+                                               SmallChange="1" LargeChange="7" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Hours" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <NumberBox x:Name="ShiftHoursBox" Value="0"
+                                               SpinButtonPlacementMode="Inline"
+                                               SmallChange="1" LargeChange="6" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Min" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <NumberBox x:Name="ShiftMinutesBox" Value="0"
+                                               SpinButtonPlacementMode="Inline"
+                                               SmallChange="1" LargeChange="15" />
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Click="OnApplyShiftClick"
+                                        Content="Apply shift" HorizontalAlignment="Stretch" />
+                                <HyperlinkButton Grid.Column="1" Click="OnSwitchToAbsolute"
+                                                 Content="Cancel"
+                                                 FontSize="12" />
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- ═══ Row 1: Spacer (pushes info to bottom when viewport is tall) ═══ -->
@@ -120,11 +247,6 @@
                             <TextBlock Grid.Column="1" x:Name="InfoFileName" Style="{StaticResource InfoValueStyle}"
                                        TextTrimming="CharacterEllipsis"
                                        ToolTipService.ToolTip="{x:Bind InfoFileName.Text, Mode=OneWay}" />
-                        </Grid>
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Date taken:" Style="{StaticResource InfoLabelStyle}" />
-                            <TextBlock Grid.Column="1" x:Name="InfoDateTaken" Style="{StaticResource InfoValueStyle}" />
                         </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>

@@ -3,72 +3,79 @@ using XmpCore;
 namespace PhotoLibrarian.Core.Services;
 
 /// <summary>
-/// Writes approved tags as dc:subject keywords into image XMP metadata.
+/// Writes the full keyword set into image files. Prefers in-file (System.Keywords →
+/// XMP dc:subject + EXIF XPKeywords) via WIC for supported formats, falls back to XMP
+/// sidecar for RAW formats.
 /// </summary>
 public static class TagWriterService
 {
     private const string DcNamespace = "http://purl.org/dc/elements/1.1/";
 
     /// <summary>
-    /// Writes tags to an image file's XMP sidecar as dc:subject keywords.
+    /// Writes the complete tag set to the image file. Pass an empty enumeration to clear all tags.
     /// </summary>
     public static async Task WriteTagsToSidecarAsync(string imagePath, IEnumerable<string> tags)
     {
-        await Task.Run(() =>
-        {
-            // Read existing XMP sidecar or create new
-            var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
-            IXmpMeta xmp;
+        var distinct = tags
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
+        if (EmbeddedMetadataWriter.IsSupported(imagePath))
+        {
             try
             {
-                if (File.Exists(sidecarPath))
-                {
-                    var xml = File.ReadAllText(sidecarPath);
-                    xmp = XmpMetaFactory.ParseFromString(xml);
-                }
-                else
-                {
-                    xmp = XmpMetaFactory.Create();
-                }
+                await EmbeddedMetadataWriter.WriteAsync(imagePath, keywords: distinct);
+                return;
             }
-            catch
+            catch (Exception ex)
             {
-                xmp = XmpMetaFactory.Create();
+                System.Diagnostics.Debug.WriteLine($"[TAGS] In-place keyword write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
             }
+        }
 
-            // Clear existing dc:subject
+        // RAW fallback: write XMP sidecar
+        await Task.Run(() =>
+        {
+            var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+            IXmpMeta xmp;
+            try
+            {
+                xmp = File.Exists(sidecarPath)
+                    ? XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath))
+                    : XmpMetaFactory.Create();
+            }
+            catch { xmp = XmpMetaFactory.Create(); }
+
             try { xmp.DeleteProperty(DcNamespace, "dc:subject"); } catch { }
 
-            // Write each tag as a dc:subject array item
-            foreach (var tag in tags.Distinct())
+            foreach (var tag in distinct)
             {
                 xmp.AppendArrayItem(DcNamespace, "dc:subject",
                     new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false },
                     tag, null);
             }
 
-            // Save sidecar
             var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
             File.WriteAllText(sidecarPath, serialized);
         });
     }
 
     /// <summary>
-    /// Reads existing dc:subject tags from an XMP sidecar.
+    /// Reads existing dc:subject keywords from an XMP sidecar (RAW fallback path).
+    /// For supported formats, use <see cref="EmbeddedMetadataWriter.ReadKeywordsAsync"/> instead.
     /// </summary>
     public static List<string> ReadTagsFromSidecar(string imagePath)
     {
         var tags = new List<string>();
         var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
-
         if (!File.Exists(sidecarPath)) return tags;
 
         try
         {
             var xml = File.ReadAllText(sidecarPath);
             var xmp = XmpMetaFactory.ParseFromString(xml);
-
             int count = xmp.CountArrayItems(DcNamespace, "dc:subject");
             for (int i = 1; i <= count; i++)
             {

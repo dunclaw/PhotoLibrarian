@@ -49,9 +49,10 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     private int _columnCount = 1;
     private bool _isUpdating = false;
     
-    // Selection state
-    private ImageThumbnailViewModel? _selectedItem;
-    private FrameworkElement? _selectedElement;
+    // Selection state (multi-select)
+    private readonly HashSet<ImageThumbnailViewModel> _selectedItems = new();
+    private ImageThumbnailViewModel? _anchorItem; // Anchor for shift-range selection
+    private ImageThumbnailViewModel? _primaryItem; // Last clicked item (drives metadata panel + viewer)
     private static readonly Windows.UI.Color SelectionColor = Windows.UI.Color.FromArgb(255, 100, 149, 237); // CornflowerBlue
     
     // Data source
@@ -61,6 +62,17 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     public event EventHandler<List<ImageThumbnailViewModel>>? VisibleItemsChanged;
     public event EventHandler<ImageThumbnailViewModel>? ItemClicked;
     public event EventHandler<ImageThumbnailViewModel>? ItemDoubleClicked;
+    public event EventHandler<IReadOnlyList<ImageThumbnailViewModel>>? SelectionChanged;
+
+    /// <summary>
+    /// Read-only view of currently selected items.
+    /// </summary>
+    public IReadOnlyCollection<ImageThumbnailViewModel> SelectedItems => _selectedItems;
+
+    /// <summary>
+    /// The primary (most recently clicked) item, used as anchor for viewer/metadata focus.
+    /// </summary>
+    public ImageThumbnailViewModel? PrimaryItem => _primaryItem;
     
     public VirtualizingPhotoGrid()
     {
@@ -83,6 +95,16 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         }
         
         _groups = groups;
+
+        // Drop any selection that may reference items in the previous data set
+        // (prevents leaking references and avoids "ghost selection" UX)
+        if (_selectedItems.Count > 0 || _primaryItem != null)
+        {
+            _selectedItems.Clear();
+            _anchorItem = null;
+            _primaryItem = null;
+            SelectionChanged?.Invoke(this, Array.Empty<ImageThumbnailViewModel>());
+        }
         
         // Subscribe to new collection
         if (_groups != null)
@@ -384,8 +406,8 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
                 element.Width = size;
                 element.Height = size;
                 
-                // Apply selection visual if this is the selected item
-                ApplySelectionVisual(element, item.dataContext as ImageThumbnailViewModel == _selectedItem && _selectedItem != null);
+                // Apply selection visual if this is a selected item
+                ApplySelectionVisual(element, item.dataContext is ImageThumbnailViewModel selVm && _selectedItems.Contains(selVm));
             }
             
             element.DataContext = item.dataContext;
@@ -412,16 +434,10 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         _activeElements.Remove(dataContext);
         ItemsCanvas.Children.Remove(element);
         
-        // Clear selection visual before returning to pool
+        // Clear selection visual before returning to pool (selection state itself persists in _selectedItems)
         if (element is Grid grid && dataContext is ImageThumbnailViewModel)
         {
             ApplySelectionVisual(element, false);
-        }
-        
-        // Track if this was the selected element
-        if (dataContext == _selectedItem)
-        {
-            _selectedElement = null;
         }
         
         element.DataContext = null;
@@ -517,7 +533,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     {
         if (sender is FrameworkElement element && element.DataContext is ImageThumbnailViewModel vm)
         {
-            SelectItem(vm, element);
+            HandleSelection(vm, GetModifierState());
             ItemClicked?.Invoke(this, vm);
         }
     }
@@ -526,14 +542,15 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     {
         if (sender is FrameworkElement element && element.DataContext is ImageThumbnailViewModel vm)
         {
-            SelectItem(vm, element);
+            // Double-tap collapses to single selection
+            HandleSelection(vm, ModifierState.None);
             ItemDoubleClicked?.Invoke(this, vm);
         }
     }
     
     private void OnPhotoPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Grid grid && grid.DataContext is ImageThumbnailViewModel vm && vm != _selectedItem)
+        if (sender is Grid grid && grid.DataContext is ImageThumbnailViewModel vm && !_selectedItems.Contains(vm))
         {
             grid.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.LightGray);
         }
@@ -541,31 +558,108 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     
     private void OnPhotoPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Grid grid && grid.DataContext is ImageThumbnailViewModel vm && vm != _selectedItem)
+        if (sender is Grid grid && grid.DataContext is ImageThumbnailViewModel vm && !_selectedItems.Contains(vm))
         {
             grid.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         }
     }
-    
-    /// <summary>
-    /// Selects an item and updates visual state
-    /// </summary>
-    private void SelectItem(ImageThumbnailViewModel? vm, FrameworkElement? element)
+
+    [Flags]
+    private enum ModifierState { None = 0, Ctrl = 1, Shift = 2 }
+
+    private static ModifierState GetModifierState()
     {
-        // Deselect previous
-        if (_selectedElement != null)
+        var mods = ModifierState.None;
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
+        var shift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift);
+        if ((ctrl & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down)
+            mods |= ModifierState.Ctrl;
+        if ((shift & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down)
+            mods |= ModifierState.Shift;
+        return mods;
+    }
+
+    /// <summary>
+    /// Updates selection based on modifier keys, then refreshes visuals and fires SelectionChanged.
+    /// </summary>
+    private void HandleSelection(ImageThumbnailViewModel vm, ModifierState mods)
+    {
+        if (mods.HasFlag(ModifierState.Shift) && _anchorItem != null)
         {
-            ApplySelectionVisual(_selectedElement, false);
+            // Range selection from anchor to vm (in flat group-order)
+            var range = GetItemRange(_anchorItem, vm);
+            if (!mods.HasFlag(ModifierState.Ctrl))
+                _selectedItems.Clear();
+            foreach (var item in range)
+                _selectedItems.Add(item);
+            _primaryItem = vm;
         }
-        
-        _selectedItem = vm;
-        _selectedElement = element;
-        
-        // Select new
-        if (_selectedElement != null && vm != null)
+        else if (mods.HasFlag(ModifierState.Ctrl))
         {
-            ApplySelectionVisual(_selectedElement, true);
+            // Toggle this item
+            if (!_selectedItems.Remove(vm))
+                _selectedItems.Add(vm);
+            _anchorItem = vm;
+            _primaryItem = _selectedItems.Contains(vm) ? vm : _selectedItems.FirstOrDefault();
         }
+        else
+        {
+            // Plain click: clear and select only this
+            _selectedItems.Clear();
+            _selectedItems.Add(vm);
+            _anchorItem = vm;
+            _primaryItem = vm;
+        }
+
+        RefreshAllSelectionVisuals();
+        SelectionChanged?.Invoke(this, _selectedItems.ToList());
+    }
+
+    /// <summary>
+    /// Returns all items between (inclusive) two endpoints in the current flat group order.
+    /// </summary>
+    private List<ImageThumbnailViewModel> GetItemRange(ImageThumbnailViewModel a, ImageThumbnailViewModel b)
+    {
+        var flat = new List<ImageThumbnailViewModel>();
+        if (_groups == null) return flat;
+        foreach (var group in _groups)
+        {
+            if (group.Items == null) continue;
+            foreach (var item in group.Items)
+                flat.Add(item);
+        }
+        int ia = flat.IndexOf(a);
+        int ib = flat.IndexOf(b);
+        if (ia < 0 || ib < 0) return new List<ImageThumbnailViewModel> { b };
+        if (ia > ib) (ia, ib) = (ib, ia);
+        return flat.GetRange(ia, ib - ia + 1);
+    }
+
+    /// <summary>
+    /// Walks all currently-realized elements and updates their selection border.
+    /// </summary>
+    private void RefreshAllSelectionVisuals()
+    {
+        foreach (var kvp in _activeElements)
+        {
+            if (kvp.Key is ImageThumbnailViewModel vm)
+            {
+                ApplySelectionVisual(kvp.Value, _selectedItems.Contains(vm));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Clears the current selection (e.g. when filter changes). Fires SelectionChanged.
+    /// </summary>
+    public void ClearSelection()
+    {
+        if (_selectedItems.Count == 0 && _primaryItem == null) return;
+        _selectedItems.Clear();
+        _anchorItem = null;
+        _primaryItem = null;
+        RefreshAllSelectionVisuals();
+        SelectionChanged?.Invoke(this, Array.Empty<ImageThumbnailViewModel>());
     }
     
     private static void ApplySelectionVisual(FrameworkElement element, bool selected)

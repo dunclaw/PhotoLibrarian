@@ -108,6 +108,12 @@ public partial class ImageGridViewModel : ObservableObject
     [ObservableProperty]
     public partial ImageThumbnailViewModel? SelectedImage { get; set; }
 
+    /// <summary>
+    /// All currently-selected items in the grid (multi-select aware).
+    /// Updated by ImageGridView when the grid raises SelectionChanged.
+    /// </summary>
+    public List<ImageThumbnailViewModel> SelectedImages { get; } = new();
+
     [ObservableProperty]
     public partial double ThumbnailSize { get; set; }
 
@@ -1154,10 +1160,31 @@ public partial class ImageGridViewModel : ObservableObject
 
     partial void OnSelectedImageChanged(ImageThumbnailViewModel? value)
     {
-        if (value is not null)
+        // Push selection (single or multi) to the metadata panel.
+        if (SelectedImages.Count > 0)
         {
-            _main.MetadataPanel.ShowMetadata(value.Entry);
+            _main.MetadataPanel.ShowMetadata(SelectedImages.Select(vm => vm.Entry).ToList());
         }
+        else if (value is not null)
+        {
+            _main.MetadataPanel.ShowMetadata(new[] { value.Entry });
+        }
+        else
+        {
+            _main.MetadataPanel.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Called by ImageGridView when the grid's SelectionChanged event fires.
+    /// Updates the multi-select list and routes the primary item through OnSelectedImageChanged.
+    /// </summary>
+    public void UpdateSelection(IReadOnlyList<ImageThumbnailViewModel> selected, ImageThumbnailViewModel? primary)
+    {
+        SelectedImages.Clear();
+        SelectedImages.AddRange(selected);
+        // Setting SelectedImage drives the metadata panel via OnSelectedImageChanged
+        SelectedImage = primary;
     }
 
     [RelayCommand]

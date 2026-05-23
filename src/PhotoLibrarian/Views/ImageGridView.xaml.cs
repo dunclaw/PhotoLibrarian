@@ -30,6 +30,9 @@ public sealed partial class ImageGridView : UserControl
         
         // Double click → open image viewer
         PhotoGrid.ItemDoubleClicked += OnItemDoubleClicked;
+
+        // Selection changed (multi-select aware)
+        PhotoGrid.SelectionChanged += OnGridSelectionChanged;
         
         // Listen for GroupedImages changes and update grid
         ViewModel.GroupedImages.CollectionChanged += (s, e) =>
@@ -67,15 +70,21 @@ public sealed partial class ImageGridView : UserControl
     
     private void OnItemClicked(object? sender, ImageThumbnailViewModel vm)
     {
-        if (ViewModel is null) return;
-        ViewModel.SelectedImage = vm;
+        // SelectionChanged handler does the heavy lifting; nothing else to do for plain click.
     }
     
     private void OnItemDoubleClicked(object? sender, ImageThumbnailViewModel vm)
     {
         if (ViewModel is null) return;
-        ViewModel.SelectedImage = vm;
+        // Ensure selection state reflects the double-click target before opening the viewer
+        ViewModel.UpdateSelection(new[] { vm }, vm);
         ViewModel.OpenViewerCommand.Execute(null);
+    }
+
+    private void OnGridSelectionChanged(object? sender, IReadOnlyList<ImageThumbnailViewModel> selected)
+    {
+        if (ViewModel is null) return;
+        ViewModel.UpdateSelection(selected, PhotoGrid.PrimaryItem);
     }
     
     // Group By / Sort handlers

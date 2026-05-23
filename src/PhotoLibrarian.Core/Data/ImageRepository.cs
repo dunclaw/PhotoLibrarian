@@ -185,6 +185,16 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdateDateTakenAsync(long imageId, DateTime? dateTaken)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET date_taken = $taken WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$taken", (object?)dateTaken?.ToString("O") ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private static ImageEntry ReadImageEntry(SqliteDataReader reader)
     {
         return new ImageEntry

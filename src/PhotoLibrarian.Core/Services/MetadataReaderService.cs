@@ -60,7 +60,19 @@ public sealed class MetadataReaderService
             if (subIfd.TryGetDateTime(ExifDirectoryBase.TagDateTimeOriginal, out var dateTaken))
                 entry.DateTaken = dateTaken;
 
-            entry.ExposureTime = subIfd.GetDescription(ExifDirectoryBase.TagExposureTime);
+            // Format exposure consistently: "1/N" for sub-second, "N" or "N.X" for >= 1 sec.
+            // Stored WITHOUT unit; UI appends " sec".
+            if (subIfd.TryGetRational(ExifDirectoryBase.TagExposureTime, out var expRational))
+            {
+                entry.ExposureTime = FormatExposureTime(expRational.ToDouble());
+            }
+            else
+            {
+                // Fallback: take MetadataExtractor's pre-formatted string and strip any unit suffix.
+                var raw = subIfd.GetDescription(ExifDirectoryBase.TagExposureTime);
+                entry.ExposureTime = StripSecondsUnit(raw);
+            }
+
             entry.LensModel = subIfd.GetDescription(ExifDirectoryBase.TagLensModel)?.Trim();
 
             if (subIfd.TryGetRational(ExifDirectoryBase.TagFNumber, out var fNumber))
@@ -135,5 +147,52 @@ public sealed class MetadataReaderService
         catch { /* File may not have XMP */ }
 
         return tags;
+    }
+
+    /// <summary>
+    /// Formats an exposure time (in seconds) consistently:
+    /// - >= 1 second: "N" or "N.X" (e.g. "1", "1.3", "30")
+    /// - &lt; 1 second: "1/N" (e.g. "1/60", "1/4000") — N is rounded to the nearest standard.
+    /// The caller appends the " sec" unit.
+    /// </summary>
+    public static string FormatExposureTime(double seconds)
+    {
+        if (seconds <= 0) return "";
+
+        if (seconds >= 1.0)
+        {
+            // Whole seconds when close enough, otherwise one decimal place.
+            if (Math.Abs(seconds - Math.Round(seconds)) < 0.05)
+                return Math.Round(seconds).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            return seconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        // Sub-second — always as 1/N for camera-friendly display.
+        // Use AwayFromZero so e.g. 0.4 sec → 1/round(2.5) → 1/3 (closer approximation than 1/2).
+        double denom = Math.Round(1.0 / seconds, MidpointRounding.AwayFromZero);
+        if (denom < 1) denom = 1;
+        return $"1/{denom.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}";
+    }
+
+    /// <summary>
+    /// Strips a trailing " sec" / "sec" / "s" unit from a pre-formatted exposure string.
+    /// Used as a safety net for legacy DB rows and for MetadataExtractor's auto-formatted output.
+    /// </summary>
+    public static string? StripSecondsUnit(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw;
+        var trimmed = raw.Trim();
+        foreach (var suffix in new[] { " sec", " seconds", " s" })
+        {
+            if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                trimmed = trimmed.Substring(0, trimmed.Length - suffix.Length).TrimEnd();
+        }
+        // Try to re-parse + reformat if it's a plain number — gives us consistent fractions for legacy rows
+        if (double.TryParse(trimmed, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var seconds))
+        {
+            return FormatExposureTime(seconds);
+        }
+        return trimmed;
     }
 }

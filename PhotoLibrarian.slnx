@@ -4,6 +4,7 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Folder Name="/Solution Items/" />
   <Folder Name="/src/">
     <Project Path="src/PhotoLibrarian.Core/PhotoLibrarian.Core.csproj">
       <Platform Solution="*|ARM64" Project="ARM64" />
