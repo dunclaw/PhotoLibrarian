@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>PhotoLibrarian</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\PhotoLibrarian.ico</ApplicationIcon>
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsPackageType>None</WindowsPackageType>

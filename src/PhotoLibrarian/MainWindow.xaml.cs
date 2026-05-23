@@ -20,6 +20,17 @@ public sealed partial class MainWindow : Window
         appWindow.Resize(new Windows.Graphics.SizeInt32(1600, 900));
         appWindow.Title = "PhotoLibrarian";
 
+        // Set the window icon (title bar + taskbar)
+        try
+        {
+            var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "PhotoLibrarian.ico");
+            if (System.IO.File.Exists(iconPath))
+            {
+                appWindow.SetIcon(iconPath);
+            }
+        }
+        catch { /* Icon is cosmetic — never block startup */ }
+
         // Bind status bar to ViewModel
         if (ViewModel is not null)
         {
