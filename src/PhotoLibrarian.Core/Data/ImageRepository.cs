@@ -195,6 +195,27 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdateOrientationAsync(long imageId, int orientation)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET orientation = $orient WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$orient", orientation);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdatePathAsync(long imageId, string newPath)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET file_path = $path, file_name = $name WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$path", newPath);
+        cmd.Parameters.AddWithValue("$name", System.IO.Path.GetFileName(newPath));
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private static ImageEntry ReadImageEntry(SqliteDataReader reader)
     {
         return new ImageEntry

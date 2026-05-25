@@ -33,6 +33,9 @@ public sealed partial class ImageGridView : UserControl
 
         // Selection changed (multi-select aware)
         PhotoGrid.SelectionChanged += OnGridSelectionChanged;
+
+        // Right-click context menu
+        PhotoGrid.ContextMenuRequested += OnContextMenuRequested;
         
         // Listen for GroupedImages changes and update grid
         ViewModel.GroupedImages.CollectionChanged += (s, e) =>
@@ -179,5 +182,211 @@ public sealed partial class ImageGridView : UserControl
     private void OnIncreaseSize(object sender, RoutedEventArgs e)
     {
         SizeSlider.Value = Math.Min(SizeSlider.Value + 40, 400);
+    }
+
+    // =================================================================
+    //  Right-click context menu
+    // =================================================================
+
+    private void OnContextMenuRequested(object? sender, Controls.ContextMenuRequestedEventArgs e)
+    {
+        if (ViewModel is null) return;
+
+        var primary = e.PrimaryItem;
+        var selected = ViewModel.SelectedImages.Count > 0
+            ? ViewModel.SelectedImages.ToList()
+            : new List<ImageThumbnailViewModel> { primary };
+        bool isMulti = selected.Count > 1;
+        var ops = App.ViewModel.PhotoOps;
+
+        var menu = new MenuFlyout();
+
+        // View file (default action) — only enabled for single selection
+        var viewItem = new MenuFlyoutItem { Text = "View file" };
+        viewItem.Click += (_, _) =>
+        {
+            ViewModel.SelectedImage = primary;
+            ViewModel.OpenViewerCommand.Execute(null);
+        };
+        viewItem.IsEnabled = !isMulti;
+        menu.Items.Add(viewItem);
+
+        // Open with default
+        var openWith = new MenuFlyoutItem { Text = "Open with default app" };
+        openWith.Click += async (_, _) =>
+        {
+            foreach (var vm in selected) await Services.PhotoOperationsService.OpenWithDefaultAsync(vm.Entry.FilePath);
+        };
+        menu.Items.Add(openWith);
+
+        // Open with → submenu of registered handlers for this extension
+        BuildOpenWithSubMenu(menu, primary, selected);
+
+        // Open file location
+        var reveal = new MenuFlyoutItem { Text = "Open file location" };
+        reveal.Click += (_, _) => Services.PhotoOperationsService.RevealInExplorer(primary.Entry.FilePath);
+        menu.Items.Add(reveal);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        // Set as desktop background — single only
+        var wallpaper = new MenuFlyoutItem { Text = "Set as desktop background" };
+        wallpaper.Click += (_, _) => Services.PhotoOperationsService.SetAsDesktopBackground(primary.Entry.FilePath);
+        wallpaper.IsEnabled = !isMulti;
+        menu.Items.Add(wallpaper);
+
+        var rotateRight = new MenuFlyoutItem { Text = "Rotate right" };
+        rotateRight.Click += async (_, _) =>
+        {
+            foreach (var vm in selected) await ops.RotateAsync(vm.Entry, clockwise: true);
+        };
+        menu.Items.Add(rotateRight);
+
+        var rotateLeft = new MenuFlyoutItem { Text = "Rotate left" };
+        rotateLeft.Click += async (_, _) =>
+        {
+            foreach (var vm in selected) await ops.RotateAsync(vm.Entry, clockwise: false);
+        };
+        menu.Items.Add(rotateLeft);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        // Copy
+        var copy = new MenuFlyoutItem { Text = isMulti ? $"Copy ({selected.Count} files)" : "Copy" };
+        copy.Click += async (_, _) =>
+        {
+            await Services.PhotoOperationsService.CopyFilesToClipboardAsync(selected.Select(vm => vm.Entry.FilePath));
+        };
+        menu.Items.Add(copy);
+
+        // Delete
+        var delete = new MenuFlyoutItem { Text = isMulti ? $"Delete ({selected.Count})" : "Delete" };
+        delete.Click += async (_, _) =>
+        {
+            var deleted = await ops.DeleteToRecycleBinAsync(selected.Select(vm => vm.Entry));
+            if (deleted.Count > 0)
+            {
+                // Refresh the grid; deleted IDs are gone from DB already
+                await ViewModel.LoadImagesAsync();
+            }
+        };
+        menu.Items.Add(delete);
+
+        // Rename — single only
+        var rename = new MenuFlyoutItem { Text = "Rename…" };
+        rename.Click += async (_, _) => await ShowRenameDialogAsync(primary.Entry);
+        rename.IsEnabled = !isMulti;
+        menu.Items.Add(rename);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        // Properties — single only (shell dialog is one-file-at-a-time)
+        var props = new MenuFlyoutItem { Text = "Properties" };
+        props.Click += (_, _) => Services.PhotoOperationsService.ShowPropertiesDialog(primary.Entry.FilePath);
+        props.IsEnabled = !isMulti;
+        menu.Items.Add(props);
+
+        menu.ShowAt(e.Source, e.Position);
+    }
+
+    private static void BuildOpenWithSubMenu(
+        MenuFlyout menu,
+        ViewModels.ImageThumbnailViewModel primary,
+        List<ViewModels.ImageThumbnailViewModel> selected)
+    {
+        var ext = System.IO.Path.GetExtension(primary.Entry.FilePath);
+        var subFlyout = new MenuFlyoutSubItem { Text = "Open with" };
+
+        try
+        {
+            var handlers = Services.OpenWithHelper.EnumerateHandlers(ext);
+            // Deduplicate by UI name to avoid showing the same app multiple times
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var h in handlers)
+            {
+                if (!seen.Add(h.UIName)) continue;
+                var item = new MenuFlyoutItem { Text = h.UIName };
+                item.Click += (_, _) =>
+                {
+                    var paths = selected.Select(vm => vm.Entry.FilePath).ToList();
+                    Services.OpenWithHelper.Invoke(h, paths);
+                };
+                subFlyout.Items.Add(item);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OPS] OpenWith enumeration failed: {ex.Message}");
+        }
+
+        if (subFlyout.Items.Count > 0)
+            subFlyout.Items.Add(new MenuFlyoutSeparator());
+
+        var chooseAnother = new MenuFlyoutItem { Text = "Choose another app…" };
+        chooseAnother.Click += (_, _) =>
+        {
+            // Multi-file → the dialog only takes one file, use the primary
+            Services.OpenWithHelper.ShowOpenWithDialog(primary.Entry.FilePath);
+        };
+        subFlyout.Items.Add(chooseAnother);
+
+        menu.Items.Add(subFlyout);
+    }
+
+    private async Task ShowRenameDialogAsync(Core.Models.ImageEntry entry)
+    {
+        if (ViewModel is null) return;
+
+        var box = new TextBox
+        {
+            Text = System.IO.Path.GetFileNameWithoutExtension(entry.FileName),
+            SelectionStart = 0,
+            SelectionLength = System.IO.Path.GetFileNameWithoutExtension(entry.FileName).Length
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = "Rename file",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = $"Current: {entry.FileName}", Opacity = 0.7 },
+                    box
+                }
+            },
+            PrimaryButtonText = "Rename",
+            SecondaryButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary) return;
+
+        var newName = box.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(newName)) return;
+
+        var ops = App.ViewModel.PhotoOps;
+        var newPath = await ops.RenameAsync(entry, newName);
+        if (newPath == null)
+        {
+            var err = new ContentDialog
+            {
+                Title = "Rename failed",
+                Content = "Couldn't rename file. The name may be invalid or a file with that name already exists.",
+                CloseButtonText = "OK",
+                XamlRoot = this.XamlRoot
+            };
+            await err.ShowAsync();
+            return;
+        }
+
+        // Refresh the metadata panel for the renamed entry
+        if (ViewModel.SelectedImage?.Entry == entry)
+        {
+            App.ViewModel.MetadataPanel.ShowMetadata(entry);
+        }
     }
 }

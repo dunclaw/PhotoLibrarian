@@ -26,6 +26,7 @@ public partial class MainViewModel : ObservableObject
     public ImageEditorViewModel ImageEditor { get; }
     public MetadataPanelViewModel MetadataPanel { get; }
     public SettingsViewModel Settings { get; }
+    public Services.PhotoOperationsService PhotoOps { get; }
 
     [ObservableProperty]
     public partial string StatusText { get; set; }
@@ -61,8 +62,9 @@ public partial class MainViewModel : ObservableObject
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
-        MetadataPanel.Initialize(imageRepo, tagRepo);
+        MetadataPanel.Initialize(imageRepo, tagRepo, this);
         Settings = new SettingsViewModel(db);
+        PhotoOps = new Services.PhotoOperationsService(imageRepo);
 
         _indexingService.Progress += OnIndexingProgress;
     }
@@ -178,6 +180,21 @@ public partial class MainViewModel : ObservableObject
                 ? $"Indexed {e.Processed:N0} new items ({e.Skipped:N0} unchanged)"
                 : $"Indexing… {e.Processed:N0} processed";
         });
+    }
+
+    /// <summary>
+    /// Refreshes the tag navigation tree (counts + new tags) — call after tag edits.
+    /// </summary>
+    public async Task RefreshTagsTreeAsync()
+    {
+        await TagNav.LoadTagsAsync();
+        if (App.MainWindow is MainWindow window)
+        {
+            window.DispatcherQueue.TryEnqueue(async () =>
+            {
+                await window.RefreshMetadataTreesAsync();
+            });
+        }
     }
 
     public async Task RefreshAfterIndexAsync()

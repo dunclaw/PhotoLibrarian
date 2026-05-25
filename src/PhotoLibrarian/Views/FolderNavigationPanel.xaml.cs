@@ -108,6 +108,12 @@ public sealed partial class FolderNavigationPanel : UserControl
         // Must update UI on dispatcher queue
         DispatcherQueue.TryEnqueue(() =>
         {
+            // Snapshot the current expansion state (and selection) before rebuild so adding/
+            // removing tags doesn't collapse the user's open branches.
+            var expandedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectTagTreeState(TagsTree.RootNodes, expandedPaths, selectedPaths);
+
             TagsTree.RootNodes.Clear();
 
             foreach (var tagNode in App.ViewModel.TagNav.RootTags)
@@ -115,7 +121,46 @@ public sealed partial class FolderNavigationPanel : UserControl
                 var treeNode = BuildTagNode(tagNode);
                 TagsTree.RootNodes.Add(treeNode);
             }
+
+            // Restore expansion + selection on matching nodes
+            RestoreTagTreeState(TagsTree.RootNodes, expandedPaths, selectedPaths);
         });
+    }
+
+    private void CollectTagTreeState(
+        IList<TreeViewNode> nodes,
+        HashSet<string> expanded,
+        HashSet<string> selected)
+    {
+        foreach (var n in nodes)
+        {
+            if (n.Content is TagNodeWrapper w)
+            {
+                if (n.IsExpanded) expanded.Add(w.TagNode.FullPath);
+                if (TagsTree.SelectedNodes.Contains(n)) selected.Add(w.TagNode.FullPath);
+            }
+            if (n.Children.Count > 0)
+                CollectTagTreeState(n.Children, expanded, selected);
+        }
+    }
+
+    private void RestoreTagTreeState(
+        IList<TreeViewNode> nodes,
+        HashSet<string> expanded,
+        HashSet<string> selected)
+    {
+        foreach (var n in nodes)
+        {
+            if (n.Content is TagNodeWrapper w)
+            {
+                if (expanded.Contains(w.TagNode.FullPath))
+                    n.IsExpanded = true;
+                if (selected.Contains(w.TagNode.FullPath))
+                    TagsTree.SelectedNodes.Add(n);
+            }
+            if (n.Children.Count > 0)
+                RestoreTagTreeState(n.Children, expanded, selected);
+        }
     }
 
     private static TreeViewNode BuildTagNode(TagNode tagNode)

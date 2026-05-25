@@ -38,6 +38,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     private List<ImageEntry> _entries = new();
     private ImageRepository? _imageRepo;
     private TagRepository? _tagRepo;
+    private MainViewModel? _main;
 
     [ObservableProperty]
     public partial bool HasImage { get; set; }
@@ -127,10 +128,11 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public MetadataPanelViewModel() { }
 
-    public void Initialize(ImageRepository imageRepo, TagRepository tagRepo)
+    public void Initialize(ImageRepository imageRepo, TagRepository tagRepo, MainViewModel main)
     {
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
+        _main = main;
     }
 
     /// <summary>
@@ -384,6 +386,9 @@ public partial class MetadataPanelViewModel : ObservableObject
                     allTags.Select(t => t.Tag).Distinct());
             }
         }
+
+        // Refresh the tag navigation tree so counts and new tags show up immediately
+        if (_main != null) await _main.RefreshTagsTreeAsync();
     }
 
     /// <summary>
@@ -408,6 +413,9 @@ public partial class MetadataPanelViewModel : ObservableObject
                     allTags.Select(t => t.Tag).Distinct());
             }
         }
+
+        // Refresh the tag navigation tree so counts update immediately
+        if (_main != null) await _main.RefreshTagsTreeAsync();
     }
 
     /// <summary>

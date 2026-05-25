@@ -1,4 +1,3 @@
-using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -7,12 +6,21 @@ namespace PhotoLibrarian.Core.Services;
 
 /// <summary>
 /// Writes metadata (rating, caption, tags, date taken) <b>directly into the image file</b>
-/// using Windows Imaging Component (WIC) in-place property encoding. This preserves the
-/// image bytes exactly — only the metadata block is rewritten — so files remain portable
-/// across drives and computers without sidecars.
+/// using Windows Imaging Component (WIC). Two strategies are used:
+/// <list type="number">
+///   <item><description><b>In-place</b> (<c>CreateForInPlacePropertyEncodingAsync</c>) — byte-exact, preserves
+///   the file bit-for-bit. Used first because it's fastest and lossless.</description></item>
+///   <item><description><b>Transcoding</b> (<c>CreateForTranscodingAsync</c>) — fallback when in-place fails
+///   (e.g. "too much metadata", HRESULT 0x88982F52). The file is rewritten with the new metadata, but
+///   for JPEG/PNG/TIFF the encoded image data is copied without recompression — visually lossless.</description></item>
+/// </list>
 /// 
-/// Supported formats: JPEG, TIFF, PNG, HEIC, JPEG-XR (anything WIC can decode + re-encode props).
-/// Unsupported (CR2/CR3/NEF/ARW RAW etc.) callers must fall back to a sidecar.
+/// For both strategies, WIC's <c>System.*</c> property policies fan out to the appropriate metadata
+/// containers (EXIF + XMP + IPTC + XPKeywords) automatically. So <c>System.Keywords</c> populates
+/// XMP dc:subject AND EXIF XPKeywords AND IPTC Keywords in one call.
+/// 
+/// Supported formats: JPEG, TIFF, PNG, HEIC, JPEG-XR. RAW formats are not supported by WIC for
+/// re-encoding and must fall back to XMP sidecar.
 /// </summary>
 public static class EmbeddedMetadataWriter
 {
@@ -25,6 +33,9 @@ public static class EmbeddedMetadataWriter
         ".jxr", ".wdp"
     };
 
+    // HRESULT WINCODEC_ERR_TOOMUCHMETADATA — in-place encoder doesn't have room
+    private const int WINCODEC_ERR_TOOMUCHMETADATA = unchecked((int)0x88982F52);
+
     /// <summary>Returns true if the file format supports in-place metadata writing.</summary>
     public static bool IsSupported(string filePath)
     {
@@ -32,80 +43,28 @@ public static class EmbeddedMetadataWriter
     }
 
     /// <summary>
-    /// Writes all provided properties into the image file. Pass null for a property's value
-    /// to omit it (does not delete existing). Use ClearPropertyAsync to remove a value.
+    /// Writes all provided properties into the image file. Pass null to skip a property
+    /// (does not delete existing). Use <see cref="ClearPropertiesAsync"/> to remove values.
     /// </summary>
-    /// <param name="rating">0 = clear, 1..5 = star count.</param>
-    /// <param name="title">Caption text (also written to Comment for max reader compat).</param>
-    /// <param name="keywords">Full set of keywords/tags. Pass empty array to clear.</param>
-    /// <param name="dateTaken">Capture date.</param>
     public static async Task WriteAsync(
         string filePath,
         int? rating = null,
         string? title = null,
         IReadOnlyList<string>? keywords = null,
-        DateTime? dateTaken = null)
+        DateTime? dateTaken = null,
+        ushort? orientation = null)
     {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
 
-        var file = await StorageFile.GetFileFromPathAsync(filePath);
-        using var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
-        var decoder = await BitmapDecoder.CreateAsync(stream);
-        var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
-
-        var props = new BitmapPropertySet();
-
-        if (rating.HasValue)
-        {
-            // WIC System.Rating uses 1-99 scale: 1=1*, 25=2*, 50=3*, 75=4*, 99=5*; 0 = unrated
-            ushort ratingPct = rating.Value switch
-            {
-                <= 0 => 0,
-                1 => 1,
-                2 => 25,
-                3 => 50,
-                4 => 75,
-                _ => 99
-            };
-            props.Add("System.Rating", new BitmapTypedValue(ratingPct, Windows.Foundation.PropertyType.UInt16));
-            // Also write SimpleRating (0-5 star integer) for apps that read it
-            ushort starRating = (ushort)Math.Clamp(rating.Value, 0, 5);
-            props.Add("System.SimpleRating", new BitmapTypedValue(starRating, Windows.Foundation.PropertyType.UInt16));
-        }
-
-        if (title != null)
-        {
-            // Caption: write to both Title and Comment so all readers (Windows Explorer,
-            // Photo Gallery, Lightroom) pick it up
-            props.Add("System.Title", new BitmapTypedValue(title, Windows.Foundation.PropertyType.String));
-            props.Add("System.Comment", new BitmapTypedValue(title, Windows.Foundation.PropertyType.String));
-        }
-
-        if (keywords != null)
-        {
-            // System.Keywords accepts string[] as StringVector
-            props.Add("System.Keywords",
-                new BitmapTypedValue(keywords.ToArray(), Windows.Foundation.PropertyType.StringArray));
-        }
-
-        if (dateTaken.HasValue)
-        {
-            // System.Photo.DateTaken maps to EXIF DateTimeOriginal (0x9003)
-            // Use DateTimeOffset (WIC requires it)
-            var dto = new DateTimeOffset(dateTaken.Value, TimeZoneInfo.Local.GetUtcOffset(dateTaken.Value));
-            props.Add("System.Photo.DateTaken",
-                new BitmapTypedValue(dto, Windows.Foundation.PropertyType.DateTime));
-        }
-
+        var props = BuildPropertySet(rating, title, keywords, dateTaken, orientation);
         if (props.Count == 0) return;
 
-        await encoder.BitmapProperties.SetPropertiesAsync(props);
-        await encoder.FlushAsync();
+        await WritePropertiesAsync(filePath, props);
     }
 
     /// <summary>
-    /// Removes a property from the file (e.g. clearing a rating). Pass any of the System.* keys.
+    /// Removes a property from the file (e.g. clearing a rating).
     /// </summary>
     public static async Task ClearPropertiesAsync(string filePath, params string[] propertyKeys)
     {
@@ -113,21 +72,12 @@ public static class EmbeddedMetadataWriter
             throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
         if (propertyKeys.Length == 0) return;
 
-        var file = await StorageFile.GetFileFromPathAsync(filePath);
-        using var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
-        var decoder = await BitmapDecoder.CreateAsync(stream);
-        var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
-
-        // SetPropertiesAsync with a null/empty BitmapTypedValue won't delete properties;
-        // the WIC pattern is to write an empty/default value of the right type.
         var props = new BitmapPropertySet();
         foreach (var key in propertyKeys)
         {
             switch (key)
             {
                 case "System.Rating":
-                    props.Add(key, new BitmapTypedValue((ushort)0, Windows.Foundation.PropertyType.UInt16));
-                    break;
                 case "System.SimpleRating":
                     props.Add(key, new BitmapTypedValue((ushort)0, Windows.Foundation.PropertyType.UInt16));
                     break;
@@ -142,8 +92,7 @@ public static class EmbeddedMetadataWriter
         }
         if (props.Count == 0) return;
 
-        await encoder.BitmapProperties.SetPropertiesAsync(props);
-        await encoder.FlushAsync();
+        await WritePropertiesAsync(filePath, props);
     }
 
     /// <summary>
@@ -163,5 +112,122 @@ public static class EmbeddedMetadataWriter
         }
         catch { }
         return Array.Empty<string>();
+    }
+
+    // -----------------------------------------------------------------
+    //  Internals
+    // -----------------------------------------------------------------
+
+    private static BitmapPropertySet BuildPropertySet(
+        int? rating, string? title, IReadOnlyList<string>? keywords, DateTime? dateTaken, ushort? orientation = null)
+    {
+        var props = new BitmapPropertySet();
+
+        if (rating.HasValue)
+        {
+            // WIC System.Rating uses 1-99 scale: 1=1*, 25=2*, 50=3*, 75=4*, 99=5*; 0 = unrated
+            ushort ratingPct = rating.Value switch
+            {
+                <= 0 => 0,
+                1 => 1,
+                2 => 25,
+                3 => 50,
+                4 => 75,
+                _ => 99
+            };
+            props.Add("System.Rating", new BitmapTypedValue(ratingPct, Windows.Foundation.PropertyType.UInt16));
+            ushort starRating = (ushort)Math.Clamp(rating.Value, 0, 5);
+            props.Add("System.SimpleRating", new BitmapTypedValue(starRating, Windows.Foundation.PropertyType.UInt16));
+        }
+
+        if (title != null)
+        {
+            // Caption: write to both Title and Comment for max reader compatibility
+            props.Add("System.Title", new BitmapTypedValue(title, Windows.Foundation.PropertyType.String));
+            props.Add("System.Comment", new BitmapTypedValue(title, Windows.Foundation.PropertyType.String));
+        }
+
+        if (keywords != null)
+        {
+            // System.Keywords fans out to XMP dc:subject + EXIF XPKeywords + IPTC Keywords
+            // (Photoshop IRB) all in one call — the WIC property policy does the routing.
+            props.Add("System.Keywords",
+                new BitmapTypedValue(keywords.ToArray(), Windows.Foundation.PropertyType.StringArray));
+        }
+
+        if (dateTaken.HasValue)
+        {
+            var dto = new DateTimeOffset(dateTaken.Value, TimeZoneInfo.Local.GetUtcOffset(dateTaken.Value));
+            props.Add("System.Photo.DateTaken",
+                new BitmapTypedValue(dto, Windows.Foundation.PropertyType.DateTime));
+        }
+
+        if (orientation.HasValue)
+        {
+            // EXIF orientation: 1=normal, 6=90CW, 3=180, 8=270CW. Maps to EXIF tag 0x0112.
+            props.Add("System.Photo.Orientation",
+                new BitmapTypedValue(orientation.Value, Windows.Foundation.PropertyType.UInt16));
+        }
+
+        return props;
+    }
+
+    /// <summary>
+    /// Two-tier write: try in-place first (byte-exact); fall back to transcoding when in-place
+    /// doesn't have room for the new metadata (the common case when adding a tag to a complex file).
+    /// </summary>
+    private static async Task WritePropertiesAsync(string filePath, BitmapPropertySet props)
+    {
+        // === Tier 1: in-place (preserves bytes exactly) ===
+        try
+        {
+            var file = await StorageFile.GetFileFromPathAsync(filePath);
+            using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
+            {
+                var decoder = await BitmapDecoder.CreateAsync(stream);
+                var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
+                await encoder.BitmapProperties.SetPropertiesAsync(props);
+                await encoder.FlushAsync();
+            }
+            return;
+        }
+        catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == WINCODEC_ERR_TOOMUCHMETADATA)
+        {
+            // Fall through to transcoding
+            System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder full for {filePath}, transcoding…");
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            // Other WIC error — also try transcoding as a more resilient path
+            System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder threw 0x{ex.HResult:X8}, attempting transcode…");
+        }
+
+        // === Tier 2: transcode (rewrites file, but preserves encoded image data losslessly) ===
+        await TranscodeWriteAsync(filePath, props);
+    }
+
+    private static async Task TranscodeWriteAsync(string filePath, BitmapPropertySet props)
+    {
+        var file = await StorageFile.GetFileFromPathAsync(filePath);
+        var destBuffer = new InMemoryRandomAccessStream();
+
+        // 1) Read source + transcode into memory with merged properties
+        using (var srcStream = await file.OpenAsync(FileAccessMode.Read))
+        {
+            var decoder = await BitmapDecoder.CreateAsync(srcStream);
+            var encoder = await BitmapEncoder.CreateForTranscodingAsync(destBuffer, decoder);
+            await encoder.BitmapProperties.SetPropertiesAsync(props);
+            await encoder.FlushAsync();
+        }
+
+        // 2) Atomically replace the source file with the in-memory result
+        destBuffer.Seek(0);
+        using (var outStream = await file.OpenAsync(FileAccessMode.ReadWrite))
+        {
+            outStream.Size = 0;
+            await RandomAccessStream.CopyAsync(destBuffer.GetInputStreamAt(0), outStream);
+            await outStream.FlushAsync();
+        }
+        destBuffer.Dispose();
     }
 }
