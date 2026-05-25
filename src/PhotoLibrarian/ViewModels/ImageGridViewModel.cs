@@ -883,6 +883,13 @@ public partial class ImageGridViewModel : ObservableObject
     }
     
     /// <summary>
+    /// Re-runs grouping/sorting on the current in-memory <see cref="Images"/> collection.
+    /// Call after metadata edits that affect sort/group order (e.g. date taken, rating).
+    /// Does NOT re-fetch from DB or reload thumbnails — it just re-arranges existing items.
+    /// </summary>
+    public Task RefreshGroupingAsync() => ApplyGroupingAsync();
+
+    /// <summary>
     /// Groups the Images collection into GroupedImages based on the current GroupBy setting.
     /// Sorts items within each group based on SortBy setting.
     /// Runs on background thread to avoid UI blocking with large collections.
@@ -922,13 +929,15 @@ public partial class ImageGridViewModel : ObservableObject
                 
                 if (currentGroupBy == GroupByOption.None)
                 {
-                    // No grouping - single flat group
+                    // No grouping - single flat group. Still apply sort so dates/ratings reorder
+                    // after edits without requiring a full DB reload.
+                    var sortedFlat = ApplySortToGroup(imageSnapshot, currentSortBy, currentSortDesc);
                     return new List<PhotoGroup>
                     {
                         new PhotoGroup
                         {
-                            Header = $"All Photos ({imageSnapshot.Count:N0})",
-                            Items = new ObservableCollection<ImageThumbnailViewModel>(imageSnapshot)
+                            Header = $"All Photos ({sortedFlat.Count:N0})",
+                            Items = new ObservableCollection<ImageThumbnailViewModel>(sortedFlat)
                         }
                     };
                 }

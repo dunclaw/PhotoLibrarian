@@ -180,18 +180,20 @@
                                        Margin="86,0,0,0"
                                        Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                             <HyperlinkButton x:Name="SwitchToShiftBtn"
-                                             Content="Shift all by an offset…"
+                                             Content="Shift by an offset…"
                                              Visibility="Collapsed"
                                              Click="OnSwitchToShift"
                                              Margin="80,0,0,0"
                                              Padding="6,0" FontSize="12" />
                         </StackPanel>
                         <StackPanel x:Name="DateShiftMode" Spacing="4" Visibility="Collapsed">
-                            <TextBlock Text="Shift each capture date by:"
+                            <TextBlock x:Name="ShiftHeaderText"
+                                       Text="Shift each capture date by:"
                                        FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Grid ColumnSpacing="4">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
@@ -200,30 +202,46 @@
                                     <TextBlock Text="Days" FontSize="11"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <NumberBox x:Name="ShiftDaysBox" Value="0"
-                                               SpinButtonPlacementMode="Inline"
-                                               SmallChange="1" LargeChange="7" />
+                                               SpinButtonPlacementMode="Compact"
+                                               SmallChange="1" LargeChange="7"
+                                               ValueChanged="OnShiftValueChanged" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1">
                                     <TextBlock Text="Hours" FontSize="11"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <NumberBox x:Name="ShiftHoursBox" Value="0"
-                                               SpinButtonPlacementMode="Inline"
-                                               SmallChange="1" LargeChange="6" />
+                                               SpinButtonPlacementMode="Compact"
+                                               SmallChange="1" LargeChange="6"
+                                               ValueChanged="OnShiftValueChanged" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
                                     <TextBlock Text="Min" FontSize="11"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <NumberBox x:Name="ShiftMinutesBox" Value="0"
-                                               SpinButtonPlacementMode="Inline"
-                                               SmallChange="1" LargeChange="15" />
+                                               SpinButtonPlacementMode="Compact"
+                                               SmallChange="1" LargeChange="15"
+                                               ValueChanged="OnShiftValueChanged" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="3">
+                                    <TextBlock Text="Sec" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <NumberBox x:Name="ShiftSecondsBox" Value="0"
+                                               SpinButtonPlacementMode="Compact"
+                                               SmallChange="1" LargeChange="30"
+                                               ValueChanged="OnShiftValueChanged" />
                                 </StackPanel>
                             </Grid>
+                            <TextBlock x:Name="ShiftPreviewText"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Grid ColumnSpacing="4">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Button Grid.Column="0" Click="OnApplyShiftClick"
+                                        x:Name="ApplyShiftButton"
                                         Content="Apply shift" HorizontalAlignment="Stretch" />
                                 <HyperlinkButton Grid.Column="1" Click="OnSwitchToAbsolute"
                                                  Content="Cancel"

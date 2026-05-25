@@ -37,12 +37,10 @@ public sealed partial class ImageGridView : UserControl
         // Right-click context menu
         PhotoGrid.ContextMenuRequested += OnContextMenuRequested;
         
-        // Listen for GroupedImages changes and update grid
-        ViewModel.GroupedImages.CollectionChanged += (s, e) =>
-        {
-            System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] GroupedImages changed: Action={e.Action}, NewItemsCount={e.NewItems?.Count ?? 0}");
-            PhotoGrid.SetGroups(ViewModel.GroupedImages);
-        };
+        // Listen for GroupedImages changes — the inner grid already self-subscribes to the same
+        // ObservableCollection for layout, so we do NOT re-call PhotoGrid.SetGroups here.
+        // (SetGroups clears _selectedItems, which would wipe the user's selection on every
+        //  in-place re-sort/re-group after a metadata edit.)
         
         // Wire up custom virtualization control with initial (possibly empty) collection
         PhotoGrid.SetGroups(ViewModel.GroupedImages);

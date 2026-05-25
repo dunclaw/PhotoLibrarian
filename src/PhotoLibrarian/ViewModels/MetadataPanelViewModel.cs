@@ -435,6 +435,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             if (_imageRepo != null && entry.Id > 0)
                 await _imageRepo.UpdateDateTakenAsync(entry.Id, dt);
         }
+
+        if (_main != null) await _main.RefreshAfterDateChangeAsync();
     }
 
     /// <summary>
@@ -469,6 +471,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             IsDateMixed = true;
             DateTaken = MixedMarker;
         }
+
+        if (_main != null) await _main.RefreshAfterDateChangeAsync();
     }
 
     private static string FormatExposureForDisplay(string? raw)

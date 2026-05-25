@@ -197,6 +197,24 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Refreshes the date navigation tree and re-applies grid grouping/sorting — call after
+    /// capture-date edits so the left-panel date filter and the grid's order/grouping reflect
+    /// the new dates without a full reload.
+    /// </summary>
+    public async Task RefreshAfterDateChangeAsync()
+    {
+        await DateNav.LoadDatesAsync();
+        if (App.MainWindow is MainWindow window)
+        {
+            window.DispatcherQueue.TryEnqueue(async () =>
+            {
+                await window.RefreshMetadataTreesAsync();
+                await ImageGrid.RefreshGroupingAsync();
+            });
+        }
+    }
+
     public async Task RefreshAfterIndexAsync()
     {
         await ImageGrid.LoadImagesAsync();

@@ -57,6 +57,10 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.SelectionCount):
                 DispatcherQueue.TryEnqueue(UpdateDisplay);
                 break;
+            case nameof(MetadataPanelViewModel.CommonDateTaken):
+            case nameof(MetadataPanelViewModel.IsDateMixed):
+                DispatcherQueue.TryEnqueue(RefreshDateDisplay);
+                break;
             case nameof(MetadataPanelViewModel.Rating):
             case nameof(MetadataPanelViewModel.IsRatingMixed):
                 DispatcherQueue.TryEnqueue(UpdateStars);
@@ -82,18 +86,19 @@ public sealed partial class MetadataPanel : UserControl
         {
             MultiSelectBanner.Visibility = Visibility.Visible;
             MultiSelectText.Text = $"{ViewModel.SelectionCount} items selected — edits apply to all";
-            SwitchToShiftBtn.Visibility = Visibility.Visible;
             DateMultiHint.Visibility = ViewModel.IsDateMixed ? Visibility.Collapsed : Visibility.Visible;
         }
         else
         {
             MultiSelectBanner.Visibility = Visibility.Collapsed;
-            SwitchToShiftBtn.Visibility = Visibility.Collapsed;
             DateMultiHint.Visibility = Visibility.Collapsed;
             // Always start in absolute mode for single-select
             DateAbsoluteMode.Visibility = Visibility.Visible;
             DateShiftMode.Visibility = Visibility.Collapsed;
         }
+        // Shift link is useful both for time-zone fixes (multi) and camera-clock fixes (single)
+        SwitchToShiftBtn.Visibility = ViewModel.CommonDateTaken.HasValue || ViewModel.IsDateMixed
+            ? Visibility.Visible : Visibility.Collapsed;
 
         // Caption
         _suppressCaptionSave = true;
@@ -106,36 +111,7 @@ public sealed partial class MetadataPanel : UserControl
         _suppressCaptionSave = false;
 
         // Date taken — compact text editor
-        _suppressDateBoxLostFocus = true;
-        if (ViewModel.IsDateMixed)
-        {
-            DateTakenBox.Text = "";
-            DateTakenBox.PlaceholderText = "Multiple dates — type to set all";
-            DateMixedHint.Visibility = Visibility.Visible;
-            DateMultiHint.Visibility = Visibility.Collapsed;
-        }
-        else if (ViewModel.CommonDateTaken.HasValue)
-        {
-            var d = ViewModel.CommonDateTaken.Value;
-            DateTakenBox.Text = d.LocalDateTime.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture);
-            DateTakenBox.PlaceholderText = "M/d/yyyy h:mm tt";
-            DateMixedHint.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            DateTakenBox.Text = "";
-            DateTakenBox.PlaceholderText = "M/d/yyyy h:mm tt";
-            DateMixedHint.Visibility = Visibility.Collapsed;
-        }
-        _lastLoadedDateText = DateTakenBox.Text;
-        DateParseError.Visibility = Visibility.Collapsed;
-
-        // Pre-fill flyout pickers from current date if any
-        var seed = ViewModel.CommonDateTaken ?? DateTimeOffset.Now;
-        DatePopupCal.Date = new DateTimeOffset(seed.Year, seed.Month, seed.Day, 0, 0, 0, seed.Offset);
-        DatePopupTime.Time = new TimeSpan(seed.Hour, seed.Minute, seed.Second);
-
-        _suppressDateBoxLostFocus = false;
+        RefreshDateDisplay();
 
         // Geotag
         if (!string.IsNullOrEmpty(ViewModel.GpsLatitude) && ViewModel.GpsLatitude != "Multiple values")
@@ -250,6 +226,52 @@ public sealed partial class MetadataPanel : UserControl
 
     // --- Date taken: compact text editor ---
 
+    /// <summary>
+    /// Re-renders the date editor from the current ViewModel state. Called whenever
+    /// CommonDateTaken / IsDateMixed change (e.g. after Apply or Shift) so the box
+    /// reflects the new value without forcing a full UpdateDisplay rebuild.
+    /// </summary>
+    private void RefreshDateDisplay()
+    {
+        if (ViewModel is null) return;
+
+        _suppressDateBoxLostFocus = true;
+        if (ViewModel.IsDateMixed)
+        {
+            DateTakenBox.Text = "";
+            DateTakenBox.PlaceholderText = "Multiple dates — type to set all";
+            DateMixedHint.Visibility = Visibility.Visible;
+            DateMultiHint.Visibility = Visibility.Collapsed;
+        }
+        else if (ViewModel.CommonDateTaken.HasValue)
+        {
+            var d = ViewModel.CommonDateTaken.Value;
+            DateTakenBox.Text = d.LocalDateTime.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture);
+            DateTakenBox.PlaceholderText = "M/d/yyyy h:mm tt";
+            DateMixedHint.Visibility = Visibility.Collapsed;
+            if (ViewModel.IsMultiSelect)
+                DateMultiHint.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            DateTakenBox.Text = "";
+            DateTakenBox.PlaceholderText = "M/d/yyyy h:mm tt";
+            DateMixedHint.Visibility = Visibility.Collapsed;
+        }
+        _lastLoadedDateText = DateTakenBox.Text;
+        DateParseError.Visibility = Visibility.Collapsed;
+
+        // Pre-fill flyout pickers from current date if any
+        var seed = ViewModel.CommonDateTaken ?? DateTimeOffset.Now;
+        DatePopupCal.Date = new DateTimeOffset(seed.Year, seed.Month, seed.Day, 0, 0, 0, seed.Offset);
+        DatePopupTime.Time = new TimeSpan(seed.Hour, seed.Minute, seed.Second);
+        _suppressDateBoxLostFocus = false;
+
+        // If shift mode is currently open, refresh its preview against the new common date
+        if (DateShiftMode.Visibility == Visibility.Visible)
+            UpdateShiftPreview();
+    }
+
     private async void OnDateTakenBoxLostFocus(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null || _suppressDateBoxLostFocus) return;
@@ -325,22 +347,30 @@ public sealed partial class MetadataPanel : UserControl
     private async void OnApplyShiftClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null) return;
-        int days = (int)ShiftDaysBox.Value;
-        int hours = (int)ShiftHoursBox.Value;
-        int minutes = (int)ShiftMinutesBox.Value;
-        var offset = new TimeSpan(days, hours, minutes, 0);
+        var offset = BuildShiftOffset();
         if (offset == TimeSpan.Zero) return;
-        await ViewModel.OffsetDateTakenAsync(offset);
-        ShiftDaysBox.Value = 0;
-        ShiftHoursBox.Value = 0;
-        ShiftMinutesBox.Value = 0;
-        // Switch back to absolute view to show the new (possibly common) date
+
+        ApplyShiftButton.IsEnabled = false;
+        try
+        {
+            await ViewModel.OffsetDateTakenAsync(offset);
+        }
+        finally
+        {
+            ApplyShiftButton.IsEnabled = true;
+        }
+
+        ResetShiftFields();
+        // Switch back to absolute view; RefreshDateDisplay is triggered by VM property change.
         DateShiftMode.Visibility = Visibility.Collapsed;
         DateAbsoluteMode.Visibility = Visibility.Visible;
     }
 
     private void OnSwitchToShift(object sender, RoutedEventArgs e)
     {
+        ResetShiftFields();
+        UpdateShiftHeader();
+        UpdateShiftPreview();
         DateAbsoluteMode.Visibility = Visibility.Collapsed;
         DateShiftMode.Visibility = Visibility.Visible;
     }
@@ -349,6 +379,80 @@ public sealed partial class MetadataPanel : UserControl
     {
         DateShiftMode.Visibility = Visibility.Collapsed;
         DateAbsoluteMode.Visibility = Visibility.Visible;
+    }
+
+    private void OnShiftValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        // NumberBox raises ValueChanged during XAML init (Value="0") before all siblings exist.
+        if (ShiftDaysBox is null || ShiftHoursBox is null
+            || ShiftMinutesBox is null || ShiftSecondsBox is null) return;
+        UpdateShiftPreview();
+    }
+
+    private TimeSpan BuildShiftOffset()
+    {
+        if (ShiftDaysBox is null || ShiftHoursBox is null
+            || ShiftMinutesBox is null || ShiftSecondsBox is null) return TimeSpan.Zero;
+        int days = double.IsNaN(ShiftDaysBox.Value) ? 0 : (int)ShiftDaysBox.Value;
+        int hours = double.IsNaN(ShiftHoursBox.Value) ? 0 : (int)ShiftHoursBox.Value;
+        int minutes = double.IsNaN(ShiftMinutesBox.Value) ? 0 : (int)ShiftMinutesBox.Value;
+        int seconds = double.IsNaN(ShiftSecondsBox.Value) ? 0 : (int)ShiftSecondsBox.Value;
+        return new TimeSpan(days, hours, minutes, seconds);
+    }
+
+    private void ResetShiftFields()
+    {
+        ShiftDaysBox.Value = 0;
+        ShiftHoursBox.Value = 0;
+        ShiftMinutesBox.Value = 0;
+        ShiftSecondsBox.Value = 0;
+    }
+
+    private void UpdateShiftHeader()
+    {
+        if (ViewModel is null) return;
+        int n = ViewModel.SelectionCount;
+        ShiftHeaderText.Text = n > 1
+            ? $"Shift the capture date of {n} images by:"
+            : "Shift the capture date by:";
+    }
+
+    private void UpdateShiftPreview()
+    {
+        if (ViewModel is null || ShiftPreviewText is null || ApplyShiftButton is null) return;
+
+        var offset = BuildShiftOffset();
+        if (offset == TimeSpan.Zero)
+        {
+            ShiftPreviewText.Text = "Enter a non-zero shift (negative values shift earlier).";
+            ApplyShiftButton.IsEnabled = false;
+            return;
+        }
+
+        ApplyShiftButton.IsEnabled = true;
+        string sign = offset < TimeSpan.Zero ? "−" : "+";
+        string magnitude = FormatOffset(offset.Duration());
+
+        if (ViewModel.CommonDateTaken.HasValue && !ViewModel.IsDateMixed)
+        {
+            var newDate = ViewModel.CommonDateTaken.Value + offset;
+            ShiftPreviewText.Text =
+                $"{sign}{magnitude}  →  {newDate.LocalDateTime:M/d/yyyy h:mm:ss tt}";
+        }
+        else
+        {
+            ShiftPreviewText.Text = $"{sign}{magnitude} (each date shifts independently)";
+        }
+    }
+
+    private static string FormatOffset(TimeSpan d)
+    {
+        var parts = new List<string>();
+        if (d.Days > 0) parts.Add($"{d.Days}d");
+        if (d.Hours > 0) parts.Add($"{d.Hours}h");
+        if (d.Minutes > 0) parts.Add($"{d.Minutes}m");
+        if (d.Seconds > 0) parts.Add($"{d.Seconds}s");
+        return parts.Count > 0 ? string.Join(" ", parts) : "0";
     }
 
     // Keep DetailGrid MinHeight in sync with ScrollViewer viewport

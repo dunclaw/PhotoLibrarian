@@ -73,6 +73,12 @@ public sealed partial class FolderNavigationPanel : UserControl
         // Must update UI on dispatcher queue
         DispatcherQueue.TryEnqueue(() =>
         {
+            // Snapshot expansion + selection so editing date taken (or any other refresh trigger)
+            // doesn't collapse the user's open year/month and doesn't drop the active filter.
+            var expandedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var selectedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectDateTreeState(DateTree.RootNodes, expandedKeys, selectedKeys);
+
             DateTree.RootNodes.Clear();
 
             foreach (var rootNode in App.ViewModel.DateNav.RootNodes)
@@ -80,7 +86,54 @@ public sealed partial class FolderNavigationPanel : UserControl
                 var treeNode = BuildDateNode(rootNode);
                 DateTree.RootNodes.Add(treeNode);
             }
+
+            RestoreDateTreeState(DateTree.RootNodes, expandedKeys, selectedKeys);
         });
+    }
+
+    private static string GetDateNodeKey(DateNode n)
+    {
+        if (n.IsRoot) return "__root__";
+        if (n.Month.HasValue) return $"{n.Year:D4}-{n.Month.Value:D2}";
+        return $"{n.Year:D4}";
+    }
+
+    private void CollectDateTreeState(
+        IList<TreeViewNode> nodes,
+        HashSet<string> expanded,
+        HashSet<string> selected)
+    {
+        foreach (var n in nodes)
+        {
+            if (n.Content is DateNodeWrapper w)
+            {
+                var key = GetDateNodeKey(w.DateNode);
+                if (n.IsExpanded) expanded.Add(key);
+                if (DateTree.SelectedNodes.Contains(n)) selected.Add(key);
+            }
+            if (n.Children.Count > 0)
+                CollectDateTreeState(n.Children, expanded, selected);
+        }
+    }
+
+    private void RestoreDateTreeState(
+        IList<TreeViewNode> nodes,
+        HashSet<string> expanded,
+        HashSet<string> selected)
+    {
+        foreach (var n in nodes)
+        {
+            if (n.Content is DateNodeWrapper w)
+            {
+                var key = GetDateNodeKey(w.DateNode);
+                if (expanded.Contains(key))
+                    n.IsExpanded = true;
+                if (selected.Contains(key))
+                    DateTree.SelectedNodes.Add(n);
+            }
+            if (n.Children.Count > 0)
+                RestoreDateTreeState(n.Children, expanded, selected);
+        }
     }
 
     private TreeViewNode BuildDateNode(DateNode dateNode)
