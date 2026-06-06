@@ -347,6 +347,35 @@ public partial class MetadataPanelViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Refreshes just the Tags collection from the repo for the currently-loaded entries.
+    /// Used by the drag-to-tag drop target so the right-panel tag list updates without
+    /// re-running the full ShowMetadata pass.
+    /// </summary>
+    public async Task ReloadTagsAsync()
+    {
+        if (_tagRepo == null || _entries.Count == 0) return;
+        Tags.Clear();
+        var tagCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int considered = 0;
+        foreach (var e in _entries)
+        {
+            if (e.Id <= 0) continue;
+            considered++;
+            var list = await _tagRepo.GetTagsAsync(e.Id);
+            foreach (var t in list)
+            {
+                if (string.IsNullOrWhiteSpace(t.Tag)) continue;
+                tagCounts[t.Tag] = tagCounts.GetValueOrDefault(t.Tag, 0) + 1;
+            }
+        }
+        if (considered == 0) considered = _entries.Count;
+        foreach (var kvp in tagCounts.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            Tags.Add(new TagDisplayItem(kvp.Key, kvp.Value, considered));
+        }
+    }
+
+    /// <summary>
     /// Adds a tag to every selected image (no-op for images that already have it).
     /// </summary>
     [RelayCommand]

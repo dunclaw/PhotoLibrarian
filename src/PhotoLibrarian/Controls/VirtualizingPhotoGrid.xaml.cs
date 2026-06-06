@@ -610,6 +610,9 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         {
             await PhotoLibrarian.Services.PhotoOperationsService.PopulateDragDataAsync(args.Data, paths);
             args.AllowedOperations = DataPackageOperation.Copy;
+            // Marker so in-app drop targets (e.g. tags tree) can distinguish drags that
+            // originated from our own grid from arbitrary file drops from Explorer.
+            args.Data.Properties[PhotoLibrarian.Services.PhotoOperationsService.TagDropFormatId] = "1";
         }
         finally
         {

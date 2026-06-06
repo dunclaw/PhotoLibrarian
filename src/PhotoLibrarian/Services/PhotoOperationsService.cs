@@ -143,6 +143,15 @@ public sealed class PhotoOperationsService
         Clipboard.Flush(); // ensures content survives after our app exits
     }
 
+    /// <summary>
+    /// Property-bag key used to mark drags that originated inside PhotoLibrarian, so in-app
+    /// drop targets (e.g. the tags tree) can accept only our drags and not arbitrary file drops.
+    /// We use <see cref="DataPackage.Properties"/> rather than <see cref="DataPackage.SetData(string, object)"/>
+    /// because the property bag round-trips reliably for in-app drag/drop in WinUI 3, while
+    /// SetData with custom format IDs doesn't always surface via DataView.Contains.
+    /// </summary>
+    public const string TagDropFormatId = "PhotoLibrarianTagDrop";
+
     /// <summary>Builds a DataPackage suitable for drag-out to Explorer / other apps.</summary>
     public static async Task PopulateDragDataAsync(DataPackage pkg, IEnumerable<string> filePaths)
     {

@@ -53,8 +53,13 @@
                     <TextBlock Text="Tags" FontWeight="SemiBold" Margin="0,0,0,8" />
                     <TreeView x:Name="TagsTree"
                               SelectionMode="Multiple"
+                              CanDragItems="False"
+                              CanReorderItems="False"
                               ItemInvoked="OnTagsItemInvoked"
-                              SelectionChanged="OnTagsSelectionChanged" />
+                              SelectionChanged="OnTagsSelectionChanged"
+                              AllowDrop="True"
+                              DragOver="OnTagsTreeDragOver"
+                              Drop="OnTagsTreeDrop" />
                 </StackPanel>
 
             </StackPanel>

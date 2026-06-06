@@ -12,6 +12,7 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly CacheDatabase _db;
     private readonly ImageRepository _imageRepo;
+    private readonly TagRepository _tagRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
@@ -48,6 +49,7 @@ public partial class MainViewModel : ObservableObject
     {
         _db = db;
         _imageRepo = imageRepo;
+        _tagRepo = tagRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
         _indexingService = indexingService;
@@ -213,6 +215,56 @@ public partial class MainViewModel : ObservableObject
                 await ImageGrid.RefreshGroupingAsync();
             });
         }
+    }
+
+    /// <summary>
+    /// Applies a tag to a set of images identified by their file paths. Used by the drag-to-tag
+    /// drop target on the tags tree. Writes to DB and to the image file (or sidecar for RAW),
+    /// then refreshes the tag tree and the metadata panel.
+    /// </summary>
+    public async Task ApplyTagToImagePathsAsync(string tag, IReadOnlyList<string> filePaths)
+    {
+        if (string.IsNullOrWhiteSpace(tag) || filePaths == null || filePaths.Count == 0) return;
+        var trimmed = tag.Trim();
+
+        StatusText = $"Applying tag '{trimmed}' to {filePaths.Count:N0} item(s)…";
+
+        int applied = 0;
+        int skipped = 0;
+        foreach (var path in filePaths)
+        {
+            try
+            {
+                var entry = await _imageRepo.GetByPathAsync(path);
+                if (entry == null || entry.Id <= 0) { skipped++; continue; }
+
+                await _tagRepo.AddTagAsync(new ImageTag
+                {
+                    ImageId = entry.Id,
+                    Tag = trimmed,
+                    Source = TagSource.Manual,
+                    Confidence = 1.0f
+                });
+
+                var allTags = await _tagRepo.GetTagsAsync(entry.Id);
+                await TagWriterService.WriteTagsToSidecarAsync(path,
+                    allTags.Select(t => t.Tag).Distinct());
+
+                applied++;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TAGDROP] Failed to apply '{trimmed}' to {path}: {ex.Message}");
+                skipped++;
+            }
+        }
+
+        StatusText = skipped == 0
+            ? $"Applied tag '{trimmed}' to {applied:N0} item(s)"
+            : $"Applied tag '{trimmed}' to {applied:N0} item(s) ({skipped:N0} skipped)";
+
+        await RefreshTagsTreeAsync();
+        await MetadataPanel.ReloadTagsAsync();
     }
 
     public async Task RefreshAfterIndexAsync()

@@ -1,9 +1,13 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Diagnostics;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
 
 namespace PhotoLibrarian.Views;
 
@@ -481,6 +485,101 @@ public sealed partial class FolderNavigationPanel : UserControl
             selectedMonths.Count > 0 ? selectedMonths : null,
             tagRootSelected,
             selectedTags.Count > 0 ? selectedTags : null);
+    }
+
+    // ============================================================================
+    //  Drag-and-drop: drop photos from the grid onto a tag node to apply that tag.
+    // ============================================================================
+
+    private void OnTagsTreeDragOver(object sender, DragEventArgs e)
+    {
+        var hasMarker = e.DataView.Properties.ContainsKey(Services.PhotoOperationsService.TagDropFormatId);
+        if (!hasMarker)
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
+            return;
+        }
+
+        var tagNode = FindTagNodeAt(e);
+        if (tagNode == null || tagNode.IsRoot)
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
+            return;
+        }
+
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = $"Apply tag '{tagNode.FullPath}'";
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsContentVisible = true;
+        e.DragUIOverride.IsGlyphVisible = true;
+        e.Handled = true;
+    }
+
+    private async void OnTagsTreeDrop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Properties.ContainsKey(Services.PhotoOperationsService.TagDropFormatId)) return;
+
+        var tagNode = FindTagNodeAt(e);
+        DebugLog.WriteLine($"OnTagsTreeDrop: tagNode={tagNode?.FullPath ?? "null"}");
+        if (tagNode == null || tagNode.IsRoot) return;
+
+        e.Handled = true;
+        var deferral = e.GetDeferral();
+        try
+        {
+            if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+            {
+                DebugLog.WriteLine("OnTagsTreeDrop: no StorageItems in DataView");
+                return;
+            }
+            var items = await e.DataView.GetStorageItemsAsync();
+            var paths = items.OfType<StorageFile>().Select(f => f.Path).ToList();
+            DebugLog.WriteLine($"OnTagsTreeDrop: applying tag '{tagNode.FullPath}' to {paths.Count} path(s)");
+            if (paths.Count == 0) return;
+
+            if (App.ViewModel != null)
+            {
+                await App.ViewModel.ApplyTagToImagePathsAsync(tagNode.FullPath, paths);
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"OnTagsTreeDrop: ERROR {ex.Message}");
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    private TagNode? FindTagNodeAt(DragEventArgs e)
+    {
+        // WinUI 3 TreeViewItems don't have AllowDrop=true by default, so the OS drag hit-test
+        // stops at the TreeView itself and e.OriginalSource is always the TreeView. We work around
+        // this by hit-testing from the cursor position (in xaml-root coords) limited to TagsTree's
+        // subtree, which finds the actual TreeViewItem under the pointer regardless of AllowDrop.
+        try
+        {
+            var elements = VisualTreeHelper.FindElementsInHostCoordinates(
+                e.GetPosition(null),
+                TagsTree);
+
+            foreach (var el in elements)
+            {
+                if (el is TreeViewItem item)
+                {
+                    var node = TagsTree.NodeFromContainer(item);
+                    if (node?.Content is TagNodeWrapper w1) return w1.TagNode;
+                    if (item.DataContext is TreeViewNode tvn && tvn.Content is TagNodeWrapper w2) return w2.TagNode;
+                    if (item.DataContext is TagNodeWrapper w3) return w3.TagNode;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"FindTagNodeAt: hit-test failed: {ex.Message}");
+        }
+        return null;
     }
 
     // Helper class to wrap FolderNode with display text for TreeView
