@@ -216,6 +216,20 @@ public sealed partial class CropOverlay : UserControl
         };
     }
 
+    /// <summary>
+    /// The ratio a resize drag must respect: the chosen proportion, or — when Ctrl is held in
+    /// Free mode — the ratio the crop rect had when the drag began.
+    /// </summary>
+    private double? ActiveAspect(PointerRoutedEventArgs e)
+    {
+        if (AspectValue() is double fixedAspect) return fixedAspect;
+
+        if (!e.KeyModifiers.HasFlag(Windows.System.VirtualKeyModifiers.Control)) return null;
+        if (_dragStartCrop.Width <= 0 || _dragStartCrop.Height <= 0) return null;
+
+        return _dragStartCrop.Width / _dragStartCrop.Height;
+    }
+
     private void ApplyAspectConstraint()
     {
         if (AspectValue() is not double a || a <= 0) return;
@@ -556,7 +570,7 @@ public sealed partial class CropOverlay : UserControl
         if (_dragMode.Contains('N')) top = SafeClamp(top + dy, 0, bottom - minH);
         if (_dragMode.Contains('S')) bottom = SafeClamp(bottom + dy, top + minH, DisplayedHeight);
 
-        if (AspectValue() is double a && a > 0)
+        if (ActiveAspect(e) is double a && a > 0)
         {
             bool isCorner = _dragMode.Length == 2;
             bool horizontalDrive = isCorner

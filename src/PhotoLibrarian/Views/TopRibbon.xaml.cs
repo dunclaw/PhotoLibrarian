@@ -34,7 +34,7 @@ public sealed partial class TopRibbon : UserControl
         ViewerTools.Visibility = Visibility.Collapsed;
         CropTools.Visibility = Visibility.Visible;
         CloseViewerButton.Visibility = Visibility.Collapsed;
-        SetContextSubLabel("Drag the handles to set the crop, or drag on the photo to draw a new one");
+        SetContextSubLabel("Drag the handles to set the crop (hold Ctrl to keep proportions), or drag on the photo to draw a new one");
     }
 
     public void ExitCropMode()
