@@ -24,6 +24,11 @@ public sealed partial class CropOverlay : UserControl
     private const double HandleHitSize = 28;
     private const double MinCropSize = 32;
 
+    // How far the pointer must travel on the dimmed area before it counts as "draw a new crop
+    // rect" rather than a click. Without this, a stray click — notably the one that reactivates
+    // the window after alt-tabbing — collapses the crop to the minimum size at the click point.
+    private const double NewDragThreshold = 8;
+
     // Image pixel dimensions (oriented — i.e. what the user sees)
     private uint _imagePixelWidth;
     private uint _imagePixelHeight;
@@ -61,6 +66,7 @@ public sealed partial class CropOverlay : UserControl
     // Drag state
     private bool _dragging;
     private string _dragMode = "";          // handle Tag ("NW","N",...), "Move", or "New"
+    private bool _dragArmed;                // false while a "New" drag is still under the threshold
     private Point _dragStart;
     private Rect _dragStartCrop;
     private uint _activePointer;
@@ -86,6 +92,7 @@ public sealed partial class CropOverlay : UserControl
         _needsReset = true;
         _dragging = false;
         _dragMode = "";
+        _dragArmed = false;
         _lastSize = new Size(0, 0);
 
         if (HasSize) ResetCrop();
@@ -291,6 +298,9 @@ public sealed partial class CropOverlay : UserControl
     {
         _dragging = true;
         _dragMode = mode;
+        // Only a new-rect drag needs to prove itself; grabbing a handle or the rect interior
+        // is already an explicit gesture.
+        _dragArmed = mode != "New";
         _dragStart = e.GetCurrentPoint(LayoutRoot).Position;
         _dragStartCrop = _crop;
         _activePointer = e.Pointer.PointerId;
@@ -300,15 +310,67 @@ public sealed partial class CropOverlay : UserControl
 
     private void EndDrag(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is UIElement el) el.ReleasePointerCapture(e.Pointer);
+        // Clear the drag state before releasing capture: the release raises PointerCaptureLost
+        // synchronously, and that handler must not mistake a completed drag for a lost one.
         _dragging = false;
         _dragMode = "";
-        ProtectedCursor = null;
+        _dragArmed = false;
+        if (sender is UIElement el) el.ReleasePointerCapture(e.Pointer);
+        SetHoverCursor(sender);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Abandons an in-progress drag and restores the crop rect it started from. Used when the
+    /// gesture is lost rather than completed (capture stolen, pointer cancelled), so an
+    /// interrupted drag never leaves a half-formed crop rect behind.
+    /// </summary>
+    private void CancelDrag()
+    {
+        if (!_dragging) return;
+        _dragging = false;
+        _dragMode = "";
+        _dragArmed = false;
+        ProtectedCursor = null;
+        if (!_needsReset && HasSize)
+        {
+            _crop = _dragStartCrop;
+            RelayoutOverlay();
+        }
     }
 
     private bool IsActiveDrag(PointerRoutedEventArgs e, string expectedMode) =>
         _dragging && _dragMode == expectedMode && e.Pointer.PointerId == _activePointer;
+
+    // ----------------------------------------------------------------------
+    //  Hover cursors
+    //
+    //  ProtectedCursor is only settable on this control, so the hover cursor for a child
+    //  handle is applied here and inherited by the child under the pointer.
+    // ----------------------------------------------------------------------
+
+    private void SetHoverCursor(object? hovered)
+    {
+        if (_dragging) return;
+
+        var shape = hovered switch
+        {
+            FrameworkElement fe when fe.Tag is string tag && tag.Length > 0 => CursorShapeForHandle(tag),
+            Border => InputSystemCursorShape.SizeAll,
+            _ => (InputSystemCursorShape?)null,
+        };
+
+        ProtectedCursor = shape is null ? null : InputSystemCursor.Create(shape.Value);
+    }
+
+    private void OnHandlePointerEntered(object sender, PointerRoutedEventArgs e) => SetHoverCursor(sender);
+
+    private void OnCropBorderPointerEntered(object sender, PointerRoutedEventArgs e) => SetHoverCursor(sender);
+
+    private void OnPointerExitedResetCursor(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_dragging) ProtectedCursor = null;
+    }
 
     // ----------------------------------------------------------------------
     //  Draw a new crop rect by dragging on the dimmed area
@@ -323,9 +385,25 @@ public sealed partial class CropOverlay : UserControl
 
     private void OnRootPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (!IsActiveDrag(e, "New")) return;
+        if (!IsActiveDrag(e, "New"))
+        {
+            // Crosshair over the dimmed area advertises "drag here to draw a new crop". The
+            // source check keeps it from overriding the handle/move cursors, since pointer
+            // events from those children bubble up to the root as well.
+            if (!_dragging && ReferenceEquals(e.OriginalSource, LayoutRoot))
+                ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Cross);
+            return;
+        }
 
         var p = e.GetCurrentPoint(LayoutRoot).Position;
+
+        if (!_dragArmed)
+        {
+            var travelled = Math.Abs(p.X - _dragStart.X) + Math.Abs(p.Y - _dragStart.Y);
+            if (travelled < NewDragThreshold) return;
+            _dragArmed = true;
+        }
+
         var left = SafeClamp(Math.Min(_dragStart.X, p.X), 0, DisplayedWidth);
         var top = SafeClamp(Math.Min(_dragStart.Y, p.Y), 0, DisplayedHeight);
         var right = SafeClamp(Math.Max(_dragStart.X, p.X), 0, DisplayedWidth);
@@ -351,14 +429,26 @@ public sealed partial class CropOverlay : UserControl
 
     private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (_dragging && _dragMode == "New" &&
-            (_crop.Width < MinCropSize || _crop.Height < MinCropSize))
+        // A click (or a drag too small to be deliberate) leaves the crop rect alone. The rect
+        // itself can't be measured for this because RelayoutOverlay has already clamped it up
+        // to the minimum size, so the armed flag is what decides.
+        if (_dragging && _dragMode == "New" && !_dragArmed)
         {
-            // Treat a click (or a tiny drag) as "no change" rather than collapsing the crop.
             _crop = _dragStartCrop;
             RelayoutOverlay();
         }
         EndDrag(sender, e);
+    }
+
+    private void OnRootPointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        CancelDrag();
+        e.Handled = true;
+    }
+
+    private void OnRootPointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (_dragMode == "New") CancelDrag();
     }
 
     // ----------------------------------------------------------------------
@@ -374,7 +464,11 @@ public sealed partial class CropOverlay : UserControl
 
     private void OnCropBorderPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (!IsActiveDrag(e, "Move")) return;
+        if (!IsActiveDrag(e, "Move"))
+        {
+            SetHoverCursor(sender);
+            return;
+        }
 
         var p = e.GetCurrentPoint(LayoutRoot).Position;
         var dx = p.X - _dragStart.X;
@@ -389,6 +483,18 @@ public sealed partial class CropOverlay : UserControl
     }
 
     private void OnCropBorderPointerReleased(object sender, PointerRoutedEventArgs e) => EndDrag(sender, e);
+
+    private void OnCropBorderPointerCaptureLost(object sender, PointerRoutedEventArgs e) => StopDragKeepingRect();
+
+    /// <summary>Ends a move/resize gesture that was interrupted, leaving the rect where it is.</summary>
+    private void StopDragKeepingRect()
+    {
+        if (!_dragging) return;
+        _dragging = false;
+        _dragMode = "";
+        _dragArmed = false;
+        ProtectedCursor = null;
+    }
 
     // ----------------------------------------------------------------------
     //  Handle drag (resize)
@@ -406,7 +512,11 @@ public sealed partial class CropOverlay : UserControl
 
     private void OnHandlePointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (!_dragging || e.Pointer.PointerId != _activePointer) return;
+        if (!_dragging || e.Pointer.PointerId != _activePointer)
+        {
+            SetHoverCursor(sender);
+            return;
+        }
         if (_dragMode is "" or "Move" or "New") return;
         if (!HasSize) return;
 
@@ -482,6 +592,8 @@ public sealed partial class CropOverlay : UserControl
     }
 
     private void OnHandlePointerReleased(object sender, PointerRoutedEventArgs e) => EndDrag(sender, e);
+
+    private void OnHandlePointerCaptureLost(object sender, PointerRoutedEventArgs e) => StopDragKeepingRect();
 
     private static InputSystemCursorShape CursorShapeForHandle(string tag) => tag switch
     {

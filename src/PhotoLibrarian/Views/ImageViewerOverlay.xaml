@@ -8,7 +8,7 @@
 
     <Grid x:Name="RootGrid" Background="Black">
         <!-- Top bar -->
-        <Grid VerticalAlignment="Top" Padding="12,8" Canvas.ZIndex="1"
+        <Grid x:Name="TopBar" VerticalAlignment="Top" Padding="12,8" Canvas.ZIndex="1"
               Background="#CC000000">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -70,12 +70,12 @@
                             VerticalAlignment="Stretch" />
 
         <!-- Navigation arrows -->
-        <Button VerticalAlignment="Center" HorizontalAlignment="Left"
+        <Button x:Name="PreviousButton" VerticalAlignment="Center" HorizontalAlignment="Left"
                 Click="OnPrevious" Margin="12" Padding="12"
                 Opacity="0.7" ToolTipService.ToolTip="Previous (Left arrow)">
             <FontIcon Glyph="&#xE76B;" FontSize="20" />
         </Button>
-        <Button VerticalAlignment="Center" HorizontalAlignment="Right"
+        <Button x:Name="NextButton" VerticalAlignment="Center" HorizontalAlignment="Right"
                 Click="OnNext" Margin="12" Padding="12"
                 Opacity="0.7" ToolTipService.ToolTip="Next (Right arrow)">
             <FontIcon Glyph="&#xE76C;" FontSize="20" />

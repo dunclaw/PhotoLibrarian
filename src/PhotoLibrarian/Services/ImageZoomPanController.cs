@@ -63,7 +63,11 @@ internal sealed class ImageZoomPanController
         ZoomToCenter(target);
     }
 
-    public void ApplyBestFit()
+    /// <summary>
+    /// Fits the image to the viewport. <paramref name="contentInset"/> reserves a gap on every
+    /// side — the crop overlay needs it so handles straddling the image edge aren't clipped.
+    /// </summary>
+    public void ApplyBestFit(double contentInset = 0)
     {
         if (_imageWidth == 0 || _imageHeight == 0)
         {
@@ -79,8 +83,17 @@ internal sealed class ImageZoomPanController
             return;
         }
 
-        var zoomX = (float)(viewportWidth / _imageWidth);
-        var zoomY = (float)(viewportHeight / _imageHeight);
+        var fitWidth = viewportWidth;
+        var fitHeight = viewportHeight;
+        if (contentInset > 0)
+        {
+            // Never inset so far that nothing is left to fit into.
+            fitWidth = Math.Max(viewportWidth / 2, viewportWidth - 2 * contentInset);
+            fitHeight = Math.Max(viewportHeight / 2, viewportHeight - 2 * contentInset);
+        }
+
+        var zoomX = (float)(fitWidth / _imageWidth);
+        var zoomY = (float)(fitHeight / _imageHeight);
         var bestFitZoom = Math.Min(zoomX, zoomY);
 
         if (bestFitZoom < 0.01f) bestFitZoom = 0.01f;
