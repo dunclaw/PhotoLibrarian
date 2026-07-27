@@ -8,12 +8,16 @@
 
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- Top ribbon (shown when viewer is open) -->
+        <views:TopRibbon x:Name="TopRibbon" Grid.Row="0" Visibility="Collapsed" />
+
         <!-- Main 3-panel layout -->
-        <Grid x:Name="MainLayout" Grid.Row="0">
+        <Grid x:Name="MainLayout" Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="280" MinWidth="200" />
                 <ColumnDefinition Width="Auto" />
@@ -55,11 +59,11 @@
         </Grid>
 
         <!-- Overlay: Image Editor -->
-        <views:ImageEditorView x:Name="EditorOverlay" Grid.Row="0"
+        <views:ImageEditorView x:Name="EditorOverlay" Grid.Row="0" Grid.RowSpan="2"
                                 Visibility="Collapsed" />
 
         <!-- Overlay: Settings Panel -->
-        <Border x:Name="SettingsOverlay" Grid.Row="0" Visibility="Collapsed"
+        <Border x:Name="SettingsOverlay" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
             <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -74,7 +78,7 @@
         </Border>
 
         <!-- Status bar -->
-        <Grid Grid.Row="1" Padding="12,6"
+        <Grid Grid.Row="2" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

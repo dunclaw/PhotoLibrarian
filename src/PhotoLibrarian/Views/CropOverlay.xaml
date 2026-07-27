@@ -1,0 +1,85 @@
+<UserControl
+    x:Class="PhotoLibrarian.Views.CropOverlay"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsHitTestVisible="True">
+
+    <!--
+        The overlay fills its parent and sizes the crop rect in DISPLAY coordinates
+        (LayoutRoot.ActualWidth/Height). The code-behind converts the crop rect to
+        IMAGE pixel coordinates when reporting / when crop is committed.
+
+        Layered:
+          - 4 darkened mask rectangles around the crop rect
+          - The crop rect border + rule-of-thirds grid lines
+          - 8 handle ellipses positioned at corners + edge mid-points
+    -->
+    <Grid x:Name="LayoutRoot" Background="Transparent"
+          PointerPressed="OnRootPointerPressed"
+          PointerMoved="OnRootPointerMoved"
+          PointerReleased="OnRootPointerReleased"
+          PointerCanceled="OnRootPointerReleased">
+
+        <!-- Dim masks (outside the crop rect). Never hit-tested so drags fall through to LayoutRoot. -->
+        <Rectangle x:Name="MaskTop"    Fill="#90000000" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Top" />
+        <Rectangle x:Name="MaskBottom" Fill="#90000000" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Bottom" />
+        <Rectangle x:Name="MaskLeft"   Fill="#90000000" IsHitTestVisible="False" VerticalAlignment="Stretch"   HorizontalAlignment="Left" />
+        <Rectangle x:Name="MaskRight"  Fill="#90000000" IsHitTestVisible="False" VerticalAlignment="Stretch"   HorizontalAlignment="Right" />
+
+        <!-- Crop rect: positioned via Canvas inside LayoutRoot -->
+        <Canvas x:Name="HandlesCanvas" IsHitTestVisible="True">
+
+            <!-- Border + interior drag target (pan whole rect) -->
+            <Border x:Name="CropBorder"
+                    BorderBrush="White"
+                    BorderThickness="2"
+                    Background="Transparent"
+                    PointerPressed="OnCropBorderPointerPressed"
+                    PointerMoved="OnCropBorderPointerMoved"
+                    PointerReleased="OnCropBorderPointerReleased"
+                    PointerCanceled="OnCropBorderPointerReleased" />
+
+            <!-- Rule-of-thirds grid lines (inside crop rect) -->
+            <Line x:Name="GridV1" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
+            <Line x:Name="GridV2" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
+            <Line x:Name="GridH1" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
+            <Line x:Name="GridH2" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
+
+            <!-- 8 handles: 4 corners (NW, NE, SE, SW) + 4 edge mid-points (N, E, S, W).
+                 Each is a 28x28 transparent hit target wrapping a smaller visible marker,
+                 so they stay easy to grab without dominating the image. -->
+            <Grid x:Name="HandleNW" Width="28" Height="28" Background="Transparent" Tag="NW"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+            <Grid x:Name="HandleN" Width="28" Height="28" Background="Transparent" Tag="N"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+            <Grid x:Name="HandleNE" Width="28" Height="28" Background="Transparent" Tag="NE"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+            <Grid x:Name="HandleE" Width="28" Height="28" Background="Transparent" Tag="E"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+            <Grid x:Name="HandleSE" Width="28" Height="28" Background="Transparent" Tag="SE"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+            <Grid x:Name="HandleS" Width="28" Height="28" Background="Transparent" Tag="S"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+            <Grid x:Name="HandleSW" Width="28" Height="28" Background="Transparent" Tag="SW"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+            <Grid x:Name="HandleW" Width="28" Height="28" Background="Transparent" Tag="W"
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+            </Grid>
+        </Canvas>
+    </Grid>
+</UserControl>

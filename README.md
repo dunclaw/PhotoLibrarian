@@ -128,26 +128,30 @@ Open `PhotoLibrarian.slnx`, set **PhotoLibrarian** as the startup project, pick 
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
 | Next / previous in viewer | ←  →  arrow keys |
 
-More shortcuts (Ctrl+A, Del, F2, 0-5 rating, F11 slideshow) coming — see the roadmap.
+More shortcuts (Del, F2, 0-5 rating, F11 slideshow) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
 
 ---
 
 ## Roadmap
 
-Tracked against a Windows Live Photo Gallery feature inventory (40 items).
+The roadmap lives in [GitHub issues](https://github.com/dunclaw/PhotoLibrarian/issues), organised into seven milestones. It was derived from a full audit of the codebase against a Windows Live Photo Gallery feature inventory; issues carrying the `pg-parity` label map to a specific Photo Gallery capability.
 
 ### Done ✅
-Library nav (folder/date/tag) · grid virtualization · viewer with smooth zoom · multi-select metadata panel · ratings · captions · tags · capture-date edit (set or shift) · in-place metadata writing · Win2D adjustments editor · background indexing.
+Library nav (folder/date/tag) · grid virtualization · viewer with smooth zoom · multi-select metadata panel · ratings · captions · hierarchical tags · drag-drop tag assignment · capture-date edit (set or shift) · in-place metadata writing · context menu with Open With · grid keyboard navigation · crop tool · Win2D adjustments editor · background indexing.
 
-### Next up
-1. **Crop tool** with aspect-ratio presets
-2. **Batch rename** with patterns
-3. Editor **Prev/Next** + **Make a copy**
-4. Standard **keyboard shortcuts** pass
-5. **Find & filter**: rating filter, flagged filter, text search (SQLite FTS5)
+### Milestones
 
-### Later
-Red-eye · effects gallery · histogram · face detection & people tags · geotag map · slideshow themes · print templates · auto-import from camera · batch resize/export.
+| Milestone | Theme |
+|-----------|-------|
+| [M1: Finish what is started](https://github.com/dunclaw/PhotoLibrarian/milestone/1) | Close out half-wired features — crop verification, editor save pipeline, dead buttons |
+| [M2: Find & Filter](https://github.com/dunclaw/PhotoLibrarian/milestone/2) | Flags, rating filters, full-text search, untagged view |
+| [M3: People & Faces](https://github.com/dunclaw/PhotoLibrarian/milestone/3) | Surface the existing ONNX face pipeline: face UI, person tags, batch review |
+| [M4: Editing Suite](https://github.com/dunclaw/PhotoLibrarian/milestone/4) | Straighten, red-eye, retouch, effects, histogram, undo |
+| [M5: Output & Sharing](https://github.com/dunclaw/PhotoLibrarian/milestone/5) | Slideshow, print, batch resize/export, share, shortcuts |
+| [M6: Library Hygiene](https://github.com/dunclaw/PhotoLibrarian/milestone/6) | Batch rename, camera import, duplicate detection, sidecar migration |
+| [M7: Geo & Create](https://github.com/dunclaw/PhotoLibrarian/milestone/7) | Geotag display and edit, map view, panorama, photo fuse |
+
+Photo Gallery features that depended on retired services — OneDrive/Facebook/Flickr/YouTube publishing, Bing geocoding, Order Prints, Windows DVD Maker — are deliberately out of scope.
 
 ---
 

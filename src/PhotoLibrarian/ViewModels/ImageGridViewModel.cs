@@ -890,6 +890,23 @@ public partial class ImageGridViewModel : ObservableObject
     public Task RefreshGroupingAsync() => ApplyGroupingAsync();
 
     /// <summary>
+    /// Forces a single image's thumbnail and metadata to be re-fetched from disk. Call after
+    /// in-place edits to a file (e.g. crop, rotate) so the grid shows the new content.
+    /// </summary>
+    public async Task RefreshSingleImageAsync(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath)) return;
+        var vm = Images.FirstOrDefault(v => string.Equals(v.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        if (vm == null) return;
+        vm.InvalidateThumbnail();
+        var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(filePath, 180);
+        if (streamBytes != null)
+        {
+            await vm.LoadThumbnailFromStreamAsync(streamBytes);
+        }
+    }
+
+    /// <summary>
     /// Groups the Images collection into GroupedImages based on the current GroupBy setting.
     /// Sorts items within each group based on SortBy setting.
     /// Runs on background thread to avoid UI blocking with large collections.
@@ -1152,6 +1169,9 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagRootSelected = false;
         _currentTagFilters = null;
         Images.Clear();
+        SelectedImages.Clear();
+        SelectedImage = null;
+        await ApplyGroupingAsync();
         // Don't set status text here - let MainViewModel handle it
     }
 
@@ -1240,6 +1260,18 @@ public partial class ImageThumbnailViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Resets the thumbnail-loaded flag so the next call to <see cref="LoadThumbnailAsync"/>
+    /// or <see cref="LoadThumbnailFromStreamAsync"/> re-fetches the bitmap from disk. Used
+    /// after in-place edits (crop, rotate) so the grid reflects the new image content.
+    /// </summary>
+    public void InvalidateThumbnail()
+    {
+        _thumbnailLoaded = false;
+        Thumbnail = null;
+        IsLoading = true;
+    }
+
+    /// <summary>
     /// OBSOLETE: Lazy-loading replaced by batch loading with Windows thumbnail cache.
     /// This method is kept for backward compatibility but should not be called.
     /// </summary>
@@ -1250,7 +1282,6 @@ public partial class ImageThumbnailViewModel : ObservableObject
             return;
         
         _thumbnailLoaded = true;
-
         try
         {
             if (_cancellationToken.IsCancellationRequested)

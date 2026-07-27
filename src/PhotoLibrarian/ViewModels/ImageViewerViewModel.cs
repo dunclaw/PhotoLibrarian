@@ -33,6 +33,15 @@ public partial class ImageViewerViewModel : ObservableObject
     [ObservableProperty]
     public partial string? VideoPath { get; set; }
 
+    /// <summary>
+    /// The currently-viewed image entry, or null if the viewer is closed or showing a video.
+    /// Used by the ribbon/crop overlay to know which file to act on.
+    /// </summary>
+    public ImageEntry? CurrentEntry =>
+        IsOpen && _currentIndex >= 0 && _currentIndex < _allImages.Count
+            ? _allImages[_currentIndex]
+            : null;
+
     public ImageViewerViewModel()
     {
         Title = "";
@@ -46,6 +55,7 @@ public partial class ImageViewerViewModel : ObservableObject
         _currentIndex = allImages.IndexOf(entry);
         if (_currentIndex < 0) _currentIndex = 0;
         IsOpen = true;
+        OnPropertyChanged(nameof(CurrentEntry));
         _ = LoadCurrentImageAsync();
     }
 
@@ -56,6 +66,15 @@ public partial class ImageViewerViewModel : ObservableObject
         CurrentImage = null;
         VideoPath = null;
         IsVideo = false;
+        OnPropertyChanged(nameof(CurrentEntry));
+    }
+
+    /// <summary>
+    /// Reload the current image from disk (used after edits like crop that change the file content).
+    /// </summary>
+    public async Task ReloadCurrentImageAsync()
+    {
+        await LoadCurrentImageAsync();
     }
 
     [RelayCommand]
@@ -99,6 +118,7 @@ public partial class ImageViewerViewModel : ObservableObject
         var entry = _allImages[_currentIndex];
         Title = entry.FileName;
         ImageInfo = $"{_currentIndex + 1} / {_allImages.Count}";
+        OnPropertyChanged(nameof(CurrentEntry));
 
         if (entry.MediaType == MediaType.Video)
         {

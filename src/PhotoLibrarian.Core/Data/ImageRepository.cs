@@ -205,6 +205,18 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdateDimensionsAsync(long imageId, int width, int height, long fileSize)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET width = $w, height = $h, file_size = $size, orientation = 1 WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$w", width);
+        cmd.Parameters.AddWithValue("$h", height);
+        cmd.Parameters.AddWithValue("$size", fileSize);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task UpdatePathAsync(long imageId, string newPath)
     {
         using var conn = _db.CreateConnection();

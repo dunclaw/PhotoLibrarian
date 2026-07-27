@@ -1,11 +1,18 @@
 using Microsoft.UI.Xaml;
+using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
+using System;
+using System.Threading.Tasks;
 
 namespace PhotoLibrarian;
 
 public sealed partial class MainWindow : Window
 {
     public MainViewModel ViewModel => App.ViewModel;
+
+    private CropAspectRatio _pendingAspect = CropAspectRatio.Free;
 
     public async Task RefreshMetadataTreesAsync()
     {
@@ -45,6 +52,15 @@ public sealed partial class MainWindow : Window
                 if (e.PropertyName is nameof(ViewModel.Settings))
                     UpdateSettingsVisibility();
             };
+
+            // Track viewer open/close so the top ribbon mirrors it.
+            ViewModel.ImageViewer.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(ImageViewerViewModel.IsOpen))
+                    DispatcherQueue.TryEnqueue(UpdateRibbonVisibility);
+                if (e.PropertyName == nameof(ImageViewerViewModel.Title))
+                    DispatcherQueue.TryEnqueue(() => TopRibbon.SetContextLabel(ViewModel.ImageViewer.Title ?? ""));
+            };
         }
 
         // Wire up settings close handler
@@ -53,11 +69,21 @@ public sealed partial class MainWindow : Window
             if (e.PropertyName == nameof(ViewModel.Settings.IsOpen))
                 UpdateSettingsVisibility();
         };
-        
+
+        // Top-ribbon events
+        TopRibbon.CropClicked += OnRibbonCropClicked;
+        TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
+        TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
+        TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
+        TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
+        TopRibbon.CropAspectChanged += OnRibbonCropAspectChanged;
+        ViewerOverlay.CropApplyRequested += OnRibbonApplyCropClicked;
+        ViewerOverlay.CropCancelRequested += OnRibbonCancelCropClicked;
+
         // Cleanup on window close
         this.Closed += OnWindowClosed;
     }
-    
+
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         // Cancel all background tasks to allow clean shutdown
@@ -69,6 +95,74 @@ public sealed partial class MainWindow : Window
     {
         ViewerOverlay.Visibility = ViewModel.ImageViewer.IsOpen
             ? Visibility.Visible : Visibility.Collapsed;
+        UpdateRibbonVisibility();
+    }
+
+    private void UpdateRibbonVisibility()
+    {
+        TopRibbon.Visibility = ViewModel.ImageViewer.IsOpen
+            ? Visibility.Visible : Visibility.Collapsed;
+        if (!ViewModel.ImageViewer.IsOpen && ViewerOverlay.IsCropping)
+        {
+            ViewerOverlay.ExitCropMode();
+            TopRibbon.ExitCropMode();
+        }
+    }
+
+    private void OnRibbonCropClicked(object? sender, EventArgs e)
+    {
+        if (!ViewModel.ImageViewer.IsOpen) return;
+        if (ViewModel.ImageViewer.IsVideo) return;
+        ViewerOverlay.EnterCropMode();
+        ViewerOverlay.CropOverlay.AspectRatio = _pendingAspect;
+        TopRibbon.EnterCropMode();
+    }
+
+    private void OnRibbonAdjustClicked(object? sender, EventArgs e)
+    {
+        // Adjust panel hookup is a future task — placeholder for now.
+    }
+
+    private void OnRibbonCancelCropClicked(object? sender, EventArgs e)
+    {
+        ViewerOverlay.ExitCropMode();
+        TopRibbon.ExitCropMode();
+    }
+
+    private void OnRibbonCropAspectChanged(object? sender, CropAspectRatio ratio)
+    {
+        _pendingAspect = ratio;
+        if (ViewerOverlay.IsCropping)
+            ViewerOverlay.CropOverlay.AspectRatio = ratio;
+    }
+
+    private async void OnRibbonApplyCropClicked(object? sender, EventArgs e)
+    {
+        if (!ViewerOverlay.IsCropping) return;
+        var bounds = ViewerOverlay.CropOverlay.GetCropBoundsInImagePixels();
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (bounds is null || entry is null) return;
+
+        TopRibbon.IsEnabled = false;
+        ViewModel.StatusText = "Applying crop…";
+        try
+        {
+            // Back up the original first (no-op if a backup already exists).
+            await App.ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
+
+            var (w, h) = await CropService.CropImageAsync(entry.FilePath, bounds.Value);
+            await ViewModel.RefreshAfterCropAsync(entry.FilePath, w, h);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusText = $"Crop failed: {ex.Message}";
+        }
+        finally
+        {
+            ViewerOverlay.ExitCropMode();
+            TopRibbon.ExitCropMode();
+            TopRibbon.IsEnabled = true;
+        }
     }
 
     private void UpdateSettingsVisibility()

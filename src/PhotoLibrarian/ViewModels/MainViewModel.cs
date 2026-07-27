@@ -28,6 +28,7 @@ public partial class MainViewModel : ObservableObject
     public MetadataPanelViewModel MetadataPanel { get; }
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
+    public OriginalBackupService BackupService => _backupService;
 
     [ObservableProperty]
     public partial string StatusText { get; set; }
@@ -267,12 +268,41 @@ public partial class MainViewModel : ObservableObject
         await MetadataPanel.ReloadTagsAsync();
     }
 
+    /// <summary>
+    /// Called after the image file at <paramref name="filePath"/> has been cropped on disk.
+    /// Updates DB dimensions, refreshes the grid thumbnail and the open viewer.
+    /// </summary>
+    public async Task RefreshAfterCropAsync(string filePath, uint newPixelWidth, uint newPixelHeight)
+    {
+        if (string.IsNullOrEmpty(filePath)) return;
+        try
+        {
+            var entry = await _imageRepo.GetByPathAsync(filePath);
+            if (entry != null && entry.Id > 0)
+            {
+                var size = new System.IO.FileInfo(filePath).Length;
+                await _imageRepo.UpdateDimensionsAsync(entry.Id, (int)newPixelWidth, (int)newPixelHeight, size);
+                entry.Width = (int)newPixelWidth;
+                entry.Height = (int)newPixelHeight;
+                entry.Orientation = 1;
+                entry.FileSize = size;
+            }
+            await ImageGrid.RefreshSingleImageAsync(filePath);
+            await ImageViewer.ReloadCurrentImageAsync();
+            StatusText = $"Cropped {System.IO.Path.GetFileName(filePath)} ({newPixelWidth}×{newPixelHeight})";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CROP] RefreshAfterCropAsync failed: {ex.Message}");
+            StatusText = $"Crop refresh failed: {ex.Message}";
+        }
+    }
+
     public async Task RefreshAfterIndexAsync()
     {
         await ImageGrid.LoadImagesAsync();
         TotalImages = await _imageRepo.GetCountAsync();
         StatusText = $"{TotalImages:N0} items";
-        
         // Refresh date and tag navigation data
         await DateNav.LoadDatesAsync();
         await TagNav.LoadTagsAsync();

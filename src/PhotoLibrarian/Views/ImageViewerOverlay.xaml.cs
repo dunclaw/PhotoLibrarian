@@ -14,6 +14,44 @@ public sealed partial class ImageViewerOverlay : UserControl
 {
     private ImageViewerViewModel? ViewModel => App.ViewModel?.ImageViewer;
     private ImageZoomPanController? _zoomPan;
+    private uint _currentImagePixelWidth;
+    private uint _currentImagePixelHeight;
+    public bool IsCropping { get; private set; }
+    public event EventHandler? CropExited;
+    public event EventHandler? CropApplyRequested;
+    public event EventHandler? CropCancelRequested;
+
+    public CropOverlay CropOverlay => CropOverlayView;
+    public uint CurrentImagePixelWidth => _currentImagePixelWidth;
+    public uint CurrentImagePixelHeight => _currentImagePixelHeight;
+
+    public void EnterCropMode()
+    {
+        if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
+
+        // Fit the whole image first so every crop handle is reachable — a zoomed-in image
+        // would push the crop rect's edges outside the viewport.
+        _zoomPan?.ApplyBestFit();
+
+        IsCropping = true;
+        CropOverlayView.Visibility = Visibility.Visible;
+
+        // The overlay has no layout size until it has been measured, so initialise after the
+        // pending layout pass; CropOverlay also defers its own reset until it has a real size.
+        CropOverlayView.InitializeForImage(_currentImagePixelWidth, _currentImagePixelHeight);
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (IsCropping && !CropOverlayView.IsCropEstablished)
+                CropOverlayView.InitializeForImage(_currentImagePixelWidth, _currentImagePixelHeight);
+        });
+    }
+
+    public void ExitCropMode()
+    {
+        CropOverlayView.Visibility = Visibility.Collapsed;
+        IsCropping = false;
+        CropExited?.Invoke(this, EventArgs.Empty);
+    }
 
     public ImageViewerOverlay()
     {
@@ -56,6 +94,8 @@ public sealed partial class ImageViewerOverlay : UserControl
                     if (!ViewModel.IsOpen) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
+                    // Cancel any in-progress crop when navigating to a different image.
+                    if (IsCropping) ExitCropMode();
                     // Attach handler BEFORE setting source (in case image is cached and fires immediately)
                     FullImage.ImageOpened += OnImageOpened;
                     FullImage.Source = ViewModel.CurrentImage;
@@ -64,6 +104,8 @@ public sealed partial class ImageViewerOverlay : UserControl
                     if (ViewModel.CurrentImage is BitmapImage bmp && bmp.PixelWidth > 0)
                     {
                         DebugLog.WriteLine($"ImageViewerOverlay: Image already loaded, setting up manually");
+                        _currentImagePixelWidth = (uint)bmp.PixelWidth;
+                        _currentImagePixelHeight = (uint)bmp.PixelHeight;
                         _zoomPan?.SetImageSize(bmp.PixelWidth, bmp.PixelHeight);
                         _zoomPan?.ApplyBestFit();
                     }
@@ -158,6 +200,8 @@ public sealed partial class ImageViewerOverlay : UserControl
         
         _zoomPan.SetImageSize(width, height);
         _zoomPan.ApplyBestFit();
+        _currentImagePixelWidth = (uint)width;
+        _currentImagePixelHeight = (uint)height;
         DebugLog.WriteLine("ImageViewerOverlay: Applied best fit");
     }
 
@@ -168,22 +212,26 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
+        if (IsCropping) return;
         DebugLog.WriteLine($"ImageViewerOverlay: Wheel changed, delta={e.GetCurrentPoint(RootGrid).Properties.MouseWheelDelta}");
         _zoomPan?.HandlePointerWheelChanged(e);
     }
 
     private void ImageScrollViewer_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (IsCropping) return;
         _zoomPan?.HandlePointerPressed(ImageScrollViewer, e);
     }
 
     private void ImageScrollViewer_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (IsCropping) return;
         _zoomPan?.HandlePointerMoved(ImageScrollViewer, e);
     }
 
     private void ImageScrollViewer_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (IsCropping) return;
         _zoomPan?.HandlePointerReleased(ImageScrollViewer, e);
     }
 
@@ -210,6 +258,18 @@ public sealed partial class ImageViewerOverlay : UserControl
     private async void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (ViewModel is null) return;
+
+        if (IsCropping)
+        {
+            // Swallow viewer navigation while cropping so arrow keys don't silently
+            // discard the in-progress crop by moving to another photo.
+            if (e.Key == Windows.System.VirtualKey.Escape)
+                CropCancelRequested?.Invoke(this, EventArgs.Empty);
+            else if (e.Key == Windows.System.VirtualKey.Enter)
+                CropApplyRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+            return;
+        }
 
         switch (e.Key)
         {
