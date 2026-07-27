@@ -7,8 +7,15 @@
     KeyDown="OnKeyDown">
 
     <Grid x:Name="RootGrid" Background="Black">
+        <Grid.RowDefinitions>
+            <!-- The top bar takes its own row rather than floating over the image, so the
+                 viewport used for best-fit is the space the image actually gets. -->
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
         <!-- Top bar -->
-        <Grid VerticalAlignment="Top" Padding="12,8" Canvas.ZIndex="1"
+        <Grid x:Name="TopBar" Grid.Row="0" Padding="12,8"
               Background="#CC000000">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -42,6 +49,7 @@
 
         <!-- Image viewer with zoom/pan -->
         <ScrollViewer x:Name="ImageScrollViewer"
+                      Grid.Row="1"
                       HorizontalScrollMode="Disabled"
                       VerticalScrollMode="Disabled"
                       HorizontalScrollBarVisibility="Auto"
@@ -63,6 +71,7 @@
 
         <!-- Video player (shown instead of Image for videos) -->
         <MediaPlayerElement x:Name="VideoPlayer"
+                            Grid.Row="1"
                             Visibility="Collapsed"
                             AreTransportControlsEnabled="True"
                             AutoPlay="True"
@@ -70,12 +79,12 @@
                             VerticalAlignment="Stretch" />
 
         <!-- Navigation arrows -->
-        <Button VerticalAlignment="Center" HorizontalAlignment="Left"
+        <Button x:Name="PreviousButton" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left"
                 Click="OnPrevious" Margin="12" Padding="12"
                 Opacity="0.7" ToolTipService.ToolTip="Previous (Left arrow)">
             <FontIcon Glyph="&#xE76B;" FontSize="20" />
         </Button>
-        <Button VerticalAlignment="Center" HorizontalAlignment="Right"
+        <Button x:Name="NextButton" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Right"
                 Click="OnNext" Margin="12" Padding="12"
                 Opacity="0.7" ToolTipService.ToolTip="Next (Right arrow)">
             <FontIcon Glyph="&#xE76C;" FontSize="20" />

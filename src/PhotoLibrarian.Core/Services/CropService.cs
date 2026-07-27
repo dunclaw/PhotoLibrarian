@@ -19,6 +19,23 @@ namespace PhotoLibrarian.Core.Services;
 ///
 /// NOTE: For JPEG this is a re-encode (not block-level lossless crop). Lossless JPEG block crop
 /// is a future optimization that requires bounds aligned to 8x8/16x16 blocks.
+///
+/// TODO: Metadata that references pixel locations is currently carried through the transcode
+/// unchanged, so after a crop it points at the wrong part of the photo. Nothing in the app writes
+/// such metadata yet, but this has to be handled before People tags ship (milestone M3):
+///
+///   * MWG face regions — mwg-rs:Regions in the XMP sidecar written by MwgRegionWriter, plus the
+///     stDim:AppliedToDimensions it is normalised against, and the same regions carried inside the
+///     file's embedded XMP by other tools (Photo Gallery, Picasa, digiKam).
+///   * FaceRegion rows in the cache database (X/Y/Width/Height, normalised 0-1 to the full frame).
+///   * EXIF SubjectArea / SubjectLocation, and any embedded thumbnail or preview image.
+///
+/// The transform for a normalised region is
+///     newX = (oldX * oldPixelWidth  - bounds.X) / bounds.Width
+///     newY = (oldY * oldPixelHeight - bounds.Y) / bounds.Height
+/// with the same scaling for width/height. Regions falling entirely outside the crop should be
+/// dropped, and partially-clipped ones clamped to the new frame (or dropped once too little of the
+/// face is left to be useful).
 /// </summary>
 public static class CropService
 {

@@ -25,15 +25,25 @@ public sealed partial class ImageViewerOverlay : UserControl
     public uint CurrentImagePixelWidth => _currentImagePixelWidth;
     public uint CurrentImagePixelHeight => _currentImagePixelHeight;
 
+    // Gap left around the image while cropping so the handles — which overhang the crop rect
+    // by half their hit size — are never clipped by the viewport edge.
+    private const double CropInset = 20;
+
     public void EnterCropMode()
     {
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
 
-        // Fit the whole image first so every crop handle is reachable — a zoomed-in image
-        // would push the crop rect's edges outside the viewport.
-        _zoomPan?.ApplyBestFit();
-
         IsCropping = true;
+
+        // The prev/next buttons sit exactly where the E/W handles land and would swallow
+        // the pointer presses meant for them, so they go away for the duration of the crop.
+        PreviousButton.Visibility = Visibility.Collapsed;
+        NextButton.Visibility = Visibility.Collapsed;
+
+        // Re-fit with an inset: a zoomed-in image would push the crop rect's edges — and the
+        // handles that straddle them — outside the viewport.
+        _zoomPan?.ApplyBestFit(CropInset);
+
         CropOverlayView.Visibility = Visibility.Visible;
 
         // The overlay has no layout size until it has been measured, so initialise after the
@@ -48,8 +58,17 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void ExitCropMode()
     {
+        var wasCropping = IsCropping;
+
         CropOverlayView.Visibility = Visibility.Collapsed;
         IsCropping = false;
+
+        PreviousButton.Visibility = Visibility.Visible;
+        NextButton.Visibility = Visibility.Visible;
+
+        // Drop the crop inset so the image goes back to filling the viewport.
+        if (wasCropping) _zoomPan?.ApplyBestFit();
+
         CropExited?.Invoke(this, EventArgs.Empty);
     }
 
@@ -207,6 +226,12 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void ImageScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
     {
+        if (IsCropping)
+        {
+            // Keep the inset fit so the crop handles stay inside the viewport after a resize.
+            _zoomPan?.ApplyBestFit(CropInset);
+            return;
+        }
         _zoomPan?.HandleSizeChanged(e.PreviousSize);
     }
 

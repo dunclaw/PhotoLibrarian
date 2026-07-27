@@ -18,7 +18,8 @@
           PointerPressed="OnRootPointerPressed"
           PointerMoved="OnRootPointerMoved"
           PointerReleased="OnRootPointerReleased"
-          PointerCanceled="OnRootPointerReleased">
+          PointerCanceled="OnRootPointerCanceled"
+          PointerCaptureLost="OnRootPointerCaptureLost">
 
         <!-- Dim masks (outside the crop rect). Never hit-tested so drags fall through to LayoutRoot. -->
         <Rectangle x:Name="MaskTop"    Fill="#90000000" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Top" />
@@ -37,7 +38,10 @@
                     PointerPressed="OnCropBorderPointerPressed"
                     PointerMoved="OnCropBorderPointerMoved"
                     PointerReleased="OnCropBorderPointerReleased"
-                    PointerCanceled="OnCropBorderPointerReleased" />
+                    PointerCanceled="OnCropBorderPointerReleased"
+                    PointerCaptureLost="OnCropBorderPointerCaptureLost"
+                    PointerEntered="OnCropBorderPointerEntered"
+                    PointerExited="OnPointerExitedResetCursor" />
 
             <!-- Rule-of-thirds grid lines (inside crop rect) -->
             <Line x:Name="GridV1" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
@@ -49,35 +53,35 @@
                  Each is a 28x28 transparent hit target wrapping a smaller visible marker,
                  so they stay easy to grab without dominating the image. -->
             <Grid x:Name="HandleNW" Width="28" Height="28" Background="Transparent" Tag="NW"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleN" Width="28" Height="28" Background="Transparent" Tag="N"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleNE" Width="28" Height="28" Background="Transparent" Tag="NE"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleE" Width="28" Height="28" Background="Transparent" Tag="E"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleSE" Width="28" Height="28" Background="Transparent" Tag="SE"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleS" Width="28" Height="28" Background="Transparent" Tag="S"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleSW" Width="28" Height="28" Background="Transparent" Tag="SW"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleW" Width="28" Height="28" Background="Transparent" Tag="W"
-                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased">
+                  PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
                 <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
             </Grid>
         </Canvas>
