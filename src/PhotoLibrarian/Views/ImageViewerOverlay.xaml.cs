@@ -28,7 +28,6 @@ public sealed partial class ImageViewerOverlay : UserControl
     // Gap left around the image while cropping so the handles — which overhang the crop rect
     // by half their hit size — are never clipped by the viewport edge.
     private const double CropInset = 20;
-    private const double FallbackTopBarHeight = 48;
 
     public void EnterCropMode()
     {
@@ -41,12 +40,8 @@ public sealed partial class ImageViewerOverlay : UserControl
         PreviousButton.Visibility = Visibility.Collapsed;
         NextButton.Visibility = Visibility.Collapsed;
 
-        // Push the image below the top bar (title / zoom / close) so it no longer covers the
-        // top of the crop grid, then re-fit with an inset: a zoomed-in image would push the
-        // crop rect's edges — and its handles — outside the viewport.
-        var topBarHeight = TopBar.ActualHeight > 0 ? TopBar.ActualHeight : FallbackTopBarHeight;
-        ImageScrollViewer.Margin = new Thickness(0, topBarHeight, 0, 0);
-        ImageScrollViewer.UpdateLayout();
+        // Re-fit with an inset: a zoomed-in image would push the crop rect's edges — and the
+        // handles that straddle them — outside the viewport.
         _zoomPan?.ApplyBestFit(CropInset);
 
         CropOverlayView.Visibility = Visibility.Visible;
@@ -63,18 +58,16 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void ExitCropMode()
     {
+        var wasCropping = IsCropping;
+
         CropOverlayView.Visibility = Visibility.Collapsed;
         IsCropping = false;
 
         PreviousButton.Visibility = Visibility.Visible;
         NextButton.Visibility = Visibility.Visible;
 
-        if (ImageScrollViewer.Margin.Top != 0)
-        {
-            ImageScrollViewer.Margin = new Thickness(0);
-            ImageScrollViewer.UpdateLayout();
-            _zoomPan?.ApplyBestFit();
-        }
+        // Drop the crop inset so the image goes back to filling the viewport.
+        if (wasCropping) _zoomPan?.ApplyBestFit();
 
         CropExited?.Invoke(this, EventArgs.Empty);
     }

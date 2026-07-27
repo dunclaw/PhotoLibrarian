@@ -24,6 +24,9 @@ public sealed partial class CropOverlay : UserControl
     private const double HandleHitSize = 28;
     private const double MinCropSize = 32;
 
+    // Fraction of the frame the crop rect covers when the tool opens.
+    private const double DefaultCropFraction = 0.75;
+
     // How far the pointer must travel on the dimmed area before it counts as "draw a new crop
     // rect" rather than a click. Without this, a stray click — notably the one that reactivates
     // the window after alt-tabbing — collapses the crop to the minimum size at the click point.
@@ -181,7 +184,16 @@ public sealed partial class CropOverlay : UserControl
 
     private void ResetCrop()
     {
-        _crop = new Rect(0, 0, DisplayedWidth, DisplayedHeight);
+        // Start at a centred fraction of the frame rather than the whole image: the user opened
+        // the crop tool to crop, so the handles should already be grabbable and the effect of
+        // dragging them obvious.
+        var w = DisplayedWidth * DefaultCropFraction;
+        var h = DisplayedHeight * DefaultCropFraction;
+        _crop = new Rect(
+            (DisplayedWidth - w) / 2,
+            (DisplayedHeight - h) / 2,
+            NonNegative(w),
+            NonNegative(h));
         _needsReset = false;
         ApplyAspectConstraint();
         RelayoutOverlay();
@@ -209,15 +221,22 @@ public sealed partial class CropOverlay : UserControl
         if (AspectValue() is not double a || a <= 0) return;
         if (!HasSize) return;
 
-        // Largest rect of this aspect that fits inside the image, centred.
-        double w = DisplayedWidth;
+        // Largest rect of this aspect that fits inside the current crop rect, keeping its
+        // centre — switching proportion should refine the user's framing, not discard it.
+        var centreX = _crop.X + _crop.Width / 2;
+        var centreY = _crop.Y + _crop.Height / 2;
+
+        double w = _crop.Width;
         double h = w / a;
-        if (h > DisplayedHeight)
+        if (h > _crop.Height)
         {
-            h = DisplayedHeight;
+            h = _crop.Height;
             w = h * a;
         }
-        _crop = new Rect((DisplayedWidth - w) / 2, (DisplayedHeight - h) / 2, NonNegative(w), NonNegative(h));
+
+        var x = SafeClamp(centreX - w / 2, 0, DisplayedWidth - w);
+        var y = SafeClamp(centreY - h / 2, 0, DisplayedHeight - h);
+        _crop = new Rect(x, y, NonNegative(w), NonNegative(h));
     }
 
     // ----------------------------------------------------------------------
