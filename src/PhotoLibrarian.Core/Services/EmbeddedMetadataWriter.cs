@@ -36,6 +36,15 @@ public static class EmbeddedMetadataWriter
     // HRESULT WINCODEC_ERR_TOOMUCHMETADATA — in-place encoder doesn't have room
     private const int WINCODEC_ERR_TOOMUCHMETADATA = unchecked((int)0x88982F52);
 
+    /// <summary>XMP namespace used for PhotoLibrarian-specific properties (e.g. the user flag).</summary>
+    public const string PhotoLibrarianXmpNamespace = "http://ns.photolibrarian.app/1.0/";
+
+    /// <summary>
+    /// WIC metadata query path for the flag. There is no standard EXIF/XMP "flag" field, so the
+    /// value lives in our own XMP namespace — safe to add and ignored by other tools.
+    /// </summary>
+    private const string FlagQueryPath = "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:Flagged";
+
     /// <summary>Returns true if the file format supports in-place metadata writing.</summary>
     public static bool IsSupported(string filePath)
     {
@@ -52,12 +61,13 @@ public static class EmbeddedMetadataWriter
         string? title = null,
         IReadOnlyList<string>? keywords = null,
         DateTime? dateTaken = null,
-        ushort? orientation = null)
+        ushort? orientation = null,
+        bool? flagged = null)
     {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
 
-        var props = BuildPropertySet(rating, title, keywords, dateTaken, orientation);
+        var props = BuildPropertySet(rating, title, keywords, dateTaken, orientation, flagged);
         if (props.Count == 0) return;
 
         await WritePropertiesAsync(filePath, props);
@@ -119,7 +129,8 @@ public static class EmbeddedMetadataWriter
     // -----------------------------------------------------------------
 
     private static BitmapPropertySet BuildPropertySet(
-        int? rating, string? title, IReadOnlyList<string>? keywords, DateTime? dateTaken, ushort? orientation = null)
+        int? rating, string? title, IReadOnlyList<string>? keywords, DateTime? dateTaken,
+        ushort? orientation = null, bool? flagged = null)
     {
         var props = new BitmapPropertySet();
 
@@ -167,6 +178,12 @@ public static class EmbeddedMetadataWriter
             // EXIF orientation: 1=normal, 6=90CW, 3=180, 8=270CW. Maps to EXIF tag 0x0112.
             props.Add("System.Photo.Orientation",
                 new BitmapTypedValue(orientation.Value, Windows.Foundation.PropertyType.UInt16));
+        }
+
+        if (flagged.HasValue)
+        {
+            props.Add(FlagQueryPath,
+                new BitmapTypedValue(flagged.Value ? "True" : "False", Windows.Foundation.PropertyType.String));
         }
 
         return props;

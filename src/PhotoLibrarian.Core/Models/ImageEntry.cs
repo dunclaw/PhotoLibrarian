@@ -29,6 +29,12 @@ public sealed class ImageEntry
     public int? Rating { get; set; }
     public int Orientation { get; set; } = 1;
 
+    /// <summary>
+    /// User "flag" marker for building a quick working set (mirrors Photo Gallery's Flag toggle).
+    /// Persisted in the cache DB and, where the format allows, in the file's XMP.
+    /// </summary>
+    public bool IsFlagged { get; set; }
+
     // Media type
     public MediaType MediaType { get; set; } = MediaType.Image;
     public double? VideoDuration { get; set; }

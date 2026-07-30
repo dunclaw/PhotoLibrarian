@@ -318,6 +318,20 @@ public sealed partial class ImageViewerOverlay : UserControl
                 ViewModel.ZoomOutCommand.Execute(null);
                 e.Handled = true;
                 break;
+            case Windows.System.VirtualKey.F:
+                await ToggleFlagAsync();
+                e.Handled = true;
+                break;
         }
+    }
+
+    /// <summary>Toggles the flag on the image currently shown in the viewer (F shortcut).</summary>
+    private async Task ToggleFlagAsync()
+    {
+        var entry = ViewModel?.CurrentEntry;
+        if (entry is null || App.ViewModel is null) return;
+
+        await App.ViewModel.SetFlagAsync(new[] { entry }, !entry.IsFlagged);
+        App.ViewModel.ImageGrid.NotifyFlagChanged(entry.FilePath);
     }
 }

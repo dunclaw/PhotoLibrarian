@@ -38,6 +38,10 @@ public sealed class MetadataReaderService
             // File may be corrupt or unsupported — return basic info
         }
 
+        // RAW (and other in-place-unsupported) formats keep the flag in an XMP sidecar.
+        if (!entry.IsFlagged && MetadataWriterService.ReadFlagFromSidecar(filePath) == true)
+            entry.IsFlagged = true;
+
         return entry;
     }
 
@@ -120,6 +124,13 @@ public sealed class MetadataReaderService
         {
             var ratingProp = xmp.XmpMeta.GetPropertyInteger(xapNs, "xmp:Rating");
             entry.Rating ??= Math.Clamp(ratingProp, 0, 5);
+        }
+
+        // PhotoLibrarian user flag (custom namespace — see MetadataWriterService)
+        if (xmp.XmpMeta.DoesPropertyExist(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged"))
+        {
+            var flag = xmp.XmpMeta.GetPropertyString(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged");
+            entry.IsFlagged = string.Equals(flag, "True", StringComparison.OrdinalIgnoreCase);
         }
     }
 

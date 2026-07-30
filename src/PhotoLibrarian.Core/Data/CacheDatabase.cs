@@ -83,7 +83,8 @@ public sealed class CacheDatabase : IDisposable
                 rating          INTEGER,
                 orientation     INTEGER NOT NULL DEFAULT 1,
                 media_type      INTEGER NOT NULL DEFAULT 0,
-                video_duration  REAL
+                video_duration  REAL,
+                is_flagged      INTEGER NOT NULL DEFAULT 0
             );
 
             -- Note: thumbnails table removed - we now use Windows thumbnail cache instead
@@ -130,9 +131,47 @@ public sealed class CacheDatabase : IDisposable
             CREATE INDEX IF NOT EXISTS idx_face_regions_person_id ON face_regions(person_id);
             """;
 
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = schema;
-        await cmd.ExecuteNonQueryAsync();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = schema;
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await MigrateAsync(conn);
+    }
+
+    /// <summary>
+    /// Applies additive schema changes to databases created by older versions of the app.
+    /// SQLite has no "ADD COLUMN IF NOT EXISTS", so existing columns are probed first.
+    /// </summary>
+    private static async Task MigrateAsync(SqliteConnection conn)
+    {
+        await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
+
+        using var indexCmd = conn.CreateCommand();
+        indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS idx_images_is_flagged ON images(is_flagged);";
+        await indexCmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task AddColumnIfMissingAsync(
+        SqliteConnection conn, string table, string column, string definition)
+    {
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var probe = conn.CreateCommand())
+        {
+            probe.CommandText = $"PRAGMA table_info({table});";
+            using var reader = await probe.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                existing.Add(reader.GetString(reader.GetOrdinal("name")));
+            }
+        }
+
+        if (existing.Count == 0 || existing.Contains(column)) return;
+
+        using var alter = conn.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+        await alter.ExecuteNonQueryAsync();
     }
 
     /// <summary>

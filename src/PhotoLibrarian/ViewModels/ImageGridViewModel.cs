@@ -64,6 +64,7 @@ public partial class ImageGridViewModel : ObservableObject
     private List<(int Year, int Month)>? _currentMonthFilters;
     private bool _currentTagRootSelected; // Root "Tags" node selected (show all tagged images)
     private List<string>? _currentTagFilters;
+    private bool _currentFlaggedSelected; // "Flagged" node selected (show flagged working set)
     private string? _currentSortBy = "date_taken";
     private CancellationTokenSource? _loadCts;
     
@@ -202,9 +203,10 @@ public partial class ImageGridViewModel : ObservableObject
                             (_currentMonthFilters is not null && _currentMonthFilters.Count > 0);
         bool hasTagFilter = _currentTagRootSelected || 
                            (_currentTagFilters is not null && _currentTagFilters.Count > 0);
+        bool hasFlagFilter = _currentFlaggedSelected;
 
         // If no filters active, show nothing
-        if (!hasFolderFilter && !hasDateFilter && !hasTagFilter)
+        if (!hasFolderFilter && !hasDateFilter && !hasTagFilter && !hasFlagFilter)
         {
             DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
             return;
@@ -277,6 +279,12 @@ public partial class ImageGridViewModel : ObservableObject
                 {
                     matchesAnyFilter = true;
                 }
+            }
+
+            // Check flag filter
+            if (!matchesAnyFilter && hasFlagFilter && img.IsFlagged)
+            {
+                matchesAnyFilter = true;
             }
 
             if (matchesAnyFilter)
@@ -850,10 +858,11 @@ public partial class ImageGridViewModel : ObservableObject
         List<int>? years,
         List<(int Year, int Month)>? months,
         bool tagRootSelected,
-        List<string>? tags)
+        List<string>? tags,
+        bool flaggedSelected = false)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, tags={tags?.Count ?? 0}");
+        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}");
         
         // Pause background indexing while user is browsing
         _main.PauseBackgroundIndexing();
@@ -864,6 +873,7 @@ public partial class ImageGridViewModel : ObservableObject
         _currentMonthFilters = months;
         _currentTagRootSelected = tagRootSelected;
         _currentTagFilters = tags;
+        _currentFlaggedSelected = flaggedSelected;
         
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
         await LoadImagesAsync();
@@ -1168,6 +1178,7 @@ public partial class ImageGridViewModel : ObservableObject
         _currentMonthFilters = null;
         _currentTagRootSelected = false;
         _currentTagFilters = null;
+        _currentFlaggedSelected = false;
         Images.Clear();
         SelectedImages.Clear();
         SelectedImage = null;
@@ -1224,6 +1235,56 @@ public partial class ImageGridViewModel : ObservableObject
             _main.ImageViewer.OpenImage(SelectedImage.Entry, Images.Select(i => i.Entry).ToList());
         }
     }
+
+    /// <summary>
+    /// Returns the items a flag action applies to: the multi-selection when there is one,
+    /// otherwise the single selected item.
+    /// </summary>
+    private List<ImageThumbnailViewModel> GetFlagTargets()
+    {
+        if (SelectedImages.Count > 0) return SelectedImages.ToList();
+        return SelectedImage is null ? new List<ImageThumbnailViewModel>() : new() { SelectedImage };
+    }
+
+    /// <summary>
+    /// Toggles the flag on the current selection (keyboard shortcut: F). Mixed selections are
+    /// flagged first — a second press clears them, matching Photo Gallery's toggle behaviour.
+    /// </summary>
+    [RelayCommand]
+    private async Task ToggleFlagAsync()
+    {
+        var targets = GetFlagTargets();
+        if (targets.Count == 0) return;
+
+        bool newValue = !targets.All(t => t.Entry.IsFlagged);
+        await SetFlagAsync(targets, newValue);
+    }
+
+    /// <summary>
+    /// Explicitly sets the flag on the given grid items (used by the context menu).
+    /// </summary>
+    public async Task SetFlagAsync(IReadOnlyList<ImageThumbnailViewModel> targets, bool flagged)
+    {
+        if (targets.Count == 0) return;
+
+        await _main.SetFlagAsync(targets.Select(t => t.Entry).ToList(), flagged);
+
+        foreach (var t in targets) t.NotifyFlagChanged();
+
+        // The flagged working set is a live filter — drop items that no longer qualify.
+        if (_currentFlaggedSelected && !flagged)
+            await LoadImagesAsync();
+    }
+
+    /// <summary>
+    /// Re-reads the flag state of the grid item for the given path (used after the viewer or
+    /// metadata panel changes a flag) so the thumbnail badge stays in sync.
+    /// </summary>
+    public void NotifyFlagChanged(string filePath)
+    {
+        var vm = Images.FirstOrDefault(v => string.Equals(v.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        vm?.NotifyFlagChanged();
+    }
 }
 
 public partial class ImageThumbnailViewModel : ObservableObject
@@ -1248,6 +1309,8 @@ public partial class ImageThumbnailViewModel : ObservableObject
     public string FileName => Entry.FileName;
     public string DateDisplay => Entry.DateTaken?.ToString("MMM d, yyyy") ?? "";
     public int? Rating => Entry.Rating;
+    public bool IsFlagged => Entry.IsFlagged;
+    public Microsoft.UI.Xaml.Visibility FlagVisibility => IsFlagged ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
     public bool IsVideo => Entry.MediaType == MediaType.Video;
     public Microsoft.UI.Xaml.Visibility VideoIconVisibility => IsVideo ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
@@ -1257,6 +1320,16 @@ public partial class ImageThumbnailViewModel : ObservableObject
         _cancellationToken = cancellationToken;
 
         IsLoading = true; // This initial set is OK (happens before binding)
+    }
+
+    /// <summary>
+    /// Raises change notifications for the flag-derived properties after <see cref="Entry"/>'s
+    /// flag has been updated, so the thumbnail badge repaints.
+    /// </summary>
+    public void NotifyFlagChanged()
+    {
+        OnPropertyChanged(nameof(IsFlagged));
+        OnPropertyChanged(nameof(FlagVisibility));
     }
 
     /// <summary>

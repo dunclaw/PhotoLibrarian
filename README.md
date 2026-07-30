@@ -14,7 +14,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 ## Highlights
 
 - 🚀 **Custom virtualized grid** that handles 18 000+ items per folder smoothly. No `ItemsRepeater` layout cycles, no per-item bindings — just a `Canvas` with a recycled element pool.
-- 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date** and **Tag** trees; the three sections combine as a union filter.
+- 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **Tag**, and **Flag** trees; the sections combine as a union filter.
 - 🏷️ **Hierarchical tags** (`people/family/kids` indexes `people` + `people/family` + `people/family/kids` so you can filter at any level).
 - ⚡ **SQLite metadata index** + Windows native thumbnail cache for instant viewport-aware loads.
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
@@ -82,6 +82,7 @@ PhotoLibrarian writes metadata in this priority order so your photos remain port
    - **Caption** → `System.Title` + `System.Comment` (XMP `dc:description` + EXIF XPTitle/XPComment + IPTC)
    - **Tags** → `System.Keywords` (XMP `dc:subject` + EXIF XPKeywords + IPTC Keywords)
    - **Date taken** → `System.Photo.DateTaken` (EXIF DateTimeOriginal)
+   - **Flag** → XMP `plib:Flagged` in the PhotoLibrarian namespace (`http://ns.photolibrarian.app/1.0/`) — there is no standard EXIF/XMP flag field, so a private namespace is used rather than hijacking `xmp:Label`
 2. **XMP sidecar** (`*.xmp`) — only for RAW formats that can't be safely rewritten. Lightroom does the same.
 3. **SQLite cache** at `%LOCALAPPDATA%\PhotoLibrarian\cache.db` — cache only; never authoritative. Wipe and re-index any time.
 
@@ -127,6 +128,7 @@ Open `PhotoLibrarian.slnx`, set **PhotoLibrarian** as the startup project, pick 
 | Open viewer | Double-click |
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
 | Next / previous in viewer | ←  →  arrow keys |
+| Flag / unflag selection | F (grid and viewer) |
 
 More shortcuts (Del, F2, 0-5 rating, F11 slideshow) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
 
@@ -137,7 +139,7 @@ More shortcuts (Del, F2, 0-5 rating, F11 slideshow) are tracked in [M5](https://
 The roadmap lives in [GitHub issues](https://github.com/dunclaw/PhotoLibrarian/issues), organised into seven milestones. It was derived from a full audit of the codebase against a Windows Live Photo Gallery feature inventory; issues carrying the `pg-parity` label map to a specific Photo Gallery capability.
 
 ### Done ✅
-Library nav (folder/date/tag) · grid virtualization · viewer with smooth zoom · multi-select metadata panel · ratings · captions · hierarchical tags · drag-drop tag assignment · capture-date edit (set or shift) · in-place metadata writing · context menu with Open With · grid keyboard navigation · crop tool · Win2D adjustments editor · background indexing.
+Library nav (folder/date/tag/flag) · grid virtualization · viewer with smooth zoom · multi-select metadata panel · ratings · captions · hierarchical tags · drag-drop tag assignment · flags with thumbnail badge and Flagged filter · capture-date edit (set or shift) · in-place metadata writing · context menu with Open With · grid keyboard navigation · crop tool · Win2D adjustments editor · background indexing.
 
 ### Milestones
 

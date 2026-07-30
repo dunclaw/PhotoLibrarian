@@ -36,6 +36,9 @@ public sealed partial class ImageGridView : UserControl
 
         // Right-click context menu
         PhotoGrid.ContextMenuRequested += OnContextMenuRequested;
+
+        // F key → toggle flag on the current selection
+        PhotoGrid.FlagToggleRequested += OnFlagToggleRequested;
         
         // Listen for GroupedImages changes — the inner grid already self-subscribes to the same
         // ObservableCollection for layout, so we do NOT re-call PhotoGrid.SetGroups here.
@@ -86,6 +89,11 @@ public sealed partial class ImageGridView : UserControl
     {
         if (ViewModel is null) return;
         ViewModel.UpdateSelection(selected, PhotoGrid.PrimaryItem);
+    }
+
+    private void OnFlagToggleRequested(object? sender, EventArgs e)
+    {
+        ViewModel?.ToggleFlagCommand.Execute(null);
     }
     
     // Group By / Sort handlers
@@ -246,6 +254,21 @@ public sealed partial class ImageGridView : UserControl
             foreach (var vm in selected) await ops.RotateAsync(vm.Entry, clockwise: false);
         };
         menu.Items.Add(rotateLeft);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        // Flag / Unflag — mirrors the F shortcut. A mixed selection is flagged first.
+        bool allFlagged = selected.All(vm => vm.Entry.IsFlagged);
+        var flagItem = new MenuFlyoutItem
+        {
+            Text = allFlagged
+                ? (isMulti ? $"Unflag ({selected.Count})" : "Unflag")
+                : (isMulti ? $"Flag ({selected.Count})" : "Flag"),
+            Icon = new FontIcon { Glyph = "\uE129" },
+            KeyboardAcceleratorTextOverride = "F"
+        };
+        flagItem.Click += async (_, _) => await ViewModel.SetFlagAsync(selected, !allFlagged);
+        menu.Items.Add(flagItem);
 
         menu.Items.Add(new MenuFlyoutSeparator());
 

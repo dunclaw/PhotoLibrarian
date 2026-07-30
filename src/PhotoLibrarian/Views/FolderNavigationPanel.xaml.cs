@@ -26,12 +26,38 @@ public sealed partial class FolderNavigationPanel : UserControl
         RefreshLibraryTree();
         await RefreshDateTreeAsync();
         await RefreshTagsTreeAsync();
+        RefreshFlagTree();
     }
 
     public async Task RefreshMetadataTreesAsync()
     {
         await RefreshDateTreeAsync();
         await RefreshTagsTreeAsync();
+        RefreshFlagTree();
+    }
+
+    /// <summary>
+    /// Rebuilds the single "Flagged" node, preserving its selection so refreshing the count
+    /// doesn't drop an active flag filter.
+    /// </summary>
+    public void RefreshFlagTree()
+    {
+        var flagNav = App.ViewModel?.FlagNav;
+        if (flagNav is null) return;
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            // Update in place rather than rebuilding: clearing RootNodes would drop (and re-fire)
+            // the selection, which would momentarily clear an active flag filter.
+            var existing = FlagsTree.RootNodes.FirstOrDefault(n => n.Content is FlagNodeWrapper);
+            if (existing is not null)
+            {
+                existing.Content = new FlagNodeWrapper(flagNav);
+                return;
+            }
+
+            FlagsTree.RootNodes.Add(new TreeViewNode { Content = new FlagNodeWrapper(flagNav) });
+        });
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -43,6 +69,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         // Initial load of date and tag trees (don't bind to CollectionChanged to avoid recursion)
         _ = RefreshDateTreeAsync();
         _ = RefreshTagsTreeAsync();
+        RefreshFlagTree();
     }
 
     private void RefreshLibraryTree()
@@ -391,6 +418,23 @@ public sealed partial class FolderNavigationPanel : UserControl
         UpdateGridFromSelection();
     }
 
+    private void OnFlagsItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItem is TreeViewNode node)
+        {
+            if (sender.SelectedNodes.Contains(node))
+                sender.SelectedNodes.Remove(node);
+            else
+                sender.SelectedNodes.Add(node);
+            UpdateGridFromSelection();
+        }
+    }
+
+    private void OnFlagsSelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
+    {
+        UpdateGridFromSelection();
+    }
+
     private void UpdateGridFromSelection()
     {
         if (App.ViewModel?.ImageGrid is null) return;
@@ -461,8 +505,12 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, DateRoot={dateRootSelected}, Years={selectedYears.Count}, Months={selectedMonths.Count}, TagRoot={tagRootSelected}, Tags={selectedTags.Count}");
 
+        // Flagged working set
+        bool flaggedSelected = FlagsTree.SelectedNodes.Any(n => n.Content is FlagNodeWrapper);
+
         // If nothing selected anywhere, clear filters to show empty grid
-        if (!photoLibraryRootSelected && !dateRootSelected && !tagRootSelected && selectedFolders.Count == 0 && selectedYears.Count == 0 && 
+        if (!photoLibraryRootSelected && !dateRootSelected && !tagRootSelected && !flaggedSelected &&
+            selectedFolders.Count == 0 && selectedYears.Count == 0 && 
             selectedMonths.Count == 0 && selectedTags.Count == 0)
         {
             DebugLog.WriteLine("  No selections - clearing filter");
@@ -484,7 +532,8 @@ public sealed partial class FolderNavigationPanel : UserControl
             selectedYears.Count > 0 ? selectedYears : null,
             selectedMonths.Count > 0 ? selectedMonths : null,
             tagRootSelected,
-            selectedTags.Count > 0 ? selectedTags : null);
+            selectedTags.Count > 0 ? selectedTags : null,
+            flaggedSelected);
     }
 
     // ============================================================================
@@ -635,5 +684,18 @@ public sealed partial class FolderNavigationPanel : UserControl
             else
                 return $"🏷️ {TagNode.Name} ({TagNode.Count})";
         }
+    }
+
+    // Helper class to wrap the flagged working set for TreeView
+    private class FlagNodeWrapper
+    {
+        public FlagNavigationViewModel FlagNav { get; }
+
+        public FlagNodeWrapper(FlagNavigationViewModel flagNav)
+        {
+            FlagNav = flagNav;
+        }
+
+        public override string ToString() => $"{FlagNav.DisplayName} ({FlagNav.Count})";
     }
 }

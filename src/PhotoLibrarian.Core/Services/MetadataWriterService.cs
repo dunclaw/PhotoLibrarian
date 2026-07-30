@@ -19,6 +19,68 @@ public static class MetadataWriterService
     private const string DcNamespace = "http://purl.org/dc/elements/1.1/";
     private const string ExifNamespace = "http://ns.adobe.com/exif/1.0/";
 
+    /// <summary>XMP namespace for PhotoLibrarian-specific properties (there is no standard flag field).</summary>
+    public const string PhotoLibrarianNamespace = EmbeddedMetadataWriter.PhotoLibrarianXmpNamespace;
+    private const string FlagPropertyName = "plib:Flagged";
+
+    static MetadataWriterService()
+    {
+        try { XmpMetaFactory.SchemaRegistry.RegisterNamespace(PhotoLibrarianNamespace, "plib"); }
+        catch { /* already registered */ }
+    }
+
+    /// <summary>
+    /// Writes the user flag to the image (in-file XMP) or sidecar (RAW / in-place write failure).
+    /// </summary>
+    public static async Task WriteFlagAsync(string imagePath, bool flagged)
+    {
+        if (EmbeddedMetadataWriter.IsSupported(imagePath))
+        {
+            try
+            {
+                await EmbeddedMetadataWriter.WriteAsync(imagePath, flagged: flagged);
+                return;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[METADATA] In-place flag write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
+            }
+        }
+
+        await Task.Run(() =>
+        {
+            var xmp = LoadOrCreateSidecar(imagePath);
+            if (flagged)
+                xmp.SetProperty(PhotoLibrarianNamespace, FlagPropertyName, "True");
+            else
+                try { xmp.DeleteProperty(PhotoLibrarianNamespace, FlagPropertyName); } catch { }
+            SaveSidecar(imagePath, xmp);
+        });
+    }
+
+    /// <summary>
+    /// Reads the user flag from a legacy/RAW XMP sidecar. Returns null when there is no sidecar
+    /// or it carries no flag property (so callers can fall back to the cache DB value).
+    /// </summary>
+    public static bool? ReadFlagFromSidecar(string imagePath)
+    {
+        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+        if (!File.Exists(sidecarPath)) return null;
+
+        try
+        {
+            var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+            if (!xmp.DoesPropertyExist(PhotoLibrarianNamespace, FlagPropertyName)) return null;
+            return string.Equals(
+                xmp.GetPropertyString(PhotoLibrarianNamespace, FlagPropertyName),
+                "True",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch { }
+
+        return null;
+    }
+
     /// <summary>Writes rating (0=clear, 1-5 stars) to the image (in-file) or sidecar (RAW fallback).</summary>
     public static async Task WriteRatingAsync(string imagePath, int? rating)
     {
