@@ -93,6 +93,10 @@ public partial class MetadataPanelViewModel : ObservableObject
     [ObservableProperty]
     public partial string FilePath { get; set; } = "";
 
+    /// <summary>Directory the image lives in — shown under Filename, trimmed with a tooltip.</summary>
+    [ObservableProperty]
+    public partial string FolderPath { get; set; } = "";
+
     [ObservableProperty]
     public partial string FileSize { get; set; } = "";
 
@@ -171,6 +175,7 @@ public partial class MetadataPanelViewModel : ObservableObject
             SelectionSummary = single.FileName;
             FileName = single.FileName;
             FilePath = single.FilePath;
+            FolderPath = System.IO.Path.GetDirectoryName(single.FilePath) ?? "";
             FileSize = FormatFileSize(single.FileSize);
             Dimensions = single.Width > 0 ? $"{single.Width} x {single.Height}" : "";
             DateTaken = single.DateTaken?.ToString("M/d/yyyy h:mm tt") ?? "";
@@ -200,6 +205,7 @@ public partial class MetadataPanelViewModel : ObservableObject
             SelectionSummary = $"{_entries.Count} items selected";
             FileName = $"{_entries.Count} items";
             FilePath = "";
+            FolderPath = CommonStringOrMixed(_entries, e => System.IO.Path.GetDirectoryName(e.FilePath) ?? "");
 
             long totalSize = _entries.Sum(e => e.FileSize);
             FileSize = FormatFileSize(totalSize) + " total";
@@ -313,6 +319,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         SelectionCount = 0;
         SelectionSummary = "";
         FileName = "";
+        FolderPath = "";
         Tags.Clear();
         CommonDateTaken = null;
         IsDateMixed = false;

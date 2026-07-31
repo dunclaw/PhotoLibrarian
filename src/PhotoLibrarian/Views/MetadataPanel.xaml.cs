@@ -127,6 +127,7 @@ public sealed partial class MetadataPanel : UserControl
 
         // Information section
         InfoFileName.Text = ViewModel.FileName;
+        InfoFolder.Text = !string.IsNullOrEmpty(ViewModel.FolderPath) ? ViewModel.FolderPath : "—";
         InfoFileSize.Text = ViewModel.FileSize;
         InfoDimensions.Text = !string.IsNullOrEmpty(ViewModel.Dimensions) ? ViewModel.Dimensions : "—";
         InfoCamera.Text = !string.IsNullOrEmpty(ViewModel.Camera) ? ViewModel.Camera : "—";
