@@ -26,12 +26,33 @@ public sealed partial class FolderNavigationPanel : UserControl
         RefreshLibraryTree();
         await RefreshDateTreeAsync();
         await RefreshTagsTreeAsync();
+        RefreshFlagTree();
     }
 
     public async Task RefreshMetadataTreesAsync()
     {
         await RefreshDateTreeAsync();
         await RefreshTagsTreeAsync();
+        RefreshFlagTree();
+    }
+
+    /// <summary>
+    /// Ensures the single "Flagged" node exists. The node's label is data-bound to
+    /// <see cref="FlagNavigationViewModel.Label"/>, so the count repaints on its own.
+    /// </summary>
+    public void RefreshFlagTree()
+    {
+        var flagNav = App.ViewModel?.FlagNav;
+        if (flagNav is null) return;
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            // Never rebuild the node: clearing RootNodes would drop (and re-fire) the selection,
+            // which would momentarily clear an active flag filter.
+            if (FlagsTree.RootNodes.Any(n => n.Content is FlagNavigationViewModel)) return;
+
+            FlagsTree.RootNodes.Add(new TreeViewNode { Content = flagNav });
+        });
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -43,6 +64,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         // Initial load of date and tag trees (don't bind to CollectionChanged to avoid recursion)
         _ = RefreshDateTreeAsync();
         _ = RefreshTagsTreeAsync();
+        RefreshFlagTree();
     }
 
     private void RefreshLibraryTree()
@@ -391,6 +413,23 @@ public sealed partial class FolderNavigationPanel : UserControl
         UpdateGridFromSelection();
     }
 
+    private void OnFlagsItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItem is TreeViewNode node)
+        {
+            if (sender.SelectedNodes.Contains(node))
+                sender.SelectedNodes.Remove(node);
+            else
+                sender.SelectedNodes.Add(node);
+            UpdateGridFromSelection();
+        }
+    }
+
+    private void OnFlagsSelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
+    {
+        UpdateGridFromSelection();
+    }
+
     private void UpdateGridFromSelection()
     {
         if (App.ViewModel?.ImageGrid is null) return;
@@ -461,8 +500,12 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, DateRoot={dateRootSelected}, Years={selectedYears.Count}, Months={selectedMonths.Count}, TagRoot={tagRootSelected}, Tags={selectedTags.Count}");
 
+        // Flagged working set
+        bool flaggedSelected = FlagsTree.SelectedNodes.Any(n => n.Content is FlagNavigationViewModel);
+
         // If nothing selected anywhere, clear filters to show empty grid
-        if (!photoLibraryRootSelected && !dateRootSelected && !tagRootSelected && selectedFolders.Count == 0 && selectedYears.Count == 0 && 
+        if (!photoLibraryRootSelected && !dateRootSelected && !tagRootSelected && !flaggedSelected &&
+            selectedFolders.Count == 0 && selectedYears.Count == 0 && 
             selectedMonths.Count == 0 && selectedTags.Count == 0)
         {
             DebugLog.WriteLine("  No selections - clearing filter");
@@ -484,7 +527,8 @@ public sealed partial class FolderNavigationPanel : UserControl
             selectedYears.Count > 0 ? selectedYears : null,
             selectedMonths.Count > 0 ? selectedMonths : null,
             tagRootSelected,
-            selectedTags.Count > 0 ? selectedTags : null);
+            selectedTags.Count > 0 ? selectedTags : null,
+            flaggedSelected);
     }
 
     // ============================================================================

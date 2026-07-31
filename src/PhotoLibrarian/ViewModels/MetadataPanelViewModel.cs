@@ -61,6 +61,14 @@ public partial class MetadataPanelViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsRatingMixed { get; set; }
 
+    /// <summary>True when every selected entry is flagged.</summary>
+    [ObservableProperty]
+    public partial bool IsFlagged { get; set; }
+
+    /// <summary>True when the selection contains both flagged and unflagged entries.</summary>
+    [ObservableProperty]
+    public partial bool IsFlagMixed { get; set; }
+
     /// <summary>Caption common to all selected entries; "" if mixed or none.</summary>
     [ObservableProperty]
     public partial string Caption { get; set; } = "";
@@ -84,6 +92,10 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string FilePath { get; set; } = "";
+
+    /// <summary>Directory the image lives in — shown under Filename, trimmed with a tooltip.</summary>
+    [ObservableProperty]
+    public partial string FolderPath { get; set; } = "";
 
     [ObservableProperty]
     public partial string FileSize { get; set; } = "";
@@ -163,6 +175,7 @@ public partial class MetadataPanelViewModel : ObservableObject
             SelectionSummary = single.FileName;
             FileName = single.FileName;
             FilePath = single.FilePath;
+            FolderPath = System.IO.Path.GetDirectoryName(single.FilePath) ?? "";
             FileSize = FormatFileSize(single.FileSize);
             Dimensions = single.Width > 0 ? $"{single.Width} x {single.Height}" : "";
             DateTaken = single.DateTaken?.ToString("M/d/yyyy h:mm tt") ?? "";
@@ -181,6 +194,8 @@ public partial class MetadataPanelViewModel : ObservableObject
 
             Rating = single.Rating ?? 0;
             IsRatingMixed = false;
+            IsFlagged = single.IsFlagged;
+            IsFlagMixed = false;
             Caption = MetadataWriterService.ReadCaptionFromSidecar(single.FilePath) ?? "";
             IsCaptionMixed = false;
         }
@@ -190,6 +205,7 @@ public partial class MetadataPanelViewModel : ObservableObject
             SelectionSummary = $"{_entries.Count} items selected";
             FileName = $"{_entries.Count} items";
             FilePath = "";
+            FolderPath = CommonStringOrMixed(_entries, e => System.IO.Path.GetDirectoryName(e.FilePath) ?? "");
 
             long totalSize = _entries.Sum(e => e.FileSize);
             FileSize = FormatFileSize(totalSize) + " total";
@@ -238,6 +254,11 @@ public partial class MetadataPanelViewModel : ObservableObject
                 Rating = 0;
                 IsRatingMixed = true;
             }
+
+            // Flag — flagged only when all are flagged; mixed when they differ
+            var flags = _entries.Select(e => e.IsFlagged).Distinct().ToList();
+            IsFlagged = flags.Count == 1 && flags[0];
+            IsFlagMixed = flags.Count > 1;
 
             // Caption — common or empty+mixed flag
             var captions = _entries
@@ -298,11 +319,44 @@ public partial class MetadataPanelViewModel : ObservableObject
         SelectionCount = 0;
         SelectionSummary = "";
         FileName = "";
+        FolderPath = "";
         Tags.Clear();
         CommonDateTaken = null;
         IsDateMixed = false;
         IsRatingMixed = false;
         IsCaptionMixed = false;
+        IsFlagged = false;
+        IsFlagMixed = false;
+    }
+
+    /// <summary>
+    /// Recomputes the flag state from the currently-loaded entries. Called after a flag change
+    /// made elsewhere (grid shortcut, context menu, viewer) so the panel stays in sync.
+    /// </summary>
+    public void RefreshFlagState()
+    {
+        if (_entries.Count == 0)
+        {
+            IsFlagged = false;
+            IsFlagMixed = false;
+            return;
+        }
+
+        var flags = _entries.Select(e => e.IsFlagged).Distinct().ToList();
+        IsFlagged = flags.Count == 1 && flags[0];
+        IsFlagMixed = flags.Count > 1;
+    }
+
+    /// <summary>
+    /// Toggles the flag on every selected image. A mixed selection is flagged first.
+    /// </summary>
+    [RelayCommand]
+    public async Task ToggleFlagAsync()
+    {
+        if (_entries.Count == 0 || _main is null) return;
+
+        bool newValue = IsFlagMixed || !IsFlagged;
+        await _main.SetFlagAsync(_entries.ToList(), newValue);
     }
 
     /// <summary>

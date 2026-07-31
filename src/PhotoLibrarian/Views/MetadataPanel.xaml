@@ -268,6 +268,13 @@
                         </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Folder:" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoFolder" Style="{StaticResource InfoValueStyle}"
+                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       ToolTipService.ToolTip="{x:Bind InfoFolder.Text, Mode=OneWay}" />
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Size:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoFileSize" Style="{StaticResource InfoValueStyle}" />
                         </Grid>
@@ -291,6 +298,18 @@
                                     <FontIcon x:Name="Star5Icon" Glyph="&#xE1CE;" FontSize="16" />
                                 </Button>
                             </StackPanel>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Flag:" Style="{StaticResource InfoLabelStyle}" />
+                            <Button Grid.Column="1" x:Name="FlagButton" Click="OnFlagClick"
+                                    Style="{StaticResource DateTimePickerFlyoutButtonStyle}"
+                                    Padding="4,2" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon x:Name="FlagIcon" Glyph="&#xE129;" FontSize="16" />
+                                    <TextBlock x:Name="FlagText" Text="Not flagged" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
                         </Grid>
                         <Grid x:Name="InfoDimensionsRow">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>

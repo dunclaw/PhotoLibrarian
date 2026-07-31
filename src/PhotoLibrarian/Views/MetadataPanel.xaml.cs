@@ -65,6 +65,10 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.IsRatingMixed):
                 DispatcherQueue.TryEnqueue(UpdateStars);
                 break;
+            case nameof(MetadataPanelViewModel.IsFlagged):
+            case nameof(MetadataPanelViewModel.IsFlagMixed):
+                DispatcherQueue.TryEnqueue(UpdateFlag);
+                break;
         }
     }
 
@@ -123,6 +127,7 @@ public sealed partial class MetadataPanel : UserControl
 
         // Information section
         InfoFileName.Text = ViewModel.FileName;
+        InfoFolder.Text = !string.IsNullOrEmpty(ViewModel.FolderPath) ? ViewModel.FolderPath : "—";
         InfoFileSize.Text = ViewModel.FileSize;
         InfoDimensions.Text = !string.IsNullOrEmpty(ViewModel.Dimensions) ? ViewModel.Dimensions : "—";
         InfoCamera.Text = !string.IsNullOrEmpty(ViewModel.Camera) ? ViewModel.Camera : "—";
@@ -145,6 +150,30 @@ public sealed partial class MetadataPanel : UserControl
         InfoDimensionsRow.Visibility = string.IsNullOrEmpty(ViewModel.Dimensions) ? Visibility.Collapsed : Visibility.Visible;
 
         UpdateStars();
+        UpdateFlag();
+    }
+
+    // --- Flag ---
+
+    private void UpdateFlag()
+    {
+        if (ViewModel is null) return;
+
+        bool mixed = ViewModel.IsFlagMixed;
+        bool flagged = ViewModel.IsFlagged;
+
+        FlagText.Text = mixed ? "Mixed" : flagged ? "Flagged" : "Not flagged";
+        FlagIcon.Foreground = flagged || mixed
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(mixed ? (byte)120 : (byte)255, 232, 17, 35))
+            : new SolidColorBrush(Microsoft.UI.Colors.Gray);
+
+        ToolTipService.SetToolTip(FlagButton,
+            mixed ? "Mixed flags — click to flag all (F)" : flagged ? "Click to unflag (F)" : "Click to flag (F)");
+    }
+
+    private void OnFlagClick(object sender, RoutedEventArgs e)
+    {
+        ViewModel?.ToggleFlagCommand.Execute(null);
     }
 
     // --- Star Rating ---

@@ -19,6 +19,12 @@ public sealed partial class MainWindow : Window
         await FolderNavPanel.RefreshMetadataTreesAsync();
     }
 
+    /// <summary>Repaints the left-panel "Flagged" node (count changes after flag edits).</summary>
+    public void RefreshFlagTree()
+    {
+        FolderNavPanel.RefreshFlagTree();
+    }
+
     public MainWindow()
     {
         this.InitializeComponent();

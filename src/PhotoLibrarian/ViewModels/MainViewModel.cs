@@ -22,6 +22,7 @@ public partial class MainViewModel : ObservableObject
     public FolderNavigationViewModel FolderNav { get; }
     public DateNavigationViewModel DateNav { get; }
     public TagNavigationViewModel TagNav { get; }
+    public FlagNavigationViewModel FlagNav { get; }
     public ImageGridViewModel ImageGrid { get; }
     public ImageViewerViewModel ImageViewer { get; }
     public ImageEditorViewModel ImageEditor { get; }
@@ -61,6 +62,7 @@ public partial class MainViewModel : ObservableObject
         FolderNav = new FolderNavigationViewModel(db, scanner, indexingService, this);
         DateNav = new DateNavigationViewModel(imageRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
+        FlagNav = new FlagNavigationViewModel(imageRepo);
         ImageGrid = new ImageGridViewModel(imageRepo, scanner, metadataReader, this);
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
@@ -70,12 +72,27 @@ public partial class MainViewModel : ObservableObject
         PhotoOps = new Services.PhotoOperationsService(imageRepo);
 
         _indexingService.Progress += OnIndexingProgress;
+        ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
+    }
+
+    /// <summary>
+    /// Keeps the metadata panel pointed at whatever the viewer is showing, so ratings, tags and
+    /// the flag act on the image on screen. When the viewer closes, falls back to the grid
+    /// selection.
+    /// </summary>
+    private void OnViewerEntryChanged(ImageEntry? entry)
+    {
+        if (entry is not null)
+            MetadataPanel.ShowMetadata(entry);
+        else
+            ImageGrid.RefreshMetadataFromSelection();
     }
 
     public async Task InitializeAsync()
     {
         await _db.InitializeAsync();
         await FolderNav.LoadWatchedFoldersAsync();
+        await FlagNav.LoadAsync();
         
         // Don't load images on startup - wait for user to select a folder
         // This prevents showing all 535 indexed images in random order
@@ -182,6 +199,55 @@ public partial class MainViewModel : ObservableObject
             StatusText = e.IsComplete
                 ? $"Indexed {e.Processed:N0} new items ({e.Skipped:N0} unchanged)"
                 : $"Indexing… {e.Processed:N0} processed";
+        });
+    }
+
+    /// <summary>
+    /// Sets or clears the flag on a set of images. Single entry point used by the grid, the
+    /// viewer, the context menu and the metadata panel: writes the file metadata, updates the
+    /// cache DB, then refreshes the "Flagged" node count and any dependent UI.
+    /// </summary>
+    public async Task SetFlagAsync(IReadOnlyList<ImageEntry> entries, bool flagged)
+    {
+        if (entries is null || entries.Count == 0) return;
+
+        int changed = 0;
+        foreach (var entry in entries)
+        {
+            try
+            {
+                await MetadataWriterService.WriteFlagAsync(entry.FilePath, flagged);
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"[FLAG] Failed to write flag to {entry.FilePath}: {ex.Message}");
+            }
+
+            entry.IsFlagged = flagged;
+            if (entry.Id > 0)
+                await _imageRepo.UpdateFlagAsync(entry.Id, flagged);
+            changed++;
+        }
+
+        StatusText = flagged
+            ? $"Flagged {changed:N0} item(s)"
+            : $"Unflagged {changed:N0} item(s)";
+
+        await RefreshFlagNavAsync();
+        MetadataPanel.RefreshFlagState();
+        await ImageGrid.OnFlagsChangedAsync(entries, flagged);
+    }
+
+    /// <summary>
+    /// Reloads the flagged count and repaints the left-panel "Flagged" node.
+    /// </summary>
+    public async Task RefreshFlagNavAsync()
+    {
+        await FlagNav.LoadAsync();
+        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (App.MainWindow is MainWindow window)
+                window.RefreshFlagTree();
         });
     }
 
@@ -306,6 +372,7 @@ public partial class MainViewModel : ObservableObject
         // Refresh date and tag navigation data
         await DateNav.LoadDatesAsync();
         await TagNav.LoadTagsAsync();
+        await FlagNav.LoadAsync();
         
         // Update UI trees on main thread
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>

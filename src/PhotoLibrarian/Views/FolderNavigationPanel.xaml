@@ -25,7 +25,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- Three sections: Library, Date, Tags -->
+        <!-- Sections: Library, Date, Tags, Flags -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="16">
                 
@@ -60,6 +60,23 @@
                               AllowDrop="True"
                               DragOver="OnTagsTreeDragOver"
                               Drop="OnTagsTreeDrop" />
+                </StackPanel>
+
+                <!-- Flags Section -->
+                <StackPanel>
+                    <TextBlock Text="Flags" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TreeView x:Name="FlagsTree"
+                              SelectionMode="Multiple"
+                              ItemInvoked="OnFlagsItemInvoked"
+                              SelectionChanged="OnFlagsSelectionChanged">
+                        <TreeView.ItemTemplate>
+                            <DataTemplate x:DataType="TreeViewNode">
+                                <TreeViewItem ItemsSource="{x:Bind Children}">
+                                    <TextBlock Text="{Binding Content.Label}" />
+                                </TreeViewItem>
+                            </DataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
                 </StackPanel>
 
             </StackPanel>
