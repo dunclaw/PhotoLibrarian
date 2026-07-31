@@ -68,7 +68,15 @@
                     <TreeView x:Name="FlagsTree"
                               SelectionMode="Multiple"
                               ItemInvoked="OnFlagsItemInvoked"
-                              SelectionChanged="OnFlagsSelectionChanged" />
+                              SelectionChanged="OnFlagsSelectionChanged">
+                        <TreeView.ItemTemplate>
+                            <DataTemplate x:DataType="TreeViewNode">
+                                <TreeViewItem ItemsSource="{x:Bind Children}">
+                                    <TextBlock Text="{Binding Content.Label}" />
+                                </TreeViewItem>
+                            </DataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
                 </StackPanel>
 
             </StackPanel>

@@ -17,9 +17,16 @@ public partial class FlagNavigationViewModel : ObservableObject
     }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Label))]
     public partial int Count { get; set; }
 
     public string DisplayName => "🚩 Flagged";
+
+    /// <summary>
+    /// Text shown on the left-panel node. Bound (not stringified into TreeViewNode.Content) so the
+    /// count repaints when it changes — a realized TreeViewItem ignores Content reassignment.
+    /// </summary>
+    public string Label => $"{DisplayName} ({Count})";
 
     public async Task LoadAsync()
     {

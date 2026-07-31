@@ -1216,6 +1216,12 @@ public partial class ImageGridViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Re-pushes the current grid selection to the metadata panel. Used when the image viewer
+    /// closes and the panel should go back to describing the selection.
+    /// </summary>
+    public void RefreshMetadataFromSelection() => OnSelectedImageChanged(SelectedImage);
+
+    /// <summary>
     /// Called by ImageGridView when the grid's SelectionChanged event fires.
     /// Updates the multi-select list and routes the primary item through OnSelectedImageChanged.
     /// </summary>
@@ -1261,15 +1267,24 @@ public partial class ImageGridViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Explicitly sets the flag on the given grid items (used by the context menu).
+    /// Explicitly sets the flag on the given grid items (used by the context menu and the F key).
     /// </summary>
     public async Task SetFlagAsync(IReadOnlyList<ImageThumbnailViewModel> targets, bool flagged)
     {
         if (targets.Count == 0) return;
 
         await _main.SetFlagAsync(targets.Select(t => t.Entry).ToList(), flagged);
+    }
 
-        foreach (var t in targets) t.NotifyFlagChanged();
+    /// <summary>
+    /// Applies the UI consequences of a flag change, wherever it was made: repaint the thumbnail
+    /// badges, and drop items that no longer qualify when the flagged working set is the active
+    /// filter. Called by <see cref="MainViewModel.SetFlagAsync"/> for every flag edit.
+    /// </summary>
+    public async Task OnFlagsChangedAsync(IReadOnlyList<ImageEntry> entries, bool flagged)
+    {
+        foreach (var entry in entries)
+            NotifyFlagChanged(entry.FilePath);
 
         // The flagged working set is a live filter — drop items that no longer qualify.
         if (_currentFlaggedSelected && !flagged)
@@ -1277,8 +1292,8 @@ public partial class ImageGridViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Re-reads the flag state of the grid item for the given path (used after the viewer or
-    /// metadata panel changes a flag) so the thumbnail badge stays in sync.
+    /// Re-reads the flag state of the grid item for the given path so the thumbnail badge stays
+    /// in sync.
     /// </summary>
     public void NotifyFlagChanged(string filePath)
     {

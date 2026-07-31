@@ -72,6 +72,20 @@ public partial class MainViewModel : ObservableObject
         PhotoOps = new Services.PhotoOperationsService(imageRepo);
 
         _indexingService.Progress += OnIndexingProgress;
+        ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
+    }
+
+    /// <summary>
+    /// Keeps the metadata panel pointed at whatever the viewer is showing, so ratings, tags and
+    /// the flag act on the image on screen. When the viewer closes, falls back to the grid
+    /// selection.
+    /// </summary>
+    private void OnViewerEntryChanged(ImageEntry? entry)
+    {
+        if (entry is not null)
+            MetadataPanel.ShowMetadata(entry);
+        else
+            ImageGrid.RefreshMetadataFromSelection();
     }
 
     public async Task InitializeAsync()
@@ -221,6 +235,7 @@ public partial class MainViewModel : ObservableObject
 
         await RefreshFlagNavAsync();
         MetadataPanel.RefreshFlagState();
+        await ImageGrid.OnFlagsChangedAsync(entries, flagged);
     }
 
     /// <summary>

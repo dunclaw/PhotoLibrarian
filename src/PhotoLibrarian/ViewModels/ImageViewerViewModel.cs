@@ -42,6 +42,18 @@ public partial class ImageViewerViewModel : ObservableObject
             ? _allImages[_currentIndex]
             : null;
 
+    /// <summary>
+    /// Raised whenever the viewer moves to a different image (or closes, with null). Lets the
+    /// metadata panel follow the image on screen instead of staying on the grid selection.
+    /// </summary>
+    public event Action<ImageEntry?>? CurrentEntryChanged;
+
+    private void RaiseCurrentEntryChanged()
+    {
+        OnPropertyChanged(nameof(CurrentEntry));
+        CurrentEntryChanged?.Invoke(CurrentEntry);
+    }
+
     public ImageViewerViewModel()
     {
         Title = "";
@@ -55,7 +67,7 @@ public partial class ImageViewerViewModel : ObservableObject
         _currentIndex = allImages.IndexOf(entry);
         if (_currentIndex < 0) _currentIndex = 0;
         IsOpen = true;
-        OnPropertyChanged(nameof(CurrentEntry));
+        RaiseCurrentEntryChanged();
         _ = LoadCurrentImageAsync();
     }
 
@@ -66,7 +78,7 @@ public partial class ImageViewerViewModel : ObservableObject
         CurrentImage = null;
         VideoPath = null;
         IsVideo = false;
-        OnPropertyChanged(nameof(CurrentEntry));
+        RaiseCurrentEntryChanged();
     }
 
     /// <summary>
@@ -118,7 +130,7 @@ public partial class ImageViewerViewModel : ObservableObject
         var entry = _allImages[_currentIndex];
         Title = entry.FileName;
         ImageInfo = $"{_currentIndex + 1} / {_allImages.Count}";
-        OnPropertyChanged(nameof(CurrentEntry));
+        RaiseCurrentEntryChanged();
 
         if (entry.MediaType == MediaType.Video)
         {

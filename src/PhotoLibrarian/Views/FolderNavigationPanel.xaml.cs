@@ -37,8 +37,8 @@ public sealed partial class FolderNavigationPanel : UserControl
     }
 
     /// <summary>
-    /// Rebuilds the single "Flagged" node, preserving its selection so refreshing the count
-    /// doesn't drop an active flag filter.
+    /// Ensures the single "Flagged" node exists. The node's label is data-bound to
+    /// <see cref="FlagNavigationViewModel.Label"/>, so the count repaints on its own.
     /// </summary>
     public void RefreshFlagTree()
     {
@@ -47,16 +47,11 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         DispatcherQueue.TryEnqueue(() =>
         {
-            // Update in place rather than rebuilding: clearing RootNodes would drop (and re-fire)
-            // the selection, which would momentarily clear an active flag filter.
-            var existing = FlagsTree.RootNodes.FirstOrDefault(n => n.Content is FlagNodeWrapper);
-            if (existing is not null)
-            {
-                existing.Content = new FlagNodeWrapper(flagNav);
-                return;
-            }
+            // Never rebuild the node: clearing RootNodes would drop (and re-fire) the selection,
+            // which would momentarily clear an active flag filter.
+            if (FlagsTree.RootNodes.Any(n => n.Content is FlagNavigationViewModel)) return;
 
-            FlagsTree.RootNodes.Add(new TreeViewNode { Content = new FlagNodeWrapper(flagNav) });
+            FlagsTree.RootNodes.Add(new TreeViewNode { Content = flagNav });
         });
     }
 
@@ -506,7 +501,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, DateRoot={dateRootSelected}, Years={selectedYears.Count}, Months={selectedMonths.Count}, TagRoot={tagRootSelected}, Tags={selectedTags.Count}");
 
         // Flagged working set
-        bool flaggedSelected = FlagsTree.SelectedNodes.Any(n => n.Content is FlagNodeWrapper);
+        bool flaggedSelected = FlagsTree.SelectedNodes.Any(n => n.Content is FlagNavigationViewModel);
 
         // If nothing selected anywhere, clear filters to show empty grid
         if (!photoLibraryRootSelected && !dateRootSelected && !tagRootSelected && !flaggedSelected &&
@@ -684,18 +679,5 @@ public sealed partial class FolderNavigationPanel : UserControl
             else
                 return $"🏷️ {TagNode.Name} ({TagNode.Count})";
         }
-    }
-
-    // Helper class to wrap the flagged working set for TreeView
-    private class FlagNodeWrapper
-    {
-        public FlagNavigationViewModel FlagNav { get; }
-
-        public FlagNodeWrapper(FlagNavigationViewModel flagNav)
-        {
-            FlagNav = flagNav;
-        }
-
-        public override string ToString() => $"{FlagNav.DisplayName} ({FlagNav.Count})";
     }
 }

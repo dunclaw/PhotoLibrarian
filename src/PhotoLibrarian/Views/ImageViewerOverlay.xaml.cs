@@ -332,6 +332,5 @@ public sealed partial class ImageViewerOverlay : UserControl
         if (entry is null || App.ViewModel is null) return;
 
         await App.ViewModel.SetFlagAsync(new[] { entry }, !entry.IsFlagged);
-        App.ViewModel.ImageGrid.NotifyFlagChanged(entry.FilePath);
     }
 }

@@ -350,9 +350,6 @@ public partial class MetadataPanelViewModel : ObservableObject
 
         bool newValue = IsFlagMixed || !IsFlagged;
         await _main.SetFlagAsync(_entries.ToList(), newValue);
-
-        foreach (var entry in _entries)
-            _main.ImageGrid.NotifyFlagChanged(entry.FilePath);
     }
 
     /// <summary>
