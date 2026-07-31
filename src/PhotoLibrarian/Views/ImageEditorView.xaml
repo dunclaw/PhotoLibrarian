@@ -24,7 +24,7 @@
                            Style="{StaticResource BodyStrongTextBlockStyle}"
                            VerticalAlignment="Center" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                    <Button Click="OnSave" ToolTipService.ToolTip="Save edits" Padding="8">
+                    <Button x:Name="SaveBtn" Click="OnSave" ToolTipService.ToolTip="Save edits" Padding="8">
                         <FontIcon Glyph="&#xE74E;" FontSize="14" Foreground="White" />
                     </Button>
                     <Button Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8">

@@ -124,9 +124,23 @@ public sealed partial class MainWindow : Window
         TopRibbon.EnterCropMode();
     }
 
-    private void OnRibbonAdjustClicked(object? sender, EventArgs e)
+    private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
     {
-        // Adjust panel hookup is a future task — placeholder for now.
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (entry is null || ViewModel.ImageViewer.IsVideo) return;
+        if (!ImageEditRenderer.IsSupported(entry.FilePath))
+        {
+            ViewModel.StatusText = $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
+            return;
+        }
+
+        if (ViewerOverlay.IsCropping)
+        {
+            ViewerOverlay.ExitCropMode();
+            TopRibbon.ExitCropMode();
+        }
+
+        await ViewModel.ImageEditor.OpenForEditAsync(entry);
     }
 
     private void OnRibbonCancelCropClicked(object? sender, EventArgs e)
