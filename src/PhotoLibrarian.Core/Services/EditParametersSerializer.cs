@@ -47,6 +47,25 @@ public static class EditParametersSerializer
         }
     }
 
+    /// <summary>
+    /// Removes every PhotoLibrarian edit property from the XMP packet. Used once the parameters
+    /// have been baked into the pixels, so re-opening the image doesn't apply them a second time.
+    /// Properties owned by other applications are left untouched.
+    /// </summary>
+    public static void ClearFromXmp(IXmpMeta xmp)
+    {
+        foreach (var prop in new[]
+        {
+            "Brightness", "Contrast", "Exposure", "Highlights", "Shadows",
+            "Saturation", "Temperature", "Tint", "Clarity", "Sharpness",
+            "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
+            "CropLeft", "CropTop", "CropWidth", "CropHeight"
+        })
+        {
+            DeleteProp(xmp, prop);
+        }
+    }
+
     public static EditParameters ReadFromXmp(IXmpMeta xmp)
     {
         var p = new EditParameters

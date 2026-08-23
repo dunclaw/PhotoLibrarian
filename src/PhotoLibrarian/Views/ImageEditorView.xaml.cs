@@ -1,20 +1,19 @@
 using Microsoft.Graphics.Canvas;
-using Microsoft.Graphics.Canvas.Effects;
 using Microsoft.Graphics.Canvas.UI;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using System.Numerics;
 
 namespace PhotoLibrarian.Views;
 
 /// <summary>
-/// Image editor view with Win2D GPU-accelerated effect pipeline.
-/// Effect chain: Source → Exposure → Brightness/Contrast → Saturation →
-/// Temperature/Tint → Highlights/Shadows → Levels → Clarity → Sharpness → Rotation → Output
+/// Image editor view with Win2D GPU-accelerated effect pipeline. The preview and the save path
+/// share the same effect graph (see <see cref="EditEffectGraph"/>), and saving bakes the result
+/// into the file on disk via <see cref="ImageEditRenderer"/>.
 /// </summary>
 public sealed partial class ImageEditorView : UserControl
 {
@@ -59,6 +58,7 @@ public sealed partial class ImageEditorView : UserControl
             {
                 case nameof(ImageEditorViewModel.IsOpen):
                     Visibility = ViewModel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+                    if (ViewModel.IsOpen) SyncSlidersFromViewModel();
                     break;
                 case nameof(ImageEditorViewModel.ImagePath):
                     _ = LoadImageAsync(ViewModel.ImagePath);
@@ -80,7 +80,9 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnCanvasCreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
     {
-        // Resources are created when image is loaded
+        // The editor is opened while collapsed, so the image path can be set before the canvas
+        // has a device. Reload here so the preview appears as soon as resources exist.
+        args.TrackAsyncAction(LoadImageAsync(ViewModel?.ImagePath).AsAsyncAction());
     }
 
     private void OnCanvasDraw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -88,157 +90,34 @@ public sealed partial class ImageEditorView : UserControl
         if (_sourceBitmap is null || ViewModel is null) return;
 
         var p = ViewModel.GetCurrentParameters();
-        var effect = BuildEffectGraph(_sourceBitmap, p);
+        var effect = EditEffectGraph.Build(
+            _sourceBitmap,
+            new Vector2((float)_sourceBitmap.Size.Width, (float)_sourceBitmap.Size.Height),
+            p);
 
-        // Center the image in the canvas
+        // Fit the *output* extent — rotation makes it larger than the source — so the preview
+        // frames exactly what a save would write.
         var imageSize = _sourceBitmap.Size;
+        var (originOffset, outputWidth, outputHeight) =
+            EditEffectGraph.ComputeOutputExtent(imageSize.Width, imageSize.Height, p.RotationAngle);
+
         var canvasSize = sender.Size;
         var scale = Math.Min(
-            canvasSize.Width / imageSize.Width,
-            canvasSize.Height / imageSize.Height);
+            canvasSize.Width / outputWidth,
+            canvasSize.Height / outputHeight);
         scale = Math.Min(scale, 1.0); // Don't upscale
 
-        var scaledW = imageSize.Width * scale;
-        var scaledH = imageSize.Height * scale;
+        var scaledW = outputWidth * scale;
+        var scaledH = outputHeight * scale;
         var offsetX = (canvasSize.Width - scaledW) / 2;
         var offsetY = (canvasSize.Height - scaledH) / 2;
 
-        args.DrawingSession.Transform = Matrix3x2.CreateScale((float)scale) *
+        args.DrawingSession.Transform =
+            Matrix3x2.CreateTranslation(originOffset) *
+            Matrix3x2.CreateScale((float)scale) *
             Matrix3x2.CreateTranslation((float)offsetX, (float)offsetY);
 
         args.DrawingSession.DrawImage(effect);
-    }
-
-    /// <summary>
-    /// Builds the Win2D GPU effect pipeline from EditParameters.
-    /// </summary>
-    private static ICanvasImage BuildEffectGraph(CanvasBitmap source, EditParameters p)
-    {
-        ICanvasImage current = source;
-
-        // 1. Exposure (simulated via brightness/gamma)
-        if (p.Exposure != 0)
-        {
-            current = new ExposureEffect
-            {
-                Source = current,
-                Exposure = (float)p.Exposure * 2.0f // Scale to useful range
-            };
-        }
-
-        // 2. Brightness & Contrast
-        if (p.Brightness != 0 || p.Contrast != 0)
-        {
-            current = new BrightnessEffect
-            {
-                Source = current,
-                WhitePoint = new Vector2(
-                    1.0f + (float)p.Brightness * 0.5f,
-                    1.0f + (float)p.Brightness * 0.5f)
-            };
-
-            if (p.Contrast != 0)
-            {
-                current = new ContrastEffect
-                {
-                    Source = current,
-                    Contrast = (float)p.Contrast
-                };
-            }
-        }
-
-        // 3. Saturation
-        if (p.Saturation != 0)
-        {
-            current = new SaturationEffect
-            {
-                Source = current,
-                Saturation = 1.0f + (float)p.Saturation // 0=grayscale, 1=normal, 2=double
-            };
-        }
-
-        // 4. Temperature & Tint (simulated via color matrix)
-        if (p.Temperature != 0 || p.Tint != 0)
-        {
-            var temp = (float)p.Temperature * 0.3f;
-            var tint = (float)p.Tint * 0.3f;
-            current = new ColorMatrixEffect
-            {
-                Source = current,
-                ColorMatrix = new Matrix5x4
-                {
-                    M11 = 1 + temp, M12 = 0, M13 = 0, M14 = 0,
-                    M21 = 0, M22 = 1 + tint, M23 = 0, M24 = 0,
-                    M31 = 0, M32 = 0, M33 = 1 - temp, M34 = 0,
-                    M41 = 0, M42 = 0, M43 = 0, M44 = 1,
-                    M51 = 0, M52 = 0, M53 = 0, M54 = 0
-                }
-            };
-        }
-
-        // 5. Highlights & Shadows (via gamma curves)
-        if (p.Highlights != 0 || p.Shadows != 0)
-        {
-            current = new HighlightsAndShadowsEffect
-            {
-                Source = current,
-                Highlights = (float)p.Highlights,
-                Shadows = (float)p.Shadows,
-                Clarity = (float)p.Clarity
-            };
-        }
-
-        // 6. Levels (black point, white point, midtones via transfer table)
-        if (p.BlackPoint != 0 || p.WhitePoint != 1.0 || p.Midtones != 0.5)
-        {
-            var gamma = p.Midtones > 0 ? Math.Log(0.5) / Math.Log(p.Midtones) : 1.0;
-            var bp = (float)p.BlackPoint;
-            var wp = (float)p.WhitePoint;
-            var g = (float)gamma;
-
-            // Generate transfer table
-            var table = new float[256];
-            for (int i = 0; i < 256; i++)
-            {
-                float v = i / 255f;
-                v = Math.Clamp((v - bp) / (wp - bp), 0, 1);
-                v = MathF.Pow(v, 1f / g);
-                table[i] = v;
-            }
-
-            current = new TableTransferEffect
-            {
-                Source = current,
-                RedTable = table,
-                GreenTable = table,
-                BlueTable = table
-            };
-        }
-
-        // 7. Sharpness (via unsharp mask)
-        if (p.Sharpness > 0)
-        {
-            current = new SharpenEffect
-            {
-                Source = current,
-                Amount = (float)p.Sharpness * 5.0f, // 0-5 range
-                Threshold = 0.05f
-            };
-        }
-
-        // 8. Rotation
-        if (p.RotationAngle != 0)
-        {
-            current = new Transform2DEffect
-            {
-                Source = current,
-                TransformMatrix = Matrix3x2.CreateRotation(
-                    (float)(p.RotationAngle * Math.PI / 180),
-                    new Vector2((float)source.Size.Width / 2, (float)source.Size.Height / 2))
-            };
-        }
-
-        return current;
     }
 
     private async Task LoadImageAsync(string? path)
@@ -250,7 +129,7 @@ public sealed partial class ImageEditorView : UserControl
 
         try
         {
-            _sourceBitmap = await CanvasBitmap.LoadAsync(EditCanvas, path);
+            _sourceBitmap = await ImageEditRenderer.LoadOrientedAsync(EditCanvas, path);
             EditCanvas.Invalidate();
         }
         catch { /* Failed to load */ }
@@ -292,14 +171,56 @@ public sealed partial class ImageEditorView : UserControl
     {
         if (ViewModel?.RevertToOriginalCommand.CanExecute(null) == true)
         {
+            // Let go of the file before it is overwritten by the backup copy.
+            _sourceBitmap?.Dispose();
+            _sourceBitmap = null;
+
             await ViewModel.RevertToOriginalCommand.ExecuteAsync(null);
             SyncSlidersFromViewModel();
+            await LoadImageAsync(ViewModel.ImagePath);
         }
     }
 
-    private void OnSave(object sender, RoutedEventArgs e)
+    private async void OnSave(object sender, RoutedEventArgs e)
     {
-        // Save will be implemented in p2-save-edits
+        if (ViewModel is null || ViewModel.IsSaving) return;
+
+        if (!ViewModel.HasChanges)
+        {
+            SetStatus("No adjustments to save");
+            return;
+        }
+
+        SaveBtn.IsEnabled = false;
+        SetStatus("Applying adjustments…");
+        try
+        {
+            // Release our handle on the file before the renderer rewrites it.
+            _sourceBitmap?.Dispose();
+            _sourceBitmap = null;
+
+            var saved = await ViewModel.SaveAsync(ImageEditRenderer.RenderToFileAsync);
+            SyncSlidersFromViewModel();
+
+            // Reload from disk so the preview shows the baked pixels.
+            await LoadImageAsync(ViewModel.ImagePath);
+
+            if (!saved) SetStatus("No adjustments to save");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Save failed: {ex.Message}");
+            await LoadImageAsync(ViewModel.ImagePath);
+        }
+        finally
+        {
+            SaveBtn.IsEnabled = true;
+        }
+    }
+
+    private static void SetStatus(string text)
+    {
+        if (App.ViewModel is not null) App.ViewModel.StatusText = text;
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => ViewModel?.CloseCommand.Execute(null);

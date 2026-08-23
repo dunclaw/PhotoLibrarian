@@ -73,6 +73,34 @@ public partial class MainViewModel : ObservableObject
 
         _indexingService.Progress += OnIndexingProgress;
         ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
+        ImageEditor.EditsApplied += OnEditsApplied;
+        ImageEditor.Reverted += OnEditsReverted;
+    }
+
+    private async void OnEditsReverted(object? sender, string filePath)
+    {
+        await RefreshFileAsync(filePath);
+        StatusText = $"Reverted {System.IO.Path.GetFileName(filePath)} to the original";
+    }
+
+    /// <summary>Repaints the grid thumbnail and the open viewer after a file changed on disk.</summary>
+    public async Task RefreshFileAsync(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath)) return;
+        try
+        {
+            await ImageGrid.RefreshSingleImageAsync(filePath);
+            await ImageViewer.ReloadCurrentImageAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[EDIT] RefreshFileAsync failed: {ex.Message}");
+        }
+    }
+
+    private async void OnEditsApplied(object? sender, EditsAppliedEventArgs e)
+    {
+        await RefreshAfterPixelEditAsync(e.FilePath, e.PixelWidth, e.PixelHeight, "Saved edits to");
     }
 
     /// <summary>
@@ -338,7 +366,16 @@ public partial class MainViewModel : ObservableObject
     /// Called after the image file at <paramref name="filePath"/> has been cropped on disk.
     /// Updates DB dimensions, refreshes the grid thumbnail and the open viewer.
     /// </summary>
-    public async Task RefreshAfterCropAsync(string filePath, uint newPixelWidth, uint newPixelHeight)
+    public Task RefreshAfterCropAsync(string filePath, uint newPixelWidth, uint newPixelHeight) =>
+        RefreshAfterPixelEditAsync(filePath, newPixelWidth, newPixelHeight, "Cropped");
+
+    /// <summary>
+    /// Called after the pixels of <paramref name="filePath"/> have been rewritten (crop, baked
+    /// adjustments). Updates DB dimensions, refreshes the grid thumbnail and the open viewer.
+    /// Both paths write display-oriented pixels and reset the EXIF orientation tag to 1.
+    /// </summary>
+    public async Task RefreshAfterPixelEditAsync(
+        string filePath, uint newPixelWidth, uint newPixelHeight, string verb)
     {
         if (string.IsNullOrEmpty(filePath)) return;
         try
@@ -355,12 +392,12 @@ public partial class MainViewModel : ObservableObject
             }
             await ImageGrid.RefreshSingleImageAsync(filePath);
             await ImageViewer.ReloadCurrentImageAsync();
-            StatusText = $"Cropped {System.IO.Path.GetFileName(filePath)} ({newPixelWidth}×{newPixelHeight})";
+            StatusText = $"{verb} {System.IO.Path.GetFileName(filePath)} ({newPixelWidth}×{newPixelHeight})";
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CROP] RefreshAfterCropAsync failed: {ex.Message}");
-            StatusText = $"Crop refresh failed: {ex.Message}";
+            System.Diagnostics.Debug.WriteLine($"[EDIT] RefreshAfterPixelEditAsync failed: {ex.Message}");
+            StatusText = $"Refresh failed: {ex.Message}";
         }
     }
 

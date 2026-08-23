@@ -11,7 +11,9 @@ namespace PhotoLibrarian.ViewModels;
 public partial class ImageEditorViewModel : ObservableObject
 {
     private readonly OriginalBackupService _backupService;
+    private readonly ImageEditService _editService;
     private ImageEntry? _currentEntry;
+    private string? _backupHash;
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
@@ -74,14 +76,27 @@ public partial class ImageEditorViewModel : ObservableObject
     [ObservableProperty]
     public partial bool HasChanges { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsSaving { get; set; }
+
     /// <summary>
     /// Raised when any parameter changes so the Win2D canvas can re-render.
     /// </summary>
     public event EventHandler? ParametersChanged;
 
+    /// <summary>
+    /// Raised after adjustments have been baked into the file on disk, so the rest of the app
+    /// (grid thumbnail, viewer, database dimensions) can refresh.
+    /// </summary>
+    public event EventHandler<EditsAppliedEventArgs>? EditsApplied;
+
+    /// <summary>Raised after the file has been restored from its backup.</summary>
+    public event EventHandler<string>? Reverted;
+
     public ImageEditorViewModel(OriginalBackupService backupService)
     {
         _backupService = backupService;
+        _editService = new ImageEditService(backupService);
         Title = "";
         WhitePoint = 1.0;
         Midtones = 0.5;
@@ -97,18 +112,44 @@ public partial class ImageEditorViewModel : ObservableObject
         // Load existing edit parameters from XMP if any
         try
         {
-            var dirs = MetadataExtractor.ImageMetadataReader.ReadMetadata(entry.FilePath);
-            var xmpDir = dirs.OfType<MetadataExtractor.Formats.Xmp.XmpDirectory>().FirstOrDefault();
-            if (xmpDir?.XmpMeta is not null)
-            {
-                var p = EditParametersSerializer.ReadFromXmp(xmpDir.XmpMeta);
-                ApplyParametersToSliders(p);
-            }
+            ApplyParametersToSliders(ImageEditService.ReadEditParameters(entry.FilePath));
         }
         catch { /* No existing edits */ }
 
+        // Backups are keyed by the content hash of the file they were taken from, so remember
+        // the hash we opened with — after a save the file's own hash no longer finds it.
+        _backupHash = await OriginalBackupService.ComputeFileHashAsync(entry.FilePath);
         HasBackup = await _backupService.HasBackupAsync(entry.FilePath);
         HasChanges = false;
+    }
+
+    /// <summary>
+    /// Bakes the current adjustments into the image file on disk. The original is backed up
+    /// first, then the sliders reset because the values now live in the pixels.
+    /// Returns true when the file was written.
+    /// </summary>
+    public async Task<bool> SaveAsync(ImageEditService.PixelRenderer renderer)
+    {
+        if (_currentEntry is null || IsSaving) return false;
+
+        var parameters = GetCurrentParameters();
+        if (!parameters.HasAdjustments) return false;
+
+        IsSaving = true;
+        try
+        {
+            var (width, height) = await _editService.ApplyEditsAsync(
+                _currentEntry.FilePath, parameters, renderer);
+
+            ResetAll();
+            HasBackup = true;
+            EditsApplied?.Invoke(this, new EditsAppliedEventArgs(_currentEntry.FilePath, width, height));
+            return true;
+        }
+        finally
+        {
+            IsSaving = false;
+        }
     }
 
     public EditParameters GetCurrentParameters() => new()
@@ -148,10 +189,11 @@ public partial class ImageEditorViewModel : ObservableObject
     private async Task RevertToOriginalAsync()
     {
         if (_currentEntry is null) return;
-        var hash = await OriginalBackupService.ComputeFileHashAsync(_currentEntry.FilePath);
+        var hash = _backupHash ?? await OriginalBackupService.ComputeFileHashAsync(_currentEntry.FilePath);
         if (await _backupService.RestoreOriginalAsync(_currentEntry.FilePath, hash))
         {
             ResetAll();
+            Reverted?.Invoke(this, _currentEntry.FilePath);
         }
     }
 
@@ -215,4 +257,21 @@ public partial class ImageEditorViewModel : ObservableObject
         HasChanges = true;
         ParametersChanged?.Invoke(this, EventArgs.Empty);
     }
+}
+
+/// <summary>
+/// Describes an image whose adjustments have just been baked into the file on disk.
+/// </summary>
+public sealed class EditsAppliedEventArgs : EventArgs
+{
+    public EditsAppliedEventArgs(string filePath, uint pixelWidth, uint pixelHeight)
+    {
+        FilePath = filePath;
+        PixelWidth = pixelWidth;
+        PixelHeight = pixelHeight;
+    }
+
+    public string FilePath { get; }
+    public uint PixelWidth { get; }
+    public uint PixelHeight { get; }
 }
