@@ -55,6 +55,8 @@ public partial class PhotoGroup : ObservableObject
 public partial class ImageGridViewModel : ObservableObject
 {
     private readonly ImageRepository _imageRepo;
+    private readonly TagRepository _tagRepo;
+    private readonly FaceRepository _faceRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly MainViewModel _main;
@@ -67,6 +69,8 @@ public partial class ImageGridViewModel : ObservableObject
     private bool _currentFlaggedSelected; // "Flagged" node selected (show flagged working set)
     private string? _currentSortBy = "date_taken";
     private CancellationTokenSource? _loadCts;
+    private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private string? _primarySelectedPath;
     
     // Queue management for viewport-aware loading
     private readonly Queue<ImageThumbnailViewModel> _loadQueue = new();
@@ -81,6 +85,9 @@ public partial class ImageGridViewModel : ObservableObject
 
     public ObservableCollection<ImageThumbnailViewModel> Images { get; } = [];
     public ObservableCollection<PhotoGroup> GroupedImages { get; } = [];
+    public ImageRefinementFilter Refinement { get; private set; } = ImageRefinementFilter.Empty;
+
+    public event EventHandler? ResultsChanged;
 
     [ObservableProperty]
     private GroupByOption _groupBy = GroupByOption.None;
@@ -123,11 +130,15 @@ public partial class ImageGridViewModel : ObservableObject
 
     public ImageGridViewModel(
         ImageRepository imageRepo,
+        TagRepository tagRepo,
+        FaceRepository faceRepo,
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
         MainViewModel main)
     {
         _imageRepo = imageRepo;
+        _tagRepo = tagRepo;
+        _faceRepo = faceRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
         _main = main;
@@ -178,6 +189,12 @@ public partial class ImageGridViewModel : ObservableObject
 
         // Get all images from DB (we'll filter to union of all criteria)
         var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending);
+        var tagsByImageId = Refinement.RequiresTags
+            ? await _tagRepo.GetTagsByImageIdAsync()
+            : null;
+        var personIdsByImageId = Refinement.RequiresPeople
+            ? await _faceRepo.GetPersonIdsByImageIdAsync()
+            : null;
         
         // Clear old images and dispose thumbnails to free memory
         foreach (var img in Images)
@@ -287,7 +304,13 @@ public partial class ImageGridViewModel : ObservableObject
                 matchesAnyFilter = true;
             }
 
-            if (matchesAnyFilter)
+            HashSet<string>? imageTags = null;
+            HashSet<long>? imagePersonIds = null;
+            tagsByImageId?.TryGetValue(img.Id, out imageTags);
+            personIdsByImageId?.TryGetValue(img.Id, out imagePersonIds);
+
+            if (matchesAnyFilter &&
+                Refinement.Matches(img, imageTags, imagePersonIds))
             {
                 matchCount++;
                 if (matchCount <= 3)
@@ -369,6 +392,9 @@ public partial class ImageGridViewModel : ObservableObject
                             DateIndexed = DateTime.UtcNow,
                             MediaType = FolderScannerService.IsVideoFile(filePath) ? MediaType.Video : MediaType.Image
                         };
+
+                        if (!Refinement.Matches(entry))
+                            continue;
                         
                         var vm = new ImageThumbnailViewModel(entry, ct) { Index = currentIndex };
                         Images.Add(vm);
@@ -407,19 +433,9 @@ public partial class ImageGridViewModel : ObservableObject
         // Start background processing
         StartBackgroundLoadingIfNeeded();
         
-        // Apply grouping to populate GroupedImages collection
-        // Use fire-and-forget pattern to avoid blocking
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await ApplyGroupingAsync();
-            }
-            catch (Exception ex)
-            {
-                DebugLog.WriteLine($"[ERROR] ApplyGroupingAsync failed: {ex.Message}");
-            }
-        });
+        await ApplyGroupingAsync();
+        RestoreSelectionAfterLoad();
+        ResultsChanged?.Invoke(this, EventArgs.Empty);
     }
     
     
@@ -879,9 +895,6 @@ public partial class ImageGridViewModel : ObservableObject
         await LoadImagesAsync();
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: LoadImagesAsync complete, Images.Count={Images.Count}");
         
-        // Apply grouping if enabled (async to avoid UI blocking)
-        await ApplyGroupingAsync();
-        
         // Update empty state visibility
         if (App.MainWindow?.DispatcherQueue != null)
         {
@@ -891,13 +904,34 @@ public partial class ImageGridViewModel : ObservableObject
             });
         }
     }
+
+    public async Task ApplyRefinementAsync(ImageRefinementFilter refinement)
+    {
+        Refinement = refinement ?? ImageRefinementFilter.Empty;
+        OnPropertyChanged(nameof(Refinement));
+        await LoadImagesAsync();
+    }
+
+    public async Task<IReadOnlyList<Person>> GetAvailablePeopleAsync() =>
+        await _faceRepo.GetAllPersonsAsync();
     
     /// <summary>
     /// Re-runs grouping/sorting on the current in-memory <see cref="Images"/> collection.
     /// Call after metadata edits that affect sort/group order (e.g. date taken, rating).
     /// Does NOT re-fetch from DB or reload thumbnails — it just re-arranges existing items.
     /// </summary>
-    public Task RefreshGroupingAsync() => ApplyGroupingAsync();
+    public Task RefreshGroupingAsync()
+    {
+        bool refinementDependsOnChangedMetadata =
+            Refinement.Rating.HasValue ||
+            Refinement.DateFrom.HasValue ||
+            Refinement.DateTo.HasValue ||
+            Refinement.MissingMetadata != MissingMetadataFilter.None;
+
+        return refinementDependsOnChangedMetadata
+            ? LoadImagesAsync()
+            : ApplyGroupingAsync();
+    }
 
     /// <summary>
     /// Forces a single image's thumbnail and metadata to be re-fetched from disk. Call after
@@ -1179,9 +1213,13 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagRootSelected = false;
         _currentTagFilters = null;
         _currentFlaggedSelected = false;
+        Refinement = ImageRefinementFilter.Empty;
+        OnPropertyChanged(nameof(Refinement));
         Images.Clear();
         SelectedImages.Clear();
         SelectedImage = null;
+        _selectedPaths.Clear();
+        _primarySelectedPath = null;
         await ApplyGroupingAsync();
         // Don't set status text here - let MainViewModel handle it
     }
@@ -1227,10 +1265,33 @@ public partial class ImageGridViewModel : ObservableObject
     /// </summary>
     public void UpdateSelection(IReadOnlyList<ImageThumbnailViewModel> selected, ImageThumbnailViewModel? primary)
     {
+        _selectedPaths.Clear();
+        foreach (var item in selected)
+            _selectedPaths.Add(item.Entry.FilePath);
+        _primarySelectedPath = primary?.Entry.FilePath;
+
         SelectedImages.Clear();
         SelectedImages.AddRange(selected);
         // Setting SelectedImage drives the metadata panel via OnSelectedImageChanged
         SelectedImage = primary;
+    }
+
+    private void RestoreSelectionAfterLoad()
+    {
+        var visibleSelection = Images
+            .Where(item => _selectedPaths.Contains(item.Entry.FilePath))
+            .ToList();
+        var primary = visibleSelection.FirstOrDefault(item =>
+            string.Equals(
+                item.Entry.FilePath,
+                _primarySelectedPath,
+                StringComparison.OrdinalIgnoreCase))
+            ?? visibleSelection.FirstOrDefault();
+
+        SelectedImages.Clear();
+        SelectedImages.AddRange(visibleSelection);
+        SelectedImage = primary;
+        RefreshMetadataFromSelection();
     }
 
     [RelayCommand]
@@ -1287,7 +1348,8 @@ public partial class ImageGridViewModel : ObservableObject
             NotifyFlagChanged(entry.FilePath);
 
         // The flagged working set is a live filter — drop items that no longer qualify.
-        if (_currentFlaggedSelected && !flagged)
+        if (_currentFlaggedSelected ||
+            Refinement.Flag != FlagFilterMode.Any)
             await LoadImagesAsync();
     }
 
