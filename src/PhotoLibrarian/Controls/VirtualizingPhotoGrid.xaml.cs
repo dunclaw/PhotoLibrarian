@@ -759,6 +759,22 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         RefreshAllSelectionVisuals();
         SelectionChanged?.Invoke(this, Array.Empty<ImageThumbnailViewModel>());
     }
+
+    /// <summary>
+    /// Restores a path-preserved selection after the grid result set has been rebuilt.
+    /// </summary>
+    public void RestoreSelection(
+        IReadOnlyCollection<ImageThumbnailViewModel> selected,
+        ImageThumbnailViewModel? primary)
+    {
+        _selectedItems.Clear();
+        foreach (var item in selected)
+            _selectedItems.Add(item);
+
+        _primaryItem = primary;
+        _anchorItem = primary;
+        RefreshAllSelectionVisuals();
+    }
     
     private static void ApplySelectionVisual(FrameworkElement element, bool selected)
     {

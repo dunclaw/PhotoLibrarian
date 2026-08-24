@@ -125,6 +125,32 @@ public sealed class TagRepository
     }
 
     /// <summary>
+    /// Loads tag membership in one pass for client-side refinement composition.
+    /// </summary>
+    public async Task<Dictionary<long, HashSet<string>>> GetTagsByImageIdAsync()
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT image_id, tag FROM tags";
+
+        var results = new Dictionary<long, HashSet<string>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var imageId = reader.GetInt64(0);
+            if (!results.TryGetValue(imageId, out var tags))
+            {
+                tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                results.Add(imageId, tags);
+            }
+
+            tags.Add(reader.GetString(1));
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// Renames a tag across all images.
     /// </summary>
     public async Task RenameTagAsync(string oldTag, string newTag)

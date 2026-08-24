@@ -1,14 +1,18 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace PhotoLibrarian.Views;
 
 public sealed partial class ImageGridView : UserControl
 {
     private ImageGridViewModel? ViewModel => App.ViewModel?.ImageGrid;
+    private bool _isInitialized;
 
     public ImageGridView()
     {
@@ -16,9 +20,10 @@ public sealed partial class ImageGridView : UserControl
         this.Loaded += OnLoaded;
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (ViewModel is null) return;
+        if (ViewModel is null || _isInitialized) return;
+        _isInitialized = true;
 
         System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] OnLoaded - Images.Count={ViewModel.Images.Count}, GroupedImages.Count={ViewModel.GroupedImages.Count}");
 
@@ -63,6 +68,345 @@ public sealed partial class ImageGridView : UserControl
         UpdateGroupByCombo();
         UpdateSortByCombo();
         UpdateSortOrderIcon();
+        ViewModel.ResultsChanged += OnResultsChanged;
+        InitializeRefinementControls(ViewModel.Refinement);
+        await LoadPeopleAsync();
+        UpdateActiveFilterChips();
+    }
+
+    private async System.Threading.Tasks.Task LoadPeopleAsync()
+    {
+        if (ViewModel is null) return;
+
+        try
+        {
+            var selectedPersonId = ViewModel.Refinement.PersonId;
+            var people = await ViewModel.GetAvailablePeopleAsync();
+            foreach (var person in people)
+            {
+                PersonCombo.Items.Add(new ComboBoxItem
+                {
+                    Content = $"{person.Name} ({person.FaceCount:N0})",
+                    Tag = person.Id
+                });
+            }
+
+            if (selectedPersonId.HasValue)
+            {
+                PersonCombo.SelectedItem = PersonCombo.Items
+                    .OfType<ComboBoxItem>()
+                    .FirstOrDefault(item =>
+                        item.Tag is long id && id == selectedPersonId.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.ViewModel.StatusText = $"Could not load people filters: {ex.Message}";
+        }
+    }
+
+    private void OnResultsChanged(object? sender, EventArgs e)
+    {
+        if (ViewModel is null) return;
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            PhotoGrid.RestoreSelection(
+                ViewModel.SelectedImages,
+                ViewModel.SelectedImage);
+        });
+    }
+
+    private void OnDatePresetChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // SelectedIndex is applied while InitializeComponent is still creating later elements.
+        if (CustomDatePanel is null || sender is not ComboBox datePresetCombo)
+            return;
+
+        CustomDatePanel.Visibility =
+            GetSelectedTag(datePresetCombo) == "Custom"
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private async void OnApplyFilters(object sender, RoutedEventArgs e)
+    {
+        await ApplyRefinementFromControlsAsync(hideFlyout: true);
+    }
+
+    private async void OnClearAllFilters(object sender, RoutedEventArgs e)
+    {
+        ResetRefinementControls();
+        await ApplyRefinementFromControlsAsync(hideFlyout: false);
+    }
+
+    private async System.Threading.Tasks.Task ApplyRefinementFromControlsAsync(bool hideFlyout)
+    {
+        if (ViewModel is null) return;
+
+        try
+        {
+            var refinement = BuildRefinementFromControls();
+            await ViewModel.ApplyRefinementAsync(refinement);
+            UpdateActiveFilterChips();
+            if (hideFlyout)
+                FilterFlyout.Hide();
+        }
+        catch (Exception ex)
+        {
+            App.ViewModel.StatusText = $"Could not apply filters: {ex.Message}";
+        }
+    }
+
+    private ImageRefinementFilter BuildRefinementFromControls()
+    {
+        int? rating = int.TryParse(GetSelectedTag(RatingCombo), out var parsedRating)
+            ? parsedRating
+            : null;
+        _ = Enum.TryParse<RatingFilterMode>(
+            GetSelectedTag(RatingModeCombo),
+            out var ratingMode);
+
+        var (dateFrom, dateTo) = GetDateRange();
+        _ = Enum.TryParse<FlagFilterMode>(
+            GetSelectedTag(FlagCombo),
+            out var flag);
+        _ = Enum.TryParse<MediaKindFilter>(
+            GetSelectedTag(MediaKindCombo),
+            out var mediaKind);
+        _ = Enum.TryParse<MissingMetadataFilter>(
+            GetSelectedTag(MissingMetadataCombo),
+            out var missingMetadata);
+
+        return new ImageRefinementFilter
+        {
+            Rating = rating,
+            RatingMode = ratingMode,
+            DateFrom = dateFrom,
+            DateTo = dateTo,
+            IncludedTags = ParseTokens(IncludeTagsBox.Text),
+            ExcludedTags = ParseTokens(ExcludeTagsBox.Text),
+            PersonId = (PersonCombo.SelectedItem as ComboBoxItem)?.Tag as long?,
+            Flag = flag,
+            MediaKind = mediaKind,
+            Extensions = ParseTokens(ExtensionsBox.Text)
+                .Select(ImageRefinementFilter.NormalizeExtension)
+                .Where(extension => extension.Length > 1)
+                .ToList(),
+            MissingMetadata = missingMetadata
+        };
+    }
+
+    private (DateTime? From, DateTime? To) GetDateRange()
+    {
+        var today = DateTime.Today;
+        return GetSelectedTag(DatePresetCombo) switch
+        {
+            "ThisYear" => (new DateTime(today.Year, 1, 1), today),
+            "Last12Months" => (today.AddMonths(-12), today),
+            "Custom" => (
+                DateFromPicker.Date?.DateTime.Date,
+                DateToPicker.Date?.DateTime.Date),
+            _ => (null, null)
+        };
+    }
+
+    private void InitializeRefinementControls(ImageRefinementFilter refinement)
+    {
+        SelectByTag(
+            RatingCombo,
+            refinement.Rating?.ToString() ?? string.Empty);
+        SelectByTag(RatingModeCombo, refinement.RatingMode.ToString());
+
+        if (refinement.DateFrom.HasValue || refinement.DateTo.HasValue)
+        {
+            SelectByTag(DatePresetCombo, "Custom");
+            DateFromPicker.Date = refinement.DateFrom.HasValue
+                ? new DateTimeOffset(refinement.DateFrom.Value)
+                : null;
+            DateToPicker.Date = refinement.DateTo.HasValue
+                ? new DateTimeOffset(refinement.DateTo.Value)
+                : null;
+        }
+
+        IncludeTagsBox.Text = string.Join(", ", refinement.IncludedTags);
+        ExcludeTagsBox.Text = string.Join(", ", refinement.ExcludedTags);
+        SelectByTag(FlagCombo, refinement.Flag.ToString());
+        SelectByTag(MediaKindCombo, refinement.MediaKind.ToString());
+        ExtensionsBox.Text = string.Join(
+            ", ",
+            refinement.Extensions.Select(extension => extension.TrimStart('.')));
+        SelectByTag(
+            MissingMetadataCombo,
+            refinement.MissingMetadata.ToString());
+    }
+
+    private void ResetRefinementControls()
+    {
+        RatingCombo.SelectedIndex = 0;
+        RatingModeCombo.SelectedIndex = 0;
+        DatePresetCombo.SelectedIndex = 0;
+        DateFromPicker.Date = null;
+        DateToPicker.Date = null;
+        IncludeTagsBox.Text = string.Empty;
+        ExcludeTagsBox.Text = string.Empty;
+        PersonCombo.SelectedIndex = 0;
+        FlagCombo.SelectedIndex = 0;
+        MediaKindCombo.SelectedIndex = 0;
+        ExtensionsBox.Text = string.Empty;
+        MissingMetadataCombo.SelectedIndex = 0;
+    }
+
+    private void UpdateActiveFilterChips()
+    {
+        if (ViewModel is null) return;
+
+        var refinement = ViewModel.Refinement;
+        ActiveFiltersPanel.Children.Clear();
+
+        if (refinement.Rating is int rating)
+        {
+            var qualifier = refinement.RatingMode switch
+            {
+                RatingFilterMode.Exact => "exactly",
+                RatingFilterMode.AndLower => "and lower",
+                _ => "and higher"
+            };
+            AddFilterChip("rating", $"{rating} star {qualifier}");
+        }
+
+        if (refinement.DateFrom.HasValue || refinement.DateTo.HasValue)
+        {
+            AddFilterChip(
+                "date",
+                $"Date: {refinement.DateFrom?.ToString("d") ?? "any"} - " +
+                $"{refinement.DateTo?.ToString("d") ?? "any"}");
+        }
+
+        foreach (var tag in refinement.IncludedTags)
+            AddFilterChip($"include:{tag}", $"Tag: {tag}");
+        foreach (var tag in refinement.ExcludedTags)
+            AddFilterChip($"exclude:{tag}", $"Not tag: {tag}");
+
+        if (refinement.PersonId.HasValue)
+        {
+            var personName = (PersonCombo.SelectedItem as ComboBoxItem)?.Content?.ToString()
+                ?? "Selected person";
+            AddFilterChip("person", $"Person: {personName}");
+        }
+
+        if (refinement.Flag != FlagFilterMode.Any)
+            AddFilterChip("flag", refinement.Flag.ToString());
+
+        if (refinement.MediaKind != MediaKindFilter.Any)
+            AddFilterChip("media", refinement.MediaKind.ToString());
+
+        foreach (var extension in refinement.Extensions)
+            AddFilterChip($"extension:{extension}", extension.ToUpperInvariant());
+
+        if (refinement.MissingMetadata != MissingMetadataFilter.None)
+            AddFilterChip("missing", $"Missing {refinement.MissingMetadata}");
+
+        if (ActiveFiltersPanel.Children.Count > 0)
+        {
+            var clearAll = new Button
+            {
+                Content = "Clear all",
+                Padding = new Thickness(8, 4, 8, 4)
+            };
+            AutomationProperties.SetAutomationId(clearAll, "ActiveFiltersClearAll");
+            clearAll.Click += OnClearAllFilters;
+            ActiveFiltersPanel.Children.Add(clearAll);
+        }
+
+        ActiveFiltersScroller.Visibility =
+            ActiveFiltersPanel.Children.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private void AddFilterChip(string key, string label)
+    {
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = label,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        content.Children.Add(new FontIcon
+        {
+            Glyph = "\uE711",
+            FontSize = 12
+        });
+
+        var button = new Button
+        {
+            Content = content,
+            Tag = key,
+            Padding = new Thickness(8, 4, 8, 4)
+        };
+        AutomationProperties.SetAutomationId(button, $"ActiveFilter_{key}");
+        AutomationProperties.SetName(button, $"Remove filter: {label}");
+        button.Click += OnRemoveFilterChip;
+        ActiveFiltersPanel.Children.Add(button);
+    }
+
+    private async void OnRemoveFilterChip(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string key }) return;
+
+        if (key == "rating")
+            RatingCombo.SelectedIndex = 0;
+        else if (key == "date")
+            DatePresetCombo.SelectedIndex = 0;
+        else if (key == "person")
+            PersonCombo.SelectedIndex = 0;
+        else if (key == "flag")
+            FlagCombo.SelectedIndex = 0;
+        else if (key == "media")
+            MediaKindCombo.SelectedIndex = 0;
+        else if (key == "missing")
+            MissingMetadataCombo.SelectedIndex = 0;
+        else if (key.StartsWith("include:", StringComparison.Ordinal))
+            IncludeTagsBox.Text = RemoveToken(IncludeTagsBox.Text, key["include:".Length..]);
+        else if (key.StartsWith("exclude:", StringComparison.Ordinal))
+            ExcludeTagsBox.Text = RemoveToken(ExcludeTagsBox.Text, key["exclude:".Length..]);
+        else if (key.StartsWith("extension:", StringComparison.Ordinal))
+            ExtensionsBox.Text = RemoveToken(
+                ExtensionsBox.Text,
+                key["extension:".Length..].TrimStart('.'));
+
+        await ApplyRefinementFromControlsAsync(hideFlyout: false);
+    }
+
+    private static List<string> ParseTokens(string text) =>
+        text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static string RemoveToken(string text, string token) =>
+        string.Join(
+            ", ",
+            ParseTokens(text).Where(value =>
+                !string.Equals(value, token, StringComparison.OrdinalIgnoreCase)));
+
+    private static string GetSelectedTag(ComboBox comboBox) =>
+        (comboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+
+    private static void SelectByTag(ComboBox comboBox, string tag)
+    {
+        comboBox.SelectedItem = comboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item =>
+                string.Equals(
+                    item.Tag?.ToString(),
+                    tag,
+                    StringComparison.OrdinalIgnoreCase));
+        comboBox.SelectedIndex = Math.Max(comboBox.SelectedIndex, 0);
     }
     
     private void OnVisibleItemsChanged(object? sender, List<ImageThumbnailViewModel> visibleItems)

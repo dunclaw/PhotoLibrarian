@@ -1,7 +1,12 @@
-using PhotoLibrarian.Tests;
+namespace PhotoLibrarian.Tests;
 
-// Run concurrent thumbnail benchmark
-await ConcurrentThumbnailBenchmark.RunBenchmark();
+public static class BenchmarkProgram
+{
+    public static async Task RunAsync()
+    {
+        await ConcurrentThumbnailBenchmark.RunBenchmark();
 
-Console.WriteLine("\nPress any key to exit...");
-Console.ReadKey();
+        Console.WriteLine("\nPress any key to exit...");
+        Console.ReadKey();
+    }
+}

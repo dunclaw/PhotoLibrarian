@@ -113,6 +113,36 @@ public sealed class FaceRepository
         return persons;
     }
 
+    /// <summary>
+    /// Loads named-person membership in one pass for client-side refinement composition.
+    /// </summary>
+    public async Task<Dictionary<long, HashSet<long>>> GetPersonIdsByImageIdAsync()
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT image_id, person_id
+            FROM face_regions
+            WHERE person_id IS NOT NULL
+            """;
+
+        var results = new Dictionary<long, HashSet<long>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var imageId = reader.GetInt64(0);
+            if (!results.TryGetValue(imageId, out var personIds))
+            {
+                personIds = [];
+                results.Add(imageId, personIds);
+            }
+
+            personIds.Add(reader.GetInt64(1));
+        }
+
+        return results;
+    }
+
     public async Task MergePersonsAsync(long sourcePersonId, long targetPersonId)
     {
         using var conn = _db.CreateConnection();

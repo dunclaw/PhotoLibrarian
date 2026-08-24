@@ -44,6 +44,7 @@ public partial class MainViewModel : ObservableObject
         CacheDatabase db,
         ImageRepository imageRepo,
         TagRepository tagRepo,
+        FaceRepository faceRepo,
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
         LibraryIndexingService indexingService,
@@ -63,7 +64,13 @@ public partial class MainViewModel : ObservableObject
         DateNav = new DateNavigationViewModel(imageRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
         FlagNav = new FlagNavigationViewModel(imageRepo);
-        ImageGrid = new ImageGridViewModel(imageRepo, scanner, metadataReader, this);
+        ImageGrid = new ImageGridViewModel(
+            imageRepo,
+            tagRepo,
+            faceRepo,
+            scanner,
+            metadataReader,
+            this);
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
@@ -285,6 +292,9 @@ public partial class MainViewModel : ObservableObject
     public async Task RefreshTagsTreeAsync()
     {
         await TagNav.LoadTagsAsync();
+        if (ImageGrid.Refinement.RequiresTags)
+            await ImageGrid.LoadImagesAsync();
+
         if (App.MainWindow is MainWindow window)
         {
             window.DispatcherQueue.TryEnqueue(async () =>
