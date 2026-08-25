@@ -13,9 +13,13 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
 
         <!-- Top bar -->
-        <Grid x:Name="TopBar" Grid.Row="0" Padding="12,8"
+        <Grid x:Name="TopBar" Grid.Row="0" Grid.ColumnSpan="2" Padding="12,8"
               Background="#CC000000">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -31,16 +35,27 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                <Button Click="OnZoomOut" ToolTipService.ToolTip="Zoom out" Padding="8">
+                <Button x:Name="ZoomOutButton"
+                        AutomationProperties.AutomationId="ViewerZoomOut"
+                        AutomationProperties.Name="Zoom out"
+                        Click="OnZoomOut" ToolTipService.ToolTip="Zoom out" Padding="8">
                     <FontIcon Glyph="&#xE71F;" FontSize="14" Foreground="White" />
                 </Button>
-                <Button Click="OnZoomFit" ToolTipService.ToolTip="Fit to window" Padding="8">
+                <Button x:Name="ZoomFitButton"
+                        AutomationProperties.AutomationId="ViewerZoomFit"
+                        AutomationProperties.Name="Fit to window"
+                        Click="OnZoomFit" ToolTipService.ToolTip="Fit to window" Padding="8">
                     <FontIcon Glyph="&#xE9A6;" FontSize="14" Foreground="White" />
                 </Button>
-                <Button Click="OnZoomIn" ToolTipService.ToolTip="Zoom in" Padding="8">
+                <Button x:Name="ZoomInButton"
+                        AutomationProperties.AutomationId="ViewerZoomIn"
+                        AutomationProperties.Name="Zoom in"
+                        Click="OnZoomIn" ToolTipService.ToolTip="Zoom in" Padding="8">
                     <FontIcon Glyph="&#xE8A3;" FontSize="14" Foreground="White" />
                 </Button>
-                <Button Click="OnClose" ToolTipService.ToolTip="Close (Escape)" Padding="8"
+                <Button AutomationProperties.AutomationId="ViewerClose"
+                        AutomationProperties.Name="Close viewer"
+                        Click="OnClose" ToolTipService.ToolTip="Close (Escape)" Padding="8"
                         Margin="12,0,0,0">
                     <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="White" />
                 </Button>
@@ -63,11 +78,128 @@
                       PointerCanceled="ImageScrollViewer_PointerCanceled">
             <Canvas x:Name="ScrollContent">
                 <Grid x:Name="ImageHost">
-                    <Image x:Name="FullImage" Stretch="Uniform" />
+                    <Image x:Name="FullImage"
+                           RenderTransformOrigin="0.5,0.5"
+                           Stretch="Uniform">
+                        <Image.RenderTransform>
+                            <CompositeTransform x:Name="StraightenTransform" />
+                        </Image.RenderTransform>
+                    </Image>
                     <views:CropOverlay x:Name="CropOverlayView" Visibility="Collapsed" />
+                    <Grid x:Name="StraightenGrid"
+                          IsHitTestVisible="False"
+                          Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Rectangle Grid.Column="1"
+                                   Grid.RowSpan="3"
+                                   HorizontalAlignment="Left"
+                                   Width="1"
+                                   Fill="{ThemeResource TextOnAccentFillColorSecondaryBrush}" />
+                        <Rectangle Grid.Column="2"
+                                   Grid.RowSpan="3"
+                                   HorizontalAlignment="Left"
+                                   Width="1"
+                                   Fill="{ThemeResource TextOnAccentFillColorSecondaryBrush}" />
+                        <Rectangle Grid.Row="1"
+                                   Grid.ColumnSpan="3"
+                                   VerticalAlignment="Top"
+                                   Height="1"
+                                   Fill="{ThemeResource TextOnAccentFillColorSecondaryBrush}" />
+                        <Rectangle Grid.Row="2"
+                                   Grid.ColumnSpan="3"
+                                   VerticalAlignment="Top"
+                                   Height="1"
+                                   Fill="{ThemeResource TextOnAccentFillColorSecondaryBrush}" />
+                    </Grid>
+                    <Canvas x:Name="StraightenGuideOverlay"
+                            AutomationProperties.AutomationId="StraightenGuide"
+                            AutomationProperties.Name="Drag along the horizon to straighten"
+                            Background="Transparent"
+                            PointerPressed="OnStraightenGuidePointerPressed"
+                            PointerMoved="OnStraightenGuidePointerMoved"
+                            PointerReleased="OnStraightenGuidePointerReleased"
+                            PointerCanceled="OnStraightenGuidePointerCanceled"
+                            Visibility="Collapsed">
+                        <Line x:Name="StraightenGuideLine"
+                              Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                              StrokeThickness="2"
+                              Visibility="Collapsed" />
+                    </Canvas>
                 </Grid>
             </Canvas>
         </ScrollViewer>
+
+        <!-- Straighten fine-tune panel -->
+        <Border x:Name="StraightenPanel"
+                Grid.Row="1"
+                Grid.Column="1"
+                Width="304"
+                Padding="20"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="1,0,0,0"
+                Visibility="Collapsed">
+            <StackPanel Spacing="16">
+                <TextBlock Text="Fine-tune"
+                           Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock Text="Drag along the horizon, use Auto, or fine-tune the angle until features align with the grid."
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Angle"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock x:Name="StraightenAngleText"
+                               Grid.Column="1"
+                               MinWidth="64"
+                               HorizontalTextAlignment="Right"
+                               Text="0.0°"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                </Grid>
+
+                <Slider x:Name="StraightenAngleSlider"
+                        AutomationProperties.AutomationId="StraightenAngle"
+                        AutomationProperties.Name="Straighten angle in degrees"
+                        Minimum="-45"
+                        Maximum="45"
+                        StepFrequency="0.1"
+                        SmallChange="0.1"
+                        LargeChange="1"
+                        ValueChanged="OnStraightenAngleChanged" />
+
+                <Button x:Name="AutoStraightenButton"
+                        AutomationProperties.AutomationId="StraightenAuto"
+                        AutomationProperties.Name="Automatically detect straightening angle"
+                        HorizontalAlignment="Stretch"
+                        Click="OnAutoStraightenClick">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Spacing="8">
+                        <FontIcon Glyph="&#xE9D9;" FontSize="14" />
+                        <TextBlock Text="Auto detect" />
+                    </StackPanel>
+                </Button>
+                <TextBlock x:Name="AutoStraightenStatus"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="Auto detects a dominant horizon or vertical line."
+                           TextWrapping="Wrap"
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+            </StackPanel>
+        </Border>
 
         <!-- Video player (shown instead of Image for videos) -->
         <MediaPlayerElement x:Name="VideoPlayer"
@@ -80,11 +212,15 @@
 
         <!-- Navigation arrows -->
         <Button x:Name="PreviousButton" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left"
+                AutomationProperties.AutomationId="ViewerPrevious"
+                AutomationProperties.Name="Previous photo"
                 Click="OnPrevious" Margin="12" Padding="12"
                 Opacity="0.7" ToolTipService.ToolTip="Previous (Left arrow)">
             <FontIcon Glyph="&#xE76B;" FontSize="20" />
         </Button>
         <Button x:Name="NextButton" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Right"
+                AutomationProperties.AutomationId="ViewerNext"
+                AutomationProperties.Name="Next photo"
                 Click="OnNext" Margin="12" Padding="12"
                 Opacity="0.7" ToolTipService.ToolTip="Next (Right arrow)">
             <FontIcon Glyph="&#xE76C;" FontSize="20" />

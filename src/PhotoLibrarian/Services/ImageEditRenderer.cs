@@ -62,6 +62,28 @@ public static class ImageEditRenderer
     public static async Task<(uint Width, uint Height)> RenderToFileAsync(
         string filePath, EditParameters parameters)
     {
+        return await RenderToFileAsync(filePath, parameters, autoCropRotation: false);
+    }
+
+    /// <summary>
+    /// Bakes a straighten rotation and crops to the largest centered rectangle containing no
+    /// exposed rotation corners.
+    /// </summary>
+    public static async Task<(uint Width, uint Height)> RenderStraightenedAsync(
+        string filePath,
+        double angleDegrees)
+    {
+        return await RenderToFileAsync(
+            filePath,
+            new EditParameters { RotationAngle = angleDegrees },
+            autoCropRotation: true);
+    }
+
+    private static async Task<(uint Width, uint Height)> RenderToFileAsync(
+        string filePath,
+        EditParameters parameters,
+        bool autoCropRotation)
+    {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Editing not supported for {Path.GetExtension(filePath)}");
 
@@ -76,16 +98,35 @@ public static class ImageEditRenderer
             var sourceWidth = source.SizeInPixels.Width;
             var sourceHeight = source.SizeInPixels.Height;
 
-            var (offset, width, height) =
-                EditEffectGraph.ComputeOutputExtent(sourceWidth, sourceHeight, parameters.RotationAngle);
-            outWidth = width;
-            outHeight = height;
+            Vector2 offset;
+            if (autoCropRotation)
+            {
+                var crop = Core.Services.AutoCropGeometry.GetLargestRectangle(
+                    sourceWidth,
+                    sourceHeight,
+                    parameters.RotationAngle);
+                outWidth = (uint)Math.Max(1, Math.Floor(crop.Width));
+                outHeight = (uint)Math.Max(1, Math.Floor(crop.Height));
+                offset = new Vector2(
+                    ((float)outWidth - sourceWidth) / 2f,
+                    ((float)outHeight - sourceHeight) / 2f);
+            }
+            else
+            {
+                var extent = EditEffectGraph.ComputeOutputExtent(
+                    sourceWidth,
+                    sourceHeight,
+                    parameters.RotationAngle);
+                offset = extent.Offset;
+                outWidth = extent.Width;
+                outHeight = extent.Height;
+            }
 
             var effect = EditEffectGraph.Build(
                 source, new Vector2(sourceWidth, sourceHeight), parameters);
             try
             {
-                using var target = new CanvasRenderTarget(device, width, height, 96f);
+                using var target = new CanvasRenderTarget(device, outWidth, outHeight, 96f);
                 using (var session = target.CreateDrawingSession())
                 {
                     // Rotation exposes corners that the source doesn't cover. Formats without an

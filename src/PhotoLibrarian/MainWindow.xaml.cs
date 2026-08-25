@@ -78,13 +78,18 @@ public sealed partial class MainWindow : Window
 
         // Top-ribbon events
         TopRibbon.CropClicked += OnRibbonCropClicked;
+        TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
         TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
         TopRibbon.CropAspectChanged += OnRibbonCropAspectChanged;
+        TopRibbon.ApplyStraightenClicked += OnRibbonApplyStraightenClicked;
+        TopRibbon.CancelStraightenClicked += OnRibbonCancelStraightenClicked;
         ViewerOverlay.CropApplyRequested += OnRibbonApplyCropClicked;
         ViewerOverlay.CropCancelRequested += OnRibbonCancelCropClicked;
+        ViewerOverlay.StraightenApplyRequested += OnRibbonApplyStraightenClicked;
+        ViewerOverlay.StraightenCancelRequested += OnRibbonCancelStraightenClicked;
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;
@@ -113,15 +118,48 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitCropMode();
             TopRibbon.ExitCropMode();
         }
+        if (!ViewModel.ImageViewer.IsOpen && ViewerOverlay.IsStraightening)
+        {
+            ViewerOverlay.ExitStraightenMode();
+            TopRibbon.ExitStraightenMode();
+        }
     }
 
     private void OnRibbonCropClicked(object? sender, EventArgs e)
     {
         if (!ViewModel.ImageViewer.IsOpen) return;
         if (ViewModel.ImageViewer.IsVideo) return;
+        if (ViewerOverlay.IsStraightening)
+        {
+            ViewerOverlay.ExitStraightenMode();
+            TopRibbon.ExitStraightenMode();
+        }
         ViewerOverlay.EnterCropMode();
         ViewerOverlay.CropOverlay.AspectRatio = _pendingAspect;
         TopRibbon.EnterCropMode();
+    }
+
+    private void OnRibbonStraightenClicked(object? sender, EventArgs e)
+    {
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (entry is null || ViewModel.ImageViewer.IsVideo) return;
+        if (ViewerOverlay.CurrentImagePixelWidth == 0 || ViewerOverlay.CurrentImagePixelHeight == 0)
+            return;
+        if (!ImageEditRenderer.IsSupported(entry.FilePath))
+        {
+            ViewModel.StatusText =
+                $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
+            return;
+        }
+
+        if (ViewerOverlay.IsCropping)
+        {
+            ViewerOverlay.ExitCropMode();
+            TopRibbon.ExitCropMode();
+        }
+
+        ViewerOverlay.EnterStraightenMode();
+        TopRibbon.EnterStraightenMode();
     }
 
     private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
@@ -139,6 +177,11 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitCropMode();
             TopRibbon.ExitCropMode();
         }
+        if (ViewerOverlay.IsStraightening)
+        {
+            ViewerOverlay.ExitStraightenMode();
+            TopRibbon.ExitStraightenMode();
+        }
 
         await ViewModel.ImageEditor.OpenForEditAsync(entry);
     }
@@ -147,6 +190,12 @@ public sealed partial class MainWindow : Window
     {
         ViewerOverlay.ExitCropMode();
         TopRibbon.ExitCropMode();
+    }
+
+    private void OnRibbonCancelStraightenClicked(object? sender, EventArgs e)
+    {
+        ViewerOverlay.ExitStraightenMode();
+        TopRibbon.ExitStraightenMode();
     }
 
     private void OnRibbonCropAspectChanged(object? sender, CropAspectRatio ratio)
@@ -181,6 +230,46 @@ public sealed partial class MainWindow : Window
         {
             ViewerOverlay.ExitCropMode();
             TopRibbon.ExitCropMode();
+            TopRibbon.IsEnabled = true;
+        }
+    }
+
+    private async void OnRibbonApplyStraightenClicked(object? sender, EventArgs e)
+    {
+        if (!ViewerOverlay.IsStraightening) return;
+
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (entry is null)
+        {
+            OnRibbonCancelStraightenClicked(sender, e);
+            return;
+        }
+
+        var angle = ViewerOverlay.StraightenAngle;
+        if (Math.Abs(angle) < 0.05)
+        {
+            ViewModel.StatusText = "No straighten adjustment to apply";
+            OnRibbonCancelStraightenClicked(sender, e);
+            return;
+        }
+
+        TopRibbon.IsEnabled = false;
+        ViewModel.StatusText = "Applying straighten…";
+        try
+        {
+            await ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
+            var (width, height) =
+                await ImageEditRenderer.RenderStraightenedAsync(entry.FilePath, angle);
+            await ViewModel.RefreshAfterStraightenAsync(entry.FilePath, width, height);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusText = $"Straighten failed: {ex.Message}";
+        }
+        finally
+        {
+            ViewerOverlay.ExitStraightenMode();
+            TopRibbon.ExitStraightenMode();
             TopRibbon.IsEnabled = true;
         }
     }
