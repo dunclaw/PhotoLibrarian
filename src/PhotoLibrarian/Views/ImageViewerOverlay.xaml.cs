@@ -1,7 +1,9 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Services;
@@ -16,14 +18,21 @@ public sealed partial class ImageViewerOverlay : UserControl
     private ImageZoomPanController? _zoomPan;
     private uint _currentImagePixelWidth;
     private uint _currentImagePixelHeight;
+    private bool _isStraightenGuideDragging;
+    private Point _straightenGuideStart;
+    private double _straightenAngleAtGuideStart;
     public bool IsCropping { get; private set; }
+    public bool IsStraightening { get; private set; }
     public event EventHandler? CropExited;
     public event EventHandler? CropApplyRequested;
     public event EventHandler? CropCancelRequested;
+    public event EventHandler? StraightenApplyRequested;
+    public event EventHandler? StraightenCancelRequested;
 
     public CropOverlay CropOverlay => CropOverlayView;
     public uint CurrentImagePixelWidth => _currentImagePixelWidth;
     public uint CurrentImagePixelHeight => _currentImagePixelHeight;
+    public double StraightenAngle => StraightenAngleSlider.Value;
 
     // Gap left around the image while cropping so the handles — which overhang the crop rect
     // by half their hit size — are never clipped by the viewport edge.
@@ -32,6 +41,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     public void EnterCropMode()
     {
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
+        if (IsStraightening) ExitStraightenMode();
 
         IsCropping = true;
 
@@ -72,10 +82,62 @@ public sealed partial class ImageViewerOverlay : UserControl
         CropExited?.Invoke(this, EventArgs.Empty);
     }
 
+    public void EnterStraightenMode()
+    {
+        if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
+        if (IsCropping) ExitCropMode();
+
+        IsStraightening = true;
+        StraightenAngleSlider.Value = 0;
+        AutoStraightenStatus.Text = "Auto detects a dominant horizon or vertical line.";
+        StraightenGrid.Visibility = Visibility.Visible;
+        StraightenGuideOverlay.Visibility = Visibility.Visible;
+        StraightenPanel.Visibility = Visibility.Visible;
+        PreviousButton.Visibility = Visibility.Collapsed;
+        NextButton.Visibility = Visibility.Collapsed;
+        SetZoomControlsEnabled(false);
+
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (!IsStraightening) return;
+            _zoomPan?.ApplyBestFit();
+            UpdateStraightenClip();
+            UpdateStraightenPreview(StraightenAngleSlider.Value);
+            _ = RunAutoStraightenAsync();
+        });
+    }
+
+    public void ExitStraightenMode()
+    {
+        var wasStraightening = IsStraightening;
+        IsStraightening = false;
+        StraightenGrid.Visibility = Visibility.Collapsed;
+        StraightenGuideOverlay.Visibility = Visibility.Collapsed;
+        StraightenGuideLine.Visibility = Visibility.Collapsed;
+        _isStraightenGuideDragging = false;
+        StraightenPanel.Visibility = Visibility.Collapsed;
+        StraightenTransform.Rotation = 0;
+        StraightenTransform.ScaleX = 1;
+        StraightenTransform.ScaleY = 1;
+        ImageHost.Clip = null;
+        PreviousButton.Visibility = Visibility.Visible;
+        NextButton.Visibility = Visibility.Visible;
+        SetZoomControlsEnabled(true);
+        AutoStraightenButton.IsEnabled = true;
+
+        if (wasStraightening)
+            _zoomPan?.ApplyBestFit();
+    }
+
     public ImageViewerOverlay()
     {
         this.InitializeComponent();
         this.Loaded += OnLoaded;
+        ImageHost.SizeChanged += (_, _) =>
+        {
+            if (IsStraightening)
+                UpdateStraightenClip();
+        };
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -113,8 +175,9 @@ public sealed partial class ImageViewerOverlay : UserControl
                     if (!ViewModel.IsOpen) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
-                    // Cancel any in-progress crop when navigating to a different image.
+                    // Cancel any in-progress edit mode when navigating to a different image.
                     if (IsCropping) ExitCropMode();
+                    if (IsStraightening) ExitStraightenMode();
                     // Attach handler BEFORE setting source (in case image is cached and fires immediately)
                     FullImage.ImageOpened += OnImageOpened;
                     FullImage.Source = ViewModel.CurrentImage;
@@ -174,16 +237,19 @@ public sealed partial class ImageViewerOverlay : UserControl
         await (ViewModel?.PreviousImageCommand.ExecuteAsync(null) ?? Task.CompletedTask);
     private void OnZoomIn(object sender, RoutedEventArgs e)
     {
+        if (IsStraightening) return;
         _zoomPan?.ZoomIn();
     }
     
     private void OnZoomOut(object sender, RoutedEventArgs e)
     {
+        if (IsStraightening) return;
         _zoomPan?.ZoomOut();
     }
     
     private void OnZoomFit(object sender, RoutedEventArgs e)
     {
+        if (IsStraightening) return;
         _zoomPan?.ApplyBestFit();
     }
 
@@ -232,31 +298,37 @@ public sealed partial class ImageViewerOverlay : UserControl
             _zoomPan?.ApplyBestFit(CropInset);
             return;
         }
+        if (IsStraightening)
+        {
+            _zoomPan?.ApplyBestFit();
+            UpdateStraightenClip();
+            return;
+        }
         _zoomPan?.HandleSizeChanged(e.PreviousSize);
     }
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping) return;
+        if (IsCropping || IsStraightening) return;
         DebugLog.WriteLine($"ImageViewerOverlay: Wheel changed, delta={e.GetCurrentPoint(RootGrid).Properties.MouseWheelDelta}");
         _zoomPan?.HandlePointerWheelChanged(e);
     }
 
     private void ImageScrollViewer_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping) return;
+        if (IsCropping || IsStraightening) return;
         _zoomPan?.HandlePointerPressed(ImageScrollViewer, e);
     }
 
     private void ImageScrollViewer_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping) return;
+        if (IsCropping || IsStraightening) return;
         _zoomPan?.HandlePointerMoved(ImageScrollViewer, e);
     }
 
     private void ImageScrollViewer_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping) return;
+        if (IsCropping || IsStraightening) return;
         _zoomPan?.HandlePointerReleased(ImageScrollViewer, e);
     }
 
@@ -292,6 +364,16 @@ public sealed partial class ImageViewerOverlay : UserControl
                 CropCancelRequested?.Invoke(this, EventArgs.Empty);
             else if (e.Key == Windows.System.VirtualKey.Enter)
                 CropApplyRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+            return;
+        }
+
+        if (IsStraightening)
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape)
+                StraightenCancelRequested?.Invoke(this, EventArgs.Empty);
+            else if (e.Key == Windows.System.VirtualKey.Enter)
+                StraightenApplyRequested?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
             return;
         }
@@ -332,5 +414,160 @@ public sealed partial class ImageViewerOverlay : UserControl
         if (entry is null || App.ViewModel is null) return;
 
         await App.ViewModel.SetFlagAsync(new[] { entry }, !entry.IsFlagged);
+    }
+
+    private void OnStraightenAngleChanged(
+        object sender,
+        Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (!IsStraightening) return;
+        var angle = Math.Round(e.NewValue, 1, MidpointRounding.AwayFromZero);
+        StraightenAngleText.Text = $"{angle:+0.0;-0.0;0.0}°";
+        UpdateStraightenPreview(angle);
+    }
+
+    private async void OnAutoStraightenClick(object sender, RoutedEventArgs e) =>
+        await RunAutoStraightenAsync();
+
+    private async Task RunAutoStraightenAsync()
+    {
+        var entry = ViewModel?.CurrentEntry;
+        if (!IsStraightening || entry is null || !AutoStraightenButton.IsEnabled)
+            return;
+
+        var analyzedPath = entry.FilePath;
+        AutoStraightenButton.IsEnabled = false;
+        AutoStraightenStatus.Text = "Detecting edges and lines…";
+        try
+        {
+            var result = await AutoStraightenService.AnalyzeAsync(analyzedPath);
+            if (!IsStraightening || ViewModel?.CurrentEntry?.FilePath != analyzedPath)
+                return;
+
+            if (!result.HasResult)
+            {
+                AutoStraightenStatus.Text = "No reliable horizon or vertical line was found.";
+                return;
+            }
+
+            var correction = Math.Clamp(result.CorrectionDegrees, -45, 45);
+            StraightenAngleSlider.Value = Math.Round(correction, 1);
+            AutoStraightenStatus.Text =
+                $"Proposed {correction:+0.0;-0.0;0.0}° correction ({result.Confidence:P0} confidence).";
+        }
+        catch (Exception ex)
+        {
+            if (IsStraightening)
+                AutoStraightenStatus.Text = $"Auto detection failed: {ex.Message}";
+        }
+        finally
+        {
+            if (IsStraightening)
+                AutoStraightenButton.IsEnabled = true;
+        }
+    }
+
+    private void OnStraightenGuidePointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!IsStraightening)
+            return;
+
+        var point = e.GetCurrentPoint(StraightenGuideOverlay);
+        if (!point.Properties.IsLeftButtonPressed && !point.IsInContact)
+            return;
+
+        _isStraightenGuideDragging = true;
+        _straightenGuideStart = point.Position;
+        _straightenAngleAtGuideStart = StraightenAngleSlider.Value;
+        SetStraightenGuideLine(_straightenGuideStart, _straightenGuideStart);
+        StraightenGuideLine.Visibility = Visibility.Visible;
+        StraightenGuideOverlay.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnStraightenGuidePointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isStraightenGuideDragging)
+            return;
+
+        SetStraightenGuideLine(
+            _straightenGuideStart,
+            e.GetCurrentPoint(StraightenGuideOverlay).Position);
+        e.Handled = true;
+    }
+
+    private void OnStraightenGuidePointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isStraightenGuideDragging)
+            return;
+
+        var end = e.GetCurrentPoint(StraightenGuideOverlay).Position;
+        StraightenGuideOverlay.ReleasePointerCapture(e.Pointer);
+        _isStraightenGuideDragging = false;
+        StraightenGuideLine.Visibility = Visibility.Collapsed;
+
+        var deltaX = end.X - _straightenGuideStart.X;
+        var deltaY = end.Y - _straightenGuideStart.Y;
+        if (Math.Sqrt((deltaX * deltaX) + (deltaY * deltaY)) < 24)
+        {
+            AutoStraightenStatus.Text = "Drag a longer guide along the horizon.";
+            e.Handled = true;
+            return;
+        }
+
+        var adjustment = StraightenGeometry.GetGuideCorrection(deltaX, deltaY);
+        var correction = Math.Clamp(_straightenAngleAtGuideStart + adjustment, -45, 45);
+        StraightenAngleSlider.Value = Math.Round(correction, 1, MidpointRounding.AwayFromZero);
+        AutoStraightenStatus.Text =
+            $"Guide set a {correction:+0.0;-0.0;0.0}° correction.";
+        e.Handled = true;
+    }
+
+    private void OnStraightenGuidePointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isStraightenGuideDragging)
+            return;
+
+        StraightenGuideOverlay.ReleasePointerCapture(e.Pointer);
+        _isStraightenGuideDragging = false;
+        StraightenGuideLine.Visibility = Visibility.Collapsed;
+        e.Handled = true;
+    }
+
+    private void SetStraightenGuideLine(Point start, Point end)
+    {
+        StraightenGuideLine.X1 = start.X;
+        StraightenGuideLine.Y1 = start.Y;
+        StraightenGuideLine.X2 = end.X;
+        StraightenGuideLine.Y2 = end.Y;
+    }
+
+    private void UpdateStraightenPreview(double angle)
+    {
+        if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0)
+            return;
+
+        var scale = AutoCropGeometry.GetCoverScale(
+            _currentImagePixelWidth,
+            _currentImagePixelHeight,
+            angle);
+        StraightenTransform.Rotation = angle;
+        StraightenTransform.ScaleX = scale;
+        StraightenTransform.ScaleY = scale;
+    }
+
+    private void UpdateStraightenClip()
+    {
+        ImageHost.Clip = new RectangleGeometry
+        {
+            Rect = new Rect(0, 0, ImageHost.ActualWidth, ImageHost.ActualHeight)
+        };
+    }
+
+    private void SetZoomControlsEnabled(bool isEnabled)
+    {
+        ZoomOutButton.IsEnabled = isEnabled;
+        ZoomFitButton.IsEnabled = isEnabled;
+        ZoomInButton.IsEnabled = isEnabled;
     }
 }

@@ -7,10 +7,13 @@ namespace PhotoLibrarian.Views;
 public sealed partial class TopRibbon : UserControl
 {
     public event EventHandler? CropClicked;
+    public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
     public event EventHandler? CloseViewerClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
+    public event EventHandler? ApplyStraightenClicked;
+    public event EventHandler? CancelStraightenClicked;
     public event EventHandler<CropAspectRatio>? CropAspectChanged;
 
     public TopRibbon()
@@ -45,11 +48,34 @@ public sealed partial class TopRibbon : UserControl
         SetContextSubLabel(null);
     }
 
+    public void EnterStraightenMode()
+    {
+        ViewerTools.Visibility = Visibility.Collapsed;
+        CropTools.Visibility = Visibility.Collapsed;
+        StraightenTools.Visibility = Visibility.Visible;
+        CloseViewerButton.Visibility = Visibility.Collapsed;
+        SetContextSubLabel("Drag along the horizon, fine-tune the angle, or use Auto");
+    }
+
+    public void ExitStraightenMode()
+    {
+        ViewerTools.Visibility = Visibility.Visible;
+        StraightenTools.Visibility = Visibility.Collapsed;
+        CloseViewerButton.Visibility = Visibility.Visible;
+        SetContextSubLabel(null);
+    }
+
     private void OnCropClick(object sender, RoutedEventArgs e) => CropClicked?.Invoke(this, EventArgs.Empty);
+    private void OnStraightenClick(object sender, RoutedEventArgs e) =>
+        StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
     private void OnCloseViewerClick(object sender, RoutedEventArgs e) => CloseViewerClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnCancelCropClick(object sender, RoutedEventArgs e) => CancelCropClicked?.Invoke(this, EventArgs.Empty);
+    private void OnApplyStraightenClick(object sender, RoutedEventArgs e) =>
+        ApplyStraightenClicked?.Invoke(this, EventArgs.Empty);
+    private void OnCancelStraightenClick(object sender, RoutedEventArgs e) =>
+        CancelStraightenClicked?.Invoke(this, EventArgs.Empty);
 
     private void OnAspectChanged(object sender, SelectionChangedEventArgs e)
     {

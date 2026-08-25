@@ -379,6 +379,12 @@ public partial class MainViewModel : ObservableObject
     public Task RefreshAfterCropAsync(string filePath, uint newPixelWidth, uint newPixelHeight) =>
         RefreshAfterPixelEditAsync(filePath, newPixelWidth, newPixelHeight, "Cropped");
 
+    public Task RefreshAfterStraightenAsync(
+        string filePath,
+        uint newPixelWidth,
+        uint newPixelHeight) =>
+        RefreshAfterPixelEditAsync(filePath, newPixelWidth, newPixelHeight, "Straightened");
+
     /// <summary>
     /// Called after the pixels of <paramref name="filePath"/> have been rewritten (crop, baked
     /// adjustments). Updates DB dimensions, refreshes the grid thumbnail and the open viewer.

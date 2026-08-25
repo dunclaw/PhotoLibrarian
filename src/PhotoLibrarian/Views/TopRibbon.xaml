@@ -52,6 +52,16 @@
                         <TextBlock Text="Crop" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="StraightenButton" Click="OnStraightenClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonStraighten"
+                        AutomationProperties.Name="Straighten"
+                        ToolTipService.ToolTip="Straighten this photo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7AD;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Straighten" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="AdjustButton" Click="OnAdjustClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonAdjust"
@@ -110,6 +120,40 @@
                         AutomationProperties.AutomationId="RibbonCropCancel"
                         AutomationProperties.Name="Cancel crop"
                         ToolTipService.ToolTip="Discard the crop (Esc)">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE711;" FontSize="14" />
+                        <TextBlock Text="Cancel" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- ===== Straighten sub-mode ===== -->
+            <StackPanel x:Name="StraightenTools" Orientation="Horizontal" VerticalAlignment="Center"
+                        Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="4,0">
+                    <FontIcon Glyph="&#xE7AD;" FontSize="16" VerticalAlignment="Center" />
+                    <TextBlock Text="Straighten" VerticalAlignment="Center"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                </StackPanel>
+
+                <Rectangle Style="{StaticResource RibbonSeparatorStyle}" />
+
+                <Button x:Name="ApplyStraightenButton" Click="OnApplyStraightenClick"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Padding="16,6" VerticalAlignment="Center" Margin="0,0,8,0"
+                        AutomationProperties.AutomationId="RibbonStraightenApply"
+                        AutomationProperties.Name="Apply straighten"
+                        ToolTipService.ToolTip="Apply straighten to this photo (Enter)">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE73E;" FontSize="14" />
+                        <TextBlock Text="Apply" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="CancelStraightenButton" Click="OnCancelStraightenClick"
+                        Padding="16,6" VerticalAlignment="Center"
+                        AutomationProperties.AutomationId="RibbonStraightenCancel"
+                        AutomationProperties.Name="Cancel straighten"
+                        ToolTipService.ToolTip="Discard straighten (Esc)">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE711;" FontSize="14" />
                         <TextBlock Text="Cancel" />
