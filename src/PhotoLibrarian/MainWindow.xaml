@@ -84,6 +84,8 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="StatusBarText" 
                        Text="Ready"
@@ -95,19 +97,33 @@
                           Width="16" Height="16" 
                           Margin="0,0,8,0" />
             <Button x:Name="SettingsButton" 
-                    Grid.Column="2"
+                    AutomationProperties.AutomationId="SettingsButton"
+                    AutomationProperties.Name="Settings"
+                    Grid.Column="4"
                     Click="OnSettingsClick"
                     Padding="8,4"
                     ToolTipService.ToolTip="Settings">
                 <FontIcon Glyph="&#xE713;" FontSize="14" />
             </Button>
             <Button x:Name="BenchmarkButton" 
-                    Grid.Column="1"
+                    AutomationProperties.AutomationId="BenchmarkButton"
+                    AutomationProperties.Name="Run benchmark"
+                    Grid.Column="2"
                     Margin="0,0,8,0"
                     Click="OnBenchmarkClick"
                     Padding="8,4"
                     ToolTipService.ToolTip="Run Benchmark">
                 <FontIcon Glyph="&#xE9D9;" FontSize="14" />
+            </Button>
+            <Button x:Name="FaceDetectionButton"
+                    AutomationProperties.AutomationId="FaceDetectionButton"
+                    AutomationProperties.Name="Stop face detection"
+                    Grid.Column="3"
+                    Margin="0,0,8,0"
+                    Padding="8,4"
+                    Command="{x:Bind ViewModel.ToggleFaceDetectionCommand}"
+                    ToolTipService.ToolTip="Stop face detection">
+                <FontIcon x:Name="FaceDetectionIcon" Glyph="&#xE769;" FontSize="14" />
             </Button>
         </Grid>
     </Grid>

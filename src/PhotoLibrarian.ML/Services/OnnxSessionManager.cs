@@ -10,7 +10,7 @@ public sealed class OnnxSessionManager : IDisposable
 {
     private readonly Dictionary<string, InferenceSession> _sessions = [];
     private readonly string _modelDirectory;
-    private int _deviceId;
+    private readonly int _deviceId;
 
     public OnnxSessionManager(string? modelDirectory = null, int gpuDeviceId = 0)
     {
@@ -37,27 +37,33 @@ public sealed class OnnxSessionManager : IDisposable
         if (!File.Exists(modelPath))
             throw new FileNotFoundException($"ONNX model not found: {modelPath}");
 
-        var options = new SessionOptions();
-
+        InferenceSession session;
         try
         {
-            // Try DirectML (GPU) first
+            using var options = CreateSessionOptions();
             options.AppendExecutionProvider_DML(_deviceId);
-            options.EnableMemoryPattern = false; // Required for DirectML
+            options.EnableMemoryPattern = false;
+            session = new InferenceSession(modelPath, options);
         }
-        catch
+        catch (OnnxRuntimeException)
         {
-            // Fall back to CPU
-            options = new SessionOptions();
+            using var options = CreateSessionOptions();
             options.AppendExecutionProvider_CPU();
+            session = new InferenceSession(modelPath, options);
         }
 
-        options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
-        options.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
-
-        var session = new InferenceSession(modelPath, options);
         _sessions[modelName] = session;
         return session;
+    }
+
+    private static SessionOptions CreateSessionOptions()
+    {
+        var options = new SessionOptions
+        {
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL
+        };
+        return options;
     }
 
     /// <summary>

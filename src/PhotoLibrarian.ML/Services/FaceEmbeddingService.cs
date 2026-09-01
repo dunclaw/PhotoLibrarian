@@ -1,20 +1,14 @@
 using Microsoft.ML.OnnxRuntime;
-using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace PhotoLibrarian.ML.Services;
 
-/// <summary>
-/// Face embedding generation using ArcFace/AdaFace ONNX model.
-/// Produces 512-dimensional vectors for face recognition/clustering.
-/// </summary>
-public sealed class FaceEmbeddingService
+public sealed class FaceEmbeddingService : IFaceEmbedder
 {
     private readonly OnnxSessionManager _sessionManager;
     private InferenceSession? _session;
 
-    public string ModelFileName { get; set; } = "arcface_r100.onnx";
+    public string ModelFileName { get; set; } = FaceModelCatalog.Recognizer.FileName;
     public int InputSize { get; set; } = 112;
-    public int EmbeddingDimension { get; set; } = 512;
 
     public FaceEmbeddingService(OnnxSessionManager sessionManager)
     {
@@ -28,103 +22,88 @@ public sealed class FaceEmbeddingService
         _session = _sessionManager.LoadModel(ModelFileName);
     }
 
-    /// <summary>
-    /// Generates a face embedding from a cropped face region of an image.
-    /// </summary>
-    public async Task<float[]?> GenerateEmbeddingAsync(string imagePath, DetectedFace faceRegion)
+    public async Task<float[]?> GenerateEmbeddingAsync(
+        string imagePath,
+        DetectedFace faceRegion,
+        CancellationToken cancellationToken = default)
     {
-        if (_session is null)
-            throw new InvalidOperationException("Model not loaded.");
-
-        return await Task.Run(() =>
-        {
-            // Decode full image
-            using var stream = File.OpenRead(imagePath);
-            var decoder = Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
-                stream.AsRandomAccessStream()).AsTask().Result;
-
-            var imgW = (int)decoder.PixelWidth;
-            var imgH = (int)decoder.PixelHeight;
-
-            // Calculate crop bounds with margin
-            float margin = 0.1f;
-            int cropX = Math.Max(0, (int)((faceRegion.X - margin) * imgW));
-            int cropY = Math.Max(0, (int)((faceRegion.Y - margin) * imgH));
-            int cropW = Math.Min(imgW - cropX, (int)((faceRegion.Width + 2 * margin) * imgW));
-            int cropH = Math.Min(imgH - cropY, (int)((faceRegion.Height + 2 * margin) * imgH));
-
-            var bounds = new Windows.Graphics.Imaging.BitmapBounds
-            {
-                X = (uint)cropX,
-                Y = (uint)cropY,
-                Width = (uint)Math.Max(1, cropW),
-                Height = (uint)Math.Max(1, cropH)
-            };
-
-            var transform = new Windows.Graphics.Imaging.BitmapTransform
-            {
-                Bounds = bounds,
-                ScaledWidth = (uint)InputSize,
-                ScaledHeight = (uint)InputSize,
-                InterpolationMode = Windows.Graphics.Imaging.BitmapInterpolationMode.Linear
-            };
-
-            var pixelData = decoder.GetPixelDataAsync(
-                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
-                Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
-                transform,
-                Windows.Graphics.Imaging.ExifOrientationMode.RespectExifOrientation,
-                Windows.Graphics.Imaging.ColorManagementMode.ColorManageToSRgb
-            ).AsTask().Result;
-
-            var pixels = pixelData.DetachPixelData();
-
-            // Build tensor (NCHW, normalized)
-            var tensor = new DenseTensor<float>(new[] { 1, 3, InputSize, InputSize });
-            for (int y = 0; y < InputSize; y++)
-            {
-                for (int x = 0; x < InputSize; x++)
-                {
-                    int idx = (y * InputSize + x) * 4;
-                    tensor[0, 0, y, x] = (pixels[idx + 2] - 127.5f) / 128f; // R
-                    tensor[0, 1, y, x] = (pixels[idx + 1] - 127.5f) / 128f; // G
-                    tensor[0, 2, y, x] = (pixels[idx] - 127.5f) / 128f;     // B
-                }
-            }
-
-            var inputName = _session.InputNames[0];
-            var inputs = new[] { NamedOnnxValue.CreateFromTensor(inputName, tensor) };
-            using var results = _session.Run(inputs);
-
-            var output = results.First().AsTensor<float>();
-            var embedding = new float[EmbeddingDimension];
-            for (int i = 0; i < EmbeddingDimension && i < output.Length; i++)
-                embedding[i] = output[0, i];
-
-            // L2 normalize
-            var norm = MathF.Sqrt(embedding.Sum(e => e * e));
-            if (norm > 0)
-                for (int i = 0; i < embedding.Length; i++)
-                    embedding[i] /= norm;
-
-            return embedding;
-        });
+        var embeddings = await GenerateEmbeddingsAsync(
+            imagePath,
+            [faceRegion],
+            cancellationToken);
+        return embeddings.SingleOrDefault();
     }
 
-    /// <summary>
-    /// Computes cosine similarity between two face embeddings.
-    /// </summary>
-    public static float CosineSimilarity(float[] a, float[] b)
+    public async Task<IReadOnlyList<float[]>> GenerateEmbeddingsAsync(
+        string imagePath,
+        IReadOnlyList<DetectedFace> faces,
+        CancellationToken cancellationToken = default)
     {
-        if (a.Length != b.Length) return 0;
-        float dot = 0, normA = 0, normB = 0;
-        for (int i = 0; i < a.Length; i++)
+        var session = _session ?? throw new InvalidOperationException("Model not loaded.");
+        if (faces.Count == 0)
         {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
+            return [];
         }
-        var denom = MathF.Sqrt(normA) * MathF.Sqrt(normB);
-        return denom > 0 ? dot / denom : 0;
+
+        var image = await ImagePixelData.LoadAsync(imagePath, cancellationToken);
+        return await Task.Run(() =>
+        {
+            var embeddings = new List<float[]>(faces.Count);
+            var inputName = session.InputMetadata.Keys.Single();
+            foreach (var face in faces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var input = NamedOnnxValue.CreateFromTensor(
+                    inputName,
+                    image.CreateAlignedFaceTensor(face, InputSize));
+                using var results = session.Run([input]);
+                var embedding = results.Single().AsTensor<float>().ToArray();
+                Normalize(embedding);
+                embeddings.Add(embedding);
+            }
+
+            return (IReadOnlyList<float[]>)embeddings;
+        }, cancellationToken);
+    }
+
+    public static float CosineSimilarity(ReadOnlySpan<float> first, ReadOnlySpan<float> second)
+    {
+        if (first.Length == 0 || first.Length != second.Length)
+        {
+            return 0;
+        }
+
+        float dot = 0;
+        float normFirst = 0;
+        float normSecond = 0;
+        for (var index = 0; index < first.Length; index++)
+        {
+            dot += first[index] * second[index];
+            normFirst += first[index] * first[index];
+            normSecond += second[index] * second[index];
+        }
+
+        var denominator = MathF.Sqrt(normFirst) * MathF.Sqrt(normSecond);
+        return denominator > 0 ? dot / denominator : 0;
+    }
+
+    private static void Normalize(Span<float> embedding)
+    {
+        float squaredNorm = 0;
+        foreach (var value in embedding)
+        {
+            squaredNorm += value * value;
+        }
+
+        var norm = MathF.Sqrt(squaredNorm);
+        if (norm <= 0)
+        {
+            return;
+        }
+
+        for (var index = 0; index < embedding.Length; index++)
+        {
+            embedding[index] /= norm;
+        }
     }
 }

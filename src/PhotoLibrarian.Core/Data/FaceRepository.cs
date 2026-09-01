@@ -6,7 +6,7 @@ namespace PhotoLibrarian.Core.Data;
 /// <summary>
 /// Repository for face regions and person data against the SQLite cache.
 /// </summary>
-public sealed class FaceRepository
+public sealed class FaceRepository : IFaceScanStore
 {
     private readonly CacheDatabase _db;
 
@@ -66,6 +66,100 @@ public sealed class FaceRepository
             faces.Add(ReadFaceRegion(reader));
         }
         return faces;
+    }
+
+    public async Task<List<ImageEntry>> GetImagesNeedingFaceScanAsync(
+        string scanVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT *
+            FROM images
+            WHERE media_type = $imageMediaType
+              AND (face_scan_version IS NULL OR face_scan_version <> $scanVersion)
+            ORDER BY id
+            """;
+        cmd.Parameters.AddWithValue("$imageMediaType", (int)MediaType.Image);
+        cmd.Parameters.AddWithValue("$scanVersion", scanVersion);
+
+        var images = new List<ImageEntry>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            images.Add(ImageRepository.ReadImageEntry(reader));
+        }
+
+        return images;
+    }
+
+    public async Task<bool> TryReplaceFaceRegionsAsync(
+        long imageId,
+        long expectedFileSize,
+        DateTime expectedDateModified,
+        IReadOnlyCollection<FaceRegion> faces,
+        string scanVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+
+        using (var markComplete = conn.CreateCommand())
+        {
+            markComplete.Transaction = transaction;
+            markComplete.CommandText = """
+                UPDATE images
+                SET face_scan_version = $scanVersion
+                WHERE id = $imageId
+                  AND file_size = $fileSize
+                  AND date_modified = $dateModified
+                """;
+            markComplete.Parameters.AddWithValue("$scanVersion", scanVersion);
+            markComplete.Parameters.AddWithValue("$imageId", imageId);
+            markComplete.Parameters.AddWithValue("$fileSize", expectedFileSize);
+            markComplete.Parameters.AddWithValue("$dateModified", expectedDateModified.ToString("O"));
+            if (await markComplete.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                transaction.Rollback();
+                return false;
+            }
+        }
+
+        using (var delete = conn.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM face_regions WHERE image_id = $imageId";
+            delete.Parameters.AddWithValue("$imageId", imageId);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var face in faces)
+        {
+            using var insert = conn.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO face_regions
+                    (image_id, x, y, width, height, person_name, person_id, embedding, confidence)
+                VALUES
+                    ($imageId, $x, $y, $width, $height, $personName, $personId, $embedding, $confidence)
+                """;
+            insert.Parameters.AddWithValue("$imageId", imageId);
+            insert.Parameters.AddWithValue("$x", face.X);
+            insert.Parameters.AddWithValue("$y", face.Y);
+            insert.Parameters.AddWithValue("$width", face.Width);
+            insert.Parameters.AddWithValue("$height", face.Height);
+            insert.Parameters.AddWithValue("$personName", (object?)face.PersonName ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$personId", (object?)face.PersonId ?? DBNull.Value);
+            insert.Parameters.AddWithValue(
+                "$embedding",
+                face.Embedding is null ? DBNull.Value : EmbeddingToBytes(face.Embedding));
+            insert.Parameters.AddWithValue("$confidence", face.Confidence);
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        transaction.Commit();
+        return true;
     }
 
     public async Task UpdatePersonAsync(long faceId, long? personId, string? personName)

@@ -4,6 +4,7 @@ using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.ML.Services;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -17,7 +18,13 @@ public partial class MainViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
     private readonly OriginalBackupService _backupService;
+    private readonly FaceLibraryProcessor _faceProcessor;
+    private readonly IDisposable _faceResources;
     private CancellationTokenSource? _indexingCts;
+    private CancellationTokenSource? _faceDetectionCts;
+    private Task? _faceDetectionTask;
+    private bool _faceDetectionEnabled = true;
+    private bool _faceRescanRequested;
 
     public FolderNavigationViewModel FolderNav { get; }
     public DateNavigationViewModel DateNav { get; }
@@ -38,6 +45,9 @@ public partial class MainViewModel : ObservableObject
     public partial bool IsIndexing { get; set; }
 
     [ObservableProperty]
+    public partial bool IsFaceDetectionRunning { get; set; }
+
+    [ObservableProperty]
     public partial int TotalImages { get; set; }
 
     public MainViewModel(
@@ -48,7 +58,9 @@ public partial class MainViewModel : ObservableObject
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
         LibraryIndexingService indexingService,
-        OriginalBackupService backupService)
+        OriginalBackupService backupService,
+        FaceLibraryProcessor faceProcessor,
+        IDisposable faceResources)
     {
         _db = db;
         _imageRepo = imageRepo;
@@ -57,6 +69,8 @@ public partial class MainViewModel : ObservableObject
         _metadataReader = metadataReader;
         _indexingService = indexingService;
         _backupService = backupService;
+        _faceProcessor = faceProcessor;
+        _faceResources = faceResources;
 
         StatusText = "Ready";
 
@@ -79,6 +93,7 @@ public partial class MainViewModel : ObservableObject
         PhotoOps = new Services.PhotoOperationsService(imageRepo);
 
         _indexingService.Progress += OnIndexingProgress;
+        _faceProcessor.Progress += OnFaceProcessingProgress;
         ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
         ImageEditor.EditsApplied += OnEditsApplied;
         ImageEditor.Reverted += OnEditsReverted;
@@ -136,6 +151,7 @@ public partial class MainViewModel : ObservableObject
 
         // Start background indexing to populate metadata (tags, dates)
         StartBackgroundIndexing();
+        StartBackgroundFaceDetection();
     }
     
     [RelayCommand]
@@ -209,6 +225,7 @@ public partial class MainViewModel : ObservableObject
                             await RefreshAfterIndexAsync();
                         });
                     }
+
                 }
                 catch (OperationCanceledException)
                 {
@@ -224,6 +241,103 @@ public partial class MainViewModel : ObservableObject
             
             DebugLog.WriteLine($"StartBackgroundIndexing: All folders complete");
         }, ct);
+    }
+
+    [RelayCommand]
+    private void ToggleFaceDetection()
+    {
+        if (IsFaceDetectionRunning)
+        {
+            StopBackgroundFaceDetection();
+            return;
+        }
+
+        _faceDetectionEnabled = true;
+        StartBackgroundFaceDetection();
+    }
+
+    public void StartBackgroundFaceDetection()
+    {
+        if (!_faceDetectionEnabled || TotalImages == 0)
+        {
+            return;
+        }
+
+        if (IsFaceDetectionRunning)
+        {
+            _faceRescanRequested = true;
+            return;
+        }
+
+        _faceDetectionCts?.Dispose();
+        _faceDetectionCts = new CancellationTokenSource();
+        var cancellationToken = _faceDetectionCts.Token;
+        IsFaceDetectionRunning = true;
+
+        _faceDetectionTask = Task.Run(async () =>
+        {
+            try
+            {
+                await _faceProcessor.ProcessLibraryAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                App.MainWindow?.DispatcherQueue.TryEnqueue(
+                    () => StatusText = $"Face detection failed: {exception.Message}");
+            }
+            finally
+            {
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    IsFaceDetectionRunning = false;
+                    if (_faceRescanRequested && _faceDetectionEnabled)
+                    {
+                        _faceRescanRequested = false;
+                        StartBackgroundFaceDetection();
+                    }
+                });
+            }
+        });
+    }
+
+    private void StopBackgroundFaceDetection()
+    {
+        _faceDetectionEnabled = false;
+        _faceRescanRequested = false;
+        _faceDetectionCts?.Cancel();
+        StatusText = "Stopping face detection…";
+    }
+
+    private void OnFaceProcessingProgress(object? sender, FaceProcessingProgressEventArgs e)
+    {
+        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (e.IsPreparing)
+            {
+                StatusText = "Preparing face detection models…";
+            }
+            else if (e.IsCanceled)
+            {
+                StatusText = $"Face detection stopped after {e.Processed:N0} photos";
+            }
+            else if (e.IsComplete)
+            {
+                StatusText = e.Failed == 0
+                    ? $"Face detection complete: {e.FacesFound:N0} faces in {e.Processed:N0} photos"
+                    : $"Face detection complete: {e.FacesFound:N0} faces, {e.Failed:N0} photos failed";
+            }
+            else if (!string.IsNullOrEmpty(e.Error))
+            {
+                StatusText = $"Face detection skipped {e.CurrentFile}: {e.Error}";
+            }
+            else
+            {
+                StatusText = $"Finding faces… {e.Processed:N0}/{e.Total:N0} photos, {e.FacesFound:N0} faces";
+            }
+        });
     }
 
     private void OnIndexingProgress(object? sender, IndexingProgressEventArgs e)
@@ -402,6 +516,7 @@ public partial class MainViewModel : ObservableObject
             }
             await ImageGrid.RefreshSingleImageAsync(filePath);
             await ImageViewer.ReloadCurrentImageAsync();
+            StartBackgroundFaceDetection();
             StatusText = $"{verb} {System.IO.Path.GetFileName(filePath)} ({newPixelWidth}×{newPixelHeight})";
         }
         catch (Exception ex)
@@ -420,6 +535,7 @@ public partial class MainViewModel : ObservableObject
         await DateNav.LoadDatesAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
+        StartBackgroundFaceDetection();
         
         // Update UI trees on main thread
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
@@ -431,11 +547,19 @@ public partial class MainViewModel : ObservableObject
         });
     }
 
-    public void Cleanup()
+    public async Task CleanupAsync()
     {
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _indexingCts?.Cancel();
         _indexingCts?.Dispose();
+        _faceDetectionEnabled = false;
+        _faceDetectionCts?.Cancel();
+        if (_faceDetectionTask is not null)
+        {
+            await _faceDetectionTask;
+        }
+        _faceDetectionCts?.Dispose();
+        _faceResources.Dispose();
         _scanner.Dispose();
     }
 }

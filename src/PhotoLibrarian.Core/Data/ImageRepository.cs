@@ -37,7 +37,13 @@ public sealed class ImageRepository
                 iso=excluded.iso, gps_latitude=excluded.gps_latitude,
                 gps_longitude=excluded.gps_longitude, rating=excluded.rating,
                 orientation=excluded.orientation, media_type=excluded.media_type,
-                video_duration=excluded.video_duration
+                video_duration=excluded.video_duration,
+                face_scan_version=CASE
+                    WHEN images.file_size <> excluded.file_size
+                      OR images.date_modified <> excluded.date_modified
+                    THEN NULL
+                    ELSE images.face_scan_version
+                END
             RETURNING id;
             """;
         // Note: is_flagged is deliberately absent from the DO UPDATE SET. Flags can live in an XMP
@@ -233,7 +239,15 @@ public sealed class ImageRepository
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE images SET width = $w, height = $h, file_size = $size, orientation = 1 WHERE id = $id";
+        cmd.CommandText = """
+            UPDATE images
+            SET width = $w,
+                height = $h,
+                file_size = $size,
+                orientation = 1,
+                face_scan_version = NULL
+            WHERE id = $id
+            """;
         cmd.Parameters.AddWithValue("$id", imageId);
         cmd.Parameters.AddWithValue("$w", width);
         cmd.Parameters.AddWithValue("$h", height);
@@ -252,7 +266,7 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private static ImageEntry ReadImageEntry(SqliteDataReader reader)
+    internal static ImageEntry ReadImageEntry(SqliteDataReader reader)
     {
         return new ImageEntry
         {
@@ -266,6 +280,7 @@ public sealed class ImageRepository
             DateTaken = reader.IsDBNull(reader.GetOrdinal("date_taken")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("date_taken"))),
             DateModified = DateTime.Parse(reader.GetString(reader.GetOrdinal("date_modified"))),
             DateIndexed = DateTime.Parse(reader.GetString(reader.GetOrdinal("date_indexed"))),
+            FaceScanVersion = ReadNullableString(reader, "face_scan_version"),
             CameraMake = reader.IsDBNull(reader.GetOrdinal("camera_make")) ? null : reader.GetString(reader.GetOrdinal("camera_make")),
             CameraModel = reader.IsDBNull(reader.GetOrdinal("camera_model")) ? null : reader.GetString(reader.GetOrdinal("camera_model")),
             LensModel = reader.IsDBNull(reader.GetOrdinal("lens_model")) ? null : reader.GetString(reader.GetOrdinal("lens_model")),
@@ -295,6 +310,19 @@ public sealed class ImageRepository
             return false; // column added by a later migration than the one that created this reader
         }
         return !reader.IsDBNull(ordinal) && reader.GetInt32(ordinal) != 0;
+    }
+
+    private static string? ReadNullableString(SqliteDataReader reader, string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     public async Task<List<string>> GetImageTagsAsync(long imageId)
