@@ -236,14 +236,17 @@ public sealed partial class MainWindow : Window
         if (bounds is null || entry is null) return;
 
         TopRibbon.IsEnabled = false;
-        ViewModel.StatusText = "Applying crop…";
+        var resumeFaceDetection = false;
         try
         {
+            resumeFaceDetection = await ViewModel.PauseFaceDetectionAsync();
+            ViewModel.StatusText = "Applying crop…";
+
             // Back up the original first (no-op if a backup already exists).
             await App.ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
 
-            var (w, h) = await CropService.CropImageAsync(entry.FilePath, bounds.Value);
-            await ViewModel.RefreshAfterCropAsync(entry.FilePath, w, h);
+            var result = await CropService.CropImageAsync(entry.FilePath, bounds.Value);
+            await ViewModel.RefreshAfterCropAsync(entry.FilePath, result);
         }
         catch (Exception ex)
         {
@@ -251,6 +254,7 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            ViewModel.ResumeFaceDetection(resumeFaceDetection);
             ViewerOverlay.ExitCropMode();
             TopRibbon.ExitCropMode();
             TopRibbon.IsEnabled = true;

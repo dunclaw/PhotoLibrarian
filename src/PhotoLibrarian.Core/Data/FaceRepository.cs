@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.Core.Data;
 
@@ -51,6 +52,58 @@ public sealed class FaceRepository : IFaceScanStore
             faces.Add(ReadFaceRegion(reader));
         }
         return faces;
+    }
+
+    public async Task RemapFaceRegionsAfterCropAsync(
+        long imageId,
+        uint sourceWidth,
+        uint sourceHeight,
+        CropRectangle crop,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+        var faces = new List<FaceRegion>();
+
+        using (var select = conn.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT * FROM face_regions WHERE image_id = $imageId";
+            select.Parameters.AddWithValue("$imageId", imageId);
+            using var reader = await select.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                faces.Add(ReadFaceRegion(reader));
+            }
+        }
+
+        foreach (var face in faces)
+        {
+            var remapped = CropMetadataRemapper.RemapFaceRegion(face, sourceWidth, sourceHeight, crop);
+            using var command = conn.CreateCommand();
+            command.Transaction = transaction;
+            if (remapped is null)
+            {
+                command.CommandText = "DELETE FROM face_regions WHERE id = $id";
+            }
+            else
+            {
+                command.CommandText = """
+                    UPDATE face_regions
+                    SET x = $x, y = $y, width = $width, height = $height
+                    WHERE id = $id
+                    """;
+                command.Parameters.AddWithValue("$x", remapped.X);
+                command.Parameters.AddWithValue("$y", remapped.Y);
+                command.Parameters.AddWithValue("$width", remapped.Width);
+                command.Parameters.AddWithValue("$height", remapped.Height);
+            }
+
+            command.Parameters.AddWithValue("$id", face.Id);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        transaction.Commit();
     }
 
     public async Task<List<FaceRegion>> GetAllFacesWithEmbeddingsAsync()

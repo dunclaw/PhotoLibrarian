@@ -1,41 +1,22 @@
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Metadata.Profiles.Exif;
+using SixLabors.ImageSharp.Metadata.Profiles.Xmp;
+using SixLabors.ImageSharp.Processing;
 using Windows.Graphics.Imaging;
-using Windows.Storage;
-using Windows.Storage.Streams;
+using XmpCore;
+using XmpCore.Options;
 
 namespace PhotoLibrarian.Core.Services;
 
+public readonly record struct CropResult(
+    uint Width,
+    uint Height,
+    uint SourceWidth,
+    uint SourceHeight,
+    CropRectangle Bounds);
+
 /// <summary>
-/// Crops images in-place, preserving metadata via WIC transcoding.
-///
-/// Pipeline:
-///   1) Decode the source file with EXIF orientation applied (RespectExifOrientation), so the
-///      caller's crop bounds are interpreted in display coordinates.
-///   2) Extract the cropped region as a SoftwareBitmap via GetSoftwareBitmapAsync with a
-///      BitmapTransform.Bounds clip.
-///   3) Build a transcoded encoder seeded from the source decoder (this preserves all metadata),
-///      then SetSoftwareBitmap on it to replace the pixel data with the cropped result.
-///   4) Reset System.Photo.Orientation to 1 (top-left) since we baked the rotation into pixels.
-///   5) Flush to an in-memory buffer, then atomically replace the source file.
-///
-/// NOTE: For JPEG this is a re-encode (not block-level lossless crop). Lossless JPEG block crop
-/// is a future optimization that requires bounds aligned to 8x8/16x16 blocks.
-///
-/// TODO: Metadata that references pixel locations is currently carried through the transcode
-/// unchanged, so after a crop it points at the wrong part of the photo. Nothing in the app writes
-/// such metadata yet, but this has to be handled before People tags ship (milestone M3):
-///
-///   * MWG face regions — mwg-rs:Regions in the XMP sidecar written by MwgRegionWriter, plus the
-///     stDim:AppliedToDimensions it is normalised against, and the same regions carried inside the
-///     file's embedded XMP by other tools (Photo Gallery, Picasa, digiKam).
-///   * FaceRegion rows in the cache database (X/Y/Width/Height, normalised 0-1 to the full frame).
-///   * EXIF SubjectArea / SubjectLocation, and any embedded thumbnail or preview image.
-///
-/// The transform for a normalised region is
-///     newX = (oldX * oldPixelWidth  - bounds.X) / bounds.Width
-///     newY = (oldY * oldPixelHeight - bounds.Y) / bounds.Height
-/// with the same scaling for width/height. Regions falling entirely outside the crop should be
-/// dropped, and partially-clipped ones clamped to the new frame (or dropped once too little of the
-/// face is left to be useful).
+/// Crops images in display coordinates and remaps metadata tied to locations in the original frame.
 /// </summary>
 public static class CropService
 {
@@ -47,84 +28,323 @@ public static class CropService
 
     /// <summary>
     /// Crops the image in-place. <paramref name="bounds"/> is expressed in display (oriented) pixels
-    /// matching what the user sees in the viewer. Returns the new (width, height) of the file on disk.
+    /// matching what the user sees in the viewer.
     /// </summary>
-    public static async Task<(uint Width, uint Height)> CropImageAsync(string filePath, BitmapBounds bounds)
+    public static async Task<CropResult> CropImageAsync(string filePath, BitmapBounds bounds)
     {
         if (!IsSupported(filePath))
+        {
             throw new NotSupportedException($"Crop not supported for {Path.GetExtension(filePath)}");
+        }
+
         if (bounds.Width == 0 || bounds.Height == 0)
+        {
             throw new ArgumentException("Crop bounds must be non-empty", nameof(bounds));
-
-        var file = await StorageFile.GetFileFromPathAsync(filePath);
-
-        // 1) Read source bitmap with EXIF orientation applied; extract cropped pixels.
-        SoftwareBitmap cropped;
-        BitmapDecoder srcDecoder;
-        using (var srcStream = await file.OpenAsync(FileAccessMode.Read))
-        {
-            srcDecoder = await BitmapDecoder.CreateAsync(srcStream);
-
-            // Clamp bounds to the oriented image extents to avoid HRESULT 0x88982F8A.
-            var orientedWidth = srcDecoder.OrientedPixelWidth;
-            var orientedHeight = srcDecoder.OrientedPixelHeight;
-            var clamped = ClampBounds(bounds, orientedWidth, orientedHeight);
-
-            var transform = new BitmapTransform { Bounds = clamped };
-            cropped = await srcDecoder.GetSoftwareBitmapAsync(
-                BitmapPixelFormat.Bgra8,
-                BitmapAlphaMode.Premultiplied,
-                transform,
-                ExifOrientationMode.RespectExifOrientation,
-                ColorManagementMode.DoNotColorManage);
         }
 
-        // 2) Transcode: re-open as a fresh decoder for the encoder seed (encoder takes ownership),
-        //    then replace pixel data and reset orientation since we baked the rotation in.
-        var destBuffer = new InMemoryRandomAccessStream();
-        using (var srcStream = await file.OpenAsync(FileAccessMode.Read))
-        {
-            var decoder = await BitmapDecoder.CreateAsync(srcStream);
-            var encoder = await BitmapEncoder.CreateForTranscodingAsync(destBuffer, decoder);
-            encoder.SetSoftwareBitmap(cropped);
+        using var image = await Image.LoadAsync(filePath);
+        PromoteFrameOrientation(image);
+        var exifStates = CaptureAndRemoveExifLocations(
+            image,
+            checked((uint)image.Width),
+            checked((uint)image.Height));
+        image.Mutate(context => context.AutoOrient());
 
-            // Reset orientation tag — pixels are now in display orientation.
-            try
+        var sourceWidth = checked((uint)image.Width);
+        var sourceHeight = checked((uint)image.Height);
+        var crop = ClampBounds(bounds, sourceWidth, sourceHeight);
+        if (crop.Width == 0 || crop.Height == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds), "Crop bounds do not intersect the image.");
+        }
+
+        var remappedSidecar = PrepareRemappedSidecar(filePath, sourceWidth, sourceHeight, crop);
+        RemapEmbeddedXmp(image, sourceWidth, sourceHeight, crop);
+
+        image.Mutate(context => context.Crop(
+            new Rectangle(checked((int)crop.X), checked((int)crop.Y), checked((int)crop.Width), checked((int)crop.Height))));
+        RestoreExifLocations(exifStates, sourceWidth, sourceHeight, crop);
+
+        var temporaryImagePath = CreateTemporaryPath(filePath);
+        string? temporarySidecarPath = null;
+        try
+        {
+            await image.SaveAsync(temporaryImagePath);
+            if (remappedSidecar is not null)
             {
-                var props = new BitmapPropertySet
-                {
-                    { "System.Photo.Orientation", new BitmapTypedValue((ushort)1, Windows.Foundation.PropertyType.UInt16) }
-                };
-                await encoder.BitmapProperties.SetPropertiesAsync(props);
-            }
-            catch
-            {
-                // Some formats don't support property setting; non-fatal.
+                temporarySidecarPath = $"{remappedSidecar.Value.Path}.{Guid.NewGuid():N}.tmp";
+                await File.WriteAllTextAsync(temporarySidecarPath, remappedSidecar.Value.Content);
             }
 
-            await encoder.FlushAsync();
+            ReplaceOutputs(
+                filePath,
+                temporaryImagePath,
+                remappedSidecar?.Path,
+                temporarySidecarPath);
         }
-        cropped.Dispose();
-
-        // 3) Atomic-ish replace: stream over the source file.
-        destBuffer.Seek(0);
-        using (var outStream = await file.OpenAsync(FileAccessMode.ReadWrite))
+        finally
         {
-            outStream.Size = 0;
-            await RandomAccessStream.CopyAsync(destBuffer.GetInputStreamAt(0), outStream);
-            await outStream.FlushAsync();
+            if (File.Exists(temporaryImagePath))
+            {
+                File.Delete(temporaryImagePath);
+            }
+            if (temporarySidecarPath is not null && File.Exists(temporarySidecarPath))
+            {
+                File.Delete(temporarySidecarPath);
+            }
         }
-        destBuffer.Dispose();
 
-        return (bounds.Width, bounds.Height);
+        return new CropResult(crop.Width, crop.Height, sourceWidth, sourceHeight, crop);
     }
 
-    private static BitmapBounds ClampBounds(BitmapBounds b, uint maxWidth, uint maxHeight)
+    private static List<ExifLocationState> CaptureAndRemoveExifLocations(
+        Image image,
+        uint sourceWidth,
+        uint sourceHeight)
     {
-        uint x = Math.Min(b.X, maxWidth);
-        uint y = Math.Min(b.Y, maxHeight);
-        uint w = Math.Min(b.Width, maxWidth - x);
-        uint h = Math.Min(b.Height, maxHeight - y);
-        return new BitmapBounds { X = x, Y = y, Width = w, Height = h };
+        var states = new List<ExifLocationState>();
+        var profiles = new HashSet<ExifProfile>(ReferenceEqualityComparer.Instance);
+        var defaultOrientation = ReadOrientation(image.Metadata.ExifProfile);
+        AddProfile(image.Metadata.ExifProfile);
+        foreach (var frame in image.Frames)
+        {
+            AddProfile(frame.Metadata.ExifProfile);
+        }
+
+        return states;
+
+        void AddProfile(ExifProfile? profile)
+        {
+            if (profile is null || !profiles.Add(profile))
+            {
+                return;
+            }
+
+            ushort[]? location = null;
+            var orientation = ReadOrientation(profile, defaultOrientation);
+            if (profile.TryGetValue(ExifTag.SubjectLocation, out var locationValue) &&
+                locationValue.Value is { } rawLocation)
+            {
+                location = CropMetadataRemapper.OrientSubjectLocation(
+                    rawLocation,
+                    sourceWidth,
+                    sourceHeight,
+                    orientation);
+            }
+
+            ushort[]? area = null;
+            if (profile.TryGetValue(ExifTag.SubjectArea, out var areaValue) &&
+                areaValue.Value is { } rawArea)
+            {
+                area = CropMetadataRemapper.OrientSubjectArea(
+                    rawArea,
+                    sourceWidth,
+                    sourceHeight,
+                    orientation);
+            }
+
+            profile.RemoveValue(ExifTag.SubjectLocation);
+            profile.RemoveValue(ExifTag.SubjectArea);
+            states.Add(new ExifLocationState(profile, location, area));
+        }
     }
+
+    private static void RestoreExifLocations(
+        IEnumerable<ExifLocationState> states,
+        uint sourceWidth,
+        uint sourceHeight,
+        CropRectangle crop)
+    {
+        foreach (var state in states)
+        {
+            if (state.SubjectLocation is not null &&
+                CropMetadataRemapper.RemapSubjectLocation(
+                    state.SubjectLocation,
+                    sourceWidth,
+                    sourceHeight,
+                    crop) is { } location)
+            {
+                state.Profile.SetValue(ExifTag.SubjectLocation, location);
+            }
+
+            if (state.SubjectArea is not null &&
+                CropMetadataRemapper.RemapSubjectArea(
+                    state.SubjectArea,
+                    sourceWidth,
+                    sourceHeight,
+                    crop) is { } area)
+            {
+                state.Profile.SetValue(ExifTag.SubjectArea, area);
+            }
+
+            state.Profile.SetValue(ExifTag.PixelXDimension, crop.Width);
+            state.Profile.SetValue(ExifTag.PixelYDimension, crop.Height);
+            state.Profile.SetValue(ExifTag.Orientation, (ushort)1);
+        }
+    }
+
+    private static void PromoteFrameOrientation(Image image)
+    {
+        var orientation = ReadOrientation(image.Metadata.ExifProfile, fallback: 0);
+        if (orientation == 0)
+        {
+            foreach (var frame in image.Frames)
+            {
+                orientation = ReadOrientation(frame.Metadata.ExifProfile, fallback: 0);
+                if (orientation != 0)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (orientation == 0)
+        {
+            return;
+        }
+
+        image.Metadata.ExifProfile ??= new ExifProfile();
+        image.Metadata.ExifProfile.SetValue(ExifTag.Orientation, orientation);
+    }
+
+    private static ushort ReadOrientation(ExifProfile? profile, ushort fallback = 1)
+    {
+        if (profile is not null &&
+            profile.TryGetValue(ExifTag.Orientation, out var orientation) &&
+            orientation.Value is >= 1 and <= 8)
+        {
+            return orientation.Value;
+        }
+
+        return fallback;
+    }
+
+    private static void RemapEmbeddedXmp(
+        Image image,
+        uint sourceWidth,
+        uint sourceHeight,
+        CropRectangle crop)
+    {
+        image.Metadata.XmpProfile = RemapProfile(image.Metadata.XmpProfile);
+        foreach (var frame in image.Frames)
+        {
+            frame.Metadata.XmpProfile = RemapProfile(frame.Metadata.XmpProfile);
+        }
+
+        XmpProfile? RemapProfile(XmpProfile? profile)
+        {
+            if (profile is null)
+            {
+                return null;
+            }
+
+            var xmp = XmpMetaFactory.ParseFromBuffer(profile.ToByteArray(), new ParseOptions());
+            if (!CropMetadataRemapper.RemapMwgRegions(xmp, sourceWidth, sourceHeight, crop))
+            {
+                return profile;
+            }
+
+            return new XmpProfile(XmpMetaFactory.SerializeToBuffer(xmp, new SerializeOptions()));
+        }
+    }
+
+    private static RemappedSidecar? PrepareRemappedSidecar(
+        string imagePath,
+        uint sourceWidth,
+        uint sourceHeight,
+        CropRectangle crop)
+    {
+        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+        if (!File.Exists(sidecarPath))
+        {
+            return null;
+        }
+
+        var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+        if (!CropMetadataRemapper.RemapMwgRegions(xmp, sourceWidth, sourceHeight, crop))
+        {
+            return null;
+        }
+
+        return new RemappedSidecar(
+            sidecarPath,
+            XmpMetaFactory.SerializeToString(xmp, new SerializeOptions()));
+    }
+
+    private static void ReplaceOutputs(
+        string imagePath,
+        string temporaryImagePath,
+        string? sidecarPath,
+        string? temporarySidecarPath)
+    {
+        var imageBackupPath = $"{imagePath}.{Guid.NewGuid():N}.rollback";
+        var sidecarBackupPath = sidecarPath is null
+            ? null
+            : $"{sidecarPath}.{Guid.NewGuid():N}.rollback";
+
+        try
+        {
+            File.Copy(imagePath, imageBackupPath);
+            if (sidecarPath is not null && sidecarBackupPath is not null)
+            {
+                File.Copy(sidecarPath, sidecarBackupPath);
+            }
+
+            File.Move(temporaryImagePath, imagePath, true);
+            if (sidecarPath is not null && temporarySidecarPath is not null)
+            {
+                File.Move(temporarySidecarPath, sidecarPath, true);
+            }
+        }
+        catch
+        {
+            if (File.Exists(imageBackupPath))
+            {
+                File.Copy(imageBackupPath, imagePath, true);
+            }
+            if (sidecarPath is not null &&
+                sidecarBackupPath is not null &&
+                File.Exists(sidecarBackupPath))
+            {
+                File.Copy(sidecarBackupPath, sidecarPath, true);
+            }
+
+            throw;
+        }
+        finally
+        {
+            if (File.Exists(imageBackupPath))
+            {
+                File.Delete(imageBackupPath);
+            }
+            if (sidecarBackupPath is not null && File.Exists(sidecarBackupPath))
+            {
+                File.Delete(sidecarBackupPath);
+            }
+        }
+    }
+
+    private static string CreateTemporaryPath(string filePath)
+    {
+        var directory = Path.GetDirectoryName(filePath) ?? "";
+        var name = Path.GetFileNameWithoutExtension(filePath);
+        var extension = Path.GetExtension(filePath);
+        return Path.Combine(directory, $"{name}.{Guid.NewGuid():N}{extension}");
+    }
+
+    private static CropRectangle ClampBounds(BitmapBounds bounds, uint maxWidth, uint maxHeight)
+    {
+        var x = Math.Min(bounds.X, maxWidth);
+        var y = Math.Min(bounds.Y, maxHeight);
+        var width = Math.Min(bounds.Width, maxWidth - x);
+        var height = Math.Min(bounds.Height, maxHeight - y);
+        return new CropRectangle(x, y, width, height);
+    }
+
+    private sealed record ExifLocationState(
+        ExifProfile Profile,
+        ushort[]? SubjectLocation,
+        ushort[]? SubjectArea);
+
+    private readonly record struct RemappedSidecar(string Path, string Content);
 }
