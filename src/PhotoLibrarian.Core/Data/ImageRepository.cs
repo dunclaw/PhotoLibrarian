@@ -235,7 +235,13 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateDimensionsAsync(long imageId, int width, int height, long fileSize)
+    public async Task UpdateDimensionsAsync(
+        long imageId,
+        int width,
+        int height,
+        long fileSize,
+        DateTime dateModified,
+        bool invalidateFaceScan = true)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -244,14 +250,17 @@ public sealed class ImageRepository
             SET width = $w,
                 height = $h,
                 file_size = $size,
+                date_modified = $dateModified,
                 orientation = 1,
-                face_scan_version = NULL
+                face_scan_version = CASE WHEN $invalidateFaceScan THEN NULL ELSE face_scan_version END
             WHERE id = $id
             """;
         cmd.Parameters.AddWithValue("$id", imageId);
         cmd.Parameters.AddWithValue("$w", width);
         cmd.Parameters.AddWithValue("$h", height);
         cmd.Parameters.AddWithValue("$size", fileSize);
+        cmd.Parameters.AddWithValue("$dateModified", dateModified.ToString("O"));
+        cmd.Parameters.AddWithValue("$invalidateFaceScan", invalidateFaceScan);
         await cmd.ExecuteNonQueryAsync();
     }
 

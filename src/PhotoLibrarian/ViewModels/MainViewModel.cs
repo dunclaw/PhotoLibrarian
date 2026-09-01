@@ -14,6 +14,7 @@ public partial class MainViewModel : ObservableObject
     private readonly CacheDatabase _db;
     private readonly ImageRepository _imageRepo;
     private readonly TagRepository _tagRepo;
+    private readonly FaceRepository _faceRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
@@ -65,6 +66,7 @@ public partial class MainViewModel : ObservableObject
         _db = db;
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
+        _faceRepo = faceRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
         _indexingService = indexingService;
@@ -311,6 +313,33 @@ public partial class MainViewModel : ObservableObject
         StatusText = "Stopping face detection…";
     }
 
+    public async Task<bool> PauseFaceDetectionAsync()
+    {
+        var shouldResume = _faceDetectionEnabled;
+        _faceDetectionEnabled = false;
+        _faceRescanRequested = false;
+        _faceDetectionCts?.Cancel();
+        if (_faceDetectionTask is not null)
+        {
+            await _faceDetectionTask;
+            _faceDetectionTask = null;
+        }
+
+        IsFaceDetectionRunning = false;
+        return shouldResume;
+    }
+
+    public void ResumeFaceDetection(bool shouldResume)
+    {
+        if (!shouldResume)
+        {
+            return;
+        }
+
+        _faceDetectionEnabled = true;
+        StartBackgroundFaceDetection();
+    }
+
     private void OnFaceProcessingProgress(object? sender, FaceProcessingProgressEventArgs e)
     {
         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
@@ -490,8 +519,25 @@ public partial class MainViewModel : ObservableObject
     /// Called after the image file at <paramref name="filePath"/> has been cropped on disk.
     /// Updates DB dimensions, refreshes the grid thumbnail and the open viewer.
     /// </summary>
-    public Task RefreshAfterCropAsync(string filePath, uint newPixelWidth, uint newPixelHeight) =>
-        RefreshAfterPixelEditAsync(filePath, newPixelWidth, newPixelHeight, "Cropped");
+    public async Task RefreshAfterCropAsync(string filePath, CropResult result)
+    {
+        var entry = await _imageRepo.GetByPathAsync(filePath);
+        if (entry is not null && entry.Id > 0)
+        {
+            await _faceRepo.RemapFaceRegionsAfterCropAsync(
+                entry.Id,
+                result.SourceWidth,
+                result.SourceHeight,
+                result.Bounds);
+        }
+
+        await RefreshAfterPixelEditAsync(
+            filePath,
+            result.Width,
+            result.Height,
+            "Cropped",
+            invalidateFaceScan: false);
+    }
 
     public Task RefreshAfterStraightenAsync(
         string filePath,
@@ -505,7 +551,11 @@ public partial class MainViewModel : ObservableObject
     /// Both paths write display-oriented pixels and reset the EXIF orientation tag to 1.
     /// </summary>
     public async Task RefreshAfterPixelEditAsync(
-        string filePath, uint newPixelWidth, uint newPixelHeight, string verb)
+        string filePath,
+        uint newPixelWidth,
+        uint newPixelHeight,
+        string verb,
+        bool invalidateFaceScan = true)
     {
         if (string.IsNullOrEmpty(filePath)) return;
         try
@@ -513,12 +563,20 @@ public partial class MainViewModel : ObservableObject
             var entry = await _imageRepo.GetByPathAsync(filePath);
             if (entry != null && entry.Id > 0)
             {
-                var size = new System.IO.FileInfo(filePath).Length;
-                await _imageRepo.UpdateDimensionsAsync(entry.Id, (int)newPixelWidth, (int)newPixelHeight, size);
+                var fileInfo = new System.IO.FileInfo(filePath);
+                var size = fileInfo.Length;
+                await _imageRepo.UpdateDimensionsAsync(
+                    entry.Id,
+                    (int)newPixelWidth,
+                    (int)newPixelHeight,
+                    size,
+                    fileInfo.LastWriteTimeUtc,
+                    invalidateFaceScan);
                 entry.Width = (int)newPixelWidth;
                 entry.Height = (int)newPixelHeight;
                 entry.Orientation = 1;
                 entry.FileSize = size;
+                entry.DateModified = fileInfo.LastWriteTimeUtc;
             }
             await ImageGrid.RefreshSingleImageAsync(filePath);
             await ImageViewer.ReloadCurrentImageAsync();

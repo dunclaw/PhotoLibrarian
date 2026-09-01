@@ -11,9 +11,9 @@ namespace PhotoLibrarian.Core.Services;
 /// </summary>
 public static class MwgRegionWriter
 {
-    private const string MwgRs = "http://www.metadataworkinggroup.com/schemas/regions/";
-    private const string StArea = "http://ns.adobe.com/xmp/sType/Area#";
-    private const string StDim = "http://ns.adobe.com/xmp/sType/Dimensions#";
+    private const string MwgRs = CropMetadataRemapper.MwgRs;
+    private const string StArea = CropMetadataRemapper.StArea;
+    private const string StDim = CropMetadataRemapper.StDim;
 
     /// <summary>
     /// Writes face regions to an XMP sidecar file following MWG Region Schema.
