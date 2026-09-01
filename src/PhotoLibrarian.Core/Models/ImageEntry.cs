@@ -15,6 +15,7 @@ public sealed class ImageEntry
     public DateTime? DateTaken { get; set; }
     public DateTime DateModified { get; set; }
     public DateTime DateIndexed { get; set; }
+    public string? FaceScanVersion { get; set; }
 
     // EXIF metadata
     public string? CameraMake { get; set; }

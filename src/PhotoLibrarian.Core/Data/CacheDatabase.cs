@@ -84,7 +84,8 @@ public sealed class CacheDatabase : IDisposable
                 orientation     INTEGER NOT NULL DEFAULT 1,
                 media_type      INTEGER NOT NULL DEFAULT 0,
                 video_duration  REAL,
-                is_flagged      INTEGER NOT NULL DEFAULT 0
+                is_flagged      INTEGER NOT NULL DEFAULT 0,
+                face_scan_version TEXT
             );
 
             -- Note: thumbnails table removed - we now use Windows thumbnail cache instead
@@ -147,9 +148,13 @@ public sealed class CacheDatabase : IDisposable
     private static async Task MigrateAsync(SqliteConnection conn)
     {
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
+        await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
 
         using var indexCmd = conn.CreateCommand();
-        indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS idx_images_is_flagged ON images(is_flagged);";
+        indexCmd.CommandText = """
+            CREATE INDEX IF NOT EXISTS idx_images_is_flagged ON images(is_flagged);
+            CREATE INDEX IF NOT EXISTS idx_images_face_scan_version ON images(face_scan_version);
+            """;
         await indexCmd.ExecuteNonQueryAsync();
     }
 

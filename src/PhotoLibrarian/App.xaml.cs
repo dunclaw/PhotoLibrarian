@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.ML.Services;
 using PhotoLibrarian.ViewModels;
 
 namespace PhotoLibrarian;
@@ -49,6 +50,12 @@ public partial class App : Application
         var metadataReader = new MetadataReaderService();
         var indexingService = new LibraryIndexingService(db, imageRepo, tagRepo, scanner, metadataReader);
         var backupService = new OriginalBackupService();
+        var sessionManager = new OnnxSessionManager();
+        var faceProcessor = new FaceLibraryProcessor(
+            faceRepo,
+            new FaceModelProvider(sessionManager),
+            new FaceDetectionService(sessionManager),
+            new FaceEmbeddingService(sessionManager));
 
         // Note: ThumbnailRepository removed - we use Windows thumbnail cache instead
         ViewModel = new MainViewModel(
@@ -59,7 +66,9 @@ public partial class App : Application
             scanner,
             metadataReader,
             indexingService,
-            backupService);
+            backupService,
+            faceProcessor,
+            sessionManager);
 
         _window = new MainWindow();
         _window.Activate();

@@ -1,4 +1,6 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
@@ -52,7 +54,12 @@ public sealed partial class MainWindow : Window
                 if (e.PropertyName == nameof(ViewModel.StatusText))
                     StatusBarText.Text = ViewModel.StatusText;
                 if (e.PropertyName == nameof(ViewModel.IsIndexing))
-                    IndexingProgress.IsActive = ViewModel.IsIndexing;
+                    UpdateBackgroundProgress();
+                if (e.PropertyName == nameof(ViewModel.IsFaceDetectionRunning))
+                {
+                    UpdateBackgroundProgress();
+                    UpdateFaceDetectionButton();
+                }
                 if (e.PropertyName is nameof(ViewModel.ImageViewer))
                     UpdateViewerVisibility();
                 if (e.PropertyName is nameof(ViewModel.Settings))
@@ -68,6 +75,8 @@ public sealed partial class MainWindow : Window
                     DispatcherQueue.TryEnqueue(() => TopRibbon.SetContextLabel(ViewModel.ImageViewer.Title ?? ""));
             };
         }
+
+        UpdateFaceDetectionButton();
 
         // Wire up settings close handler
         ViewModel.Settings.PropertyChanged += (s, e) =>
@@ -95,10 +104,24 @@ public sealed partial class MainWindow : Window
         this.Closed += OnWindowClosed;
     }
 
-    private void OnWindowClosed(object sender, WindowEventArgs args)
+    private void UpdateBackgroundProgress()
+    {
+        IndexingProgress.IsActive = ViewModel.IsIndexing || ViewModel.IsFaceDetectionRunning;
+    }
+
+    private void UpdateFaceDetectionButton()
+    {
+        var isRunning = ViewModel.IsFaceDetectionRunning;
+        FaceDetectionIcon.Glyph = isRunning ? "\uE769" : "\uE768";
+        var label = isRunning ? "Stop face detection" : "Start face detection";
+        AutomationProperties.SetName(FaceDetectionButton, label);
+        ToolTipService.SetToolTip(FaceDetectionButton, label);
+    }
+
+    private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
         // Cancel all background tasks to allow clean shutdown
-        ViewModel?.Cleanup();
+        await ViewModel.CleanupAsync();
         ViewModel?.ImageGrid?.Cleanup();
     }
 

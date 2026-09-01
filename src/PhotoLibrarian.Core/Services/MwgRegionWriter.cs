@@ -1,5 +1,6 @@
 using XmpCore;
 using PhotoLibrarian.Core.Models;
+using System.Globalization;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -46,17 +47,17 @@ public static class MwgRegionWriter
             XmpMetaFactory.SchemaRegistry.RegisterNamespace(StDim, "stDim");
 
             // Set applied-to dimensions
-            var regionsPath = "mwg-rs:Regions";
+            var regionsPath = "Regions";
             try { xmp.DeleteProperty(MwgRs, regionsPath); } catch { }
 
-            xmp.SetStructField(MwgRs, regionsPath, MwgRs, "mwg-rs:AppliedToDimensions", null,
+            xmp.SetStructField(MwgRs, regionsPath, MwgRs, "AppliedToDimensions", null,
                 new XmpCore.Options.PropertyOptions { IsStruct = true });
             xmp.SetStructField(MwgRs, $"{regionsPath}/mwg-rs:AppliedToDimensions",
-                StDim, "stDim:w", imageWidth.ToString());
+                StDim, "w", imageWidth.ToString(CultureInfo.InvariantCulture));
             xmp.SetStructField(MwgRs, $"{regionsPath}/mwg-rs:AppliedToDimensions",
-                StDim, "stDim:h", imageHeight.ToString());
+                StDim, "h", imageHeight.ToString(CultureInfo.InvariantCulture));
             xmp.SetStructField(MwgRs, $"{regionsPath}/mwg-rs:AppliedToDimensions",
-                StDim, "stDim:unit", "pixel");
+                StDim, "unit", "pixel");
 
             // Write RegionList array
             int index = 1;
@@ -71,14 +72,14 @@ public static class MwgRegionWriter
                 // Name
                 if (!string.IsNullOrEmpty(face.PersonName))
                 {
-                    xmp.SetStructField(MwgRs, itemPath, MwgRs, "mwg-rs:Name", face.PersonName);
+                    xmp.SetStructField(MwgRs, itemPath, MwgRs, "Name", face.PersonName);
                 }
 
                 // Type = Face
-                xmp.SetStructField(MwgRs, itemPath, MwgRs, "mwg-rs:Type", "Face");
+                xmp.SetStructField(MwgRs, itemPath, MwgRs, "Type", "Face");
 
                 // Area (normalized coordinates - center point + dimensions)
-                xmp.SetStructField(MwgRs, itemPath, MwgRs, "mwg-rs:Area", null,
+                xmp.SetStructField(MwgRs, itemPath, MwgRs, "Area", null,
                     new XmpCore.Options.PropertyOptions { IsStruct = true });
 
                 var areaPath = $"{itemPath}/mwg-rs:Area";
@@ -86,11 +87,31 @@ public static class MwgRegionWriter
                 double cx = face.X + face.Width / 2;
                 double cy = face.Y + face.Height / 2;
 
-                xmp.SetStructField(MwgRs, areaPath, StArea, "stArea:x", cx.ToString("F6"));
-                xmp.SetStructField(MwgRs, areaPath, StArea, "stArea:y", cy.ToString("F6"));
-                xmp.SetStructField(MwgRs, areaPath, StArea, "stArea:w", face.Width.ToString("F6"));
-                xmp.SetStructField(MwgRs, areaPath, StArea, "stArea:h", face.Height.ToString("F6"));
-                xmp.SetStructField(MwgRs, areaPath, StArea, "stArea:unit", "normalized");
+                xmp.SetStructField(
+                    MwgRs,
+                    areaPath,
+                    StArea,
+                    "x",
+                    cx.ToString("F6", CultureInfo.InvariantCulture));
+                xmp.SetStructField(
+                    MwgRs,
+                    areaPath,
+                    StArea,
+                    "y",
+                    cy.ToString("F6", CultureInfo.InvariantCulture));
+                xmp.SetStructField(
+                    MwgRs,
+                    areaPath,
+                    StArea,
+                    "w",
+                    face.Width.ToString("F6", CultureInfo.InvariantCulture));
+                xmp.SetStructField(
+                    MwgRs,
+                    areaPath,
+                    StArea,
+                    "h",
+                    face.Height.ToString("F6", CultureInfo.InvariantCulture));
+                xmp.SetStructField(MwgRs, areaPath, StArea, "unit", "normalized");
 
                 index++;
             }
