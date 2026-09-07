@@ -6,6 +6,7 @@ using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Views;
 using System;
+using System.ComponentModel;
 using System.Threading.Tasks;
 
 namespace PhotoLibrarian;
@@ -15,6 +16,7 @@ public sealed partial class MainWindow : Window
     public MainViewModel ViewModel => App.ViewModel;
 
     private CropAspectRatio _pendingAspect = CropAspectRatio.Free;
+    private bool _isClosing;
 
     public async Task RefreshMetadataTreesAsync()
     {
@@ -47,43 +49,12 @@ public sealed partial class MainWindow : Window
         catch { /* Icon is cosmetic — never block startup */ }
 
         // Bind status bar to ViewModel
-        if (ViewModel is not null)
-        {
-            ViewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(ViewModel.StatusText))
-                    StatusBarText.Text = ViewModel.StatusText;
-                if (e.PropertyName == nameof(ViewModel.IsIndexing))
-                    UpdateBackgroundProgress();
-                if (e.PropertyName == nameof(ViewModel.IsFaceDetectionRunning))
-                {
-                    UpdateBackgroundProgress();
-                    UpdateFaceDetectionButton();
-                }
-                if (e.PropertyName is nameof(ViewModel.ImageViewer))
-                    UpdateViewerVisibility();
-                if (e.PropertyName is nameof(ViewModel.Settings))
-                    UpdateSettingsVisibility();
-            };
-
-            // Track viewer open/close so the top ribbon mirrors it.
-            ViewModel.ImageViewer.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(ImageViewerViewModel.IsOpen))
-                    DispatcherQueue.TryEnqueue(UpdateRibbonVisibility);
-                if (e.PropertyName == nameof(ImageViewerViewModel.Title))
-                    DispatcherQueue.TryEnqueue(() => TopRibbon.SetContextLabel(ViewModel.ImageViewer.Title ?? ""));
-            };
-        }
+        ViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
+        ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
+        ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
+        ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
 
         UpdateFaceDetectionButton();
-
-        // Wire up settings close handler
-        ViewModel.Settings.PropertyChanged += (s, e) =>
-        {
-            if (e.PropertyName == nameof(ViewModel.Settings.IsOpen))
-                UpdateSettingsVisibility();
-        };
 
         // Top-ribbon events
         TopRibbon.CropClicked += OnRibbonCropClicked;
@@ -104,6 +75,54 @@ public sealed partial class MainWindow : Window
         this.Closed += OnWindowClosed;
     }
 
+    private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isClosing) return;
+
+        if (e.PropertyName == nameof(ViewModel.StatusText))
+            StatusBarText.Text = ViewModel.StatusText;
+        if (e.PropertyName == nameof(ViewModel.IsIndexing))
+            UpdateBackgroundProgress();
+        if (e.PropertyName == nameof(ViewModel.IsFaceDetectionRunning))
+        {
+            UpdateBackgroundProgress();
+            UpdateFaceDetectionButton();
+        }
+        if (e.PropertyName is nameof(ViewModel.ImageViewer))
+            UpdateViewerVisibility();
+        if (e.PropertyName is nameof(ViewModel.Settings))
+            UpdateSettingsVisibility();
+    }
+
+    private void OnPeopleReviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_isClosing && e.PropertyName == nameof(ViewModel.PeopleReview.IsOpen))
+            UpdatePeopleReviewVisibility();
+    }
+
+    private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isClosing) return;
+
+        if (e.PropertyName == nameof(ImageViewerViewModel.IsOpen))
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing) UpdateRibbonVisibility();
+            });
+        if (e.PropertyName == nameof(ImageViewerViewModel.Title))
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing)
+                    TopRibbon.SetContextLabel(ViewModel.ImageViewer.Title ?? "");
+            });
+    }
+
+    private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_isClosing && e.PropertyName == nameof(ViewModel.Settings.IsOpen))
+            UpdateSettingsVisibility();
+    }
+
     private void UpdateBackgroundProgress()
     {
         IndexingProgress.IsActive = ViewModel.IsIndexing || ViewModel.IsFaceDetectionRunning;
@@ -120,9 +139,13 @@ public sealed partial class MainWindow : Window
 
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
-        // Cancel all background tasks to allow clean shutdown
+        _isClosing = true;
+        ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
+        ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
+        ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
+        ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
+        ViewModel.ImageGrid.Cleanup();
         await ViewModel.CleanupAsync();
-        ViewModel?.ImageGrid?.Cleanup();
     }
 
     private void UpdateViewerVisibility()
@@ -315,6 +338,33 @@ public sealed partial class MainWindow : Window
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
         ViewModel.Settings.OpenCommand.Execute(null);
+    }
+
+    private async void OnPeopleReviewClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await ViewModel.PeopleReview.OpenAsync();
+        }
+        catch (Exception ex)
+        {
+            ViewModel.PeopleReview.Close();
+            var dialog = new ContentDialog
+            {
+                Title = "People review couldn't be opened",
+                Content = ex.Message,
+                CloseButtonText = "Close",
+                XamlRoot = MainLayout.XamlRoot
+            };
+            await dialog.ShowAsync();
+        }
+    }
+
+    private void UpdatePeopleReviewVisibility()
+    {
+        PeopleReviewOverlay.Visibility = ViewModel.PeopleReview.IsOpen
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
     
     private async void OnBenchmarkClick(object sender, RoutedEventArgs e)

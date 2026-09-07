@@ -1,0 +1,499 @@
+<UserControl
+    x:Class="PhotoLibrarian.Views.PeopleReviewView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:PhotoLibrarian.ViewModels"
+    KeyDown="OnKeyDown">
+    <UserControl.Resources>
+        <DataTemplate x:Key="FaceThumbnailTemplate"
+                      x:DataType="vm:FaceSuggestionItemViewModel">
+            <Grid Width="144"
+                  Height="184"
+                  PointerEntered="OnSuggestionPointerEntered">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="144" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{ThemeResource ControlCornerRadius}">
+                    <Grid>
+                        <Image Source="{x:Bind Thumbnail, Mode=OneWay}"
+                               Stretch="UniformToFill" />
+                        <ProgressRing Width="32"
+                                      Height="32"
+                                      IsActive="{x:Bind IsLoading, Mode=OneWay}" />
+                    </Grid>
+                </Border>
+                <StackPanel Grid.Row="1"
+                            Margin="4"
+                            Spacing="0">
+                    <TextBlock Text="{x:Bind FileName, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{x:Bind SimilarityText, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <UserControl.KeyboardAccelerators>
+        <KeyboardAccelerator Key="A"
+                             Modifiers="Control"
+                             Invoked="OnSelectAllInvoked" />
+        <KeyboardAccelerator Key="Z"
+                             Modifiers="Control"
+                             Invoked="OnUndoTagInvoked" />
+    </UserControl.KeyboardAccelerators>
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center"
+                        Spacing="4">
+                <TextBlock Text="People"
+                           Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock Text="Review suggestions, manage named people, and restore excluded faces."
+                           TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <Grid Grid.Column="1"
+                  RowSpacing="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Drag selected faces onto a person to tag"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <GridView x:Name="PersonDropTargetStrip"
+                          AutomationProperties.AutomationId="PersonDropTargetStrip"
+                          AutomationProperties.Name="Frequent people tag targets"
+                          Grid.Row="1"
+                          Height="90"
+                          ContainerContentChanging="OnPersonTargetContainerContentChanging"
+                          IsItemClickEnabled="False"
+                          ItemsSource="{x:Bind ViewModel.PersonDropTargets, Mode=OneWay}"
+                          SelectionMode="None"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          ScrollViewer.HorizontalScrollMode="Enabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                          ScrollViewer.VerticalScrollMode="Disabled">
+                    <GridView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </GridView.ItemsPanel>
+                    <GridView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PersonDropTargetViewModel">
+                            <Grid AutomationProperties.Name="{x:Bind AutomationName, Mode=OneWay}"
+                                  Width="108"
+                                  Padding="4"
+                                  AllowDrop="True"
+                                  Background="Transparent"
+                                  DragOver="OnPersonTargetDragOver"
+                                  Drop="OnPersonTargetDrop"
+                                  ToolTipService.ToolTip="{x:Bind AutomationName, Mode=OneWay}">
+                                <StackPanel HorizontalAlignment="Center"
+                                            Spacing="4">
+                                    <PersonPicture Width="52"
+                                                   Height="52"
+                                                   DisplayName="{x:Bind Name, Mode=OneWay}"
+                                                   ProfilePicture="{x:Bind ProfilePicture, Mode=OneWay}" />
+                                    <TextBlock Width="100"
+                                               HorizontalAlignment="Center"
+                                               Text="{x:Bind DisplayLabel, Mode=OneWay}"
+                                               TextAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"
+                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </GridView.ItemTemplate>
+                </GridView>
+            </Grid>
+
+            <Button AutomationProperties.AutomationId="ClosePeopleReviewButton"
+                    AutomationProperties.Name="Close people"
+                    Grid.Column="2"
+                    VerticalAlignment="Top"
+                    Command="{x:Bind ViewModel.CloseCommand}"
+                    ToolTipService.ToolTip="Close">
+                <FontIcon Glyph="&#xE711;" />
+            </Button>
+        </Grid>
+
+        <SelectorBar x:Name="ModeSelector"
+                     AutomationProperties.AutomationId="PeopleModeSelector"
+                     Grid.Row="1"
+                     SelectionChanged="OnModeSelectionChanged">
+            <SelectorBarItem x:Name="ReviewModeItem"
+                             AutomationProperties.AutomationId="ReviewModeItem"
+                             Text="Review" />
+            <SelectorBarItem x:Name="PeopleModeItem"
+                             AutomationProperties.AutomationId="PeopleModeItem"
+                             Text="People" />
+            <SelectorBarItem x:Name="ExcludedModeItem"
+                             AutomationProperties.AutomationId="ExcludedModeItem"
+                             Text="Excluded faces" />
+        </SelectorBar>
+
+        <Grid Grid.Row="2" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="400" />
+            </Grid.ColumnDefinitions>
+
+            <Grid x:Name="ReviewPanel"
+                  Grid.ColumnSpan="2"
+                  ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="320" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <ListView x:Name="GroupList"
+                          AutomationProperties.AutomationId="PeopleSuggestionGroups"
+                          AutomationProperties.Name="People suggestion groups"
+                          ItemsSource="{x:Bind ViewModel.Groups, Mode=OneWay}"
+                          SelectionChanged="OnGroupSelectionChanged"
+                          SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FaceSuggestionGroupViewModel">
+                            <StackPanel Padding="8" Spacing="4">
+                                <TextBlock Text="{x:Bind Header, Mode=OneWay}"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="{x:Bind Summary, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <Grid Grid.Column="1">
+                    <GridView x:Name="SuggestionGrid"
+                              AutomationProperties.AutomationId="FaceSuggestions"
+                              AutomationProperties.Name="Face suggestions"
+                              CanDragItems="True"
+                              ContainerContentChanging="OnFaceContainerContentChanging"
+                              DragItemsStarting="OnSuggestionDragItemsStarting"
+                              DragItemsCompleted="OnSuggestionDragItemsCompleted"
+                              ItemTemplate="{StaticResource FaceThumbnailTemplate}"
+                              SelectionChanged="OnFaceSelectionChanged"
+                              SelectionMode="Extended" />
+                    <StackPanel x:Name="ReviewEmptyState"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="8">
+                        <FontIcon Glyph="&#xE77B;" FontSize="40" />
+                        <TextBlock Text="No face suggestions need review."
+                                   Style="{StaticResource SubtitleTextBlockStyle}" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <Grid x:Name="PeoplePanel"
+                  Grid.ColumnSpan="2"
+                  ColumnSpacing="16"
+                  Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="320" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <ListView x:Name="PeopleList"
+                          AutomationProperties.AutomationId="PeopleList"
+                          AutomationProperties.Name="Named people"
+                          ItemsSource="{x:Bind ViewModel.People, Mode=OneWay}"
+                          SelectionChanged="OnPersonSelectionChanged"
+                          SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PersonManagementItemViewModel">
+                            <StackPanel Padding="8" Spacing="4">
+                                <TextBlock Text="{x:Bind Name, Mode=OneWay}"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="{x:Bind Summary, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <Grid Grid.Column="1">
+                    <GridView x:Name="PersonFaceGrid"
+                              AutomationProperties.AutomationId="AssignedFaces"
+                              AutomationProperties.Name="Faces assigned to the selected person"
+                              CanDragItems="True"
+                              ContainerContentChanging="OnFaceContainerContentChanging"
+                              DragItemsStarting="OnSuggestionDragItemsStarting"
+                              DragItemsCompleted="OnSuggestionDragItemsCompleted"
+                              ItemTemplate="{StaticResource FaceThumbnailTemplate}"
+                              RightTapped="OnAssignedFaceRightTapped"
+                              SelectionChanged="OnFaceSelectionChanged"
+                              SelectionMode="Extended" />
+                    <StackPanel x:Name="PeopleEmptyState"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="8">
+                        <FontIcon Glyph="&#xE716;" FontSize="40" />
+                        <TextBlock x:Name="PeopleEmptyText"
+                                   Text="No named people."
+                                   Style="{StaticResource SubtitleTextBlockStyle}" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <Grid x:Name="ExcludedPanel"
+                  Grid.ColumnSpan="2"
+                  Visibility="Collapsed">
+                <GridView x:Name="ExcludedFaceGrid"
+                          AutomationProperties.AutomationId="ExcludedFaces"
+                          AutomationProperties.Name="Excluded faces"
+                          ContainerContentChanging="OnFaceContainerContentChanging"
+                          ItemTemplate="{StaticResource FaceThumbnailTemplate}"
+                          ItemsSource="{x:Bind ViewModel.HiddenFaces, Mode=OneWay}"
+                          SelectionChanged="OnFaceSelectionChanged"
+                          SelectionMode="Extended" />
+                <StackPanel x:Name="ExcludedEmptyState"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="8">
+                    <FontIcon Glyph="&#xE74D;" FontSize="40" />
+                    <TextBlock Text="No excluded faces."
+                               Style="{StaticResource SubtitleTextBlockStyle}" />
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Column="2"
+                    Padding="12"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{ThemeResource OverlayCornerRadius}">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Photo context"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Grid Grid.Row="1">
+                        <Image x:Name="ContextPreviewImage"
+                               Stretch="Uniform" />
+                        <ProgressRing x:Name="ContextPreviewProgress"
+                                      Width="48"
+                                      Height="48" />
+                        <TextBlock x:Name="ContextPreviewPlaceholder"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Text="Select or point to a face to preview its photo."
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <TextBlock x:Name="ContextPreviewName"
+                               Grid.Row="2"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="ReviewFooter"
+              Grid.Row="3"
+              ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="4"
+                        VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal"
+                            Spacing="12">
+                    <ProgressRing Width="20"
+                                  Height="20"
+                                  IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                    <TextBlock x:Name="SelectionStatus"
+                               Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="C confirm  ·  R not this person  ·  D don't show again  ·  T tag as  ·  Ctrl+A select all  ·  Ctrl+Z undo tag"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+            <CommandBar Grid.Column="1"
+                        Background="Transparent"
+                        DefaultLabelPosition="Right">
+                <AppBarButton x:Name="ReviewUndoTagButton"
+                              AutomationProperties.AutomationId="ReviewUndoTagButton"
+                              Icon="Undo"
+                              Label="Undo tag"
+                              KeyboardAcceleratorTextOverride="Ctrl+Z"
+                              Click="OnUndoTagClick" />
+                <AppBarButton x:Name="ConfirmButton"
+                              AutomationProperties.AutomationId="ConfirmFaceSuggestionsButton"
+                              Icon="Accept"
+                              Label="Confirm"
+                              KeyboardAcceleratorTextOverride="C"
+                              Click="OnConfirmClick">
+                    <AppBarButton.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="C" />
+                    </AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+                <AppBarButton x:Name="RejectButton"
+                              AutomationProperties.AutomationId="RejectFaceSuggestionsButton"
+                              Icon="Cancel"
+                              Label="Not this person"
+                              KeyboardAcceleratorTextOverride="R"
+                              Click="OnRejectClick">
+                    <AppBarButton.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="R" />
+                    </AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+                <AppBarButton x:Name="TagAsButton"
+                              AutomationProperties.AutomationId="TagFaceSuggestionsButton"
+                              Icon="Contact"
+                              Label="Tag as..."
+                              KeyboardAcceleratorTextOverride="T"
+                              Click="OnTagAsClick">
+                    <AppBarButton.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="T" />
+                    </AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+                <AppBarButton x:Name="HideFacesButton"
+                              AutomationProperties.AutomationId="HideFaceSuggestionsButton"
+                              Label="Don't show again"
+                              KeyboardAcceleratorTextOverride="D"
+                              Click="OnHideFacesClick">
+                    <AppBarButton.Icon>
+                        <FontIcon Glyph="&#xE74D;" />
+                    </AppBarButton.Icon>
+                    <AppBarButton.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="D" />
+                    </AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="HidePersonButton"
+                                  AutomationProperties.AutomationId="HidePersonSuggestionsButton"
+                                  Label="Hide all suggestions for this person"
+                                  Click="OnHidePersonClick">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE8F8;" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                </CommandBar.SecondaryCommands>
+            </CommandBar>
+        </Grid>
+
+        <Grid x:Name="PeopleFooter"
+              Grid.Row="3"
+              ColumnSpacing="16"
+              Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal"
+                        Spacing="12"
+                        VerticalAlignment="Center">
+                <ProgressRing Width="20"
+                              Height="20"
+                              IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                <TextBlock x:Name="PeopleStatus"
+                           Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+            <CommandBar Grid.Column="1"
+                        Background="Transparent"
+                        DefaultLabelPosition="Right">
+                <AppBarButton x:Name="PeopleUndoTagButton"
+                              AutomationProperties.AutomationId="PeopleUndoTagButton"
+                              Icon="Undo"
+                              Label="Undo tag"
+                              KeyboardAcceleratorTextOverride="Ctrl+Z"
+                              Click="OnUndoTagClick" />
+                <AppBarButton x:Name="RenamePersonButton"
+                              AutomationProperties.AutomationId="RenamePersonButton"
+                              Icon="Rename"
+                              Label="Rename"
+                              Click="OnRenamePersonClick" />
+                <AppBarButton x:Name="MergePersonButton"
+                              AutomationProperties.AutomationId="MergePersonButton"
+                              Icon="Switch"
+                              Label="Merge into..."
+                              Click="OnMergePersonClick" />
+                <AppBarButton x:Name="UnassignFacesButton"
+                              AutomationProperties.AutomationId="UnassignFacesButton"
+                              Icon="Remove"
+                              Label="Remove selected faces"
+                              Click="OnUnassignFacesClick" />
+                <AppBarButton x:Name="SetPersonPictureButton"
+                              AutomationProperties.AutomationId="SetPersonPictureButton"
+                              Icon="Contact"
+                              Label="Set as picture"
+                              Click="OnSetPersonPictureClick" />
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="DeletePersonButton"
+                                  AutomationProperties.AutomationId="DeletePersonButton"
+                                  Icon="Delete"
+                                  Label="Delete person"
+                                  Click="OnDeletePersonClick" />
+                </CommandBar.SecondaryCommands>
+            </CommandBar>
+        </Grid>
+
+        <Grid x:Name="ExcludedFooter"
+              Grid.Row="3"
+              ColumnSpacing="16"
+              Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal"
+                        Spacing="12"
+                        VerticalAlignment="Center">
+                <ProgressRing Width="20"
+                              Height="20"
+                              IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                <TextBlock x:Name="ExcludedStatus"
+                           Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+            <CommandBar Grid.Column="1"
+                        Background="Transparent"
+                        DefaultLabelPosition="Right">
+                <AppBarButton x:Name="ExcludedUndoTagButton"
+                              AutomationProperties.AutomationId="ExcludedUndoTagButton"
+                              Icon="Undo"
+                              Label="Undo tag"
+                              KeyboardAcceleratorTextOverride="Ctrl+Z"
+                              Click="OnUndoTagClick" />
+                <AppBarButton x:Name="RestoreFacesButton"
+                              AutomationProperties.AutomationId="RestoreExcludedFacesButton"
+                              Icon="Undo"
+                              Label="Show again"
+                              Click="OnRestoreFacesClick" />
+            </CommandBar>
+        </Grid>
+    </Grid>
+</UserControl>

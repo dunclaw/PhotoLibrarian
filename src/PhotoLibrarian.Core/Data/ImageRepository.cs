@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Models;
+using System.Globalization;
 
 namespace PhotoLibrarian.Core.Data;
 
@@ -286,9 +287,11 @@ public sealed class ImageRepository
             FileSize = reader.GetInt64(reader.GetOrdinal("file_size")),
             Width = reader.GetInt32(reader.GetOrdinal("width")),
             Height = reader.GetInt32(reader.GetOrdinal("height")),
-            DateTaken = reader.IsDBNull(reader.GetOrdinal("date_taken")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("date_taken"))),
-            DateModified = DateTime.Parse(reader.GetString(reader.GetOrdinal("date_modified"))),
-            DateIndexed = DateTime.Parse(reader.GetString(reader.GetOrdinal("date_indexed"))),
+            DateTaken = reader.IsDBNull(reader.GetOrdinal("date_taken"))
+                ? null
+                : ParseStoredDateTime(reader.GetString(reader.GetOrdinal("date_taken"))),
+            DateModified = ParseStoredDateTime(reader.GetString(reader.GetOrdinal("date_modified"))),
+            DateIndexed = ParseStoredDateTime(reader.GetString(reader.GetOrdinal("date_indexed"))),
             FaceScanVersion = ReadNullableString(reader, "face_scan_version"),
             CameraMake = reader.IsDBNull(reader.GetOrdinal("camera_make")) ? null : reader.GetString(reader.GetOrdinal("camera_make")),
             CameraModel = reader.IsDBNull(reader.GetOrdinal("camera_model")) ? null : reader.GetString(reader.GetOrdinal("camera_model")),
@@ -333,6 +336,12 @@ public sealed class ImageRepository
             return null;
         }
     }
+
+    private static DateTime ParseStoredDateTime(string value) =>
+        DateTime.Parse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind);
 
     public async Task<List<string>> GetImageTagsAsync(long imageId)
     {

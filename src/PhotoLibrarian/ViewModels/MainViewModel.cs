@@ -26,6 +26,7 @@ public partial class MainViewModel : ObservableObject
     private Task? _faceDetectionTask;
     private bool _faceDetectionEnabled = true;
     private bool _faceRescanRequested;
+    private volatile bool _isShuttingDown;
 
     public FolderNavigationViewModel FolderNav { get; }
     public DateNavigationViewModel DateNav { get; }
@@ -35,6 +36,7 @@ public partial class MainViewModel : ObservableObject
     public ImageViewerViewModel ImageViewer { get; }
     public ImageEditorViewModel ImageEditor { get; }
     public MetadataPanelViewModel MetadataPanel { get; }
+    public PeopleReviewViewModel PeopleReview { get; }
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
     public OriginalBackupService BackupService => _backupService;
@@ -61,6 +63,7 @@ public partial class MainViewModel : ObservableObject
         LibraryIndexingService indexingService,
         OriginalBackupService backupService,
         FaceLibraryProcessor faceProcessor,
+        FaceReviewService faceReviewService,
         IDisposable faceResources)
     {
         _db = db;
@@ -91,6 +94,7 @@ public partial class MainViewModel : ObservableObject
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
         MetadataPanel.Initialize(imageRepo, tagRepo, this);
+        PeopleReview = new PeopleReviewViewModel(faceReviewService);
         Settings = new SettingsViewModel(db);
         PhotoOps = new Services.PhotoOperationsService(imageRepo);
 
@@ -260,7 +264,7 @@ public partial class MainViewModel : ObservableObject
 
     public void StartBackgroundFaceDetection()
     {
-        if (!_faceDetectionEnabled || TotalImages == 0)
+        if (_isShuttingDown || !_faceDetectionEnabled || TotalImages == 0)
         {
             return;
         }
@@ -292,15 +296,20 @@ public partial class MainViewModel : ObservableObject
             }
             finally
             {
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                if (!_isShuttingDown)
                 {
-                    IsFaceDetectionRunning = false;
-                    if (_faceRescanRequested && _faceDetectionEnabled)
+                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                     {
-                        _faceRescanRequested = false;
-                        StartBackgroundFaceDetection();
-                    }
-                });
+                        if (_isShuttingDown) return;
+
+                        IsFaceDetectionRunning = false;
+                        if (_faceRescanRequested && _faceDetectionEnabled)
+                        {
+                            _faceRescanRequested = false;
+                            StartBackgroundFaceDetection();
+                        }
+                    });
+                }
             }
         });
     }
@@ -342,8 +351,12 @@ public partial class MainViewModel : ObservableObject
 
     private void OnFaceProcessingProgress(object? sender, FaceProcessingProgressEventArgs e)
     {
+        if (_isShuttingDown) return;
+
         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
         {
+            if (_isShuttingDown) return;
+
             if (e.IsPreparing)
             {
                 StatusText = "Preparing face detection models…";
@@ -371,8 +384,12 @@ public partial class MainViewModel : ObservableObject
 
     private void OnIndexingProgress(object? sender, IndexingProgressEventArgs e)
     {
+        if (_isShuttingDown) return;
+
         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
         {
+            if (_isShuttingDown) return;
+
             IsIndexing = !e.IsComplete;
             StatusText = e.IsComplete
                 ? $"Indexed {e.Processed:N0} new items ({e.Skipped:N0} unchanged)"
@@ -614,6 +631,7 @@ public partial class MainViewModel : ObservableObject
     public async Task CleanupAsync()
     {
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
+        _isShuttingDown = true;
         _indexingCts?.Cancel();
         _indexingCts?.Dispose();
         _faceDetectionEnabled = false;

@@ -104,7 +104,9 @@ public sealed class CacheDatabase : IDisposable
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 name        TEXT    NOT NULL,
                 thumbnail   BLOB,
-                face_count  INTEGER NOT NULL DEFAULT 0
+                face_count  INTEGER NOT NULL DEFAULT 0,
+                suggestions_hidden INTEGER NOT NULL DEFAULT 0,
+                representative_face_region_id INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS face_regions (
@@ -122,6 +124,19 @@ public sealed class CacheDatabase : IDisposable
                 FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE SET NULL
             );
 
+            CREATE TABLE IF NOT EXISTS face_rejections (
+                face_region_id INTEGER NOT NULL,
+                person_id      INTEGER NOT NULL,
+                PRIMARY KEY (face_region_id, person_id),
+                FOREIGN KEY (face_region_id) REFERENCES face_regions(id) ON DELETE CASCADE,
+                FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS hidden_face_suggestions (
+                face_region_id INTEGER PRIMARY KEY,
+                FOREIGN KEY (face_region_id) REFERENCES face_regions(id) ON DELETE CASCADE
+            );
+
             -- Indexes for common queries
             CREATE INDEX IF NOT EXISTS idx_images_file_path ON images(file_path);
             CREATE INDEX IF NOT EXISTS idx_images_date_taken ON images(date_taken);
@@ -130,6 +145,7 @@ public sealed class CacheDatabase : IDisposable
             CREATE INDEX IF NOT EXISTS idx_tags_image_id ON tags(image_id);
             CREATE INDEX IF NOT EXISTS idx_face_regions_image_id ON face_regions(image_id);
             CREATE INDEX IF NOT EXISTS idx_face_regions_person_id ON face_regions(person_id);
+            CREATE INDEX IF NOT EXISTS idx_face_rejections_person_id ON face_rejections(person_id);
             """;
 
         using (var cmd = conn.CreateCommand())
@@ -149,9 +165,26 @@ public sealed class CacheDatabase : IDisposable
     {
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
+        await AddColumnIfMissingAsync(conn, "persons", "suggestions_hidden", "INTEGER NOT NULL DEFAULT 0");
+        await AddColumnIfMissingAsync(conn, "persons", "representative_face_region_id", "INTEGER");
 
         using var indexCmd = conn.CreateCommand();
         indexCmd.CommandText = """
+            UPDATE persons
+            SET representative_face_region_id = NULL
+            WHERE representative_face_region_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM face_regions
+                  WHERE id = persons.representative_face_region_id
+              );
+            CREATE TRIGGER IF NOT EXISTS clear_deleted_face_representative
+            BEFORE DELETE ON face_regions
+            BEGIN
+                UPDATE persons
+                SET representative_face_region_id = NULL
+                WHERE representative_face_region_id = OLD.id;
+            END;
             CREATE INDEX IF NOT EXISTS idx_images_is_flagged ON images(is_flagged);
             CREATE INDEX IF NOT EXISTS idx_images_face_scan_version ON images(face_scan_version);
             """;

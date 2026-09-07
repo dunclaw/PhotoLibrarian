@@ -8,5 +8,7 @@ public sealed class Person
     public long Id { get; set; }
     public required string Name { get; set; }
     public byte[]? ThumbnailData { get; set; }
+    public long? RepresentativeFaceRegionId { get; set; }
     public int FaceCount { get; set; }
+    public bool SuggestionsHidden { get; set; }
 }

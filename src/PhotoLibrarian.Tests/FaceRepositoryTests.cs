@@ -27,12 +27,13 @@ public sealed class FaceRepositoryTests
             await images.UpsertImageAsync(video);
 
             var cancellationToken = TestContext.Current.CancellationToken;
-            Assert.Single(await faces.GetImagesNeedingFaceScanAsync("pipeline-v1", cancellationToken));
+            var pendingImage = Assert.Single(
+                await faces.GetImagesNeedingFaceScanAsync("pipeline-v1", cancellationToken));
 
             Assert.True(await faces.TryReplaceFaceRegionsAsync(
-                image.Id,
-                image.FileSize,
-                image.DateModified,
+                pendingImage.Id,
+                pendingImage.FileSize,
+                pendingImage.DateModified,
                 [
                     new FaceRegion
                     {
@@ -69,6 +70,152 @@ public sealed class FaceRepositoryTests
             var pending = Assert.Single(
                 await faces.GetImagesNeedingFaceScanAsync("pipeline-v1", cancellationToken));
             Assert.Equal(image.Id, pending.Id);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ReplaceFaceRegions_PreservesReviewStateForMatchingFace()
+    {
+        var databasePath = CreateDatabasePath();
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage(MediaType.Image);
+            image.Id = await images.UpsertImageAsync(image);
+            var personId = await faces.CreatePersonAsync("Alex");
+            var rejectedPersonId = await faces.CreatePersonAsync("Sam");
+            var cancellationToken = TestContext.Current.CancellationToken;
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.1,
+                        Y = 0.2,
+                        Width = 0.3,
+                        Height = 0.4,
+                        PersonId = personId,
+                        PersonName = "Alex",
+                        Confidence = 0.9f,
+                        Embedding = [0.25f, 0.75f]
+                    }
+                ],
+                "pipeline-v1",
+                cancellationToken));
+            var originalFaceId = Assert.Single(
+                await faces.GetFacesForImageAsync(image.Id)).Id;
+            await faces.SetPersonRepresentativeFaceAsync(
+                personId,
+                originalFaceId,
+                cancellationToken);
+            await faces.RejectPersonForFacesAsync(
+                [originalFaceId],
+                rejectedPersonId,
+                cancellationToken);
+            await faces.HideFacesFromSuggestionsAsync(
+                [originalFaceId],
+                cancellationToken);
+
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.11,
+                        Y = 0.21,
+                        Width = 0.3,
+                        Height = 0.4,
+                        Confidence = 0.95f,
+                        Embedding = [0.3f, 0.7f]
+                    }
+                ],
+                "pipeline-v2",
+                cancellationToken));
+
+            var rescannedFace = Assert.Single(
+                await faces.GetFacesForImageAsync(image.Id));
+            Assert.Equal(originalFaceId, rescannedFace.Id);
+            Assert.Equal(personId, rescannedFace.PersonId);
+            Assert.Equal("Alex", rescannedFace.PersonName);
+            Assert.NotNull(rescannedFace.Embedding);
+            Assert.Equal([0.3f, 0.7f], rescannedFace.Embedding);
+            Assert.Contains(
+                rejectedPersonId,
+                (await faces.GetRejectedPersonIdsByFaceIdAsync(cancellationToken))[
+                    originalFaceId]);
+            Assert.Contains(
+                originalFaceId,
+                await faces.GetHiddenFaceSuggestionIdsAsync(cancellationToken));
+            Assert.Equal(
+                originalFaceId,
+                Assert.Single(
+                    await faces.GetAllPersonsAsync(),
+                    person => person.Id == personId)
+                    .RepresentativeFaceRegionId);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task DeletingImage_ClearsRepresentativeFaceReference()
+    {
+        var databasePath = CreateDatabasePath();
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage(MediaType.Image);
+            image.Id = await images.UpsertImageAsync(image);
+            var personId = await faces.CreatePersonAsync("Alex");
+            var cancellationToken = TestContext.Current.CancellationToken;
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.1,
+                        Y = 0.2,
+                        Width = 0.3,
+                        Height = 0.4,
+                        PersonId = personId,
+                        PersonName = "Alex"
+                    }
+                ],
+                "pipeline-v1",
+                cancellationToken));
+            await faces.SetPersonRepresentativeFaceAsync(
+                personId,
+                Assert.Single(await faces.GetFacesForImageAsync(image.Id)).Id,
+                cancellationToken);
+
+            await images.DeleteByPathAsync(image.FilePath);
+
+            Assert.Null(
+                Assert.Single(await faces.GetAllPersonsAsync())
+                    .RepresentativeFaceRegionId);
         }
         finally
         {
