@@ -77,11 +77,20 @@
             </Border>
         </Border>
 
+        <Border x:Name="PeopleReviewOverlay"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                Visibility="Collapsed">
+            <views:PeopleReviewView />
+        </Border>
+
         <!-- Status bar -->
         <Grid Grid.Row="2" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -99,7 +108,7 @@
             <Button x:Name="SettingsButton" 
                     AutomationProperties.AutomationId="SettingsButton"
                     AutomationProperties.Name="Settings"
-                    Grid.Column="4"
+                    Grid.Column="5"
                     Click="OnSettingsClick"
                     Padding="8,4"
                     ToolTipService.ToolTip="Settings">
@@ -124,6 +133,16 @@
                     Command="{x:Bind ViewModel.ToggleFaceDetectionCommand}"
                     ToolTipService.ToolTip="Stop face detection">
                 <FontIcon x:Name="FaceDetectionIcon" Glyph="&#xE769;" FontSize="14" />
+            </Button>
+            <Button x:Name="PeopleReviewButton"
+                    AutomationProperties.AutomationId="PeopleReviewButton"
+                    AutomationProperties.Name="Review people suggestions"
+                    Grid.Column="4"
+                    Margin="0,0,8,0"
+                    Click="OnPeopleReviewClick"
+                    Padding="8,4"
+                    ToolTipService.ToolTip="Review people suggestions">
+                <FontIcon Glyph="&#xE716;" FontSize="14" />
             </Button>
         </Grid>
     </Grid>

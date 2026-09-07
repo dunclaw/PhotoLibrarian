@@ -24,14 +24,19 @@ public sealed class FaceClusteringService
         for (int i = 0; i < n; i++) labels[i] = i; // Each face starts as its own cluster
 
         // Build adjacency based on similarity threshold
-        var adjacency = new List<(int a, int b, float sim)>();
+        var adjacency = Enumerable.Range(0, n)
+            .Select(_ => new List<(int Neighbor, float Similarity)>())
+            .ToArray();
         for (int i = 0; i < n; i++)
         {
             for (int j = i + 1; j < n; j++)
             {
                 var sim = FaceEmbeddingService.CosineSimilarity(faces[i].Embedding, faces[j].Embedding);
                 if (sim >= SimilarityThreshold)
-                    adjacency.Add((i, j, sim));
+                {
+                    adjacency[i].Add((j, sim));
+                    adjacency[j].Add((i, sim));
+                }
             }
         }
 
@@ -46,16 +51,11 @@ public sealed class FaceClusteringService
             {
                 // Count neighbor label votes weighted by similarity
                 var votes = new Dictionary<int, float>();
-                foreach (var (a, b, sim) in adjacency)
+                foreach (var (neighbor, similarity) in adjacency[i])
                 {
-                    int neighbor = -1;
-                    if (a == i) neighbor = b;
-                    else if (b == i) neighbor = a;
-                    if (neighbor < 0) continue;
-
                     var label = labels[neighbor];
                     if (!votes.ContainsKey(label)) votes[label] = 0;
-                    votes[label] += sim;
+                    votes[label] += similarity;
                 }
 
                 if (votes.Count > 0)

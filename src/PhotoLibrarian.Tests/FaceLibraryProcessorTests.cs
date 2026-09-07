@@ -66,6 +66,32 @@ public sealed class FaceLibraryProcessorTests
         Assert.Equal(0, canceled.Processed);
     }
 
+    [Fact]
+    public async Task ProcessLibraryAsync_RejectedSaveIsReportedAsFailure()
+    {
+        var store = new FakeStore([CreateImage(1)]) { AcceptSave = false };
+        var processor = new FaceLibraryProcessor(
+            store,
+            new FakeModelProvider(),
+            new FakeDetector([CreateFace()]),
+            new FakeEmbedder([[0.6f, 0.8f]]));
+        FaceProcessingProgressEventArgs? progress = null;
+        processor.Progress += (_, update) =>
+        {
+            if (update.Error is not null)
+            {
+                progress = update;
+            }
+        };
+
+        var result = await processor.ProcessLibraryAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(new FaceProcessingResult(1, 1, 0), result);
+        Assert.NotNull(progress);
+        Assert.Equal(1, progress.Failed);
+        Assert.Contains("will be retried", progress.Error);
+    }
+
     private static ImageEntry CreateImage(long id) => new()
     {
         Id = id,
@@ -95,6 +121,7 @@ public sealed class FaceLibraryProcessorTests
     private sealed class FakeStore(List<ImageEntry> pending) : IFaceScanStore
     {
         public List<(long ImageId, IReadOnlyCollection<FaceRegion> Faces, string ScanVersion)> Saved { get; } = [];
+        public bool AcceptSave { get; init; } = true;
 
         public Task<List<ImageEntry>> GetImagesNeedingFaceScanAsync(
             string scanVersion,
@@ -110,7 +137,7 @@ public sealed class FaceLibraryProcessorTests
             CancellationToken cancellationToken = default)
         {
             Saved.Add((imageId, faces, scanVersion));
-            return Task.FromResult(true);
+            return Task.FromResult(AcceptSave);
         }
     }
 

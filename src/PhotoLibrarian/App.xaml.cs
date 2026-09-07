@@ -56,6 +56,11 @@ public partial class App : Application
             new FaceModelProvider(sessionManager),
             new FaceDetectionService(sessionManager),
             new FaceEmbeddingService(sessionManager));
+        var faceReviewService = new FaceReviewService(
+            faceRepo,
+            imageRepo,
+            new FaceClusteringService(),
+            new FaceRecognitionService());
 
         // Note: ThumbnailRepository removed - we use Windows thumbnail cache instead
         ViewModel = new MainViewModel(
@@ -68,6 +73,7 @@ public partial class App : Application
             indexingService,
             backupService,
             faceProcessor,
+            faceReviewService,
             sessionManager);
 
         _window = new MainWindow();

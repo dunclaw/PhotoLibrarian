@@ -45,6 +45,7 @@ public sealed class FaceLibraryProcessor
             foreach (var image in pending)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                string? error = null;
                 try
                 {
                     var detections = await _detector.DetectFacesAsync(
@@ -83,6 +84,11 @@ public sealed class FaceLibraryProcessor
                     {
                         faceCount += regions.Length;
                     }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            "The photo changed during face detection and will be retried.");
+                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -91,15 +97,7 @@ public sealed class FaceLibraryProcessor
                 catch (Exception exception)
                 {
                     failed++;
-                    Progress?.Invoke(
-                        this,
-                        new FaceProcessingProgressEventArgs(
-                            processed,
-                            pending.Count,
-                            faceCount,
-                            failed,
-                            image.FileName,
-                            error: exception.Message));
+                    error = exception.Message;
                 }
 
                 processed++;
@@ -110,7 +108,8 @@ public sealed class FaceLibraryProcessor
                         pending.Count,
                         faceCount,
                         failed,
-                        image.FileName));
+                        image.FileName,
+                        error: error));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
