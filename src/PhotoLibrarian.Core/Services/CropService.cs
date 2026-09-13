@@ -254,7 +254,8 @@ public static class CropService
         uint sourceHeight,
         CropRectangle crop)
     {
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+        var sidecarPath =
+            FaceMetadataStore.GetSidecarPathForImage(imagePath);
         if (!File.Exists(sidecarPath))
         {
             return null;

@@ -293,6 +293,15 @@ public sealed class ImageRepository
             DateModified = ParseStoredDateTime(reader.GetString(reader.GetOrdinal("date_modified"))),
             DateIndexed = ParseStoredDateTime(reader.GetString(reader.GetOrdinal("date_indexed"))),
             FaceScanVersion = ReadNullableString(reader, "face_scan_version"),
+            FaceMetadataImported = ReadBoolean(reader, "face_metadata_imported"),
+            FaceSidecarPath = ReadNullableString(reader, "face_sidecar_path"),
+            FaceSidecarSize = ReadNullableInt64(reader, "face_sidecar_size"),
+            FaceSidecarModified = ReadNullableDateTime(
+                reader,
+                "face_sidecar_modified"),
+            FaceMetadataExportRequired = ReadBoolean(
+                reader,
+                "face_metadata_export_required"),
             CameraMake = reader.IsDBNull(reader.GetOrdinal("camera_make")) ? null : reader.GetString(reader.GetOrdinal("camera_make")),
             CameraModel = reader.IsDBNull(reader.GetOrdinal("camera_model")) ? null : reader.GetString(reader.GetOrdinal("camera_model")),
             LensModel = reader.IsDBNull(reader.GetOrdinal("lens_model")) ? null : reader.GetString(reader.GetOrdinal("lens_model")),
@@ -317,11 +326,36 @@ public sealed class ImageRepository
         {
             ordinal = reader.GetOrdinal(column);
         }
-        catch (IndexOutOfRangeException)
+        catch (Exception exception) when (
+            exception is IndexOutOfRangeException or ArgumentOutOfRangeException)
         {
             return false; // column added by a later migration than the one that created this reader
         }
         return !reader.IsDBNull(ordinal) && reader.GetInt32(ordinal) != 0;
+    }
+
+    private static long? ReadNullableInt64(
+        SqliteDataReader reader,
+        string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? null : reader.GetInt64(ordinal);
+        }
+        catch (Exception exception) when (
+            exception is IndexOutOfRangeException or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    private static DateTime? ReadNullableDateTime(
+        SqliteDataReader reader,
+        string column)
+    {
+        var value = ReadNullableString(reader, column);
+        return value is null ? null : ParseStoredDateTime(value);
     }
 
     private static string? ReadNullableString(SqliteDataReader reader, string column)
@@ -331,7 +365,8 @@ public sealed class ImageRepository
             var ordinal = reader.GetOrdinal(column);
             return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
         }
-        catch (IndexOutOfRangeException)
+        catch (Exception exception) when (
+            exception is IndexOutOfRangeException or ArgumentOutOfRangeException)
         {
             return null;
         }

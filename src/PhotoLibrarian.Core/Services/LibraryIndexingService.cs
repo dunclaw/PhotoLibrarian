@@ -13,8 +13,10 @@ public sealed class LibraryIndexingService
     private readonly CacheDatabase _db;
     private readonly ImageRepository _imageRepo;
     private readonly TagRepository _tagRepo;
+    private readonly FaceRepository _faceRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
+    private readonly IFaceMetadataStore _faceMetadataStore;
 
     public event EventHandler<IndexingProgressEventArgs>? Progress;
 
@@ -22,14 +24,49 @@ public sealed class LibraryIndexingService
         CacheDatabase db,
         ImageRepository imageRepo,
         TagRepository tagRepo,
+        FaceRepository faceRepo,
         FolderScannerService scanner,
-        MetadataReaderService metadataReader)
+        MetadataReaderService metadataReader,
+        IFaceMetadataStore faceMetadataStore)
     {
         _db = db;
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
+        _faceRepo = faceRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
+        _faceMetadataStore = faceMetadataStore;
+    }
+
+    public async Task ExportPendingFaceMetadataAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var pending = await _faceRepo
+            .GetImagesRequiringFaceMetadataExportAsync(cancellationToken);
+        foreach (var image in pending)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!File.Exists(image.FilePath))
+            {
+                throw new FileNotFoundException(
+                    "A photo with cache-only people metadata could not be found.",
+                    image.FilePath);
+            }
+
+            var metadata = await _faceRepo.GetPhotoFaceMetadataAsync(
+                image.Id,
+                image.Width,
+                image.Height,
+                cancellationToken);
+            await _faceMetadataStore.WriteAsync(
+                image.FilePath,
+                metadata,
+                cancellationToken);
+            await _faceRepo.SetFaceMetadataExportRequiredAsync(
+                image.Id,
+                false,
+                cancellationToken);
+        }
     }
 
     /// <summary>
@@ -56,8 +93,40 @@ public sealed class LibraryIndexingService
                 // Check if already indexed and unchanged
                 var existing = await _imageRepo.GetByPathAsync(filePath);
                 var fileInfo = new FileInfo(filePath);
+                if (existing?.FaceMetadataExportRequired == true)
+                {
+                    var cachedMetadata =
+                        await _faceRepo.GetPhotoFaceMetadataAsync(
+                            existing.Id,
+                            existing.Width,
+                            existing.Height,
+                            ct);
+                    await _faceMetadataStore.WriteAsync(
+                        filePath,
+                        cachedMetadata,
+                        ct);
+                    fileInfo.Refresh();
+                }
+                var sidecarPath =
+                    FaceMetadataStore.GetSidecarPathForImage(filePath);
+                var sidecar = File.Exists(sidecarPath)
+                    ? new FileInfo(sidecarPath)
+                    : null;
+                var sidecarChanged = existing is not null &&
+                    (
+                        !string.Equals(
+                            existing.FaceSidecarPath,
+                            sidecar?.FullName,
+                            StringComparison.OrdinalIgnoreCase) ||
+                        existing.FaceSidecarSize != sidecar?.Length ||
+                        existing.FaceSidecarModified !=
+                            sidecar?.LastWriteTimeUtc
+                    );
 
-                if (existing is not null && existing.DateModified >= fileInfo.LastWriteTimeUtc)
+                if (existing is not null &&
+                    existing.DateModified >= fileInfo.LastWriteTimeUtc &&
+                    existing.FaceMetadataImported &&
+                    !sidecarChanged)
                 {
                     skipped++;
                     if (processed % 10 == 0)
@@ -69,6 +138,26 @@ public sealed class LibraryIndexingService
                 // Thumbnails are generated on-demand using Windows thumbnail cache (instant for cached images)
                 var entry = _metadataReader.ReadMetadata(filePath);
                 var imageId = await _imageRepo.UpsertImageAsync(entry);
+                await _faceRepo.SetFaceMetadataImportedAsync(
+                    imageId,
+                    false,
+                    cancellationToken: ct);
+                var faceMetadata = _faceMetadataStore.Read(filePath);
+                await _faceRepo.ImportFaceMetadataAsync(
+                    imageId,
+                    faceMetadata,
+                    ct);
+                await _faceRepo.SetFaceMetadataImportedAsync(
+                    imageId,
+                    true,
+                    sidecar?.FullName,
+                    sidecar?.Length,
+                    sidecar?.LastWriteTimeUtc,
+                    ct);
+                await _faceRepo.SetFaceMetadataExportRequiredAsync(
+                    imageId,
+                    false,
+                    ct);
 
                 // Read and store tags from XMP metadata
                 var tags = _metadataReader.ReadTags(filePath);

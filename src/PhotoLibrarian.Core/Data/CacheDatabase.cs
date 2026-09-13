@@ -85,7 +85,12 @@ public sealed class CacheDatabase : IDisposable
                 media_type      INTEGER NOT NULL DEFAULT 0,
                 video_duration  REAL,
                 is_flagged      INTEGER NOT NULL DEFAULT 0,
-                face_scan_version TEXT
+                face_scan_version TEXT,
+                face_metadata_imported INTEGER NOT NULL DEFAULT 0,
+                face_sidecar_path TEXT,
+                face_sidecar_size INTEGER,
+                face_sidecar_modified TEXT,
+                face_metadata_export_required INTEGER NOT NULL DEFAULT 0
             );
 
             -- Note: thumbnails table removed - we now use Windows thumbnail cache instead
@@ -120,6 +125,7 @@ public sealed class CacheDatabase : IDisposable
                 person_id   INTEGER,
                 embedding   BLOB,
                 confidence  REAL    NOT NULL DEFAULT 0.0,
+                metadata_managed INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
                 FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE SET NULL
             );
@@ -165,11 +171,51 @@ public sealed class CacheDatabase : IDisposable
     {
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
+        await AddColumnIfMissingAsync(
+            conn,
+            "images",
+            "face_metadata_imported",
+            "INTEGER NOT NULL DEFAULT 0");
+        await AddColumnIfMissingAsync(
+            conn,
+            "images",
+            "face_sidecar_path",
+            "TEXT");
+        await AddColumnIfMissingAsync(
+            conn,
+            "images",
+            "face_sidecar_size",
+            "INTEGER");
+        await AddColumnIfMissingAsync(
+            conn,
+            "images",
+            "face_sidecar_modified",
+            "TEXT");
+        var addedFaceMetadataExportRequired = await AddColumnIfMissingAsync(
+            conn,
+            "images",
+            "face_metadata_export_required",
+            "INTEGER NOT NULL DEFAULT 0");
+        await AddColumnIfMissingAsync(
+            conn,
+            "face_regions",
+            "metadata_managed",
+            "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "persons", "suggestions_hidden", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "persons", "representative_face_region_id", "INTEGER");
 
         using var indexCmd = conn.CreateCommand();
-        indexCmd.CommandText = """
+        indexCmd.CommandText = (addedFaceMetadataExportRequired
+            ? """
+              UPDATE images
+              SET face_metadata_export_required = 1
+              WHERE EXISTS (
+                  SELECT 1
+                  FROM face_regions
+                  WHERE face_regions.image_id = images.id
+              );
+              """
+            : "") + """
             UPDATE persons
             SET representative_face_region_id = NULL
             WHERE representative_face_region_id IS NOT NULL
@@ -191,7 +237,7 @@ public sealed class CacheDatabase : IDisposable
         await indexCmd.ExecuteNonQueryAsync();
     }
 
-    private static async Task AddColumnIfMissingAsync(
+    private static async Task<bool> AddColumnIfMissingAsync(
         SqliteConnection conn, string table, string column, string definition)
     {
         var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -205,11 +251,12 @@ public sealed class CacheDatabase : IDisposable
             }
         }
 
-        if (existing.Count == 0 || existing.Contains(column)) return;
+        if (existing.Count == 0 || existing.Contains(column)) return false;
 
         using var alter = conn.CreateCommand();
         alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
         await alter.ExecuteNonQueryAsync();
+        return true;
     }
 
     /// <summary>

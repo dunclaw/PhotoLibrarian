@@ -179,6 +179,8 @@ public sealed class PhotoOperationsService
         {
             try
             {
+                var sidecar =
+                    FaceMetadataStore.GetSidecarPathForImage(entry.FilePath);
                 Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
                     entry.FilePath,
                     Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
@@ -186,7 +188,6 @@ public sealed class PhotoOperationsService
                     Microsoft.VisualBasic.FileIO.UICancelOption.DoNothing);
 
                 // Also delete any sidecar
-                var sidecar = Path.ChangeExtension(entry.FilePath, ".xmp");
                 if (File.Exists(sidecar))
                 {
                     try
@@ -235,11 +236,12 @@ public sealed class PhotoOperationsService
             if (string.Equals(newPath, entry.FilePath, StringComparison.OrdinalIgnoreCase)) return entry.FilePath;
             if (File.Exists(newPath)) return null; // conflict — caller can show error
 
-            File.Move(entry.FilePath, newPath);
-
             // Move sidecar if present
-            var oldSidecar = Path.ChangeExtension(entry.FilePath, ".xmp");
-            var newSidecar = Path.ChangeExtension(newPath, ".xmp");
+            var oldSidecar =
+                FaceMetadataStore.GetSidecarPathForImage(entry.FilePath);
+            File.Move(entry.FilePath, newPath);
+            var newSidecar =
+                FaceMetadataStore.GetSidecarPathForImage(newPath);
             if (File.Exists(oldSidecar) && !File.Exists(newSidecar))
             {
                 try { File.Move(oldSidecar, newSidecar); } catch { }

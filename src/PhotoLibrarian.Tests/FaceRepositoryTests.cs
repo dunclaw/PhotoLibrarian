@@ -310,6 +310,183 @@ public sealed class FaceRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task ImportFaceMetadata_RebuildsPeopleReviewStateAndPreservesItDuringEmbeddingScan()
+    {
+        var databasePath = CreateDatabasePath();
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage(MediaType.Image);
+            image.Id = await images.UpsertImageAsync(image);
+            var cancellationToken = TestContext.Current.CancellationToken;
+
+            await faces.ImportFaceMetadataAsync(
+                image.Id,
+                new PhotoFaceMetadata(
+                    1200,
+                    800,
+                    [
+                        new PortableFaceMetadata(
+                            0,
+                            0.1,
+                            0.2,
+                            0.3,
+                            0.4,
+                            "Alex",
+                            false,
+                            true,
+                            ["Sam"]),
+                        new PortableFaceMetadata(
+                            0,
+                            0.6,
+                            0.2,
+                            0.2,
+                            0.3,
+                            null,
+                            true,
+                            false,
+                            [])
+                    ]),
+                cancellationToken);
+
+            var people = await faces.GetAllPersonsAsync();
+            var alex = Assert.Single(people, person => person.Name == "Alex");
+            var sam = Assert.Single(people, person => person.Name == "Sam");
+            Assert.True(alex.SuggestionsHidden);
+            var imported = await faces.GetFacesForImageAsync(image.Id);
+            Assert.All(imported, face => Assert.Null(face.Embedding));
+            var assigned = Assert.Single(imported, face => face.PersonName == "Alex");
+            var excluded = Assert.Single(imported, face => face.PersonName is null);
+            Assert.Contains(
+                sam.Id,
+                (await faces.GetRejectedPersonIdsByFaceIdAsync(cancellationToken))[
+                    assigned.Id]);
+            Assert.Contains(
+                excluded.Id,
+                await faces.GetHiddenFaceSuggestionIdsAsync(cancellationToken));
+            Assert.Contains(
+                image.Id,
+                (await faces.GetImagesNeedingFaceScanAsync(
+                    "pipeline-v1",
+                    cancellationToken)).Select(entry => entry.Id));
+
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.11,
+                        Y = 0.21,
+                        Width = 0.3,
+                        Height = 0.4,
+                        Confidence = 0.9f,
+                        Embedding = [0.25f, 0.75f]
+                    },
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.61,
+                        Y = 0.21,
+                        Width = 0.2,
+                        Height = 0.3,
+                        Confidence = 0.8f,
+                        Embedding = [0.75f, 0.25f]
+                    }
+                ],
+                "pipeline-v1",
+                cancellationToken));
+
+            var rescanned = await faces.GetFacesForImageAsync(image.Id);
+            Assert.Equal(
+                alex.Id,
+                Assert.Single(rescanned, face => face.PersonName == "Alex")
+                    .PersonId);
+            Assert.All(rescanned, face => Assert.NotNull(face.Embedding));
+            Assert.Contains(
+                excluded.Id,
+                await faces.GetHiddenFaceSuggestionIdsAsync(cancellationToken));
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ImportEmptyFaceMetadata_ClearsPortableStateWithoutDeletingDetectedGeometry()
+    {
+        var databasePath = CreateDatabasePath();
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage(MediaType.Image);
+            image.Id = await images.UpsertImageAsync(image);
+            var personId = await faces.CreatePersonAsync("Alex");
+            var cancellationToken = TestContext.Current.CancellationToken;
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.1,
+                        Y = 0.2,
+                        Width = 0.3,
+                        Height = 0.4,
+                        PersonId = personId,
+                        PersonName = "Alex",
+                        Embedding = [0.25f, 0.75f],
+                        IsMetadataManaged = true
+                    }
+                ],
+                "pipeline-v1",
+                cancellationToken));
+            var faceId = Assert.Single(
+                await faces.GetFacesForImageAsync(image.Id)).Id;
+            await faces.HideFacesFromSuggestionsAsync(
+                [faceId],
+                cancellationToken);
+
+            await faces.ImportFaceMetadataAsync(
+                image.Id,
+                new PhotoFaceMetadata(0, 0, []),
+                cancellationToken);
+
+            var retained = Assert.Single(
+                await faces.GetFacesForImageAsync(image.Id));
+            Assert.Null(retained.PersonId);
+            Assert.Null(retained.PersonName);
+            Assert.False(retained.IsMetadataManaged);
+            Assert.NotNull(retained.Embedding);
+            Assert.Empty(
+                await faces.GetHiddenFaceSuggestionIdsAsync(cancellationToken));
+            Assert.Empty(await faces.GetAllPersonsAsync());
+            Assert.Contains(
+                image.Id,
+                (await faces.GetImagesNeedingFaceScanAsync(
+                    "pipeline-v1",
+                    cancellationToken)).Select(entry => entry.Id));
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
     private static string CreateDatabasePath() =>
         Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}.db");
 

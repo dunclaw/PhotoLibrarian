@@ -1043,6 +1043,48 @@ public sealed class FaceReviewServiceTests
         }
     }
 
+    [Fact]
+    public async Task HideFaces_DoesNotUpdateCacheWhenMetadataWriteFails()
+    {
+        var databasePath = CreateDatabasePath();
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            var cancellationToken = TestContext.Current.CancellationToken;
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [CreateFace(image.Id, 0.2, [1f, 0f])],
+                "pipeline-v1",
+                cancellationToken));
+            var faceId = Assert.Single(
+                await faces.GetFacesForImageAsync(image.Id)).Id;
+            var service = new FaceReviewService(
+                faces,
+                images,
+                new FaceClusteringService(),
+                new FaceRecognitionService(),
+                new FailingFaceMetadataStore());
+
+            await Assert.ThrowsAsync<IOException>(
+                () => service.HideFacesAsync([faceId], cancellationToken));
+
+            Assert.Empty(
+                await faces.GetHiddenFaceSuggestionIdsAsync(cancellationToken));
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
     private static FaceRegion CreateFace(
         long imageId,
         double x,
@@ -1086,5 +1128,16 @@ public sealed class FaceReviewServiceTests
     private static void DeleteIfPresent(string path)
     {
         if (File.Exists(path)) File.Delete(path);
+    }
+
+    private sealed class FailingFaceMetadataStore : IFaceMetadataStore
+    {
+        public Task WriteAsync(
+            string imagePath,
+            PhotoFaceMetadata metadata,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException(new IOException("Metadata write failed."));
+
+        public PhotoFaceMetadata Read(string imagePath) => new(0, 0, []);
     }
 }
