@@ -57,19 +57,34 @@ public sealed class CropMetadataRemapperTests
         try
         {
             var cancellationToken = TestContext.Current.CancellationToken;
-            var faces = new[]
-            {
-                new FaceRegion
-                {
-                    X = 0.3,
-                    Y = 0.25,
-                    Width = 0.4,
-                    Height = 0.5,
-                    PersonName = "Alex"
-                },
-                new FaceRegion { X = 0, Y = 0, Width = 0.1, Height = 0.1, PersonName = "Outside" }
-            };
-            await MwgRegionWriter.WriteFaceRegionsAsync(imagePath, faces, 100, 80);
+            await new FaceMetadataStore().WriteAsync(
+                imagePath,
+                new PhotoFaceMetadata(
+                    100,
+                    80,
+                    [
+                        new PortableFaceMetadata(
+                            1,
+                            0.3,
+                            0.25,
+                            0.4,
+                            0.5,
+                            "Alex",
+                            true,
+                            false,
+                            ["Sam"]),
+                        new PortableFaceMetadata(
+                            2,
+                            0,
+                            0,
+                            0.1,
+                            0.1,
+                            "Outside",
+                            true,
+                            false,
+                            [])
+                    ]),
+                cancellationToken);
 
             using (var image = new Image<Rgba32>(100, 80, Color.CornflowerBlue))
             {
@@ -82,6 +97,10 @@ public sealed class CropMetadataRemapperTests
                     await File.ReadAllBytesAsync(sidecarPath, cancellationToken));
                 await image.SaveAsJpegAsync(imagePath, cancellationToken);
             }
+            var ownedSidecar =
+                FaceMetadataStore.GetSidecarPathForImage(imagePath);
+            File.Move(sidecarPath, ownedSidecar);
+            sidecarPath = ownedSidecar;
 
             var result = await CropService.CropImageAsync(
                 imagePath,
@@ -110,6 +129,14 @@ public sealed class CropMetadataRemapperTests
             AssertRemappedXmp(embedded);
             AssertRemappedXmp(XmpMetaFactory.ParseFromString(
                 await File.ReadAllTextAsync(sidecarPath, cancellationToken)));
+            var restoredReview = Assert.Single(
+                new FaceMetadataStore().Read(imagePath).Faces);
+            Assert.True(restoredReview.SuggestionsHidden);
+            Assert.Equal(["Sam"], restoredReview.RejectedPersonNames);
+            Assert.Equal(0.1, restoredReview.X, 6);
+            Assert.Equal(0, restoredReview.Y, 6);
+            Assert.Equal(0.8, restoredReview.Width, 6);
+            Assert.Equal(1, restoredReview.Height, 6);
         }
         finally
         {

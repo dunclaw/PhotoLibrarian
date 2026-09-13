@@ -20,4 +20,5 @@ public sealed class FaceRegion
     // Face embedding for recognition (stored as float array)
     public float[]? Embedding { get; set; }
     public float Confidence { get; set; }
+    public bool IsMetadataManaged { get; set; }
 }

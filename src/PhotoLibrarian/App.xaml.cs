@@ -48,7 +48,15 @@ public partial class App : Application
         var faceRepo = new FaceRepository(db);
         var scanner = new FolderScannerService();
         var metadataReader = new MetadataReaderService();
-        var indexingService = new LibraryIndexingService(db, imageRepo, tagRepo, scanner, metadataReader);
+        var faceMetadataStore = new FaceMetadataStore();
+        var indexingService = new LibraryIndexingService(
+            db,
+            imageRepo,
+            tagRepo,
+            faceRepo,
+            scanner,
+            metadataReader,
+            faceMetadataStore);
         var backupService = new OriginalBackupService();
         var sessionManager = new OnnxSessionManager();
         var faceProcessor = new FaceLibraryProcessor(
@@ -60,7 +68,8 @@ public partial class App : Application
             faceRepo,
             imageRepo,
             new FaceClusteringService(),
-            new FaceRecognitionService());
+            new FaceRecognitionService(),
+            faceMetadataStore);
 
         // Note: ThumbnailRepository removed - we use Windows thumbnail cache instead
         ViewModel = new MainViewModel(

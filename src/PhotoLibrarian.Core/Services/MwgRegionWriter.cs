@@ -1,6 +1,4 @@
-using XmpCore;
 using PhotoLibrarian.Core.Models;
-using System.Globalization;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -11,113 +9,23 @@ namespace PhotoLibrarian.Core.Services;
 /// </summary>
 public static class MwgRegionWriter
 {
-    private const string MwgRs = CropMetadataRemapper.MwgRs;
-    private const string StArea = CropMetadataRemapper.StArea;
-    private const string StDim = CropMetadataRemapper.StDim;
-
     /// <summary>
     /// Writes face regions to an XMP sidecar file following MWG Region Schema.
     /// </summary>
     public static async Task WriteFaceRegionsAsync(string imagePath, IEnumerable<FaceRegion> faces, int imageWidth, int imageHeight)
     {
-        await Task.Run(() =>
-        {
-            var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
-            IXmpMeta xmp;
-
-            try
-            {
-                if (File.Exists(sidecarPath))
-                {
-                    var xml = File.ReadAllText(sidecarPath);
-                    xmp = XmpMetaFactory.ParseFromString(xml);
-                }
-                else
-                {
-                    xmp = XmpMetaFactory.Create();
-                }
-            }
-            catch
-            {
-                xmp = XmpMetaFactory.Create();
-            }
-
-            XmpMetaFactory.SchemaRegistry.RegisterNamespace(MwgRs, "mwg-rs");
-            XmpMetaFactory.SchemaRegistry.RegisterNamespace(StArea, "stArea");
-            XmpMetaFactory.SchemaRegistry.RegisterNamespace(StDim, "stDim");
-
-            // Set applied-to dimensions
-            var regionsPath = "Regions";
-            try { xmp.DeleteProperty(MwgRs, regionsPath); } catch { }
-
-            xmp.SetStructField(MwgRs, regionsPath, MwgRs, "AppliedToDimensions", null,
-                new XmpCore.Options.PropertyOptions { IsStruct = true });
-            xmp.SetStructField(MwgRs, $"{regionsPath}/mwg-rs:AppliedToDimensions",
-                StDim, "w", imageWidth.ToString(CultureInfo.InvariantCulture));
-            xmp.SetStructField(MwgRs, $"{regionsPath}/mwg-rs:AppliedToDimensions",
-                StDim, "h", imageHeight.ToString(CultureInfo.InvariantCulture));
-            xmp.SetStructField(MwgRs, $"{regionsPath}/mwg-rs:AppliedToDimensions",
-                StDim, "unit", "pixel");
-
-            // Write RegionList array
-            int index = 1;
-            foreach (var face in faces)
-            {
-                var itemPath = $"{regionsPath}/mwg-rs:RegionList[{index}]";
-
-                xmp.AppendArrayItem(MwgRs, $"{regionsPath}/mwg-rs:RegionList",
-                    new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = true },
-                    null, new XmpCore.Options.PropertyOptions { IsStruct = true });
-
-                // Name
-                if (!string.IsNullOrEmpty(face.PersonName))
-                {
-                    xmp.SetStructField(MwgRs, itemPath, MwgRs, "Name", face.PersonName);
-                }
-
-                // Type = Face
-                xmp.SetStructField(MwgRs, itemPath, MwgRs, "Type", "Face");
-
-                // Area (normalized coordinates - center point + dimensions)
-                xmp.SetStructField(MwgRs, itemPath, MwgRs, "Area", null,
-                    new XmpCore.Options.PropertyOptions { IsStruct = true });
-
-                var areaPath = $"{itemPath}/mwg-rs:Area";
-                // MWG uses center-point + width/height (all normalized 0-1)
-                double cx = face.X + face.Width / 2;
-                double cy = face.Y + face.Height / 2;
-
-                xmp.SetStructField(
-                    MwgRs,
-                    areaPath,
-                    StArea,
-                    "x",
-                    cx.ToString("F6", CultureInfo.InvariantCulture));
-                xmp.SetStructField(
-                    MwgRs,
-                    areaPath,
-                    StArea,
-                    "y",
-                    cy.ToString("F6", CultureInfo.InvariantCulture));
-                xmp.SetStructField(
-                    MwgRs,
-                    areaPath,
-                    StArea,
-                    "w",
-                    face.Width.ToString("F6", CultureInfo.InvariantCulture));
-                xmp.SetStructField(
-                    MwgRs,
-                    areaPath,
-                    StArea,
-                    "h",
-                    face.Height.ToString("F6", CultureInfo.InvariantCulture));
-                xmp.SetStructField(MwgRs, areaPath, StArea, "unit", "normalized");
-
-                index++;
-            }
-
-            var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
-            File.WriteAllText(sidecarPath, serialized);
-        });
+        var portableFaces = faces.Select(face => new PortableFaceMetadata(
+            face.Id,
+            face.X,
+            face.Y,
+            face.Width,
+            face.Height,
+            face.PersonName,
+            false,
+            false,
+            []));
+        await new FaceMetadataStore().WriteAsync(
+            imagePath,
+            new PhotoFaceMetadata(imageWidth, imageHeight, portableFaces.ToList()));
     }
 }

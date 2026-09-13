@@ -22,8 +22,12 @@ public sealed class FaceRepository : IFaceScanStore
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO face_regions (image_id, x, y, width, height, person_name, person_id, embedding, confidence)
-            VALUES ($img, $x, $y, $w, $h, $name, $pid, $embed, $conf)
+            INSERT INTO face_regions
+                (image_id, x, y, width, height, person_name, person_id,
+                 embedding, confidence, metadata_managed)
+            VALUES
+                ($img, $x, $y, $w, $h, $name, $pid, $embed, $conf,
+                 $metadataManaged)
             RETURNING id
             """;
         cmd.Parameters.AddWithValue("$img", face.ImageId);
@@ -35,6 +39,9 @@ public sealed class FaceRepository : IFaceScanStore
         cmd.Parameters.AddWithValue("$pid", (object?)face.PersonId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$embed", face.Embedding is not null ? EmbeddingToBytes(face.Embedding) : DBNull.Value);
         cmd.Parameters.AddWithValue("$conf", face.Confidence);
+        cmd.Parameters.AddWithValue(
+            "$metadataManaged",
+            face.IsMetadataManaged ? 1 : 0);
 
         return (long)(await cmd.ExecuteScalarAsync())!;
     }
@@ -155,7 +162,7 @@ public sealed class FaceRepository : IFaceScanStore
         using var command = conn.CreateCommand();
         command.CommandText = """
             SELECT id, image_id, x, y, width, height, person_name, person_id,
-                   NULL AS embedding, confidence
+                   NULL AS embedding, confidence, metadata_managed
             FROM face_regions
             ORDER BY id
             """;
@@ -193,6 +200,132 @@ public sealed class FaceRepository : IFaceScanStore
         }
 
         return images;
+    }
+
+    public async Task<List<ImageEntry>>
+        GetImagesRequiringFaceMetadataExportAsync(
+            CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var command = conn.CreateCommand();
+        command.CommandText = """
+            SELECT *
+            FROM images
+            WHERE face_metadata_export_required = 1
+            ORDER BY id
+            """;
+        var images = new List<ImageEntry>();
+        using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            images.Add(ImageRepository.ReadImageEntry(reader));
+        }
+        return images;
+    }
+
+    public async Task SetFaceMetadataImportedAsync(
+        long imageId,
+        bool imported,
+        string? sidecarPath = null,
+        long? sidecarSize = null,
+        DateTime? sidecarModified = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var command = conn.CreateCommand();
+        command.CommandText = """
+            UPDATE images
+            SET face_metadata_imported = $imported,
+                face_sidecar_path = CASE
+                    WHEN $imported = 1 THEN $sidecarPath
+                    ELSE face_sidecar_path
+                END,
+                face_sidecar_size = CASE
+                    WHEN $imported = 1 THEN $sidecarSize
+                    ELSE face_sidecar_size
+                END,
+                face_sidecar_modified = CASE
+                    WHEN $imported = 1 THEN $sidecarModified
+                    ELSE face_sidecar_modified
+                END,
+                date_indexed = CASE
+                    WHEN $imported = 1 THEN datetime('now')
+                    ELSE date_indexed
+                END
+            WHERE id = $imageId
+            """;
+        command.Parameters.AddWithValue("$imageId", imageId);
+        command.Parameters.AddWithValue("$imported", imported ? 1 : 0);
+        command.Parameters.AddWithValue(
+            "$sidecarPath",
+            (object?)sidecarPath ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$sidecarSize",
+            (object?)sidecarSize ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$sidecarModified",
+            (object?)sidecarModified?.ToString("O") ?? DBNull.Value);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException(
+                "The photo no longer exists in the cache.");
+        }
+    }
+
+    public async Task SetFaceMetadataExportRequiredAsync(
+        long imageId,
+        bool required,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var command = conn.CreateCommand();
+        command.CommandText = """
+            UPDATE images
+            SET face_metadata_export_required = $required
+            WHERE id = $imageId
+            """;
+        command.Parameters.AddWithValue("$imageId", imageId);
+        command.Parameters.AddWithValue("$required", required ? 1 : 0);
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException(
+                "The photo no longer exists in the cache.");
+        }
+    }
+
+    public async Task<PhotoFaceMetadata> GetPhotoFaceMetadataAsync(
+        long imageId,
+        int imageWidth,
+        int imageHeight,
+        CancellationToken cancellationToken = default)
+    {
+        var faces = await GetFacesForImageAsync(imageId);
+        var people = (await GetAllPersonsAsync()).ToDictionary(
+            person => person.Id);
+        var rejections = await GetRejectedPersonIdsByFaceIdAsync(
+            cancellationToken);
+        var hiddenFaceIds = await GetHiddenFaceSuggestionIdsAsync(
+            cancellationToken);
+        return new PhotoFaceMetadata(
+            imageWidth,
+            imageHeight,
+            faces.Select(face => new PortableFaceMetadata(
+                    face.Id,
+                    face.X,
+                    face.Y,
+                    face.Width,
+                    face.Height,
+                    face.PersonName,
+                    hiddenFaceIds.Contains(face.Id),
+                    face.PersonId is long personId &&
+                    people.TryGetValue(personId, out var person) &&
+                    person.SuggestionsHidden,
+                    rejections.GetValueOrDefault(face.Id)?
+                        .Where(people.ContainsKey)
+                        .Select(personId => people[personId].Name)
+                        .ToArray() ??
+                    []))
+                .ToList());
     }
 
     public async Task<bool> TryReplaceFaceRegionsAsync(
@@ -258,7 +391,8 @@ public sealed class FaceRepository : IFaceScanStore
                     UPDATE face_regions
                     SET x = $x, y = $y, width = $width, height = $height,
                         person_name = $personName, person_id = $personId,
-                        embedding = $embedding, confidence = $confidence
+                        embedding = $embedding, confidence = $confidence,
+                        metadata_managed = $metadataManaged
                     WHERE id = $id
                     """;
                 update.Parameters.AddWithValue("$id", existingFace.Id);
@@ -280,6 +414,9 @@ public sealed class FaceRepository : IFaceScanStore
                         ? DBNull.Value
                         : EmbeddingToBytes(face.Embedding));
                 update.Parameters.AddWithValue("$confidence", face.Confidence);
+                update.Parameters.AddWithValue(
+                    "$metadataManaged",
+                    face.IsMetadataManaged ? 1 : 0);
                 await update.ExecuteNonQueryAsync(cancellationToken);
                 continue;
             }
@@ -288,9 +425,11 @@ public sealed class FaceRepository : IFaceScanStore
             insert.Transaction = transaction;
             insert.CommandText = """
                 INSERT INTO face_regions
-                    (image_id, x, y, width, height, person_name, person_id, embedding, confidence)
+                    (image_id, x, y, width, height, person_name, person_id,
+                     embedding, confidence, metadata_managed)
                 VALUES
-                    ($imageId, $x, $y, $width, $height, $personName, $personId, $embedding, $confidence)
+                    ($imageId, $x, $y, $width, $height, $personName, $personId,
+                     $embedding, $confidence, $metadataManaged)
                 """;
             insert.Parameters.AddWithValue("$imageId", imageId);
             insert.Parameters.AddWithValue("$x", face.X);
@@ -303,6 +442,9 @@ public sealed class FaceRepository : IFaceScanStore
                 "$embedding",
                 face.Embedding is null ? DBNull.Value : EmbeddingToBytes(face.Embedding));
             insert.Parameters.AddWithValue("$confidence", face.Confidence);
+            insert.Parameters.AddWithValue(
+                "$metadataManaged",
+                face.IsMetadataManaged ? 1 : 0);
             await insert.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -324,6 +466,265 @@ public sealed class FaceRepository : IFaceScanStore
 
         transaction.Commit();
         return true;
+    }
+
+    public async Task ImportFaceMetadataAsync(
+        long imageId,
+        PhotoFaceMetadata metadata,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+        var existingFaces = new List<FaceRegion>();
+        using (var select = conn.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText =
+                "SELECT * FROM face_regions WHERE image_id = $imageId";
+            select.Parameters.AddWithValue("$imageId", imageId);
+            using var reader = await select.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                existingFaces.Add(ReadFaceRegion(reader));
+            }
+        }
+
+        var personNames = metadata.Faces
+            .SelectMany(face =>
+                face.RejectedPersonNames.Append(face.PersonName ?? ""))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var personIds = new Dictionary<string, long>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var personName in personNames)
+        {
+            personIds[personName] = await GetOrCreatePersonIdAsync(
+                conn,
+                transaction,
+                personName,
+                cancellationToken);
+        }
+
+        foreach (var group in metadata.Faces
+                     .Where(face => !string.IsNullOrWhiteSpace(face.PersonName))
+                     .GroupBy(face => face.PersonName!, StringComparer.OrdinalIgnoreCase))
+        {
+            using var updatePerson = conn.CreateCommand();
+            updatePerson.Transaction = transaction;
+            updatePerson.CommandText = """
+                UPDATE persons
+                SET suggestions_hidden = $hidden
+                WHERE id = $personId
+                """;
+            updatePerson.Parameters.AddWithValue(
+                "$hidden",
+                group.Any(face => face.PersonSuggestionsHidden) ? 1 : 0);
+            updatePerson.Parameters.AddWithValue(
+                "$personId",
+                personIds[group.Key]);
+            await updatePerson.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var importedFaces = metadata.Faces
+            .Select(face => new FaceRegion
+            {
+                ImageId = imageId,
+                X = face.X,
+                Y = face.Y,
+                Width = face.Width,
+                Height = face.Height,
+                PersonName = face.PersonName
+            })
+            .ToList();
+        var matches = MatchExistingFaces(existingFaces, importedFaces);
+        for (var index = 0; index < metadata.Faces.Count; index++)
+        {
+            var imported = metadata.Faces[index];
+            var personId = imported.PersonName is null
+                ? (long?)null
+                : personIds[imported.PersonName];
+            long faceId;
+            if (matches.TryGetValue(index, out var existing))
+            {
+                faceId = existing.Id;
+                using var update = conn.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandText = """
+                    UPDATE face_regions
+                    SET x = $x, y = $y, width = $width, height = $height,
+                        person_name = $personName, person_id = $personId,
+                        embedding = NULL, metadata_managed = 1
+                    WHERE id = $faceId
+                    """;
+                update.Parameters.AddWithValue("$faceId", faceId);
+                update.Parameters.AddWithValue("$x", imported.X);
+                update.Parameters.AddWithValue("$y", imported.Y);
+                update.Parameters.AddWithValue("$width", imported.Width);
+                update.Parameters.AddWithValue("$height", imported.Height);
+                update.Parameters.AddWithValue(
+                    "$personName",
+                    (object?)imported.PersonName ?? DBNull.Value);
+                update.Parameters.AddWithValue(
+                    "$personId",
+                    (object?)personId ?? DBNull.Value);
+                await update.ExecuteNonQueryAsync(cancellationToken);
+            }
+            else
+            {
+                using var insert = conn.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = """
+                    INSERT INTO face_regions
+                        (image_id, x, y, width, height, person_name, person_id,
+                         embedding, confidence, metadata_managed)
+                    VALUES
+                        ($imageId, $x, $y, $width, $height, $personName, $personId,
+                         NULL, 0, 1)
+                    RETURNING id
+                    """;
+                insert.Parameters.AddWithValue("$imageId", imageId);
+                insert.Parameters.AddWithValue("$x", imported.X);
+                insert.Parameters.AddWithValue("$y", imported.Y);
+                insert.Parameters.AddWithValue("$width", imported.Width);
+                insert.Parameters.AddWithValue("$height", imported.Height);
+                insert.Parameters.AddWithValue(
+                    "$personName",
+                    (object?)imported.PersonName ?? DBNull.Value);
+                insert.Parameters.AddWithValue(
+                    "$personId",
+                    (object?)personId ?? DBNull.Value);
+                faceId = (long)(await insert.ExecuteScalarAsync(
+                    cancellationToken))!;
+            }
+
+            using (var clearReview = conn.CreateCommand())
+            {
+                clearReview.Transaction = transaction;
+                clearReview.CommandText = """
+                    DELETE FROM face_rejections WHERE face_region_id = $faceId;
+                    DELETE FROM hidden_face_suggestions
+                    WHERE face_region_id = $faceId;
+                    """;
+                clearReview.Parameters.AddWithValue("$faceId", faceId);
+                await clearReview.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (imported.SuggestionsHidden)
+            {
+                using var hide = conn.CreateCommand();
+                hide.Transaction = transaction;
+                hide.CommandText = """
+                    INSERT INTO hidden_face_suggestions (face_region_id)
+                    VALUES ($faceId)
+                    """;
+                hide.Parameters.AddWithValue("$faceId", faceId);
+                await hide.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            foreach (var rejectedName in imported.RejectedPersonNames
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!personIds.TryGetValue(rejectedName, out var rejectedPersonId))
+                {
+                    continue;
+                }
+
+                using var reject = conn.CreateCommand();
+                reject.Transaction = transaction;
+                reject.CommandText = """
+                    INSERT OR IGNORE INTO face_rejections
+                        (face_region_id, person_id)
+                    VALUES ($faceId, $personId)
+                    """;
+                reject.Parameters.AddWithValue("$faceId", faceId);
+                reject.Parameters.AddWithValue("$personId", rejectedPersonId);
+                await reject.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        var matchedFaceIds = matches.Values
+            .Select(face => face.Id)
+            .ToHashSet();
+        foreach (var existing in existingFaces)
+        {
+            if (matchedFaceIds.Contains(existing.Id)) continue;
+
+            using var clearPortableState = conn.CreateCommand();
+            clearPortableState.Transaction = transaction;
+            clearPortableState.CommandText = """
+                UPDATE face_regions
+                SET person_id = NULL, person_name = NULL,
+                    metadata_managed = 0
+                WHERE id = $faceId;
+                DELETE FROM face_rejections WHERE face_region_id = $faceId;
+                DELETE FROM hidden_face_suggestions
+                WHERE face_region_id = $faceId;
+                """;
+            clearPortableState.Parameters.AddWithValue("$faceId", existing.Id);
+            await clearPortableState.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        using (var invalidateScan = conn.CreateCommand())
+        {
+            invalidateScan.Transaction = transaction;
+            invalidateScan.CommandText = """
+                UPDATE images
+                SET face_scan_version = NULL
+                WHERE id = $imageId
+                """;
+            invalidateScan.Parameters.AddWithValue("$imageId", imageId);
+            await invalidateScan.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        using (var removeOrphanPeople = conn.CreateCommand())
+        {
+            removeOrphanPeople.Transaction = transaction;
+            removeOrphanPeople.CommandText = """
+                DELETE FROM persons
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM face_regions
+                    WHERE face_regions.person_id = persons.id
+                )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM face_rejections
+                    WHERE face_rejections.person_id = persons.id
+                )
+                """;
+            await removeOrphanPeople.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        transaction.Commit();
+    }
+
+    private static async Task<long> GetOrCreatePersonIdAsync(
+        SqliteConnection conn,
+        SqliteTransaction transaction,
+        string personName,
+        CancellationToken cancellationToken)
+    {
+        using (var select = conn.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = """
+                SELECT id
+                FROM persons
+                WHERE name = $name COLLATE NOCASE
+                LIMIT 1
+                """;
+            select.Parameters.AddWithValue("$name", personName);
+            var existing = await select.ExecuteScalarAsync(cancellationToken);
+            if (existing is long personId) return personId;
+        }
+
+        using var insert = conn.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText =
+            "INSERT INTO persons (name) VALUES ($name) RETURNING id";
+        insert.Parameters.AddWithValue("$name", personName);
+        return (long)(await insert.ExecuteScalarAsync(cancellationToken))!;
     }
 
     private static Dictionary<int, FaceRegion> MatchExistingFaces(
@@ -929,7 +1330,7 @@ public sealed class FaceRepository : IFaceScanStore
             SELECT p.id AS owner_person_id,
                    fr.id, fr.image_id, fr.x, fr.y, fr.width, fr.height,
                    fr.person_name, fr.person_id, NULL AS embedding, fr.confidence,
-                   i.file_path
+                   fr.metadata_managed, i.file_path
             FROM persons p
             JOIN face_regions fr ON fr.id = COALESCE(
                 (
@@ -1320,8 +1721,25 @@ public sealed class FaceRepository : IFaceScanStore
             PersonName = reader.IsDBNull(reader.GetOrdinal("person_name")) ? null : reader.GetString(reader.GetOrdinal("person_name")),
             PersonId = reader.IsDBNull(reader.GetOrdinal("person_id")) ? null : reader.GetInt64(reader.GetOrdinal("person_id")),
             Embedding = embedding,
-            Confidence = reader.GetFloat(reader.GetOrdinal("confidence"))
+            Confidence = reader.GetFloat(reader.GetOrdinal("confidence")),
+            IsMetadataManaged = ReadBoolean(reader, "metadata_managed")
         };
+    }
+
+    private static bool ReadBoolean(
+        SqliteDataReader reader,
+        string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return !reader.IsDBNull(ordinal) && reader.GetInt32(ordinal) != 0;
+        }
+        catch (Exception exception) when (
+            exception is IndexOutOfRangeException or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     private static byte[] EmbeddingToBytes(float[] embedding)

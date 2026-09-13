@@ -1,5 +1,6 @@
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.ML.Services;
 
@@ -8,19 +9,24 @@ public sealed class FaceReviewService
     private const int ClusteringBatchSize = 512;
 
     private readonly FaceRepository _faceRepository;
+    private readonly ImageRepository _imageRepository;
     private readonly FaceClusteringService _clusteringService;
     private readonly FaceRecognitionService _recognitionService;
+    private readonly IFaceMetadataStore _faceMetadataStore;
 
     public FaceReviewService(
         FaceRepository faceRepository,
         ImageRepository imageRepository,
         FaceClusteringService clusteringService,
-        FaceRecognitionService recognitionService)
+        FaceRecognitionService recognitionService,
+        IFaceMetadataStore? faceMetadataStore = null)
     {
         _faceRepository = faceRepository;
-        ArgumentNullException.ThrowIfNull(imageRepository);
+        _imageRepository = imageRepository;
         _clusteringService = clusteringService;
         _recognitionService = recognitionService;
+        _faceMetadataStore =
+            faceMetadataStore ?? NullFaceMetadataStore.Instance;
     }
 
     public async Task<IReadOnlyList<FaceSuggestionGroup>> GetSuggestionGroupsAsync(
@@ -213,6 +219,13 @@ public sealed class FaceReviewService
                 "Choose Tag as to name suggestions from an unnamed cluster.");
         }
 
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var person = state.GetPerson(personId);
+        var affectedImages = state.AssignFaces(
+            faceIds,
+            personId,
+            person.Name);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
         var previousStates = await _faceRepository.AssignFacesToPersonWithStateAsync(
             faceIds,
             personId,
@@ -225,7 +238,7 @@ public sealed class FaceReviewService
             previousStates);
     }
 
-    public Task RejectAsync(
+    public async Task RejectAsync(
         FaceSuggestionGroup group,
         IReadOnlyCollection<long> faceIds,
         CancellationToken cancellationToken = default)
@@ -236,13 +249,17 @@ public sealed class FaceReviewService
                 "Only suggestions for a known person can be rejected.");
         }
 
-        return _faceRepository.RejectPersonForFacesAsync(
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var personName = state.GetPerson(personId).Name;
+        var affectedImages = state.RejectFaces(faceIds, personName);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.RejectPersonForFacesAsync(
             faceIds,
             personId,
             cancellationToken);
     }
 
-    public Task HideFacesAsync(
+    public async Task HideFacesAsync(
         IReadOnlyCollection<long> faceIds,
         CancellationToken cancellationToken = default)
     {
@@ -251,7 +268,10 @@ public sealed class FaceReviewService
             throw new ArgumentException("Select at least one face.", nameof(faceIds));
         }
 
-        return _faceRepository.HideFacesFromSuggestionsAsync(
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.SetFacesHidden(faceIds, true);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.HideFacesFromSuggestionsAsync(
             faceIds,
             cancellationToken);
     }
@@ -281,6 +301,12 @@ public sealed class FaceReviewService
                 StringComparison.CurrentCultureIgnoreCase));
         if (!existingPersonId.HasValue && matchingPerson is null)
         {
+            var state = await LoadPortableStateAsync(cancellationToken);
+            var affectedImages = state.AssignFaces(
+                faceIds,
+                null,
+                trimmedName);
+            await PersistImagesAsync(state, affectedImages, cancellationToken);
             var created = await _faceRepository.CreatePersonAndAssignFacesAsync(
                 trimmedName,
                 faceIds,
@@ -304,6 +330,15 @@ public sealed class FaceReviewService
         {
             trimmedName = matchingPerson!.Name;
         }
+        var existingState = await LoadPortableStateAsync(cancellationToken);
+        var existingAffectedImages = existingState.AssignFaces(
+            faceIds,
+            personId,
+            trimmedName);
+        await PersistImagesAsync(
+            existingState,
+            existingAffectedImages,
+            cancellationToken);
         var previousStates = await _faceRepository.AssignFacesToPersonWithStateAsync(
             faceIds,
             personId,
@@ -323,16 +358,21 @@ public sealed class FaceReviewService
         CancellationToken cancellationToken = default) =>
         TagAsAsync(faceIds, personId, personName, cancellationToken);
 
-    public Task UndoTagAsync(
+    public async Task UndoTagAsync(
         FaceTagOperation operation,
-        CancellationToken cancellationToken = default) =>
-        _faceRepository.RestoreFaceTagStatesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.Restore(operation.PreviousStates);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.RestoreFaceTagStatesAsync(
             operation.PreviousStates,
             operation.TargetPersonId,
             operation.TargetPersonCreated,
             cancellationToken);
+    }
 
-    public Task HidePersonAsync(
+    public async Task HidePersonAsync(
         FaceSuggestionGroup group,
         CancellationToken cancellationToken = default)
     {
@@ -342,13 +382,16 @@ public sealed class FaceReviewService
                 "Only suggestions for a known person can be hidden.");
         }
 
-        return _faceRepository.SetPersonSuggestionsHiddenAsync(
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.SetPersonHidden(personId, true);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.SetPersonSuggestionsHiddenAsync(
             personId,
             true,
             cancellationToken);
     }
 
-    public Task RenamePersonAsync(
+    public async Task RenamePersonAsync(
         long personId,
         string name,
         CancellationToken cancellationToken = default)
@@ -358,22 +401,32 @@ public sealed class FaceReviewService
         {
             throw new ArgumentException("A person name is required.", nameof(name));
         }
-        return _faceRepository.RenamePersonAsync(
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.RenamePerson(personId, trimmedName);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.RenamePersonAsync(
             personId,
             trimmedName,
             cancellationToken);
     }
 
-    public Task MergePersonsAsync(
+    public async Task MergePersonsAsync(
         long sourcePersonId,
         long targetPersonId,
-        CancellationToken cancellationToken = default) =>
-        _faceRepository.MergePersonsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.MergePeople(
+            sourcePersonId,
+            targetPersonId);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.MergePersonsAsync(
             sourcePersonId,
             targetPersonId,
             cancellationToken);
+    }
 
-    public Task UnassignFacesAsync(
+    public async Task UnassignFacesAsync(
         IReadOnlyCollection<long> faceIds,
         CancellationToken cancellationToken = default)
     {
@@ -381,15 +434,23 @@ public sealed class FaceReviewService
         {
             throw new ArgumentException("Select at least one assigned face.", nameof(faceIds));
         }
-        return _faceRepository.UnassignFacesAsync(faceIds, cancellationToken);
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.UnassignFaces(faceIds);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.UnassignFacesAsync(faceIds, cancellationToken);
     }
 
-    public Task DeletePersonAsync(
+    public async Task DeletePersonAsync(
         long personId,
-        CancellationToken cancellationToken = default) =>
-        _faceRepository.DeletePersonAsync(personId, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.DeletePerson(personId);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.DeletePersonAsync(personId, cancellationToken);
+    }
 
-    public Task RestoreHiddenFacesAsync(
+    public async Task RestoreHiddenFacesAsync(
         IReadOnlyCollection<long> faceIds,
         CancellationToken cancellationToken = default)
     {
@@ -397,7 +458,10 @@ public sealed class FaceReviewService
         {
             throw new ArgumentException("Select at least one excluded face.", nameof(faceIds));
         }
-        return _faceRepository.RestoreFacesToSuggestionsAsync(
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.SetFacesHidden(faceIds, false);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.RestoreFacesToSuggestionsAsync(
             faceIds,
             cancellationToken);
     }
@@ -411,8 +475,332 @@ public sealed class FaceReviewService
             faceRegionId,
             cancellationToken);
 
+    private async Task<PortableLibraryState> LoadPortableStateAsync(
+        CancellationToken cancellationToken)
+    {
+        var faces = await _faceRepository.GetFaceRegionsForManagementAsync(
+            cancellationToken);
+        var people = await _faceRepository.GetAllPersonsAsync();
+        var rejections = await _faceRepository
+            .GetRejectedPersonIdsByFaceIdAsync(cancellationToken);
+        var hiddenFaceIds = await _faceRepository
+            .GetHiddenFaceSuggestionIdsAsync(cancellationToken);
+        var images = await _imageRepository.GetAllAsync();
+        return new PortableLibraryState(
+            faces,
+            people,
+            rejections,
+            hiddenFaceIds,
+            images);
+    }
+
+    private async Task PersistImagesAsync(
+        PortableLibraryState state,
+        IReadOnlyCollection<long> imageIds,
+        CancellationToken cancellationToken)
+    {
+        var writes = new List<(string ImagePath, PhotoFaceMetadata Metadata)>();
+        foreach (var imageId in imageIds.Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var image = state.Images.GetValueOrDefault(imageId)
+                ?? throw new InvalidOperationException(
+                    "The photo for one or more selected faces no longer exists.");
+            var metadata = new PhotoFaceMetadata(
+                image.Width,
+                image.Height,
+                state.Faces.Values
+                    .Where(face => face.Region.ImageId == imageId)
+                    .OrderBy(face => face.Region.Id)
+                    .Select(face => new PortableFaceMetadata(
+                        face.Region.Id,
+                        face.Region.X,
+                        face.Region.Y,
+                        face.Region.Width,
+                        face.Region.Height,
+                        face.Region.PersonName,
+                        face.SuggestionsHidden,
+                        face.Region.PersonId is long personId &&
+                        state.People.TryGetValue(personId, out var person) &&
+                        person.SuggestionsHidden,
+                        face.RejectedPersonNames
+                            .Order(StringComparer.OrdinalIgnoreCase)
+                            .ToArray()))
+                    .ToList());
+            writes.Add((image.FilePath, metadata));
+        }
+        await _faceMetadataStore.WriteBatchAsync(writes, cancellationToken);
+    }
+
     private async Task<IReadOnlyList<Person>> GetPeopleCoreAsync() =>
         await _faceRepository.GetAllPersonsAsync();
+
+    private sealed class PortableLibraryState
+    {
+        public PortableLibraryState(
+            IReadOnlyCollection<FaceRegion> faces,
+            IReadOnlyCollection<Person> people,
+            IReadOnlyDictionary<long, HashSet<long>> rejections,
+            IReadOnlySet<long> hiddenFaceIds,
+            IReadOnlyCollection<ImageEntry> images)
+        {
+            People = people.ToDictionary(
+                person => person.Id,
+                person => new Person
+                {
+                    Id = person.Id,
+                    Name = person.Name,
+                    ThumbnailData = person.ThumbnailData,
+                    RepresentativeFaceRegionId =
+                        person.RepresentativeFaceRegionId,
+                    FaceCount = person.FaceCount,
+                    SuggestionsHidden = person.SuggestionsHidden
+                });
+            Images = images.ToDictionary(image => image.Id);
+            Faces = faces.ToDictionary(
+                face => face.Id,
+                face => new ProjectedFace(
+                    new FaceRegion
+                    {
+                        Id = face.Id,
+                        ImageId = face.ImageId,
+                        X = face.X,
+                        Y = face.Y,
+                        Width = face.Width,
+                        Height = face.Height,
+                        PersonId = face.PersonId,
+                        PersonName = face.PersonName,
+                        Confidence = face.Confidence
+                    },
+                    hiddenFaceIds.Contains(face.Id),
+                    rejections.GetValueOrDefault(face.Id)?
+                        .Where(People.ContainsKey)
+                        .Select(personId => People[personId].Name)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase) ??
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+        }
+
+        public Dictionary<long, ProjectedFace> Faces { get; }
+        public Dictionary<long, Person> People { get; }
+        public Dictionary<long, ImageEntry> Images { get; }
+
+        public Person GetPerson(long personId) =>
+            People.GetValueOrDefault(personId)
+            ?? throw new InvalidOperationException(
+                "The selected person no longer exists.");
+
+        public HashSet<long> AssignFaces(
+            IReadOnlyCollection<long> faceIds,
+            long? personId,
+            string personName)
+        {
+            if (personId.HasValue) GetPerson(personId.Value);
+            var selected = GetFaces(faceIds);
+            foreach (var face in selected)
+            {
+                face.Region.PersonId = personId;
+                face.Region.PersonName = personName;
+                face.SuggestionsHidden = false;
+                face.RejectedPersonNames.Clear();
+            }
+            return selected.Select(face => face.Region.ImageId).ToHashSet();
+        }
+
+        public HashSet<long> RejectFaces(
+            IReadOnlyCollection<long> faceIds,
+            string personName)
+        {
+            var selected = GetFaces(faceIds);
+            foreach (var face in selected)
+            {
+                face.RejectedPersonNames.Add(personName);
+            }
+            return selected.Select(face => face.Region.ImageId).ToHashSet();
+        }
+
+        public HashSet<long> SetFacesHidden(
+            IReadOnlyCollection<long> faceIds,
+            bool hidden)
+        {
+            var selected = GetFaces(faceIds);
+            foreach (var face in selected)
+            {
+                face.SuggestionsHidden = hidden;
+            }
+            return selected.Select(face => face.Region.ImageId).ToHashSet();
+        }
+
+        public HashSet<long> SetPersonHidden(long personId, bool hidden)
+        {
+            var person = GetPerson(personId);
+            person.SuggestionsHidden = hidden;
+            return Faces.Values
+                .Where(face => face.Region.PersonId == personId)
+                .Select(face => face.Region.ImageId)
+                .ToHashSet();
+        }
+
+        public HashSet<long> RenamePerson(long personId, string newName)
+        {
+            var person = GetPerson(personId);
+            if (People.Values.Any(candidate =>
+                    candidate.Id != personId &&
+                    string.Equals(
+                        candidate.Name,
+                        newName,
+                        StringComparison.CurrentCultureIgnoreCase)))
+            {
+                throw new InvalidOperationException(
+                    $"A person named {newName} already exists. Merge the people instead.");
+            }
+
+            var oldName = person.Name;
+            person.Name = newName;
+            var affected = new HashSet<long>();
+            foreach (var face in Faces.Values)
+            {
+                if (face.Region.PersonId == personId)
+                {
+                    face.Region.PersonName = newName;
+                    affected.Add(face.Region.ImageId);
+                }
+                if (face.RejectedPersonNames.Remove(oldName))
+                {
+                    face.RejectedPersonNames.Add(newName);
+                    affected.Add(face.Region.ImageId);
+                }
+            }
+            return affected;
+        }
+
+        public HashSet<long> MergePeople(
+            long sourcePersonId,
+            long targetPersonId)
+        {
+            if (sourcePersonId == targetPersonId)
+            {
+                throw new ArgumentException(
+                    "Choose a different person to merge into.");
+            }
+
+            var source = GetPerson(sourcePersonId);
+            var target = GetPerson(targetPersonId);
+            var affected = new HashSet<long>();
+            foreach (var face in Faces.Values)
+            {
+                if (face.Region.PersonId == sourcePersonId)
+                {
+                    face.Region.PersonId = targetPersonId;
+                    face.Region.PersonName = target.Name;
+                    face.SuggestionsHidden = false;
+                    face.RejectedPersonNames.Clear();
+                    affected.Add(face.Region.ImageId);
+                    continue;
+                }
+
+                if (face.RejectedPersonNames.Remove(source.Name))
+                {
+                    face.RejectedPersonNames.Add(target.Name);
+                    affected.Add(face.Region.ImageId);
+                }
+            }
+            People.Remove(sourcePersonId);
+            return affected;
+        }
+
+        public HashSet<long> UnassignFaces(
+            IReadOnlyCollection<long> faceIds)
+        {
+            var selected = GetFaces(faceIds);
+            foreach (var face in selected)
+            {
+                if (!face.Region.PersonId.HasValue)
+                {
+                    throw new InvalidOperationException(
+                        "One or more selected faces are no longer assigned.");
+                }
+                face.Region.PersonId = null;
+                face.Region.PersonName = null;
+                face.SuggestionsHidden = false;
+                face.RejectedPersonNames.Clear();
+            }
+            return selected.Select(face => face.Region.ImageId).ToHashSet();
+        }
+
+        public HashSet<long> DeletePerson(long personId)
+        {
+            var person = GetPerson(personId);
+            var affected = new HashSet<long>();
+            foreach (var face in Faces.Values)
+            {
+                if (face.Region.PersonId == personId)
+                {
+                    face.Region.PersonId = null;
+                    face.Region.PersonName = null;
+                    face.SuggestionsHidden = false;
+                    face.RejectedPersonNames.Clear();
+                    affected.Add(face.Region.ImageId);
+                    continue;
+                }
+                if (face.RejectedPersonNames.Remove(person.Name))
+                {
+                    affected.Add(face.Region.ImageId);
+                }
+            }
+            People.Remove(personId);
+            return affected;
+        }
+
+        public HashSet<long> Restore(
+            IReadOnlyCollection<FaceTagState> states)
+        {
+            var affected = new HashSet<long>();
+            foreach (var previous in states)
+            {
+                var face = GetFace(previous.FaceRegionId);
+                face.Region.PersonId = previous.PersonId;
+                face.Region.PersonName = previous.PersonName;
+                face.SuggestionsHidden = previous.SuggestionsHidden;
+                face.RejectedPersonNames.Clear();
+                foreach (var personId in previous.RejectedPersonIds)
+                {
+                    face.RejectedPersonNames.Add(GetPerson(personId).Name);
+                }
+                affected.Add(face.Region.ImageId);
+            }
+            return affected;
+        }
+
+        private List<ProjectedFace> GetFaces(
+            IReadOnlyCollection<long> faceIds)
+        {
+            var ids = faceIds.Distinct().ToList();
+            var selected = ids
+                .Where(Faces.ContainsKey)
+                .Select(faceId => Faces[faceId])
+                .ToList();
+            if (selected.Count != ids.Count)
+            {
+                throw new InvalidOperationException(
+                    "One or more selected face suggestions no longer exist.");
+            }
+            return selected;
+        }
+
+        private ProjectedFace GetFace(long faceId) =>
+            Faces.GetValueOrDefault(faceId)
+            ?? throw new InvalidOperationException(
+                "One or more selected face suggestions no longer exist.");
+    }
+
+    private sealed record ProjectedFace(
+        FaceRegion Region,
+        bool InitialSuggestionsHidden,
+        HashSet<string> RejectedPersonNames)
+    {
+        public bool SuggestionsHidden { get; set; } =
+            InitialSuggestionsHidden;
+    }
 
     private static void AddGroup(
         ICollection<FaceSuggestionGroup> groups,

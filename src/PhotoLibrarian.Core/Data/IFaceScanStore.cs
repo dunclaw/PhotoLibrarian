@@ -8,6 +8,9 @@ public interface IFaceScanStore
         string scanVersion,
         CancellationToken cancellationToken = default);
 
+    Task<List<FaceRegion>> GetFacesForImageAsync(long imageId) =>
+        Task.FromResult<List<FaceRegion>>([]);
+
     Task<bool> TryReplaceFaceRegionsAsync(
         long imageId,
         long expectedFileSize,

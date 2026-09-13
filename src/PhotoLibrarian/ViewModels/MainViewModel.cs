@@ -159,6 +159,9 @@ public partial class MainViewModel : ObservableObject
         StartBackgroundIndexing();
         StartBackgroundFaceDetection();
     }
+
+    public Task EnsureFaceMetadataPersistedAsync() =>
+        _indexingService.ExportPendingFaceMetadataAsync();
     
     [RelayCommand]
     public async Task RunBenchmarkAsync()

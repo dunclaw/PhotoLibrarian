@@ -92,6 +92,43 @@ public sealed class FaceLibraryProcessorTests
         Assert.Contains("will be retried", progress.Error);
     }
 
+    [Fact]
+    public async Task ProcessLibraryAsync_EmbedsMetadataManagedFaceWhenDetectorMissesIt()
+    {
+        var image = CreateImage(1);
+        var importedFace = new FaceRegion
+        {
+            Id = 10,
+            ImageId = image.Id,
+            X = 0.2,
+            Y = 0.3,
+            Width = 0.25,
+            Height = 0.35,
+            PersonId = 7,
+            PersonName = "Alex",
+            IsMetadataManaged = true
+        };
+        var store = new FakeStore([image]);
+        store.ExistingFaces[image.Id] = [importedFace];
+        var processor = new FaceLibraryProcessor(
+            store,
+            new FakeModelProvider(),
+            new FakeDetector([]),
+            new FakeEmbedder([[0.6f, 0.8f]]));
+
+        var result = await processor.ProcessLibraryAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(new FaceProcessingResult(1, 0, 1), result);
+        var saved = Assert.Single(Assert.Single(store.Saved).Faces);
+        Assert.Equal("Alex", saved.PersonName);
+        Assert.Equal(7, saved.PersonId);
+        Assert.True(saved.IsMetadataManaged);
+        Assert.Equal(importedFace.X, saved.X);
+        Assert.NotNull(saved.Embedding);
+        Assert.Equal([0.6f, 0.8f], saved.Embedding);
+    }
+
     private static ImageEntry CreateImage(long id) => new()
     {
         Id = id,
@@ -121,12 +158,17 @@ public sealed class FaceLibraryProcessorTests
     private sealed class FakeStore(List<ImageEntry> pending) : IFaceScanStore
     {
         public List<(long ImageId, IReadOnlyCollection<FaceRegion> Faces, string ScanVersion)> Saved { get; } = [];
+        public Dictionary<long, List<FaceRegion>> ExistingFaces { get; } = [];
         public bool AcceptSave { get; init; } = true;
 
         public Task<List<ImageEntry>> GetImagesNeedingFaceScanAsync(
             string scanVersion,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(pending);
+
+        public Task<List<FaceRegion>> GetFacesForImageAsync(long imageId) =>
+            Task.FromResult(
+                ExistingFaces.GetValueOrDefault(imageId) ?? []);
 
         public Task<bool> TryReplaceFaceRegionsAsync(
             long imageId,

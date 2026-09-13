@@ -75,6 +75,10 @@ public sealed partial class ManageFoldersDialog : ContentDialog
         try
         {
             ClearDatabaseBtn.IsEnabled = false;
+            if (App.ViewModel is not null)
+            {
+                await App.ViewModel.EnsureFaceMetadataPersistedAsync();
+            }
 
             // Get database path
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

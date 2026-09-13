@@ -260,6 +260,11 @@ public static class CropMetadataRemapper
         xmp.SetStructField(MwgRs, dimensionsPath, StDim, "w", crop.Width.ToString(CultureInfo.InvariantCulture));
         xmp.SetStructField(MwgRs, dimensionsPath, StDim, "h", crop.Height.ToString(CultureInfo.InvariantCulture));
         xmp.SetStructField(MwgRs, dimensionsPath, StDim, "unit", "pixel");
+        FaceMetadataStore.RemapReviewMetadata(
+            xmp,
+            sourceWidth,
+            sourceHeight,
+            crop);
         return true;
     }
 
