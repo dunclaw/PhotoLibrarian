@@ -44,6 +44,12 @@ public sealed class ImageRepository
                       OR images.date_modified <> excluded.date_modified
                     THEN NULL
                     ELSE images.face_scan_version
+                END,
+                auto_tag_scan_version=CASE
+                    WHEN images.file_size <> excluded.file_size
+                      OR images.date_modified <> excluded.date_modified
+                    THEN NULL
+                    ELSE images.auto_tag_scan_version
                 END
             RETURNING id;
             """;
@@ -253,7 +259,8 @@ public sealed class ImageRepository
                 file_size = $size,
                 date_modified = $dateModified,
                 orientation = 1,
-                face_scan_version = CASE WHEN $invalidateFaceScan THEN NULL ELSE face_scan_version END
+                face_scan_version = CASE WHEN $invalidateFaceScan THEN NULL ELSE face_scan_version END,
+                auto_tag_scan_version = NULL
             WHERE id = $id
             """;
         cmd.Parameters.AddWithValue("$id", imageId);
@@ -293,6 +300,7 @@ public sealed class ImageRepository
             DateModified = ParseStoredDateTime(reader.GetString(reader.GetOrdinal("date_modified"))),
             DateIndexed = ParseStoredDateTime(reader.GetString(reader.GetOrdinal("date_indexed"))),
             FaceScanVersion = ReadNullableString(reader, "face_scan_version"),
+            AutoTagScanVersion = ReadNullableString(reader, "auto_tag_scan_version"),
             FaceMetadataImported = ReadBoolean(reader, "face_metadata_imported"),
             FaceSidecarPath = ReadNullableString(reader, "face_sidecar_path"),
             FaceSidecarSize = ReadNullableInt64(reader, "face_sidecar_size"),

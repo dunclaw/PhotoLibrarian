@@ -20,5 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\PhotoLibrarian.Core\PhotoLibrarian.Core.csproj" />
     <ProjectReference Include="..\PhotoLibrarian.ML\PhotoLibrarian.ML.csproj" />
+    <ProjectReference Include="..\..\tools\PhotoLibrarian.ModelBench\PhotoLibrarian.ModelBench.csproj" />
   </ItemGroup>
 </Project>

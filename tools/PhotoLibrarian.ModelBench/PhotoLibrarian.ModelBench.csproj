@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PhotoLibrarian.ModelBench</RootNamespace>
+    <Platforms>x64;ARM64;x86</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhotoLibrarian.Tests" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
+    <ProjectReference Include="..\..\src\PhotoLibrarian.Inference\PhotoLibrarian.Inference.csproj" />
+  </ItemGroup>
+
+</Project>

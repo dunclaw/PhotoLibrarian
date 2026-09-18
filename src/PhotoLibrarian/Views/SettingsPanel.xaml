@@ -2,33 +2,330 @@
     x:Class="PhotoLibrarian.Views.SettingsPanel"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.KeyboardAccelerators>
+        <KeyboardAccelerator Key="B"
+                             Modifiers="Control,Shift"
+                             Invoked="OnToggleBenchmark" />
+    </UserControl.KeyboardAccelerators>
 
-    <Grid Padding="24" MaxWidth="600">
-        <StackPanel Spacing="16">
-            <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
+    <Grid MaxWidth="760">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-            <!-- Cache info -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Thumbnail Cache" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <TextBlock x:Name="CacheSizeText" Text="Cache size: calculating…"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBlock x:Name="CachePathText" TextWrapping="Wrap" FontSize="11"
-                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                           IsTextSelectionEnabled="True" />
-                <Button Content="Rebuild Cache" Click="OnRebuildCache" Margin="0,4,0,0" />
+        <TextBlock Grid.Row="0"
+                   Margin="24,24,24,16"
+                   Style="{StaticResource TitleTextBlockStyle}"
+                   Text="Settings" />
+
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto">
+            <StackPanel Padding="24,0,24,16"
+                        Spacing="16">
+
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}"
+                               Text="Automatic content tags" />
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Models run locally while the app is idle. Automatic tagging stays off until you explicitly trust the selected profile."
+                               TextWrapping="Wrap" />
+
+                    <ToggleSwitch x:Name="AutoTaggingToggle"
+                                  AutomationProperties.AutomationId="AutoTaggingToggle"
+                                  AutomationProperties.Name="Automatically tag photos"
+                                  Header="Automatically tag photos"
+                                  Toggled="OnAutoTaggingToggled" />
+
+                    <ComboBox x:Name="ModelProfileCombo"
+                              AutomationProperties.AutomationId="ModelProfileCombo"
+                              AutomationProperties.Name="Automatic tagging model profile"
+                              DisplayMemberPath="DisplayName"
+                              Header="Model profile"
+                              HorizontalAlignment="Stretch"
+                              SelectionChanged="OnModelProfileChanged" />
+
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       Text="Purpose" />
+                            <TextBlock x:Name="ModelPurposeText"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       Text="Profile status" />
+                            <TextBlock x:Name="ModelSizeText"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock x:Name="ModelDownloadStatusText"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock x:Name="QualityStatusText"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock x:Name="TinyClipLimitationsText"
+                               AutomationProperties.AutomationId="TinyClipLimitationsText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="TinyCLIP uses a small image encoder and precomputed general-photo vocabulary embeddings. It runs on CPU to match the provisional calibration. Results vary by library; review generated tags after enabling."
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed" />
+
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Text="Tagging behavior" />
+                    <TextBlock x:Name="TaggingBehaviorHelpText"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Text="Changing either value clears trust. Review and trust the profile again to enable automatic tagging."
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="CalibratedThresholdsText"
+                               AutomationProperties.AutomationId="CalibratedThresholdsText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Move toward Open for more suggestions, or Conservative for fewer, stronger matches. The default balances coverage with previously reviewed predictions."
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed" />
+                    <TextBlock x:Name="BinaryDetectionThresholdsText"
+                               AutomationProperties.AutomationId="BinaryDetectionThresholdsText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="The exported model returns detected/not-detected tags, not calibrated confidence scores. Its detection cutoffs are baked into the model; there is no adjustable confidence threshold for this profile."
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed" />
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <NumberBox x:Name="MaximumTagsNumberBox"
+                                   AutomationProperties.AutomationId="MaximumTagsNumberBox"
+                                   AutomationProperties.Name="Maximum automatic tags per photo"
+                                   Grid.Column="0"
+                                   Header="Maximum tags per photo"
+                                   Minimum="1"
+                                   Maximum="5"
+                                   SmallChange="1"
+                                   SpinButtonPlacementMode="Inline"
+                                   ValueChanged="OnMaximumTagsChanged" />
+                        <NumberBox x:Name="ConfidenceNumberBox"
+                                   AutomationProperties.AutomationId="ConfidenceNumberBox"
+                                   AutomationProperties.Name="Minimum confidence percentage"
+                                   Grid.Column="1"
+                                   Header="Minimum confidence (%)"
+                                   Minimum="1"
+                                   Maximum="100"
+                                   SmallChange="0.5"
+                                   ValidationMode="InvalidInputOverwritten"
+                                   SpinButtonPlacementMode="Inline"
+                                   ValueChanged="OnConfidenceChanged" />
+                        <StackPanel x:Name="TinyClipOpennessPanel"
+                                    Grid.Column="1"
+                                    Spacing="4"
+                                    Visibility="Collapsed">
+                            <TextBlock Text="Suggestion level" />
+                            <Slider x:Name="TinyClipOpennessSlider"
+                                    AutomationProperties.AutomationId="TinyClipOpennessSlider"
+                                    AutomationProperties.Name="TinyCLIP suggestion level from conservative to open"
+                                    Minimum="0"
+                                    Maximum="100"
+                                    StepFrequency="5"
+                                    ValueChanged="OnTinyClipOpennessChanged" />
+                            <Grid>
+                                <TextBlock HorizontalAlignment="Left"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Text="Conservative" />
+                                <TextBlock HorizontalAlignment="Right"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Text="Open" />
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Button x:Name="ApproveProfileButton"
+                            AutomationProperties.AutomationId="ApproveProfileButton"
+                            HorizontalAlignment="Left"
+                            Content="Trust and enable selected profile"
+                            Click="OnApproveProfile" />
+
+                    <ProgressBar x:Name="AutoTaggingProgress"
+                                 AutomationProperties.Name="Automatic tagging progress"
+                                 Maximum="100"
+                                 Visibility="Collapsed" />
+                    <TextBlock x:Name="AutoTaggingStatusText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               TextWrapping="Wrap" />
+                    <Button x:Name="RemoveAutoTagsButton"
+                            AutomationProperties.AutomationId="RemoveAutoTagsButton"
+                            HorizontalAlignment="Left"
+                            Content="Remove all automatic tags"
+                            Click="OnRemoveAutoTags" />
+                </StackPanel>
+
+                <Border Height="1"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}"
+                               Text="Model storage" />
+                    <TextBlock x:Name="ModelDirectoryText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               IsTextSelectionEnabled="True"
+                               TextWrapping="Wrap" />
+                    <InfoBar x:Name="ModelImportInfoBar"
+                             AutomationProperties.AutomationId="ModelImportInfoBar"
+                             IsClosable="False"
+                             IsOpen="False"
+                             Severity="Informational"
+                             Title="Local model assets"
+                             Visibility="Collapsed" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <HyperlinkButton x:Name="ModelSetupLink"
+                                         AutomationProperties.AutomationId="ModelSetupLink"
+                                         Content="Get compatible model files and setup instructions" />
+                        <HyperlinkButton x:Name="ModelSourceLink"
+                                         AutomationProperties.AutomationId="ModelSourceLink"
+                                         Content="Model source and license" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="ImportModelAssetsButton"
+                                AutomationProperties.AutomationId="ImportModelAssetsButton"
+                                Content="Import model assets"
+                                Click="OnImportModelAssets"
+                                Visibility="Collapsed" />
+                        <ProgressRing x:Name="ModelImportProgressRing"
+                                      AutomationProperties.Name="Model asset import in progress"
+                                      Width="20"
+                                      Height="20"
+                                      IsActive="False"
+                                      Visibility="Collapsed" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button AutomationProperties.AutomationId="ChooseModelDirectoryButton"
+                                Content="Choose folder"
+                                Click="OnChooseModelDirectory" />
+                        <Button AutomationProperties.AutomationId="ResetModelDirectoryButton"
+                                Content="Use default"
+                                Click="OnResetModelDirectory" />
+                    </StackPanel>
+                    <TextBlock Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Text="Changing location creates and uses the new folder. Files in the previous location are never deleted automatically."
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="DeleteSelectedModelButton"
+                                AutomationProperties.AutomationId="DeleteSelectedModelButton"
+                                Content="Delete selected model"
+                                Click="OnDeleteSelectedModel" />
+                        <Button x:Name="DeleteAllModelsButton"
+                                AutomationProperties.AutomationId="DeleteAllModelsButton"
+                                Content="Delete all model assets"
+                                Click="OnDeleteAllModels" />
+                    </StackPanel>
+                </StackPanel>
+
+                <Border x:Name="BenchmarkDivider"
+                        Height="1"
+                        Visibility="Collapsed"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <StackPanel x:Name="BenchmarkSection"
+                            AutomationProperties.AutomationId="BenchmarkSection"
+                            Spacing="8"
+                            Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}"
+                               Text="Quality benchmark" />
+                    <TextBlock Text="Choose a representative folder. Up to 50 supported images are evaluated without writing generated tags to your library."
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="BenchmarkScoreHelpText"
+                               AutomationProperties.AutomationId="BenchmarkScoreHelpText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Sample scores are decimal cosine similarities, not confidence percentages or probabilities. Review the suggested tags; a higher score alone does not establish correctness."
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed" />
+                    <TextBlock x:Name="BinaryDetectionScoreHelpText"
+                               AutomationProperties.AutomationId="BinaryDetectionScoreHelpText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Samples marked '(detected)' passed the exported model's baked-in detection cutoffs. This is a binary detection, not a confidence percentage or guarantee of correctness. Review the suggested tags before approving."
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed" />
+                    <Button x:Name="RunBenchmarkButton"
+                            AutomationProperties.AutomationId="RunBenchmarkButton"
+                            HorizontalAlignment="Left"
+                            Content="Choose folder and run benchmark"
+                            Click="OnRunBenchmark" />
+                    <ProgressRing x:Name="BenchmarkProgressRing"
+                                  AutomationProperties.Name="Model benchmark in progress"
+                                  HorizontalAlignment="Left"
+                                  IsActive="False"
+                                  Visibility="Collapsed" />
+                    <TextBlock x:Name="BenchmarkFolderText"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               IsTextSelectionEnabled="True"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="BenchmarkSummaryText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <ItemsControl x:Name="BenchmarkResultsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Margin="0,0,0,4"
+                                           Text="{x:Bind Mode=OneTime}"
+                                           TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <Border Height="1"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <StackPanel Spacing="4">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Text="Thumbnail cache" />
+                    <TextBlock x:Name="CacheSizeText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Cache size: calculating…" />
+                    <TextBlock x:Name="CachePathText"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               IsTextSelectionEnabled="True"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               TextWrapping="Wrap" />
+                    <Button AutomationProperties.AutomationId="RebuildCacheButton"
+                            HorizontalAlignment="Left"
+                            Content="Rebuild cache"
+                            Click="OnRebuildCache" />
+                </StackPanel>
+
+                <Border Height="1"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <StackPanel Spacing="4">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Text="About" />
+                    <TextBlock Text="PhotoLibrarian v0.1.0" />
+                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="A local-first photo management app." />
+                </StackPanel>
+
             </StackPanel>
+        </ScrollViewer>
 
-            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-
-            <!-- About -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="About" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <TextBlock Text="PhotoLibrarian v0.1.0" />
-                <TextBlock Text="A local-first photo management app."
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-
-            <Button Content="Close" Click="OnClose" HorizontalAlignment="Right" />
-        </StackPanel>
+        <Border Grid.Row="2"
+                Padding="24,12"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0">
+            <Button AutomationProperties.AutomationId="CloseSettingsButton"
+                    HorizontalAlignment="Right"
+                    Content="Close"
+                    Click="OnClose" />
+        </Border>
     </Grid>
 </UserControl>

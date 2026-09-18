@@ -6,7 +6,7 @@
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     Title="PhotoLibrarian">
 
-    <Grid>
+    <Grid x:Name="AppRoot">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -68,10 +68,10 @@
             <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1"
-                    CornerRadius="8"
-                    MaxWidth="700"
-                    Margin="40"
-                    VerticalAlignment="Center"
+                    CornerRadius="{ThemeResource OverlayCornerRadius}"
+                    MaxWidth="760"
+                    Margin="24"
+                    VerticalAlignment="Stretch"
                     HorizontalAlignment="Center">
                 <views:SettingsPanel x:Name="SettingsPanel" />
             </Border>

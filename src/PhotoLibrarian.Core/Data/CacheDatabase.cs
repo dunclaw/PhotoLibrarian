@@ -86,6 +86,7 @@ public sealed class CacheDatabase : IDisposable
                 video_duration  REAL,
                 is_flagged      INTEGER NOT NULL DEFAULT 0,
                 face_scan_version TEXT,
+                auto_tag_scan_version TEXT,
                 face_metadata_imported INTEGER NOT NULL DEFAULT 0,
                 face_sidecar_path TEXT,
                 face_sidecar_size INTEGER,
@@ -171,6 +172,7 @@ public sealed class CacheDatabase : IDisposable
     {
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "auto_tag_scan_version", "TEXT");
         await AddColumnIfMissingAsync(
             conn,
             "images",
@@ -233,6 +235,7 @@ public sealed class CacheDatabase : IDisposable
             END;
             CREATE INDEX IF NOT EXISTS idx_images_is_flagged ON images(is_flagged);
             CREATE INDEX IF NOT EXISTS idx_images_face_scan_version ON images(face_scan_version);
+            CREATE INDEX IF NOT EXISTS idx_images_auto_tag_scan_version ON images(auto_tag_scan_version);
             """;
         await indexCmd.ExecuteNonQueryAsync();
     }

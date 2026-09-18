@@ -79,7 +79,10 @@ public sealed class FaceReviewServiceTests
             $"PhotoLibrarian-{Guid.NewGuid():N}.png");
         try
         {
-            using (var source = new Image<Rgba32>(100, 80, Color.CornflowerBlue))
+            using (var source = new Image<Rgba32>(
+                100,
+                80,
+                new Rgba32(100, 149, 237)))
             {
                 await source.SaveAsPngAsync(imagePath, TestContext.Current.CancellationToken);
             }
@@ -114,7 +117,10 @@ public sealed class FaceReviewServiceTests
             $"PhotoLibrarian-{Guid.NewGuid():N}.cr3");
         try
         {
-            using (var source = new Image<Rgba32>(100, 80, Color.CornflowerBlue))
+            using (var source = new Image<Rgba32>(
+                100,
+                80,
+                new Rgba32(100, 149, 237)))
             {
                 await source.SaveAsPngAsync(imagePath, TestContext.Current.CancellationToken);
             }

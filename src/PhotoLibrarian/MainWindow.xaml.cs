@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
@@ -23,6 +24,9 @@ public sealed partial class MainWindow : Window
         await FolderNavPanel.RefreshMetadataTreesAsync();
     }
 
+    public Task RefreshTagsTreeAsync() =>
+        FolderNavPanel.RefreshTagsTreeAsync();
+
     /// <summary>Repaints the left-panel "Flagged" node (count changes after flag edits).</summary>
     public void RefreshFlagTree()
     {
@@ -32,6 +36,22 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         this.InitializeComponent();
+        AppRoot.AddHandler(
+            UIElement.PointerMovedEvent,
+            new PointerEventHandler(OnUserPointerActivity),
+            true);
+        AppRoot.AddHandler(
+            UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnUserPointerActivity),
+            true);
+        AppRoot.AddHandler(
+            UIElement.PointerWheelChangedEvent,
+            new PointerEventHandler(OnUserPointerActivity),
+            true);
+        AppRoot.AddHandler(
+            UIElement.KeyDownEvent,
+            new KeyEventHandler(OnUserKeyActivity),
+            true);
 
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(1600, 900));
@@ -88,6 +108,8 @@ public sealed partial class MainWindow : Window
             UpdateBackgroundProgress();
             UpdateFaceDetectionButton();
         }
+        if (e.PropertyName == nameof(ViewModel.IsAutoTaggingRunning))
+            UpdateBackgroundProgress();
         if (e.PropertyName is nameof(ViewModel.ImageViewer))
             UpdateViewerVisibility();
         if (e.PropertyName is nameof(ViewModel.Settings))
@@ -125,8 +147,21 @@ public sealed partial class MainWindow : Window
 
     private void UpdateBackgroundProgress()
     {
-        IndexingProgress.IsActive = ViewModel.IsIndexing || ViewModel.IsFaceDetectionRunning;
+        IndexingProgress.IsActive =
+            ViewModel.IsIndexing ||
+            ViewModel.IsFaceDetectionRunning ||
+            ViewModel.IsAutoTaggingRunning;
     }
+
+    private void OnUserPointerActivity(
+        object sender,
+        PointerRoutedEventArgs e) =>
+        ViewModel.NotifyUserActivity();
+
+    private void OnUserKeyActivity(
+        object sender,
+        KeyRoutedEventArgs e) =>
+        ViewModel.NotifyUserActivity();
 
     private void UpdateFaceDetectionButton()
     {

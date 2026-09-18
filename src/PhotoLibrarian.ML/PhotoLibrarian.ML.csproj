@@ -10,5 +10,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PhotoLibrarian.Core\PhotoLibrarian.Core.csproj" />
+    <ProjectReference Include="..\PhotoLibrarian.Inference\PhotoLibrarian.Inference.csproj" />
+    <EmbeddedResource Include="Assets\tinyclip-calibration-general-v2-coverage.json" />
+    <EmbeddedResource Include="Assets\auto-tag-hierarchy-v3.json" />
+    <EmbeddedResource Include="Assets\general-photo-profile-v2.json" />
   </ItemGroup>
 </Project>

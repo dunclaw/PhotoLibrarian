@@ -6,7 +6,7 @@ namespace PhotoLibrarian.Core.Data;
 /// <summary>
 /// Repository for tag CRUD operations against the SQLite cache.
 /// </summary>
-public sealed class TagRepository
+public sealed class TagRepository : IAutoTagStore
 {
     private readonly CacheDatabase _db;
 
@@ -19,28 +19,8 @@ public sealed class TagRepository
     {
         using var conn = _db.CreateConnection();
         
-        // For hierarchical tags like "people/family/kids", insert all parent paths too
-        // This allows efficient index-based queries for parent tags
-        var tagsToInsert = new List<string>();
-        
-        if (tag.Tag.Contains('/'))
-        {
-            var parts = tag.Tag.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            string currentPath = "";
-            
-            foreach (var part in parts)
-            {
-                currentPath = string.IsNullOrEmpty(currentPath) ? part : $"{currentPath}/{part}";
-                tagsToInsert.Add(currentPath);
-            }
-        }
-        else
-        {
-            tagsToInsert.Add(tag.Tag);
-        }
-        
         // Insert all tag paths (including parents)
-        foreach (var tagPath in tagsToInsert)
+        foreach (var tagPath in GetTagPaths(tag.Tag))
         {
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
@@ -52,6 +32,22 @@ public sealed class TagRepository
             cmd.Parameters.AddWithValue("$source", (int)tag.Source);
             cmd.Parameters.AddWithValue("$conf", tag.Confidence);
             await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static IEnumerable<string> GetTagPaths(string tag)
+    {
+        if (!tag.Contains('/'))
+        {
+            yield return tag;
+            yield break;
+        }
+
+        var currentPath = "";
+        foreach (var part in tag.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            currentPath = currentPath.Length == 0 ? part : $"{currentPath}/{part}";
+            yield return currentPath;
         }
     }
 
@@ -150,6 +146,170 @@ public sealed class TagRepository
         return results;
     }
 
+    public async Task<List<ImageEntry>> GetImagesNeedingAutoTagsAsync(
+        string scanVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT *
+            FROM images
+            WHERE media_type = $imageMediaType
+              AND COALESCE(auto_tag_scan_version, '') <> $scanVersion
+            ORDER BY date_taken DESC
+            """;
+        cmd.Parameters.AddWithValue("$imageMediaType", (int)MediaType.Image);
+        cmd.Parameters.AddWithValue("$scanVersion", scanVersion);
+
+        var results = new List<ImageEntry>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add(ImageRepository.ReadImageEntry(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> TryReplaceAutoTagsAsync(
+        ImageEntry expectedImage,
+        IReadOnlyCollection<GeneratedImageTag> tags,
+        string scanVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+
+        using (var mark = conn.CreateCommand())
+        {
+            mark.Transaction = transaction;
+            mark.CommandText = """
+                UPDATE images
+                SET auto_tag_scan_version = $scanVersion
+                WHERE id = $id
+                  AND file_size = $fileSize
+                  AND date_modified = $dateModified
+                """;
+            mark.Parameters.AddWithValue("$scanVersion", scanVersion);
+            mark.Parameters.AddWithValue("$id", expectedImage.Id);
+            mark.Parameters.AddWithValue("$fileSize", expectedImage.FileSize);
+            mark.Parameters.AddWithValue(
+                "$dateModified",
+                expectedImage.DateModified.ToString("O"));
+            if (await mark.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                transaction.Rollback();
+                return false;
+            }
+        }
+
+        using (var delete = conn.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = """
+                DELETE FROM tags
+                WHERE image_id = $id AND source = $source
+                """;
+            delete.Parameters.AddWithValue("$id", expectedImage.Id);
+            delete.Parameters.AddWithValue("$source", (int)TagSource.AutoML);
+            await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var normalizedTags = tags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Tag))
+            .Select(tag => new GeneratedImageTag(
+                tag.Tag.Trim().Trim('/'),
+                Math.Clamp(tag.Confidence, 0, 1)))
+            .Where(tag => tag.Tag.Length > 0)
+            .SelectMany(tag => GetTagPaths($"{ImageTag.AutomaticRootTag}/{tag.Tag}")
+                .Select(path => new GeneratedImageTag(path, tag.Confidence)))
+            .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.MaxBy(tag => tag.Confidence)!)
+            .ToList();
+
+        foreach (var tag in normalizedTags)
+        {
+            await InsertAutoTagAsync(
+                conn,
+                transaction,
+                expectedImage.Id,
+                tag.Tag,
+                tag.Confidence,
+                cancellationToken);
+        }
+
+        transaction.Commit();
+        return true;
+    }
+
+    public async Task<AutoTagRemovalResult> RemoveAllAutoTagsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+        int photoCount;
+
+        using (var count = conn.CreateCommand())
+        {
+            count.Transaction = transaction;
+            count.CommandText = """
+                SELECT COUNT(DISTINCT image_id)
+                FROM tags
+                WHERE source = $source
+                """;
+            count.Parameters.AddWithValue("$source", (int)TagSource.AutoML);
+            photoCount = Convert.ToInt32(
+                await count.ExecuteScalarAsync(cancellationToken));
+        }
+
+        int tagCount;
+        using (var delete = conn.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM tags WHERE source = $source";
+            delete.Parameters.AddWithValue("$source", (int)TagSource.AutoML);
+            tagCount = await delete.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        using (var reset = conn.CreateCommand())
+        {
+            reset.Transaction = transaction;
+            reset.CommandText = """
+                UPDATE images
+                SET auto_tag_scan_version = NULL
+                WHERE auto_tag_scan_version IS NOT NULL
+                """;
+            await reset.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        transaction.Commit();
+        return new AutoTagRemovalResult(tagCount, photoCount);
+    }
+
+    private static async Task InsertAutoTagAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long imageId,
+        string tag,
+        float confidence,
+        CancellationToken cancellationToken)
+    {
+        using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO tags (image_id, tag, source, confidence)
+            VALUES ($id, $tag, $source, $confidence)
+            ON CONFLICT(image_id, tag) DO UPDATE SET confidence = excluded.confidence
+            WHERE tags.source = $source
+            """;
+        insert.Parameters.AddWithValue("$id", imageId);
+        insert.Parameters.AddWithValue("$tag", tag);
+        insert.Parameters.AddWithValue("$source", (int)TagSource.AutoML);
+        insert.Parameters.AddWithValue("$confidence", confidence);
+        await insert.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     /// <summary>
     /// Renames a tag across all images.
     /// </summary>
@@ -184,3 +344,5 @@ public sealed class TagRepository
         await RenameTagAsync(sourceTag, targetTag);
     }
 }
+
+public sealed record AutoTagRemovalResult(int TagCount, int PhotoCount);

@@ -16,6 +16,7 @@ public sealed class ImageEntry
     public DateTime DateModified { get; set; }
     public DateTime DateIndexed { get; set; }
     public string? FaceScanVersion { get; set; }
+    public string? AutoTagScanVersion { get; set; }
     public bool FaceMetadataImported { get; set; }
     public string? FaceSidecarPath { get; set; }
     public long? FaceSidecarSize { get; set; }

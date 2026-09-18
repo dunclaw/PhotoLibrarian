@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "PhotoLibrarian": {
+      "commandName": "Project",
+      "debugEngines": "managed",
+      "hotReloadEnabled": false
+    }
+  }
+}

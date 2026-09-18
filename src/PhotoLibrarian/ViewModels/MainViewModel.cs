@@ -21,11 +21,18 @@ public partial class MainViewModel : ObservableObject
     private readonly OriginalBackupService _backupService;
     private readonly FaceLibraryProcessor _faceProcessor;
     private readonly IDisposable _faceResources;
+    private readonly BatchTagProcessor _autoTaggingProcessor;
+    private readonly UserActivityGate _activityGate;
     private CancellationTokenSource? _indexingCts;
     private CancellationTokenSource? _faceDetectionCts;
+    private CancellationTokenSource? _autoTaggingCts;
     private Task? _faceDetectionTask;
+    private Task? _autoTaggingTask;
     private bool _faceDetectionEnabled = true;
+    private bool _autoTaggingEnabled;
     private bool _faceRescanRequested;
+    private bool _autoTaggingRescanRequested;
+    private int _lastAutoTagTreeRefresh;
     private volatile bool _isShuttingDown;
 
     public FolderNavigationViewModel FolderNav { get; }
@@ -51,6 +58,9 @@ public partial class MainViewModel : ObservableObject
     public partial bool IsFaceDetectionRunning { get; set; }
 
     [ObservableProperty]
+    public partial bool IsAutoTaggingRunning { get; set; }
+
+    [ObservableProperty]
     public partial int TotalImages { get; set; }
 
     public MainViewModel(
@@ -64,7 +74,12 @@ public partial class MainViewModel : ObservableObject
         OriginalBackupService backupService,
         FaceLibraryProcessor faceProcessor,
         FaceReviewService faceReviewService,
-        IDisposable faceResources)
+        IDisposable faceResources,
+        BatchTagProcessor autoTaggingProcessor,
+        AutoTaggingSettingsStore autoTaggingSettingsStore,
+        AutoTagModelManager autoTagModelManager,
+        AutoTagBenchmarkProcessor autoTagBenchmarkProcessor,
+        UserActivityGate activityGate)
     {
         _db = db;
         _imageRepo = imageRepo;
@@ -76,6 +91,8 @@ public partial class MainViewModel : ObservableObject
         _backupService = backupService;
         _faceProcessor = faceProcessor;
         _faceResources = faceResources;
+        _autoTaggingProcessor = autoTaggingProcessor;
+        _activityGate = activityGate;
 
         StatusText = "Ready";
 
@@ -95,11 +112,19 @@ public partial class MainViewModel : ObservableObject
         MetadataPanel = new MetadataPanelViewModel();
         MetadataPanel.Initialize(imageRepo, tagRepo, this);
         PeopleReview = new PeopleReviewViewModel(faceReviewService);
-        Settings = new SettingsViewModel(db);
+        Settings = new SettingsViewModel(
+            db,
+            autoTaggingSettingsStore,
+            autoTagModelManager,
+            autoTagBenchmarkProcessor);
+        _autoTaggingEnabled =
+            Settings.CurrentAutoTaggingSettings.CanRun;
         PhotoOps = new Services.PhotoOperationsService(imageRepo);
 
         _indexingService.Progress += OnIndexingProgress;
         _faceProcessor.Progress += OnFaceProcessingProgress;
+        _autoTaggingProcessor.Progress += OnAutoTaggingProgress;
+        Settings.AutoTaggingSettingsChanged += OnAutoTaggingSettingsChanged;
         ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
         ImageEditor.EditsApplied += OnEditsApplied;
         ImageEditor.Reverted += OnEditsReverted;
@@ -158,6 +183,7 @@ public partial class MainViewModel : ObservableObject
         // Start background indexing to populate metadata (tags, dates)
         StartBackgroundIndexing();
         StartBackgroundFaceDetection();
+        StartBackgroundAutoTagging();
     }
 
     public Task EnsureFaceMetadataPersistedAsync() =>
@@ -352,6 +378,225 @@ public partial class MainViewModel : ObservableObject
         StartBackgroundFaceDetection();
     }
 
+    public void NotifyUserActivity()
+    {
+        _activityGate.NotifyUserActivity();
+    }
+
+    public void StartBackgroundAutoTagging()
+    {
+        if (_isShuttingDown || !_autoTaggingEnabled || TotalImages == 0)
+        {
+            return;
+        }
+
+        if (IsAutoTaggingRunning)
+        {
+            _autoTaggingRescanRequested = true;
+            return;
+        }
+
+        _autoTaggingCts?.Dispose();
+        _autoTaggingCts = new CancellationTokenSource();
+        var cancellationToken = _autoTaggingCts.Token;
+        var settings = Settings.CurrentAutoTaggingSettings;
+        IsAutoTaggingRunning = true;
+        Settings.SetAutoTaggingProgress(
+            "Waiting for the app to be idle",
+            true);
+
+        _autoTaggingTask = Task.Run(async () =>
+        {
+            try
+            {
+                await _autoTaggingProcessor.ProcessLibraryAsync(
+                    settings,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    StatusText =
+                        $"Automatic tagging failed: {exception.Message}";
+                    Settings.SetAutoTaggingProgress(
+                        $"Failed: {exception.Message}",
+                        false);
+                });
+            }
+            finally
+            {
+                if (!_isShuttingDown)
+                {
+                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (_isShuttingDown)
+                        {
+                            return;
+                        }
+
+                        IsAutoTaggingRunning = false;
+                        if (_autoTaggingRescanRequested &&
+                            _autoTaggingEnabled)
+                        {
+                            _autoTaggingRescanRequested = false;
+                            StartBackgroundAutoTagging();
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    private async void OnAutoTaggingSettingsChanged(
+        object? sender,
+        AutoTaggingSettingsChangedEventArgs e)
+    {
+        _autoTaggingEnabled = false;
+        _autoTaggingRescanRequested = false;
+        _autoTaggingCts?.Cancel();
+        if (_autoTaggingTask is not null)
+        {
+            await _autoTaggingTask;
+            _autoTaggingTask = null;
+        }
+
+        IsAutoTaggingRunning = false;
+        _autoTaggingEnabled = e.Settings.CanRun;
+        if (_autoTaggingEnabled)
+        {
+            StartBackgroundAutoTagging();
+        }
+        else
+        {
+            Settings.SetAutoTaggingProgress(
+                "Automatic tagging is off",
+                false);
+        }
+    }
+
+    public async Task RemoveAllAutomaticTagsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        Settings.IsAutoTagCleanupRunning = true;
+        Settings.AutoTaggingStatus =
+            "Stopping automatic tagging before removing generated tags…";
+
+        try
+        {
+            Settings.IsAutoTaggingEnabled = false;
+            _autoTaggingEnabled = false;
+            _autoTaggingRescanRequested = false;
+            _autoTaggingCts?.Cancel();
+
+            var runningTask = _autoTaggingTask;
+            if (runningTask is not null)
+            {
+                await runningTask;
+            }
+
+            var result = await _tagRepo.RemoveAllAutoTagsAsync(
+                cancellationToken);
+            await RefreshTagsTreeAsync();
+            await MetadataPanel.ReloadTagsAsync();
+
+            var status =
+                $"Removed {result.TagCount:N0} automatic tag assignments from {result.PhotoCount:N0} photos. Automatic tagging is off.";
+            Settings.AutoTaggingStatus = status;
+            StatusText = status;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException exception)
+        {
+            var status =
+                $"Automatic tags could not be removed: {exception.Message}";
+            Settings.AutoTaggingStatus = status;
+            StatusText = status;
+        }
+        finally
+        {
+            Settings.IsAutoTagCleanupRunning = false;
+        }
+    }
+
+    private void OnAutoTaggingProgress(
+        object? sender,
+        BatchTagProgressEventArgs e)
+    {
+        if (_isShuttingDown)
+        {
+            return;
+        }
+
+        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (_isShuttingDown)
+            {
+                return;
+            }
+
+            var profileName =
+                AutoTagModelCatalog.ForId(e.ProfileId).DisplayName;
+            if (e.IsPreparing)
+            {
+                Settings.SetAutoTaggingProgress(
+                    $"Preparing {profileName}…",
+                    true);
+                StatusText = "Preparing automatic tagging model…";
+            }
+            else if (e.IsCanceled)
+            {
+                Settings.SetAutoTaggingProgress(
+                    $"Paused after {e.Processed:N0} photos",
+                    false,
+                    e.Processed,
+                    e.Total);
+            }
+            else if (e.IsComplete)
+            {
+                var status = e.Total == 0
+                    ? "Automatic tags are up to date"
+                    : $"Tagged {e.Processed - e.Failed:N0} photos with {e.TagsAdded:N0} suggestions";
+                Settings.SetAutoTaggingProgress(
+                    status,
+                    false,
+                    e.Processed,
+                    e.Total);
+                StatusText = status;
+                await RefreshTagsTreeAsync();
+                _lastAutoTagTreeRefresh = 0;
+            }
+            else if (!string.IsNullOrEmpty(e.Error))
+            {
+                Settings.SetAutoTaggingProgress(
+                    $"Skipped {e.CurrentFile}: {e.Error}",
+                    true,
+                    e.Processed,
+                    e.Total);
+            }
+            else
+            {
+                var status =
+                    $"Tagging photos… {e.Processed:N0}/{e.Total:N0}";
+                Settings.SetAutoTaggingProgress(
+                    status,
+                    true,
+                    e.Processed,
+                    e.Total);
+                StatusText = status;
+                if (e.Processed == 1 ||
+                    e.Processed - _lastAutoTagTreeRefresh >= 25)
+                {
+                    _lastAutoTagTreeRefresh = e.Processed;
+                    await RefreshTagsTreeAsync();
+                }
+            }
+        });
+    }
+
     private void OnFaceProcessingProgress(object? sender, FaceProcessingProgressEventArgs e)
     {
         if (_isShuttingDown) return;
@@ -454,16 +699,16 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task RefreshTagsTreeAsync()
     {
-        await TagNav.LoadTagsAsync();
         if (ImageGrid.Refinement.RequiresTags)
             await ImageGrid.LoadImagesAsync();
 
         if (App.MainWindow is MainWindow window)
         {
-            window.DispatcherQueue.TryEnqueue(async () =>
-            {
-                await window.RefreshMetadataTreesAsync();
-            });
+            await window.RefreshTagsTreeAsync();
+        }
+        else
+        {
+            await TagNav.LoadTagsAsync();
         }
     }
 
@@ -620,6 +865,7 @@ public partial class MainViewModel : ObservableObject
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
         StartBackgroundFaceDetection();
+        StartBackgroundAutoTagging();
         
         // Update UI trees on main thread
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
@@ -639,11 +885,20 @@ public partial class MainViewModel : ObservableObject
         _indexingCts?.Dispose();
         _faceDetectionEnabled = false;
         _faceDetectionCts?.Cancel();
+        _autoTaggingEnabled = false;
+        _autoTaggingCts?.Cancel();
         if (_faceDetectionTask is not null)
         {
             await _faceDetectionTask;
         }
+        if (_autoTaggingTask is not null)
+        {
+            await _autoTaggingTask;
+        }
         _faceDetectionCts?.Dispose();
+        _autoTaggingCts?.Dispose();
+        _autoTaggingProcessor.Progress -= OnAutoTaggingProgress;
+        Settings.AutoTaggingSettingsChanged -= OnAutoTaggingSettingsChanged;
         _faceResources.Dispose();
         _scanner.Dispose();
     }

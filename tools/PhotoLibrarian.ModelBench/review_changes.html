@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Review only changed tags</title>
+  <style>
+    :root { color-scheme: light dark; font-family: "Segoe UI", sans-serif; }
+    body { margin: 0; background: Canvas; color: CanvasText; }
+    header { padding: 16px 24px; border-bottom: 1px solid GrayText; }
+    h1 { font-size: 24px; margin: 0 0 8px; }
+    p { margin: 8px 0; }
+    button, select { font: inherit; padding: 8px 12px; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; }
+    .toolbar, .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .toolbar { margin: 12px 0; }
+    main { padding: 24px; }
+    #workspace { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(320px, 1fr); gap: 24px; }
+    #photo { width: 100%; max-height: 65vh; object-fit: contain; }
+    #photo-name { overflow-wrap: anywhere; }
+    #photo-select { max-width: 100%; }
+    .tag { border: 1px solid GrayText; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+    .tag h3 { margin: 0 0 8px; font-size: 18px; }
+    .muted { color: GrayText; font-size: 13px; }
+    .decision { font-weight: 600; }
+    button[aria-pressed="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+    #error { border: 2px solid #c50f1f; padding: 12px; }
+    [hidden] { display: none !important; }
+    details { margin: 12px 0; }
+    @media(max-width: 800px) { #workspace { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Review only changed tags</h1>
+  <p>Previous approvals and rejections are already filled in. One decision applies to the same photo/tag across models.</p>
+  <p id="progress" role="status" aria-live="polite"></p>
+  <div class="toolbar">
+    <button id="export" type="button">Export scored CSV</button>
+    <label><input id="show-reviewed" type="checkbox"> Show reviewed tags and photos</label>
+  </div>
+  <details>
+    <summary>How previous decisions are reused</summary>
+    <p>Only the exact photo identity and exact label match. Different ranks, scores, or models do not invalidate a tag decision.
+      Synonyms are not merged. Conflicting prior judgments stay pending. Newer explicitly reviewed history takes precedence.</p>
+    <p id="identity-warning"></p>
+    <p>No overall model quality scores are invented. The export explicitly records reviewed ranks; pending tags are not negatives.
+      Browser edits are saved locally when available. Export the CSV to keep a portable copy; the initial CSV on disk is not updated automatically.</p>
+    <p>Suggestions may include incorrect or inappropriate labels. No tags are applied to your photos.</p>
+  </details>
+  <p id="error" role="alert" hidden></p>
+</header>
+<main>
+  <p id="complete" hidden>All photo/tag decisions are reviewed. Export the scored CSV, or enable “Show reviewed tags and photos” to make corrections.</p>
+  <div class="toolbar">
+    <button id="previous" type="button">Previous photo</button>
+    <label for="photo-select">Photo</label>
+    <select id="photo-select"></select>
+    <button id="next" type="button">Next photo</button>
+  </div>
+  <section id="workspace">
+    <div><h2 id="photo-name"></h2><img id="photo" alt=""></div>
+    <div>
+      <p id="photo-progress"></p>
+      <button id="reject-remaining" type="button">Reject remaining pending tags on this photo</button>
+      <div id="tags"></div>
+    </div>
+  </section>
+</main>
+<script type="application/json" id="review-data">@@REVIEW_DATA@@</script>
+<script src="review.js"></script>
+</body>
+</html>

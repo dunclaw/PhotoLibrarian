@@ -56,8 +56,11 @@ public sealed class FaceEmbeddingService : IFaceEmbedder
                 var input = NamedOnnxValue.CreateFromTensor(
                     inputName,
                     image.CreateAlignedFaceTensor(face, InputSize));
-                using var results = session.Run([input]);
-                var embedding = results.Single().AsTensor<float>().ToArray();
+                var embedding = _sessionManager.RunInference(() =>
+                {
+                    using var results = session.Run([input]);
+                    return results.Single().AsTensor<float>().ToArray();
+                });
                 Normalize(embedding);
                 embeddings.Add(embedding);
             }
