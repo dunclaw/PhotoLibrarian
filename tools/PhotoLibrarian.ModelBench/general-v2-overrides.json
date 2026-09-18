@@ -1,0 +1,19 @@
+{
+  "hierarchyVersion": "hierarchy-v3",
+  "vocabularyName": "general-home-photo-v2",
+  "exclude": {
+    "3d glasses": "Excluded by user review: not useful for home-photo search.",
+    "abacus": "Excluded by user review: too rare to be useful for home-photo search.",
+    "eiffel tower": "Named geographic landmark; do not infer a geographic location from visual appearance."
+  },
+  "rename": {
+    "autumn leave": "autumn leaves",
+    "newfoundland": "newfoundland dog",
+    "labrador": "labrador retriever",
+    "chihuahua": "chihuahua dog"
+  },
+  "reviewAliases": {
+    "autumn leave": "autumn leaves"
+  },
+  "reviewAliasPolicy": "Only the user-requested spelling correction preserves old review meaning. Disambiguated breed names require their own judgments."
+}

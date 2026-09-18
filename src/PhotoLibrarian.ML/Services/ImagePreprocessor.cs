@@ -19,14 +19,17 @@ public static class ImagePreprocessor
     /// <param name="std">Per-channel normalization std (RGB)</param>
     public static async Task<DenseTensor<float>> PreprocessImageAsync(
         string filePath, int targetSize,
-        float[] mean, float[] std)
+        float[] mean, float[] std,
+        CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() =>
+        return await Task.Run(async () =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // Use WIC for fast decode + resize
             using var stream = File.OpenRead(filePath);
-            var decoder = Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
-                stream.AsRandomAccessStream()).AsTask().Result;
+            var decoder =
+                await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
+                    stream.AsRandomAccessStream());
 
             var transform = new Windows.Graphics.Imaging.BitmapTransform
             {
@@ -35,17 +38,140 @@ public static class ImagePreprocessor
                 InterpolationMode = Windows.Graphics.Imaging.BitmapInterpolationMode.Linear
             };
 
-            var pixelData = decoder.GetPixelDataAsync(
+            var pixelData = await decoder.GetPixelDataAsync(
                 Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
                 Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
                 transform,
                 Windows.Graphics.Imaging.ExifOrientationMode.RespectExifOrientation,
                 Windows.Graphics.Imaging.ColorManagementMode.ColorManageToSRgb
-            ).AsTask().Result;
+            );
 
             var pixels = pixelData.DetachPixelData();
+            cancellationToken.ThrowIfCancellationRequested();
             return PixelsToTensor(pixels, targetSize, targetSize, mean, std);
-        });
+        }, cancellationToken);
+    }
+
+    public static async Task<DenseTensor<float>> PreprocessImageNhwcAsync(
+        string filePath,
+        int targetSize,
+        float mean,
+        float scale,
+        CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var stream = File.OpenRead(filePath);
+            var decoder =
+                await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
+                    stream.AsRandomAccessStream());
+            var transform = new Windows.Graphics.Imaging.BitmapTransform
+            {
+                ScaledWidth = (uint)targetSize,
+                ScaledHeight = (uint)targetSize,
+                InterpolationMode =
+                    Windows.Graphics.Imaging.BitmapInterpolationMode.Linear
+            };
+            var pixelData = await decoder.GetPixelDataAsync(
+                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
+                transform,
+                Windows.Graphics.Imaging.ExifOrientationMode.RespectExifOrientation,
+                Windows.Graphics.Imaging.ColorManagementMode.ColorManageToSRgb
+            );
+
+            var pixels = pixelData.DetachPixelData();
+            var tensor = new DenseTensor<float>(
+                [1, targetSize, targetSize, 3]);
+            for (var y = 0; y < targetSize; y++)
+            {
+                for (var x = 0; x < targetSize; x++)
+                {
+                    var index = (y * targetSize + x) * 4;
+                    tensor[0, y, x, 0] = (pixels[index + 2] - mean) / scale;
+                    tensor[0, y, x, 1] = (pixels[index + 1] - mean) / scale;
+                    tensor[0, y, x, 2] = (pixels[index] - mean) / scale;
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return tensor;
+        }, cancellationToken);
+    }
+
+    public static async Task<DenseTensor<float>>
+        PreprocessImageUnitNchwLetterboxAsync(
+            string filePath,
+            int targetSize,
+            CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var stream = File.OpenRead(filePath);
+            var decoder =
+                await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(
+                    stream.AsRandomAccessStream());
+            var width = checked((int)decoder.OrientedPixelWidth);
+            var height = checked((int)decoder.OrientedPixelHeight);
+            var resizeScale = Math.Min(
+                targetSize / (float)width,
+                targetSize / (float)height);
+            var resizedWidth = Math.Max(
+                1,
+                (int)Math.Round(width * resizeScale));
+            var resizedHeight = Math.Max(
+                1,
+                (int)Math.Round(height * resizeScale));
+            var paddingX = (targetSize - resizedWidth) / 2;
+            var paddingY = (targetSize - resizedHeight) / 2;
+            var transform = new Windows.Graphics.Imaging.BitmapTransform
+            {
+                ScaledWidth = (uint)resizedWidth,
+                ScaledHeight = (uint)resizedHeight,
+                InterpolationMode =
+                    Windows.Graphics.Imaging.BitmapInterpolationMode.Linear
+            };
+            var pixelData = await decoder.GetPixelDataAsync(
+                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Ignore,
+                transform,
+                Windows.Graphics.Imaging.ExifOrientationMode.RespectExifOrientation,
+                Windows.Graphics.Imaging.ColorManagementMode.ColorManageToSRgb
+            );
+            var sourcePixels = pixelData.DetachPixelData();
+            var pixels = new byte[targetSize * targetSize * 4];
+
+            for (var y = 0; y < resizedHeight; y++)
+            {
+                Buffer.BlockCopy(
+                    sourcePixels,
+                    y * resizedWidth * 4,
+                    pixels,
+                    ((y + paddingY) * targetSize + paddingX) * 4,
+                    resizedWidth * 4);
+            }
+
+            var tensor = new DenseTensor<float>(
+                [1, 3, targetSize, targetSize]);
+            for (var y = 0; y < targetSize; y++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                for (var x = 0; x < targetSize; x++)
+                {
+                    var index = (y * targetSize + x) * 4;
+                    tensor[0, 0, y, x] =
+                        pixels[index + 2] / 255f;
+                    tensor[0, 1, y, x] =
+                        pixels[index + 1] / 255f;
+                    tensor[0, 2, y, x] =
+                        pixels[index] / 255f;
+                }
+            }
+
+            return tensor;
+        }, cancellationToken);
     }
 
     /// <summary>

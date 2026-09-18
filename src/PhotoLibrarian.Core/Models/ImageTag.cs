@@ -5,6 +5,8 @@ namespace PhotoLibrarian.Core.Models;
 /// </summary>
 public sealed class ImageTag
 {
+    public const string AutomaticRootTag = "Auto";
+
     public long ImageId { get; set; }
     public required string Tag { get; set; }
     public TagSource Source { get; set; } = TagSource.Manual;

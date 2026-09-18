@@ -98,8 +98,8 @@ public sealed class MetadataReaderService
             var location = gps.GetGeoLocation();
             if (location is not null)
             {
-                entry.GpsLatitude = location.Latitude;
-                entry.GpsLongitude = location.Longitude;
+                entry.GpsLatitude = location.Value.Latitude;
+                entry.GpsLongitude = location.Value.Longitude;
             }
         }
     }

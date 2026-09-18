@@ -86,7 +86,10 @@ public sealed class CropMetadataRemapperTests
                     ]),
                 cancellationToken);
 
-            using (var image = new Image<Rgba32>(100, 80, Color.CornflowerBlue))
+            using (var image = new Image<Rgba32>(
+                100,
+                80,
+                new Rgba32(100, 149, 237)))
             {
                 image.Metadata.ExifProfile = new ExifProfile();
                 image.Metadata.ExifProfile.SetValue(ExifTag.SubjectLocation, new ushort[] { 50, 40 });
@@ -154,7 +157,10 @@ public sealed class CropMetadataRemapperTests
 
         try
         {
-            using (var image = new Image<Rgba32>(100, 80, Color.CornflowerBlue))
+            using (var image = new Image<Rgba32>(
+                100,
+                80,
+                new Rgba32(100, 149, 237)))
             {
                 image.Frames.RootFrame.Metadata.ExifProfile = new ExifProfile();
                 image.Frames.RootFrame.Metadata.ExifProfile.SetValue(ExifTag.Orientation, (ushort)6);

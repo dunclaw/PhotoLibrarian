@@ -1,123 +1,344 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using PhotoLibrarian.Inference;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace PhotoLibrarian.ML.Services;
 
 /// <summary>
-/// Auto-tagging service using ONNX-based image classification/tagging models.
-/// Supports RAM++ style models that output multi-label tag predictions.
+/// Runs local content tagging with catalog profiles selected by the user.
+/// Photos never leave the device.
 /// </summary>
-public sealed class AutoTaggingService
+public sealed class AutoTaggingService : IAutoTagger
 {
     private readonly OnnxSessionManager _sessionManager;
-    private InferenceSession? _session;
-    private string[]? _tagLabels;
+    private readonly IAutoTagModelProvider _modelProvider;
+    private readonly object _sync = new();
+    private readonly Dictionary<string, LoadedProfile> _loadedProfiles = [];
 
-    // Model configuration
-    public string ModelFileName { get; set; } = "ram_plus.onnx";
-    public string TagLabelsFileName { get; set; } = "ram_plus_tags.txt";
-    public int InputSize { get; set; } = 384;
-    public float ConfidenceThreshold { get; set; } = 0.5f;
-
-    public AutoTaggingService(OnnxSessionManager sessionManager)
+    public AutoTaggingService(
+        OnnxSessionManager sessionManager,
+        IAutoTagModelProvider modelProvider)
     {
         _sessionManager = sessionManager;
+        _modelProvider = modelProvider;
     }
 
-    public bool IsModelLoaded => _session is not null;
-    public bool IsModelAvailable => _sessionManager.ModelExists(ModelFileName);
-
-    /// <summary>
-    /// Loads the tagging model and tag label list.
-    /// </summary>
-    public void LoadModel()
+    public void LoadModel(string profileId, string? modelDirectory)
     {
-        _session = _sessionManager.LoadModel(ModelFileName);
+        var definition = AutoTagModelCatalog.ForId(profileId);
+        var modelPath = _modelProvider.GetAssetPath(
+            profileId,
+            definition.ModelAsset,
+            modelDirectory);
+        var key = Path.GetFullPath(modelPath);
 
-        var labelsPath = Path.Combine(_sessionManager.ModelDirectory, TagLabelsFileName);
-        if (File.Exists(labelsPath))
+        lock (_sync)
         {
-            _tagLabels = File.ReadAllLines(labelsPath)
-                .Where(l => !string.IsNullOrWhiteSpace(l))
-                .Select(l => l.Trim())
-                .ToArray();
+            var labelsPath = _modelProvider.GetAssetPath(
+                profileId,
+                definition.LabelsAsset,
+                modelDirectory);
+            ZeroShotModelBundle? bundle = null;
+            if (definition.OutputKind == AutoTagOutputKind.CosineEmbedding)
+            {
+                using var stream = File.OpenRead(labelsPath);
+                if (!definition.LabelsAsset.HasExpectedHash(stream))
+                    throw new InvalidDataException("TinyCLIP label embeddings failed checksum validation.");
+                bundle = ZeroShotModelBundle.Load(labelsPath, "tinyclip");
+                TinyClipCalibration.Current.ValidateBundle(bundle);
+            }
+            var labels = bundle?.Labels.Select(item => item.Label).ToArray() ?? ReadLabels(labelsPath);
+            var session = _sessionManager.LoadModelPath(modelPath, definition.UseCpuOnly);
+            if (bundle is not null)
+            {
+                try
+                {
+                    ValidateEmbeddingSession(session, bundle);
+                }
+                catch
+                {
+                    _sessionManager.UnloadModelPath(modelPath);
+                    throw;
+                }
+            }
+            if (definition.OutputKind == AutoTagOutputKind.BinaryTagMask &&
+                (definition.OutputName is null ||
+                 !session.OutputMetadata.TryGetValue(definition.OutputName, out var mask) ||
+                 mask.ElementType != typeof(float) ||
+                 !mask.Dimensions.SequenceEqual(new[] { 1, labels.Length })))
+            {
+                _sessionManager.UnloadModelPath(modelPath);
+                throw new InvalidDataException("RAM++ must return a named binary tag mask with one value per label.");
+            }
+            _loadedProfiles[key] = new LoadedProfile(
+                session,
+                definition,
+                labels,
+                bundle);
         }
     }
 
-    /// <summary>
-    /// Runs inference on a single image and returns predicted tags with confidence scores.
-    /// </summary>
-    public async Task<List<TagPrediction>> PredictTagsAsync(string imagePath)
+    public async Task<IReadOnlyList<TagPrediction>> PredictTagsAsync(
+        string imagePath,
+        string profileId,
+        string? modelDirectory,
+        int maximumTags,
+        float confidenceThreshold,
+        CancellationToken cancellationToken = default)
     {
-        if (_session is null)
-            throw new InvalidOperationException("Model not loaded. Call LoadModel() first.");
-
-        var tensor = await ImagePreprocessor.PreprocessImageAsync(
-            imagePath, InputSize,
-            ImagePreprocessor.ImageNetMean,
-            ImagePreprocessor.ImageNetStd);
-
-        var inputName = _session.InputNames[0];
-        var inputs = new[] { ImagePreprocessor.CreateInput(inputName, tensor) };
-
-        using var results = _session.Run(inputs);
-        var output = results.First().AsTensor<float>();
-
-        return ExtractTags(output);
-    }
-
-    /// <summary>
-    /// Batch processes multiple images for tagging.
-    /// </summary>
-    public async IAsyncEnumerable<(string FilePath, List<TagPrediction> Tags)> PredictBatchAsync(
-        IEnumerable<string> imagePaths,
-        IProgress<int>? progress = null,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken ct = default)
-    {
-        int count = 0;
-        foreach (var path in imagePaths)
+        var definition = AutoTagModelCatalog.ForId(profileId);
+        var modelPath = _modelProvider.GetAssetPath(
+            profileId,
+            definition.ModelAsset,
+            modelDirectory);
+        LoadedProfile loadedProfile;
+        lock (_sync)
         {
-            ct.ThrowIfCancellationRequested();
-            List<TagPrediction> tags;
-            try
+            if (!_loadedProfiles.TryGetValue(
+                Path.GetFullPath(modelPath),
+                out loadedProfile!))
             {
-                tags = await PredictTagsAsync(path);
-            }
-            catch
-            {
-                tags = [];
-            }
-
-            count++;
-            if (count % 10 == 0) progress?.Report(count);
-            yield return (path, tags);
-        }
-        progress?.Report(count);
-    }
-
-    private List<TagPrediction> ExtractTags(Tensor<float> output)
-    {
-        var predictions = new List<TagPrediction>();
-        var length = (int)output.Length;
-
-        for (int i = 0; i < length; i++)
-        {
-            // Apply sigmoid for multi-label classification
-            var score = Sigmoid(output[0, i]);
-            if (score >= ConfidenceThreshold)
-            {
-                var tagName = (_tagLabels is not null && i < _tagLabels.Length)
-                    ? _tagLabels[i]
-                    : $"tag_{i}";
-
-                predictions.Add(new TagPrediction(tagName, score));
+                throw new InvalidOperationException(
+                    "The requested automatic-tagging model has not been loaded.");
             }
         }
 
-        return predictions.OrderByDescending(t => t.Confidence).ToList();
+        cancellationToken.ThrowIfCancellationRequested();
+        DenseTensor<float> tensor = definition.PixelNormalization switch
+        {
+            AutoTagPixelNormalization.Clip when loadedProfile.Bundle is not null =>
+                (await ZeroShotImagePreprocessor.CreateAsync(
+                    imagePath, loadedProfile.Bundle, cancellationToken)).Tensor,
+            AutoTagPixelNormalization.ImageNet =>
+                await ImagePreprocessor.PreprocessImageAsync(
+                    imagePath,
+                    definition.InputSize,
+                    ImagePreprocessor.ImageNetMean,
+                    ImagePreprocessor.ImageNetStd,
+                    cancellationToken),
+            AutoTagPixelNormalization.EfficientNetLite =>
+                await ImagePreprocessor.PreprocessImageNhwcAsync(
+                    imagePath,
+                    definition.InputSize,
+                    127f,
+                    128f,
+                    cancellationToken),
+            AutoTagPixelNormalization.Unit
+                when definition.TensorLayout ==
+                    AutoTagTensorLayout.Nchw &&
+                    definition.PreserveAspectRatio =>
+                await ImagePreprocessor
+                    .PreprocessImageUnitNchwLetterboxAsync(
+                        imagePath,
+                        definition.InputSize,
+                        cancellationToken),
+            _ => throw new InvalidOperationException(
+                "Unsupported model preprocessing configuration.")
+        };
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var inputName = loadedProfile.Session.InputNames[0];
+        var output = _sessionManager.RunInference(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var results = loadedProfile.Session.Run(
+                [ImagePreprocessor.CreateInput(inputName, tensor)]);
+            var outputName = loadedProfile.Bundle?.OutputName ?? definition.OutputName;
+            return (outputName is null ? results.First() :
+                results.Single(result => result.Name == outputName))
+                .AsTensor<float>().ToArray();
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+        var predictions = loadedProfile.Bundle is not null
+            ? TinyClipCalibration.Current.SelectPredictions(
+                loadedProfile.Bundle,
+                output,
+                maximumTags,
+                confidenceThreshold)
+            : SelectPredictions(
+                output,
+                loadedProfile.Labels,
+                confidenceThreshold,
+                Math.Clamp(maximumTags, 1, definition.MaximumSupportedTags),
+                definition.SafeLabelMappings,
+                definition.OutputKind);
+        return AutoTagHierarchy.Apply(definition, predictions);
     }
 
-    private static float Sigmoid(float x) => 1f / (1f + MathF.Exp(-x));
+    internal static IReadOnlyList<TagPrediction> SelectPredictions(
+        IReadOnlyList<float> rawScores,
+        IReadOnlyList<string> labels,
+        float confidenceThreshold,
+        int maximumTags,
+        IReadOnlyDictionary<string, string>? safeLabelMappings = null,
+        AutoTagOutputKind outputKind =
+            AutoTagOutputKind.SingleLabelClassification)
+    {
+        var binaryMask = outputKind == AutoTagOutputKind.BinaryTagMask;
+        if (binaryMask && (rawScores.Count != labels.Count ||
+            rawScores.Any(score => score is not (0 or 1))))
+            throw new InvalidDataException("Binary tag output must contain exactly one 0/1 value per label.");
+        if (rawScores.Count == 0 || maximumTags <= 0)
+        {
+            return [];
+        }
+
+        var scores = rawScores.Select(score => (double)score).ToArray();
+        if (outputKind ==
+            AutoTagOutputKind.SingleLabelClassification)
+        {
+            var sum = scores.Sum();
+            var areProbabilities =
+                scores.All(score => score is >= 0 and <= 1) &&
+                Math.Abs(sum - 1) < 0.05;
+            if (!areProbabilities)
+            {
+                var max = scores.Max();
+                var denominator = scores.Sum(
+                    score => Math.Exp(score - max));
+                for (var index = 0; index < scores.Length; index++)
+                {
+                    scores[index] =
+                        Math.Exp(scores[index] - max) / denominator;
+                }
+            }
+        }
+
+        return scores
+            .Select((score, index) => new
+            {
+                Score = (float)score,
+                Index = index
+            })
+            .Where(item =>
+                item.Index < labels.Count &&
+                (!binaryMask || item.Score == 1) &&
+                item.Score >= confidenceThreshold)
+            .OrderByDescending(item => item.Score)
+            .Select(item => new
+            {
+                Tag = MapSafeLabel(
+                    NormalizeLabel(labels[item.Index]),
+                    safeLabelMappings),
+                item.Score
+            })
+            .Where(item => item.Tag is not null)
+            .Select(item => new TagPrediction(item.Tag!, item.Score))
+            .DistinctBy(
+                prediction => prediction.Tag,
+                StringComparer.OrdinalIgnoreCase)
+            .Take(maximumTags)
+            .ToArray();
+    }
+
+    internal static string[] ReadLabels(string labelsPath)
+    {
+        var content = File.ReadAllText(labelsPath);
+        try
+        {
+            var labelMap =
+                JsonSerializer.Deserialize<Dictionary<string, string>>(
+                    content);
+            if (labelMap is not null)
+            {
+                return Enumerable.Range(0, labelMap.Count)
+                    .Select(index =>
+                        labelMap.GetValueOrDefault(index.ToString()) ??
+                        string.Empty)
+                    .ToArray();
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        var matches = Regex.Matches(
+            content,
+            @"['""]?(?<index>\d+)['""]?\s*[:=]\s*(?<quote>['""])(?<label>(?:\\.|.)*?)\k<quote>(?=\s*(?:[,}\]\r\n]|$))",
+            RegexOptions.CultureInvariant);
+        if (matches.Count == 0)
+        {
+            throw new InvalidDataException(
+                "The automatic-tag label file is invalid.");
+        }
+
+        var indexed = new SortedDictionary<int, string>();
+        foreach (Match match in matches)
+        {
+            if (int.TryParse(
+                match.Groups["index"].Value,
+                out var index))
+            {
+                indexed[index] = match.Groups["label"].Value
+                    .Replace("\\'", "'")
+                    .Replace("\\\"", "\"")
+                    .Replace("\\\\", "\\");
+            }
+        }
+
+        var labels = Enumerable
+            .Repeat(string.Empty, indexed.Keys.Max() + 1)
+            .ToArray();
+        foreach (var (index, label) in indexed)
+        {
+            labels[index] = label;
+        }
+
+        return labels;
+    }
+
+    private static string? MapSafeLabel(
+        string normalizedLabel,
+        IReadOnlyDictionary<string, string>? safeLabelMappings)
+    {
+        if (safeLabelMappings is null)
+        {
+            return normalizedLabel;
+        }
+
+        return safeLabelMappings.TryGetValue(
+            normalizedLabel,
+            out var safeLabel)
+            ? safeLabel
+            : null;
+    }
+
+    private static string NormalizeLabel(string label)
+    {
+        var preferredName = label.Split(',', 2)[0]
+            .Replace('_', ' ')
+            .Replace('/', ' ')
+            .Trim();
+        return string.Join(
+            ' ',
+            preferredName.Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries))
+            .ToLowerInvariant();
+    }
+
+    private sealed record LoadedProfile(
+        InferenceSession Session,
+        AutoTagModelDefinition Definition,
+        string[] Labels,
+        ZeroShotModelBundle? Bundle = null);
+
+    private static void ValidateEmbeddingSession(InferenceSession session, ZeroShotModelBundle bundle)
+    {
+        if (session.InputNames.Count != 1 || session.InputNames[0] != bundle.InputName ||
+            !session.OutputMetadata.TryGetValue(bundle.OutputName, out var output))
+            throw new InvalidDataException("TinyCLIP model input/output names do not match the profile.");
+        var input = session.InputMetadata[bundle.InputName];
+        var dimensions = input.Dimensions;
+        int[] expected = [1, 3, bundle.InputSize, bundle.InputSize];
+        if (input.ElementType != typeof(float) || dimensions.Length != 4 ||
+            dimensions.Where((dimension, index) => dimension > 0 && dimension != expected[index]).Any() ||
+            output.ElementType != typeof(float) || output.Dimensions.Length != 2 ||
+            output.Dimensions[0] > 1 || output.Dimensions[1] is not (512 or -1))
+            throw new InvalidDataException("TinyCLIP tensor dimensions do not match the tested image encoder.");
+    }
 }
 
 public sealed record TagPrediction(string Tag, float Confidence);

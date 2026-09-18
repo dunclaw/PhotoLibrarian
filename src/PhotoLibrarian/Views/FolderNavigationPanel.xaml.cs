@@ -14,6 +14,8 @@ namespace PhotoLibrarian.Views;
 public sealed partial class FolderNavigationPanel : UserControl
 {
     private FolderNavigationViewModel? ViewModel => App.ViewModel?.FolderNav;
+    private readonly SemaphoreSlim _tagRefreshGate = new(1, 1);
+    private bool _isRefreshingTagTree;
 
     public FolderNavigationPanel()
     {
@@ -178,32 +180,64 @@ public sealed partial class FolderNavigationPanel : UserControl
         return treeNode;
     }
 
-    private async Task RefreshTagsTreeAsync()
+    public async Task RefreshTagsTreeAsync()
     {
         if (App.ViewModel?.TagNav is null) return;
 
-        await App.ViewModel.TagNav.LoadTagsAsync();
-
-        // Must update UI on dispatcher queue
-        DispatcherQueue.TryEnqueue(() =>
+        await _tagRefreshGate.WaitAsync();
+        try
         {
-            // Snapshot the current expansion state (and selection) before rebuild so adding/
-            // removing tags doesn't collapse the user's open branches.
-            var expandedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            CollectTagTreeState(TagsTree.RootNodes, expandedPaths, selectedPaths);
-
-            TagsTree.RootNodes.Clear();
-
-            foreach (var tagNode in App.ViewModel.TagNav.RootTags)
+            await App.ViewModel.TagNav.LoadTagsAsync();
+            var completion =
+                new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!DispatcherQueue.TryEnqueue(() =>
             {
-                var treeNode = BuildTagNode(tagNode);
-                TagsTree.RootNodes.Add(treeNode);
+                _isRefreshingTagTree = true;
+                try
+                {
+                    var expandedPaths = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase);
+                    var selectedPaths = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase);
+                    CollectTagTreeState(
+                        TagsTree.RootNodes,
+                        expandedPaths,
+                        selectedPaths);
+
+                    TagsTree.SelectedNodes.Clear();
+                    TagsTree.RootNodes.Clear();
+                    foreach (var tagNode in App.ViewModel.TagNav.RootTags)
+                    {
+                        TagsTree.RootNodes.Add(BuildTagNode(tagNode));
+                    }
+
+                    RestoreTagTreeState(
+                        TagsTree.RootNodes,
+                        expandedPaths,
+                        selectedPaths);
+                    completion.SetResult();
+                }
+                catch (Exception exception)
+                {
+                    completion.SetException(exception);
+                }
+                finally
+                {
+                    _isRefreshingTagTree = false;
+                }
+            }))
+            {
+                throw new InvalidOperationException(
+                    "The tag tree could not be refreshed.");
             }
 
-            // Restore expansion + selection on matching nodes
-            RestoreTagTreeState(TagsTree.RootNodes, expandedPaths, selectedPaths);
-        });
+            await completion.Task;
+        }
+        finally
+        {
+            _tagRefreshGate.Release();
+        }
     }
 
     private void CollectTagTreeState(
@@ -216,7 +250,8 @@ public sealed partial class FolderNavigationPanel : UserControl
             if (n.Content is TagNodeWrapper w)
             {
                 if (n.IsExpanded) expanded.Add(w.TagNode.FullPath);
-                if (TagsTree.SelectedNodes.Contains(n)) selected.Add(w.TagNode.FullPath);
+                if (TagsTree.SelectedNodes.Contains(n))
+                    selected.Add(w.TagNode.FullPath);
             }
             if (n.Children.Count > 0)
                 CollectTagTreeState(n.Children, expanded, selected);
@@ -409,6 +444,11 @@ public sealed partial class FolderNavigationPanel : UserControl
 
     private void OnTagsSelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
     {
+        if (_isRefreshingTagTree)
+        {
+            return;
+        }
+
         DebugLog.WriteLine($"OnTagsSelectionChanged: AddedItems={args.AddedItems.Count}, RemovedItems={args.RemovedItems.Count}, TotalSelected={sender.SelectedNodes.Count}");
         UpdateGridFromSelection();
     }

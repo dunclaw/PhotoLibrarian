@@ -70,6 +70,20 @@ public partial class App : Application
             new FaceClusteringService(),
             new FaceRecognitionService(),
             faceMetadataStore);
+        var activityGate = new UserActivityGate();
+        var autoTagModelManager = new AutoTagModelManager(sessionManager);
+        var autoTaggingService = new AutoTaggingService(
+            sessionManager,
+            autoTagModelManager);
+        var autoTaggingProcessor = new BatchTagProcessor(
+            tagRepo,
+            autoTagModelManager,
+            autoTaggingService,
+            activityGate);
+        var autoTagBenchmarkProcessor = new AutoTagBenchmarkProcessor(
+            autoTagModelManager,
+            autoTaggingService);
+        var autoTaggingSettingsStore = new AutoTaggingSettingsStore();
 
         // Note: ThumbnailRepository removed - we use Windows thumbnail cache instead
         ViewModel = new MainViewModel(
@@ -83,7 +97,12 @@ public partial class App : Application
             backupService,
             faceProcessor,
             faceReviewService,
-            sessionManager);
+            sessionManager,
+            autoTaggingProcessor,
+            autoTaggingSettingsStore,
+            autoTagModelManager,
+            autoTagBenchmarkProcessor,
+            activityGate);
 
         _window = new MainWindow();
         _window.Activate();

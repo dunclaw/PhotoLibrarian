@@ -56,6 +56,11 @@ ARM64/
 # ONNX models (large files)
 *.onnx
 
+# Python model preparation and calibration
+__pycache__/
+*.py[cod]
+.venv-modelbench/
+
 # PhotoLibrarian cache data
 *.db
 *.db-shm

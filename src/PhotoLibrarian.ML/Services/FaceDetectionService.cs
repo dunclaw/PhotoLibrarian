@@ -39,13 +39,15 @@ public sealed class FaceDetectionService : IFaceDetector
             cancellationToken.ThrowIfCancellationRequested();
             var inputName = session.InputMetadata.Keys.Single();
             var input = NamedOnnxValue.CreateFromTensor(inputName, resized.ToBgrTensor());
-            using var results = session.Run([input]);
+            var outputs = _sessionManager.RunInference(() =>
+            {
+                using var results = session.Run([input]);
+                return results.ToDictionary(
+                    result => result.Name,
+                    result => result.AsTensor<float>().ToArray(),
+                    StringComparer.Ordinal);
+            });
             cancellationToken.ThrowIfCancellationRequested();
-
-            var outputs = results.ToDictionary(
-                result => result.Name,
-                result => result.AsTensor<float>().ToArray(),
-                StringComparer.Ordinal);
             return (IReadOnlyList<DetectedFace>)YuNetPostProcessor.Decode(
                 outputs,
                 resized.Width,
