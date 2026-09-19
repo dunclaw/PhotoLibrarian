@@ -77,30 +77,14 @@ public sealed class BatchTagProcessor
 
                 try
                 {
-                    var predictions =
-                        await _autoTagger.PredictTagsAsync(
-                            image.FilePath,
-                            settings.ProfileId,
-                            settings.ModelDirectory,
-                            settings.MaximumTags,
-                            settings.ConfidenceThreshold,
-                            cancellationToken);
-                    var generatedTags = predictions
-                        .Select(prediction => new GeneratedImageTag(
-                            prediction.Tag,
-                            prediction.Confidence))
-                        .ToArray();
-                    if (!await _store.TryReplaceAutoTagsAsync(
+                    tagsAdded += await AutoTagWorkItem.TagAsync(
                         image,
-                        generatedTags,
-                        definition.PipelineVersion,
-                        cancellationToken))
-                    {
-                        throw new InvalidOperationException(
-                            "The photo changed during automatic tagging and will be retried.");
-                    }
-
-                    tagsAdded += generatedTags.Length;
+                        DecodedImage.WithoutPixels(image.FilePath),
+                        _store,
+                        _autoTagger,
+                        settings,
+                        definition,
+                        cancellationToken);
                 }
                 catch (OperationCanceledException)
                     when (cancellationToken.IsCancellationRequested)

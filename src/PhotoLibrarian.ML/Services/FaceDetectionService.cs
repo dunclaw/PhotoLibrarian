@@ -30,8 +30,22 @@ public sealed class FaceDetectionService : IFaceDetector
         string imagePath,
         CancellationToken cancellationToken = default)
     {
-        var session = _session ?? throw new InvalidOperationException("Model not loaded.");
         var image = await ImagePixelData.LoadAsync(imagePath, cancellationToken);
+        return await DetectFacesCoreAsync(image, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<DetectedFace>> DetectFacesAsync(
+        DecodedImage image,
+        CancellationToken cancellationToken = default) =>
+        image.Pixels is { } shared
+            ? DetectFacesCoreAsync(shared, cancellationToken)
+            : DetectFacesAsync(image.FilePath, cancellationToken);
+
+    private async Task<IReadOnlyList<DetectedFace>> DetectFacesCoreAsync(
+        ImagePixelData image,
+        CancellationToken cancellationToken)
+    {
+        var session = _session ?? throw new InvalidOperationException("Model not loaded.");
         var resized = image.ResizeToFit(MaximumInputDimension, divisor: 32);
 
         return await Task.Run(() =>

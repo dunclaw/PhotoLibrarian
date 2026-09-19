@@ -59,11 +59,8 @@ public partial class App : Application
             faceMetadataStore);
         var backupService = new OriginalBackupService();
         var sessionManager = new OnnxSessionManager();
-        var faceProcessor = new FaceLibraryProcessor(
-            faceRepo,
-            new FaceModelProvider(sessionManager),
-            new FaceDetectionService(sessionManager),
-            new FaceEmbeddingService(sessionManager));
+        var faceDetectionService = new FaceDetectionService(sessionManager);
+        var faceEmbeddingService = new FaceEmbeddingService(sessionManager);
         var faceReviewService = new FaceReviewService(
             faceRepo,
             imageRepo,
@@ -75,11 +72,16 @@ public partial class App : Application
         var autoTaggingService = new AutoTaggingService(
             sessionManager,
             autoTagModelManager);
-        var autoTaggingProcessor = new BatchTagProcessor(
+        var recognitionPipeline = new RecognitionPipeline(
+            faceRepo,
             tagRepo,
+            new FaceModelProvider(sessionManager),
+            faceDetectionService,
+            faceEmbeddingService,
             autoTagModelManager,
             autoTaggingService,
-            activityGate);
+            activityGate,
+            new WindowsImageDecoder());
         var autoTagBenchmarkProcessor = new AutoTagBenchmarkProcessor(
             autoTagModelManager,
             autoTaggingService);
@@ -95,10 +97,9 @@ public partial class App : Application
             metadataReader,
             indexingService,
             backupService,
-            faceProcessor,
+            recognitionPipeline,
             faceReviewService,
             sessionManager,
-            autoTaggingProcessor,
             autoTaggingSettingsStore,
             autoTagModelManager,
             autoTagBenchmarkProcessor,

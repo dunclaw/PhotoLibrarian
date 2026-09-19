@@ -19,19 +19,16 @@ public partial class MainViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
     private readonly OriginalBackupService _backupService;
-    private readonly FaceLibraryProcessor _faceProcessor;
     private readonly IDisposable _faceResources;
-    private readonly BatchTagProcessor _autoTaggingProcessor;
+    private readonly RecognitionPipeline _recognitionPipeline;
     private readonly UserActivityGate _activityGate;
     private CancellationTokenSource? _indexingCts;
-    private CancellationTokenSource? _faceDetectionCts;
-    private CancellationTokenSource? _autoTaggingCts;
-    private Task? _faceDetectionTask;
-    private Task? _autoTaggingTask;
+    private CancellationTokenSource? _recognitionCts;
+    private Task? _recognitionTask;
+    private readonly object _recognitionLock = new();
     private bool _faceDetectionEnabled = true;
     private bool _autoTaggingEnabled;
-    private bool _faceRescanRequested;
-    private bool _autoTaggingRescanRequested;
+    private bool _recognitionRescanRequested;
     private int _lastAutoTagTreeRefresh;
     private volatile bool _isShuttingDown;
 
@@ -60,6 +57,17 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsAutoTaggingRunning { get; set; }
 
+    /// <summary>
+    /// One status surface for the unified recognition job: true whenever the
+    /// single background pipeline is working, whatever stage it is in.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IsRecognitionRunning { get; set; }
+
+    [ObservableProperty]
+    public partial RecognitionStage ActiveRecognitionStage { get; set; } =
+        RecognitionStage.None;
+
     [ObservableProperty]
     public partial int TotalImages { get; set; }
 
@@ -72,10 +80,9 @@ public partial class MainViewModel : ObservableObject
         MetadataReaderService metadataReader,
         LibraryIndexingService indexingService,
         OriginalBackupService backupService,
-        FaceLibraryProcessor faceProcessor,
+        RecognitionPipeline recognitionPipeline,
         FaceReviewService faceReviewService,
         IDisposable faceResources,
-        BatchTagProcessor autoTaggingProcessor,
         AutoTaggingSettingsStore autoTaggingSettingsStore,
         AutoTagModelManager autoTagModelManager,
         AutoTagBenchmarkProcessor autoTagBenchmarkProcessor,
@@ -89,9 +96,8 @@ public partial class MainViewModel : ObservableObject
         _metadataReader = metadataReader;
         _indexingService = indexingService;
         _backupService = backupService;
-        _faceProcessor = faceProcessor;
+        _recognitionPipeline = recognitionPipeline;
         _faceResources = faceResources;
-        _autoTaggingProcessor = autoTaggingProcessor;
         _activityGate = activityGate;
 
         StatusText = "Ready";
@@ -122,8 +128,7 @@ public partial class MainViewModel : ObservableObject
         PhotoOps = new Services.PhotoOperationsService(imageRepo);
 
         _indexingService.Progress += OnIndexingProgress;
-        _faceProcessor.Progress += OnFaceProcessingProgress;
-        _autoTaggingProcessor.Progress += OnAutoTaggingProgress;
+        _recognitionPipeline.Progress += OnRecognitionProgress;
         Settings.AutoTaggingSettingsChanged += OnAutoTaggingSettingsChanged;
         ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
         ImageEditor.EditsApplied += OnEditsApplied;
@@ -228,6 +233,111 @@ public partial class MainViewModel : ObservableObject
         _indexingCts = null;
     }
 
+    public void PauseRecognitionProcessing()
+    {
+        DebugLog.WriteLine("MainViewModel: Pausing background recognition");
+        lock (_recognitionLock)
+        {
+            _recognitionRescanRequested = false;
+            _recognitionCts?.Cancel();
+        }
+    }
+
+    /// <summary>
+    /// Starts the one background recognition job. If it is already running the
+    /// request is remembered and the job restarts when the current pass ends,
+    /// so face and tag work never run as competing jobs.
+    /// </summary>
+    private void StartRecognitionProcessing()
+    {
+        if (_isShuttingDown || TotalImages == 0)
+        {
+            return;
+        }
+
+        if (!_faceDetectionEnabled && !_autoTaggingEnabled)
+        {
+            return;
+        }
+
+        CancellationToken cancellationToken;
+        lock (_recognitionLock)
+        {
+            if (_recognitionTask is { IsCompleted: false })
+            {
+                _recognitionRescanRequested = true;
+                return;
+            }
+
+            _recognitionCts?.Dispose();
+            _recognitionCts = new CancellationTokenSource();
+            cancellationToken = _recognitionCts.Token;
+            _recognitionRescanRequested = false;
+
+            var request = new RecognitionRequest(
+                _faceDetectionEnabled,
+                _autoTaggingEnabled ? Settings.CurrentAutoTaggingSettings : null);
+
+            IsRecognitionRunning = true;
+            _recognitionTask = Task.Run(
+                () => RunRecognitionAsync(request, cancellationToken),
+                cancellationToken);
+        }
+    }
+
+    private async Task RunRecognitionAsync(
+        RecognitionRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _recognitionPipeline.ProcessLibraryAsync(
+                request,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_isShuttingDown) return;
+
+                StatusText = $"Background recognition failed: {exception.Message}";
+                Settings.SetAutoTaggingProgress(
+                    $"Failed: {exception.Message}",
+                    false);
+            });
+        }
+        finally
+        {
+            var shouldRestart = false;
+            lock (_recognitionLock)
+            {
+                _recognitionTask = null;
+                shouldRestart =
+                    _recognitionRescanRequested && !cancellationToken.IsCancellationRequested;
+                _recognitionRescanRequested = false;
+            }
+
+            if (!_isShuttingDown)
+            {
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_isShuttingDown) return;
+
+                    SetRecognitionStage(RecognitionStage.None, false);
+                    if (shouldRestart)
+                    {
+                        StartRecognitionProcessing();
+                    }
+                });
+            }
+        }
+    }
+
     public void StartBackgroundIndexing()
     {
         if (FolderNav.RootFolders.Count == 0) return;
@@ -298,72 +408,21 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (IsFaceDetectionRunning)
-        {
-            _faceRescanRequested = true;
-            return;
-        }
-
-        _faceDetectionCts?.Dispose();
-        _faceDetectionCts = new CancellationTokenSource();
-        var cancellationToken = _faceDetectionCts.Token;
-        IsFaceDetectionRunning = true;
-
-        _faceDetectionTask = Task.Run(async () =>
-        {
-            try
-            {
-                await _faceProcessor.ProcessLibraryAsync(cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception exception)
-            {
-                App.MainWindow?.DispatcherQueue.TryEnqueue(
-                    () => StatusText = $"Face detection failed: {exception.Message}");
-            }
-            finally
-            {
-                if (!_isShuttingDown)
-                {
-                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                    {
-                        if (_isShuttingDown) return;
-
-                        IsFaceDetectionRunning = false;
-                        if (_faceRescanRequested && _faceDetectionEnabled)
-                        {
-                            _faceRescanRequested = false;
-                            StartBackgroundFaceDetection();
-                        }
-                    });
-                }
-            }
-        });
+        StartRecognitionProcessing();
     }
 
     private void StopBackgroundFaceDetection()
     {
         _faceDetectionEnabled = false;
-        _faceRescanRequested = false;
-        _faceDetectionCts?.Cancel();
         StatusText = "Stopping face detection…";
+        RestartRecognitionAfterStageChange();
     }
 
     public async Task<bool> PauseFaceDetectionAsync()
     {
         var shouldResume = _faceDetectionEnabled;
         _faceDetectionEnabled = false;
-        _faceRescanRequested = false;
-        _faceDetectionCts?.Cancel();
-        if (_faceDetectionTask is not null)
-        {
-            await _faceDetectionTask;
-            _faceDetectionTask = null;
-        }
-
-        IsFaceDetectionRunning = false;
+        await StopRecognitionAsync();
         return shouldResume;
     }
 
@@ -378,6 +437,47 @@ public partial class MainViewModel : ObservableObject
         StartBackgroundFaceDetection();
     }
 
+    /// <summary>
+    /// Cancels the single recognition job and waits for it to unwind, so both
+    /// stages are stopped before the caller touches the library.
+    /// </summary>
+    private async Task StopRecognitionAsync()
+    {
+        Task? running;
+        lock (_recognitionLock)
+        {
+            _recognitionRescanRequested = false;
+            _recognitionCts?.Cancel();
+            running = _recognitionTask;
+        }
+
+        if (running is not null)
+        {
+            try
+            {
+                await running;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        SetRecognitionStage(RecognitionStage.None, false);
+    }
+
+    /// <summary>
+    /// Applies an enable/disable change to the running job by restarting it
+    /// with the new stage set.
+    /// </summary>
+    private async void RestartRecognitionAfterStageChange()
+    {
+        await StopRecognitionAsync();
+        if (!_isShuttingDown && (_faceDetectionEnabled || _autoTaggingEnabled))
+        {
+            StartRecognitionProcessing();
+        }
+    }
+
     public void NotifyUserActivity()
     {
         _activityGate.NotifyUserActivity();
@@ -390,66 +490,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (IsAutoTaggingRunning)
-        {
-            _autoTaggingRescanRequested = true;
-            return;
-        }
-
-        _autoTaggingCts?.Dispose();
-        _autoTaggingCts = new CancellationTokenSource();
-        var cancellationToken = _autoTaggingCts.Token;
-        var settings = Settings.CurrentAutoTaggingSettings;
-        IsAutoTaggingRunning = true;
-        Settings.SetAutoTaggingProgress(
-            "Waiting for the app to be idle",
-            true);
-
-        _autoTaggingTask = Task.Run(async () =>
-        {
-            try
-            {
-                await _autoTaggingProcessor.ProcessLibraryAsync(
-                    settings,
-                    cancellationToken);
-            }
-            catch (OperationCanceledException)
-                when (cancellationToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception exception)
-            {
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                {
-                    StatusText =
-                        $"Automatic tagging failed: {exception.Message}";
-                    Settings.SetAutoTaggingProgress(
-                        $"Failed: {exception.Message}",
-                        false);
-                });
-            }
-            finally
-            {
-                if (!_isShuttingDown)
-                {
-                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                    {
-                        if (_isShuttingDown)
-                        {
-                            return;
-                        }
-
-                        IsAutoTaggingRunning = false;
-                        if (_autoTaggingRescanRequested &&
-                            _autoTaggingEnabled)
-                        {
-                            _autoTaggingRescanRequested = false;
-                            StartBackgroundAutoTagging();
-                        }
-                    });
-                }
-            }
-        });
+        StartRecognitionProcessing();
     }
 
     private async void OnAutoTaggingSettingsChanged(
@@ -457,21 +498,15 @@ public partial class MainViewModel : ObservableObject
         AutoTaggingSettingsChangedEventArgs e)
     {
         _autoTaggingEnabled = false;
-        _autoTaggingRescanRequested = false;
-        _autoTaggingCts?.Cancel();
-        if (_autoTaggingTask is not null)
+        await StopRecognitionAsync();
+
+        _autoTaggingEnabled = e.Settings.CanRun;
+        if (_autoTaggingEnabled || _faceDetectionEnabled)
         {
-            await _autoTaggingTask;
-            _autoTaggingTask = null;
+            StartRecognitionProcessing();
         }
 
-        IsAutoTaggingRunning = false;
-        _autoTaggingEnabled = e.Settings.CanRun;
-        if (_autoTaggingEnabled)
-        {
-            StartBackgroundAutoTagging();
-        }
-        else
+        if (!_autoTaggingEnabled)
         {
             Settings.SetAutoTaggingProgress(
                 "Automatic tagging is off",
@@ -490,14 +525,7 @@ public partial class MainViewModel : ObservableObject
         {
             Settings.IsAutoTaggingEnabled = false;
             _autoTaggingEnabled = false;
-            _autoTaggingRescanRequested = false;
-            _autoTaggingCts?.Cancel();
-
-            var runningTask = _autoTaggingTask;
-            if (runningTask is not null)
-            {
-                await runningTask;
-            }
+            await StopRecognitionAsync();
 
             var result = await _tagRepo.RemoveAllAutoTagsAsync(
                 cancellationToken);
@@ -522,110 +550,105 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private void OnAutoTaggingProgress(
-        object? sender,
-        BatchTagProgressEventArgs e)
+    private void SetRecognitionStage(RecognitionStage stage, bool isRunning)
     {
-        if (_isShuttingDown)
-        {
-            return;
-        }
-
-        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
-        {
-            if (_isShuttingDown)
-            {
-                return;
-            }
-
-            var profileName =
-                AutoTagModelCatalog.ForId(e.ProfileId).DisplayName;
-            if (e.IsPreparing)
-            {
-                Settings.SetAutoTaggingProgress(
-                    $"Preparing {profileName}…",
-                    true);
-                StatusText = "Preparing automatic tagging model…";
-            }
-            else if (e.IsCanceled)
-            {
-                Settings.SetAutoTaggingProgress(
-                    $"Paused after {e.Processed:N0} photos",
-                    false,
-                    e.Processed,
-                    e.Total);
-            }
-            else if (e.IsComplete)
-            {
-                var status = e.Total == 0
-                    ? "Automatic tags are up to date"
-                    : $"Tagged {e.Processed - e.Failed:N0} photos with {e.TagsAdded:N0} suggestions";
-                Settings.SetAutoTaggingProgress(
-                    status,
-                    false,
-                    e.Processed,
-                    e.Total);
-                StatusText = status;
-                await RefreshTagsTreeAsync();
-                _lastAutoTagTreeRefresh = 0;
-            }
-            else if (!string.IsNullOrEmpty(e.Error))
-            {
-                Settings.SetAutoTaggingProgress(
-                    $"Skipped {e.CurrentFile}: {e.Error}",
-                    true,
-                    e.Processed,
-                    e.Total);
-            }
-            else
-            {
-                var status =
-                    $"Tagging photos… {e.Processed:N0}/{e.Total:N0}";
-                Settings.SetAutoTaggingProgress(
-                    status,
-                    true,
-                    e.Processed,
-                    e.Total);
-                StatusText = status;
-                if (e.Processed == 1 ||
-                    e.Processed - _lastAutoTagTreeRefresh >= 25)
-                {
-                    _lastAutoTagTreeRefresh = e.Processed;
-                    await RefreshTagsTreeAsync();
-                }
-            }
-        });
+        ActiveRecognitionStage = stage;
+        IsRecognitionRunning = isRunning;
+        IsFaceDetectionRunning =
+            isRunning && stage == RecognitionStage.FaceDetection;
+        IsAutoTaggingRunning =
+            isRunning && stage == RecognitionStage.AutoTagging;
     }
 
-    private void OnFaceProcessingProgress(object? sender, FaceProcessingProgressEventArgs e)
+    /// <summary>
+    /// Single status surface for the unified job: reports the active stage and
+    /// the combined progress of the one background pass.
+    /// </summary>
+    private void OnRecognitionProgress(
+        object? sender,
+        RecognitionProgressEventArgs e)
     {
         if (_isShuttingDown) return;
 
-        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
         {
             if (_isShuttingDown) return;
 
+            SetRecognitionStage(e.Stage, e.IsRunning);
+
             if (e.IsPreparing)
             {
-                StatusText = "Preparing face detection models…";
+                StatusText = "Preparing recognition models…";
+                if (_autoTaggingEnabled)
+                {
+                    Settings.SetAutoTaggingProgress(
+                        "Preparing recognition models…",
+                        true);
+                }
+
+                return;
             }
-            else if (e.IsCanceled)
+
+            if (e.IsCanceled)
             {
-                StatusText = $"Face detection stopped after {e.Processed:N0} photos";
+                var pausedStatus = $"Recognition paused after {e.Processed:N0} photos";
+                StatusText = pausedStatus;
+                Settings.SetAutoTaggingProgress(
+                    pausedStatus,
+                    false,
+                    e.Processed,
+                    e.Total);
+                return;
             }
-            else if (e.IsComplete)
+
+            if (e.IsComplete)
             {
+                var completeStatus = e.Total == 0
+                    ? "Faces and tags are up to date"
+                    : $"Recognition complete: {e.FacesFound:N0} faces and {e.TagsAdded:N0} tags across {e.Processed:N0} photos";
                 StatusText = e.Failed == 0
-                    ? $"Face detection complete: {e.FacesFound:N0} faces in {e.Processed:N0} photos"
-                    : $"Face detection complete: {e.FacesFound:N0} faces, {e.Failed:N0} photos failed";
+                    ? completeStatus
+                    : $"{completeStatus} ({e.Failed:N0} photos failed)";
+                Settings.SetAutoTaggingProgress(
+                    _autoTaggingEnabled ? completeStatus : "Automatic tagging is off",
+                    false,
+                    e.Processed,
+                    e.Total);
+                await RefreshTagsTreeAsync();
+                _lastAutoTagTreeRefresh = 0;
+                return;
             }
-            else if (!string.IsNullOrEmpty(e.Error))
+
+            if (!string.IsNullOrEmpty(e.Error))
             {
-                StatusText = $"Face detection skipped {e.CurrentFile}: {e.Error}";
+                StatusText = $"Skipped {e.CurrentFile}: {e.Error}";
             }
             else
             {
-                StatusText = $"Finding faces… {e.Processed:N0}/{e.Total:N0} photos, {e.FacesFound:N0} faces";
+                var stageLabel = e.Stage switch
+                {
+                    RecognitionStage.FaceDetection => "Finding faces",
+                    RecognitionStage.AutoTagging => "Tagging photos",
+                    _ => "Processing photos"
+                };
+                StatusText =
+                    $"{stageLabel}… {e.Processed:N0}/{e.Total:N0} photos, {e.FacesFound:N0} faces, {e.TagsAdded:N0} tags";
+            }
+
+            if (_autoTaggingEnabled)
+            {
+                Settings.SetAutoTaggingProgress(
+                    $"Recognizing photos… {e.Processed:N0}/{e.Total:N0} ({e.TagsAdded:N0} tag suggestions)",
+                    true,
+                    e.Processed,
+                    e.Total);
+            }
+
+            if (e.TagsAdded > 0 &&
+                (e.Processed == 1 || e.Processed - _lastAutoTagTreeRefresh >= 25))
+            {
+                _lastAutoTagTreeRefresh = e.Processed;
+                await RefreshTagsTreeAsync();
             }
         });
     }
@@ -884,20 +907,15 @@ public partial class MainViewModel : ObservableObject
         _indexingCts?.Cancel();
         _indexingCts?.Dispose();
         _faceDetectionEnabled = false;
-        _faceDetectionCts?.Cancel();
         _autoTaggingEnabled = false;
-        _autoTaggingCts?.Cancel();
-        if (_faceDetectionTask is not null)
+        await StopRecognitionAsync();
+        lock (_recognitionLock)
         {
-            await _faceDetectionTask;
+            _recognitionCts?.Dispose();
+            _recognitionCts = null;
         }
-        if (_autoTaggingTask is not null)
-        {
-            await _autoTaggingTask;
-        }
-        _faceDetectionCts?.Dispose();
-        _autoTaggingCts?.Dispose();
-        _autoTaggingProcessor.Progress -= OnAutoTaggingProgress;
+
+        _recognitionPipeline.Progress -= OnRecognitionProgress;
         Settings.AutoTaggingSettingsChanged -= OnAutoTaggingSettingsChanged;
         _faceResources.Dispose();
         _scanner.Dispose();

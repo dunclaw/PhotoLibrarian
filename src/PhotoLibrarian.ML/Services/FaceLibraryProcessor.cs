@@ -48,74 +48,13 @@ public sealed class FaceLibraryProcessor
                 string? error = null;
                 try
                 {
-                    var metadataFaces = (await _store.GetFacesForImageAsync(
-                            image.Id))
-                        .Where(face => face.IsMetadataManaged)
-                        .ToList();
-                    var detections = await _detector.DetectFacesAsync(
-                        image.FilePath,
+                    faceCount += await FaceScanWorkItem.ScanAsync(
+                        image,
+                        DecodedImage.WithoutPixels(image.FilePath),
+                        _store,
+                        _detector,
+                        _embedder,
                         cancellationToken);
-                    var newDetections = detections
-                        .Where(detection => metadataFaces.All(
-                            face => IntersectionOverUnion(face, detection) < 0.5))
-                        .ToList();
-                    var embeddingInputs = metadataFaces
-                        .Select(ToDetectedFace)
-                        .Concat(newDetections)
-                        .ToList();
-                    var embeddings = await _embedder.GenerateEmbeddingsAsync(
-                        image.FilePath,
-                        embeddingInputs,
-                        cancellationToken);
-                    if (embeddingInputs.Count != embeddings.Count)
-                    {
-                        throw new InvalidDataException(
-                            $"Expected {embeddingInputs.Count} embeddings but received {embeddings.Count}.");
-                    }
-
-                    var regions = metadataFaces
-                        .Select((face, index) => new FaceRegion
-                        {
-                            ImageId = image.Id,
-                            X = face.X,
-                            Y = face.Y,
-                            Width = face.Width,
-                            Height = face.Height,
-                            Confidence = face.Confidence,
-                            Embedding = embeddings[index],
-                            PersonId = face.PersonId,
-                            PersonName = face.PersonName,
-                            IsMetadataManaged = true
-                        })
-                        .Concat(newDetections.Select((face, index) =>
-                            new FaceRegion
-                            {
-                                ImageId = image.Id,
-                                X = face.X,
-                                Y = face.Y,
-                                Width = face.Width,
-                                Height = face.Height,
-                                Confidence = face.Confidence,
-                                Embedding =
-                                    embeddings[metadataFaces.Count + index]
-                            }))
-                        .ToArray();
-                    var wasSaved = await _store.TryReplaceFaceRegionsAsync(
-                        image.Id,
-                        image.FileSize,
-                        image.DateModified,
-                        regions,
-                        FaceModelCatalog.PipelineVersion,
-                        cancellationToken);
-                    if (wasSaved)
-                    {
-                        faceCount += regions.Length;
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException(
-                            "The photo changed during face detection and will be retried.");
-                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -161,47 +100,6 @@ public sealed class FaceLibraryProcessor
                 failed,
                 isComplete: true));
         return new FaceProcessingResult(processed, failed, faceCount);
-    }
-
-    private static DetectedFace ToDetectedFace(FaceRegion face)
-    {
-        var left = (float)face.X;
-        var top = (float)face.Y;
-        var width = (float)face.Width;
-        var height = (float)face.Height;
-        return new DetectedFace
-        {
-            X = left,
-            Y = top,
-            Width = width,
-            Height = height,
-            Confidence = face.Confidence,
-            Landmarks =
-            [
-                new FaceLandmark(left + width * 0.30f, top + height * 0.38f),
-                new FaceLandmark(left + width * 0.70f, top + height * 0.38f),
-                new FaceLandmark(left + width * 0.50f, top + height * 0.58f),
-                new FaceLandmark(left + width * 0.35f, top + height * 0.78f),
-                new FaceLandmark(left + width * 0.65f, top + height * 0.78f)
-            ]
-        };
-    }
-
-    private static double IntersectionOverUnion(
-        FaceRegion face,
-        DetectedFace detection)
-    {
-        var left = Math.Max(face.X, detection.X);
-        var top = Math.Max(face.Y, detection.Y);
-        var right = Math.Min(face.X + face.Width, detection.X + detection.Width);
-        var bottom = Math.Min(face.Y + face.Height, detection.Y + detection.Height);
-        var intersection =
-            Math.Max(0, right - left) * Math.Max(0, bottom - top);
-        var union =
-            face.Width * face.Height +
-            detection.Width * detection.Height -
-            intersection;
-        return union <= 0 ? 0 : intersection / union;
     }
 }
 
