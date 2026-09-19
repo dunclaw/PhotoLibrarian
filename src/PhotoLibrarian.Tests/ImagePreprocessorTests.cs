@@ -1,6 +1,4 @@
 using PhotoLibrarian.ML.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
@@ -15,15 +13,7 @@ public sealed class ImagePreprocessorTests
             $"PhotoLibrarian-{Guid.NewGuid():N}.png");
         try
         {
-            using (var image = new Image<Rgba32>(
-                4,
-                2,
-                new Rgba32(255, 0, 0, 255)))
-            {
-                await image.SaveAsPngAsync(
-                    imagePath,
-                    TestContext.Current.CancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 4, 2);
 
             var tensor = await ImagePreprocessor
                 .PreprocessImageUnitNchwLetterboxAsync(

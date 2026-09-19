@@ -14,7 +14,6 @@
     <PackageVersion Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
     <!-- Image Metadata -->
     <PackageVersion Include="MetadataExtractor" Version="2.9.3" />
-    <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageVersion Include="XmpCore" Version="6.1.10.1" />
     <!-- SQLite -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />

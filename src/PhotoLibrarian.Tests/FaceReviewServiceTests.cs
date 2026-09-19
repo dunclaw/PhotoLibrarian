@@ -3,8 +3,6 @@ using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ML.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
@@ -79,13 +77,7 @@ public sealed class FaceReviewServiceTests
             $"PhotoLibrarian-{Guid.NewGuid():N}.png");
         try
         {
-            using (var source = new Image<Rgba32>(
-                100,
-                80,
-                new Rgba32(100, 149, 237)))
-            {
-                await source.SaveAsPngAsync(imagePath, TestContext.Current.CancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 100, 80);
 
             var bytes = await FaceThumbnailCropper.CreateAsync(
                 imagePath,
@@ -99,9 +91,7 @@ public sealed class FaceReviewServiceTests
                 64,
                 TestContext.Current.CancellationToken);
 
-            using var preview = Image.Load(bytes);
-            Assert.Equal(64, preview.Width);
-            Assert.Equal(64, preview.Height);
+            Assert.Equal((64u, 64u), await WicTestImage.ReadPngSizeAsync(bytes));
         }
         finally
         {
@@ -117,13 +107,7 @@ public sealed class FaceReviewServiceTests
             $"PhotoLibrarian-{Guid.NewGuid():N}.cr3");
         try
         {
-            using (var source = new Image<Rgba32>(
-                100,
-                80,
-                new Rgba32(100, 149, 237)))
-            {
-                await source.SaveAsPngAsync(imagePath, TestContext.Current.CancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 100, 80);
 
             var bytes = await FaceThumbnailCropper.CreateAsync(
                 imagePath,
@@ -137,9 +121,7 @@ public sealed class FaceReviewServiceTests
                 64,
                 TestContext.Current.CancellationToken);
 
-            using var preview = Image.Load(bytes);
-            Assert.Equal(64, preview.Width);
-            Assert.Equal(64, preview.Height);
+            Assert.Equal((64u, 64u), await WicTestImage.ReadPngSizeAsync(bytes));
         }
         finally
         {
