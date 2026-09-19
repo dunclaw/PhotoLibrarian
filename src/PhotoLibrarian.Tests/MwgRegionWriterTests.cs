@@ -1,7 +1,5 @@
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using System.Globalization;
 using XmpCore;
 using Xunit;
@@ -154,12 +152,7 @@ public sealed class MwgRegionWriterTests
 
         try
         {
-            using (var image = new Image<Rgba32>(16, 12))
-            {
-                await image.SaveAsJpegAsync(
-                    imagePath,
-                    TestContext.Current.CancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 16, 12, true);
 
             var store = new FaceMetadataStore();
             await store.WriteAsync(
@@ -183,11 +176,7 @@ public sealed class MwgRegionWriterTests
 
             Assert.False(File.Exists(Path.ChangeExtension(imagePath, ".xmp")));
             Assert.Equal("Alex", Assert.Single(store.Read(imagePath).Faces).PersonName);
-            using var reloaded = await Image.LoadAsync<Rgba32>(
-                imagePath,
-                TestContext.Current.CancellationToken);
-            Assert.Equal(16, reloaded.Width);
-            Assert.Equal(12, reloaded.Height);
+            Assert.Equal((16u, 12u), await WicTestImage.ReadSizeAsync(imagePath));
         }
         finally
         {
@@ -206,12 +195,7 @@ public sealed class MwgRegionWriterTests
 
         try
         {
-            using (var image = new Image<Rgba32>(16, 12))
-            {
-                await image.SaveAsJpegAsync(
-                    imagePath,
-                    TestContext.Current.CancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 16, 12, true);
 
             var store = new FaceMetadataStore();
             var hidden = new PortableFaceMetadata(
@@ -279,12 +263,7 @@ public sealed class MwgRegionWriterTests
 
         try
         {
-            using (var image = new Image<Rgba32>(16, 12))
-            {
-                await image.SaveAsJpegAsync(
-                    jpegPath,
-                    TestContext.Current.CancellationToken);
-            }
+            await WicTestImage.CreateAsync(jpegPath, 16, 12, true);
 
             var store = new FaceMetadataStore();
             await store.WriteAsync(

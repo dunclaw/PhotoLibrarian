@@ -4,8 +4,6 @@ using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using PhotoLibrarian.ModelBench;
 using PhotoLibrarian.Inference;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
@@ -138,23 +136,14 @@ public sealed class ZeroShotModelTests
     [Theory]
     [InlineData("squash", -1f, 1f)]
     [InlineData("shortest-center-crop", 1f, -1f)]
-    public void PreprocessingUsesBundleResizeAndNormalization(
+    public async Task PreprocessingUsesBundleResizeAndNormalization(
         string resizeMode, float expectedRed, float expectedGreen)
     {
         var path = Path.Combine(Path.GetTempPath(), $"ZeroShot-{Guid.NewGuid():N}.png");
         try
         {
-            using (var image = new Image<Rgb24>(32, 16, new Rgb24(255, 0, 0)))
-            {
-                for (var y = 0; y < 16; y++)
-                {
-                    for (var x = 0; x < 8; x++)
-                    {
-                        image[x, y] = new Rgb24(0, 255, 0);
-                    }
-                }
-                image.SaveAsPng(path);
-            }
+            await WicTestImage.CreateAsync(path, 32, 16, false,
+                (x, _) => x < 8 ? ((byte)0, (byte)255, (byte)0) : ((byte)0, (byte)0, (byte)255));
             var bundle = CreateBundle(resizeMode: resizeMode);
             var model = ModelCatalog.All.Single(model => model.Id == "siglip2");
             var input = ImageTensorBuilder.Create(path, 16, 16, model, bundle);

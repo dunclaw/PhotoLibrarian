@@ -2,8 +2,6 @@ using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using XmpCore;
 using Xunit;
 
@@ -24,12 +22,7 @@ public sealed class LibraryIndexingServiceTests
 
         try
         {
-            using (var image = new Image<Rgba32>(16, 12))
-            {
-                await image.SaveAsPngAsync(
-                    imagePath,
-                    TestContext.Current.CancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 16, 12);
             await File.WriteAllTextAsync(
                 sidecarPath,
                 "not valid XMP",

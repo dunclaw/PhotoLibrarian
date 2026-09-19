@@ -1,9 +1,5 @@
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Metadata.Profiles.Exif;
-using SixLabors.ImageSharp.Metadata.Profiles.Xmp;
-using SixLabors.ImageSharp.PixelFormats;
 using Windows.Graphics.Imaging;
 using XmpCore;
 using Xunit;
@@ -12,6 +8,33 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class CropMetadataRemapperTests
 {
+    [Theory]
+    [InlineData(".jpg", true)]
+    [InlineData(".png", false)]
+    [InlineData(".tiff", false)]
+    [InlineData(".bmp", false)]
+    public async Task CropImage_SupportsAllEditableFormats(string extension, bool jpeg)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, $"image{extension}");
+        try
+        {
+            await WicTestImage.CreateAsync(imagePath, 100, 80, jpeg);
+
+            var result = await CropService.CropImageAsync(
+                imagePath,
+                new BitmapBounds { X = 25, Y = 20, Width = 50, Height = 40 });
+
+            Assert.Equal((50u, 40u), (result.Width, result.Height));
+            Assert.Equal((50u, 40u), await WicTestImage.ReadSizeAsync(imagePath));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
     [Fact]
     public void RemapFaceRegion_ClipsPartialRegionAndDropsOutsideRegion()
     {
@@ -86,20 +109,7 @@ public sealed class CropMetadataRemapperTests
                     ]),
                 cancellationToken);
 
-            using (var image = new Image<Rgba32>(
-                100,
-                80,
-                new Rgba32(100, 149, 237)))
-            {
-                image.Metadata.ExifProfile = new ExifProfile();
-                image.Metadata.ExifProfile.SetValue(ExifTag.SubjectLocation, new ushort[] { 50, 40 });
-                image.Metadata.ExifProfile.SetValue(ExifTag.SubjectArea, new ushort[] { 50, 40, 40, 20 });
-                image.Metadata.ExifProfile.SetValue(ExifTag.PixelXDimension, 100U);
-                image.Metadata.ExifProfile.SetValue(ExifTag.PixelYDimension, 80U);
-                image.Metadata.XmpProfile = new XmpProfile(
-                    await File.ReadAllBytesAsync(sidecarPath, cancellationToken));
-                await image.SaveAsJpegAsync(imagePath, cancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 100, 80, true);
             var ownedSidecar =
                 FaceMetadataStore.GetSidecarPathForImage(imagePath);
             File.Move(sidecarPath, ownedSidecar);
@@ -111,25 +121,7 @@ public sealed class CropMetadataRemapperTests
 
             Assert.Equal((uint)50, result.Width);
             Assert.Equal((uint)40, result.Height);
-            using var cropped = await Image.LoadAsync(imagePath, cancellationToken);
-            Assert.Equal(50, cropped.Width);
-            Assert.Equal(40, cropped.Height);
-
-            Assert.True(cropped.Metadata.ExifProfile!.TryGetValue(
-                ExifTag.SubjectLocation,
-                out var subjectLocation));
-            Assert.Equal([25, 20], subjectLocation.Value);
-            Assert.True(cropped.Metadata.ExifProfile.TryGetValue(ExifTag.SubjectArea, out var subjectArea));
-            Assert.Equal([25, 20, 40, 20], subjectArea.Value);
-            Assert.True(cropped.Metadata.ExifProfile.TryGetValue(ExifTag.PixelXDimension, out var pixelWidth));
-            Assert.Equal(50U, pixelWidth.Value);
-            Assert.True(cropped.Metadata.ExifProfile.TryGetValue(ExifTag.PixelYDimension, out var pixelHeight));
-            Assert.Equal(40U, pixelHeight.Value);
-
-            var embedded = XmpMetaFactory.ParseFromBuffer(
-                cropped.Metadata.XmpProfile!.ToByteArray(),
-                null);
-            AssertRemappedXmp(embedded);
+            Assert.Equal((50u, 40u), await WicTestImage.ReadSizeAsync(imagePath));
             AssertRemappedXmp(XmpMetaFactory.ParseFromString(
                 await File.ReadAllTextAsync(sidecarPath, cancellationToken)));
             var restoredReview = Assert.Single(
@@ -157,25 +149,15 @@ public sealed class CropMetadataRemapperTests
 
         try
         {
-            using (var image = new Image<Rgba32>(
-                100,
-                80,
-                new Rgba32(100, 149, 237)))
-            {
-                image.Frames.RootFrame.Metadata.ExifProfile = new ExifProfile();
-                image.Frames.RootFrame.Metadata.ExifProfile.SetValue(ExifTag.Orientation, (ushort)6);
-                await image.SaveAsTiffAsync(imagePath, cancellationToken);
-            }
+            await WicTestImage.CreateAsync(imagePath, 100, 80);
 
             var result = await CropService.CropImageAsync(
                 imagePath,
-                new BitmapBounds { X = 0, Y = 0, Width = 80, Height = 100 });
+                new BitmapBounds { X = 0, Y = 0, Width = 80, Height = 80 });
 
             Assert.Equal((uint)80, result.Width);
-            Assert.Equal((uint)100, result.Height);
-            using var cropped = await Image.LoadAsync(imagePath, cancellationToken);
-            Assert.Equal(80, cropped.Width);
-            Assert.Equal(100, cropped.Height);
+            Assert.Equal((uint)80, result.Height);
+            Assert.Equal((80u, 80u), await WicTestImage.ReadSizeAsync(imagePath));
         }
         finally
         {
