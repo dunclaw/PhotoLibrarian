@@ -1,0 +1,11 @@
+# Python 3.12; official RAM++ source export, CPU verification and ONNX output.
+numpy==2.2.6
+onnx==1.18.0
+onnxruntime==1.22.0
+torch==2.7.1
+torchvision==0.22.1
+transformers==4.40.2
+tokenizers==0.19.1
+timm==0.4.12
+fairscale==0.4.4
+huggingface-hub==0.32.4
