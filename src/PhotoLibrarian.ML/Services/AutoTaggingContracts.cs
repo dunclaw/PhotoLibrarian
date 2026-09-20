@@ -47,6 +47,25 @@ public interface IAutoTagger
         int maximumTags,
         float confidenceThreshold,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Predicts tags from an already-decoded source image so a photo that also
+    /// needs face work is not decoded a second time.
+    /// </summary>
+    Task<IReadOnlyList<TagPrediction>> PredictTagsAsync(
+        DecodedImage image,
+        string profileId,
+        string? modelDirectory,
+        int maximumTags,
+        float confidenceThreshold,
+        CancellationToken cancellationToken = default) =>
+        PredictTagsAsync(
+            image.FilePath,
+            profileId,
+            modelDirectory,
+            maximumTags,
+            confidenceThreshold,
+            cancellationToken);
 }
 
 public interface IAutoTagModelProvider

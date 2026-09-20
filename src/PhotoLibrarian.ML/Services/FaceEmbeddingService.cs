@@ -39,13 +39,36 @@ public sealed class FaceEmbeddingService : IFaceEmbedder
         IReadOnlyList<DetectedFace> faces,
         CancellationToken cancellationToken = default)
     {
-        var session = _session ?? throw new InvalidOperationException("Model not loaded.");
         if (faces.Count == 0)
         {
             return [];
         }
 
         var image = await ImagePixelData.LoadAsync(imagePath, cancellationToken);
+        return await GenerateEmbeddingsCoreAsync(image, faces, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<float[]>> GenerateEmbeddingsAsync(
+        DecodedImage image,
+        IReadOnlyList<DetectedFace> faces,
+        CancellationToken cancellationToken = default)
+    {
+        if (faces.Count == 0)
+        {
+            return Task.FromResult<IReadOnlyList<float[]>>([]);
+        }
+
+        return image.Pixels is { } shared
+            ? GenerateEmbeddingsCoreAsync(shared, faces, cancellationToken)
+            : GenerateEmbeddingsAsync(image.FilePath, faces, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<float[]>> GenerateEmbeddingsCoreAsync(
+        ImagePixelData image,
+        IReadOnlyList<DetectedFace> faces,
+        CancellationToken cancellationToken)
+    {
+        var session = _session ?? throw new InvalidOperationException("Model not loaded.");
         return await Task.Run(() =>
         {
             var embeddings = new List<float[]>(faces.Count);

@@ -80,14 +80,30 @@ public sealed class AutoTaggingService : IAutoTagger
         }
     }
 
-    public async Task<IReadOnlyList<TagPrediction>> PredictTagsAsync(
+    public Task<IReadOnlyList<TagPrediction>> PredictTagsAsync(
         string imagePath,
+        string profileId,
+        string? modelDirectory,
+        int maximumTags,
+        float confidenceThreshold,
+        CancellationToken cancellationToken = default) =>
+        PredictTagsAsync(
+            DecodedImage.WithoutPixels(imagePath),
+            profileId,
+            modelDirectory,
+            maximumTags,
+            confidenceThreshold,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<TagPrediction>> PredictTagsAsync(
+        DecodedImage image,
         string profileId,
         string? modelDirectory,
         int maximumTags,
         float confidenceThreshold,
         CancellationToken cancellationToken = default)
     {
+        var imagePath = image.FilePath;
         var definition = AutoTagModelCatalog.ForId(profileId);
         var modelPath = _modelProvider.GetAssetPath(
             profileId,
@@ -109,8 +125,15 @@ public sealed class AutoTaggingService : IAutoTagger
         DenseTensor<float> tensor = definition.PixelNormalization switch
         {
             AutoTagPixelNormalization.Clip when loadedProfile.Bundle is not null =>
-                (await ZeroShotImagePreprocessor.CreateAsync(
-                    imagePath, loadedProfile.Bundle, cancellationToken)).Tensor,
+                (image.Pixels is { } sharedPixels
+                    ? await ZeroShotImagePreprocessor.CreateFromPixelsAsync(
+                        sharedPixels.Bgra,
+                        sharedPixels.Width,
+                        sharedPixels.Height,
+                        loadedProfile.Bundle,
+                        cancellationToken)
+                    : await ZeroShotImagePreprocessor.CreateAsync(
+                        imagePath, loadedProfile.Bundle, cancellationToken)).Tensor,
             AutoTagPixelNormalization.ImageNet =>
                 await ImagePreprocessor.PreprocessImageAsync(
                     imagePath,
