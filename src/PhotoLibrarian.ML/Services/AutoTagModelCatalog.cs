@@ -82,13 +82,13 @@ public static class AutoTagModelCatalog
         new AutoTagAssetDefinition(
             "ram_plus_swin_large_14m.onnx",
             null,
-            "D383AA5212619DC0DBB838AC8EAB92F791C1734A5EC5BEEAFA9BEECEAFABB8EC",
-            1_863_487_162),
+            "FF29E0E18E80B8F2FDC2566B9368BD904664CDC1FCE380F57E73DCF03F4ADDA3",
+            1_849_873_814),
         new AutoTagAssetDefinition(
             "ram_plus_swin_large_14m_labels.txt",
             null,
-            "F76E8C8CCC9D2B1BEDECE326953A4F1002F91DA1391AB5440EB031C4B2F9C244",
-            91_230),
+            "1A6C943DD251993770E7CF6FED23A38B7AC068F4C8FBC7A0DB85CBE0FE5221B3",
+            41_905),
         384,
         AutoTagTensorLayout.Nchw,
         0.40f,
@@ -97,8 +97,8 @@ public static class AutoTagModelCatalog
         "ram-plus-swin-large-14m-general-v2-binary-mask-" + AutoTagHierarchy.Version,
         AutoTagVocabularySafety.CuratedAllowlist,
         GeneralPhotoVocabulary.Current.AllowedRamLabels,
-        AutoTagPixelNormalization.Unit,
-        PreserveAspectRatio: true,
+        AutoTagPixelNormalization.ImageNet,
+        PreserveAspectRatio: false,
         OutputKind: AutoTagOutputKind.BinaryTagMask,
         UsesTagHierarchy: true,
         OutputName: "targets");

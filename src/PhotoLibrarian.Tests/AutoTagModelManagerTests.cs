@@ -169,4 +169,57 @@ public sealed class AutoTagModelManagerTests
             }
         }
     }
+
+    [Fact(Explicit = true)]
+    public async Task OfficialRamPlusExportImportsLoadsAndTagsRepresentativeImage()
+    {
+        var assets = Environment.GetEnvironmentVariable("RAM_PLUS_ASSETS")
+            ?? throw new InvalidOperationException(
+                "Set RAM_PLUS_ASSETS to the generated official RAM++ bundle.");
+        var image = Environment.GetEnvironmentVariable("RAM_PLUS_VALIDATION_IMAGE")
+            ?? throw new InvalidOperationException(
+                "Set RAM_PLUS_VALIDATION_IMAGE to a representative image.");
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"ram-plus-import-{Guid.NewGuid():N}");
+        try
+        {
+            using var sessions = new OnnxSessionManager(root);
+            var manager = new AutoTagModelManager(sessions);
+            var tagger = new AutoTaggingService(sessions, manager);
+            var profile = AutoTagModelCatalog.RamPlus;
+
+            await manager.ImportProfileAssetsAsync(
+                profile.Id,
+                assets,
+                cancellationToken: TestContext.Current.CancellationToken);
+            await manager.EnsureModelAsync(
+                profile.Id,
+                null,
+                TestContext.Current.CancellationToken);
+            tagger.LoadModel(profile.Id, null);
+
+            var predictions = await tagger.PredictTagsAsync(
+                image,
+                profile.Id,
+                null,
+                profile.DefaultMaximumTags,
+                profile.DefaultConfidenceThreshold,
+                TestContext.Current.CancellationToken);
+
+            Assert.NotEmpty(predictions);
+            Assert.All(predictions, prediction =>
+            {
+                Assert.NotEqual(string.Empty, prediction.Tag);
+                Assert.Equal(1, prediction.Confidence);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
 }

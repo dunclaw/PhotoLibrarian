@@ -134,15 +134,38 @@ public sealed class AutoTaggingServiceTests
     }
 
     [Fact]
-    public void RamPlusProfile_UsesVerifiedLocalMultiLabelAssets()
+    public async Task ReadLabels_ParsesOfficialRamPlusLineVocabulary()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"ram-labels-{Guid.NewGuid():N}.txt");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                "3D CG rendering\n3D glasses\nabacus\n",
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(
+                ["3D CG rendering", "3D glasses", "abacus"],
+                AutoTaggingService.ReadLabels(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RamPlusProfile_UsesVerifiedOfficialExportAssets()
     {
         var profile = AutoTagModelCatalog.RamPlus;
 
         Assert.True(profile.RequiresLocalImport);
         Assert.Equal(384, profile.InputSize);
         Assert.Equal(AutoTagTensorLayout.Nchw, profile.TensorLayout);
-        Assert.Equal(AutoTagPixelNormalization.Unit, profile.PixelNormalization);
-        Assert.True(profile.PreserveAspectRatio);
+        Assert.Equal(AutoTagPixelNormalization.ImageNet, profile.PixelNormalization);
+        Assert.False(profile.PreserveAspectRatio);
         Assert.Equal(
             AutoTagOutputKind.BinaryTagMask,
             profile.OutputKind);
@@ -151,5 +174,13 @@ public sealed class AutoTaggingServiceTests
         Assert.Equal(10, profile.MaximumSupportedTags);
         Assert.Null(profile.ModelAsset.DownloadUri);
         Assert.Null(profile.LabelsAsset.DownloadUri);
+        Assert.Equal(
+            "FF29E0E18E80B8F2FDC2566B9368BD904664CDC1FCE380F57E73DCF03F4ADDA3",
+            profile.ModelAsset.Sha256);
+        Assert.Equal(1_849_873_814, profile.ModelAsset.DownloadSizeBytes);
+        Assert.Equal(
+            "1A6C943DD251993770E7CF6FED23A38B7AC068F4C8FBC7A0DB85CBE0FE5221B3",
+            profile.LabelsAsset.Sha256);
+        Assert.Equal(41_905, profile.LabelsAsset.DownloadSizeBytes);
     }
 }

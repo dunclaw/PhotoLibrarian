@@ -283,6 +283,15 @@ public sealed class AutoTaggingService : IAutoTagger
             RegexOptions.CultureInvariant);
         if (matches.Count == 0)
         {
+            var lines = content.Split(
+                ['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries |
+                StringSplitOptions.TrimEntries);
+            if (lines.Length > 0 && lines.All(label => label.Length > 0))
+            {
+                return lines;
+            }
+
             throw new InvalidDataException(
                 "The automatic-tag label file is invalid.");
         }
