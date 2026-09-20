@@ -8,6 +8,7 @@ using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Views;
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace PhotoLibrarian;
@@ -26,6 +27,25 @@ public sealed partial class MainWindow : Window
 
     public Task RefreshTagsTreeAsync() =>
         FolderNavPanel.RefreshTagsTreeAsync();
+
+    public void BeginManualFaceTagging() =>
+        ViewerOverlay.EnterManualFaceTagging();
+
+    public void CancelManualFaceTagging() =>
+        ViewerOverlay.ExitManualFaceTagging();
+
+    /// <summary>Forwards a hovered people-tag row to whichever surface is showing that image
+    /// (the full viewer if it's open on that entry, and/or the grid thumbnail).</summary>
+    public void SetHoveredFace(Core.Models.ImageEntry? entry, Core.Models.FaceRegion? region)
+    {
+        ViewerOverlay.SetFaceHighlight(
+            entry != null && ViewModel.ImageViewer.CurrentEntry?.Id == entry.Id ? region : null);
+
+        var thumbnail = entry is null
+            ? null
+            : ViewModel.ImageGrid.Images.FirstOrDefault(image => image.Entry.Id == entry.Id);
+        ImageGridPanel.SetFaceHighlight(thumbnail, thumbnail is null ? null : region);
+    }
 
     /// <summary>Repaints the left-panel "Flagged" node (count changes after flag edits).</summary>
     public void RefreshFlagTree()
@@ -90,6 +110,7 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.CropCancelRequested += OnRibbonCancelCropClicked;
         ViewerOverlay.StraightenApplyRequested += OnRibbonApplyStraightenClicked;
         ViewerOverlay.StraightenCancelRequested += OnRibbonCancelStraightenClicked;
+        ViewerOverlay.ManualFaceTaggingExited += (_, _) => ViewModel.OnManualFaceTaggingExited();
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;

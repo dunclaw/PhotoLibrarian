@@ -1,11 +1,50 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace PhotoLibrarian.ViewModels;
+
+public partial class PersonTagDisplayItem : ObservableObject
+{
+    private readonly string _imagePath;
+    private readonly FaceRegion _face;
+    private Task? _thumbnailLoadTask;
+
+    public string Name => _face.PersonName ?? "Unnamed person";
+    public long FaceId => _face.Id;
+    public FaceRegion Face => _face;
+    public ImageEntry Image { get; }
+
+    [ObservableProperty]
+    public partial ImageSource? Thumbnail { get; set; }
+
+    public PersonTagDisplayItem(ImageEntry image, FaceRegion face)
+    {
+        Image = image;
+        _imagePath = image.FilePath;
+        _face = face;
+    }
+
+    public Task LoadThumbnailAsync()
+    {
+        return _thumbnailLoadTask ??= LoadThumbnailCoreAsync();
+    }
+
+    private async Task LoadThumbnailCoreAsync()
+    {
+        var bytes = await FaceThumbnailCropper.CreateAsync(_imagePath, _face, 48);
+        var bitmap = new BitmapImage();
+        using var stream = new MemoryStream(bytes);
+        await bitmap.SetSourceAsync(stream.AsRandomAccessStream());
+        Thumbnail = bitmap;
+    }
+}
 
 /// <summary>
 /// Represents one tag in the panel, with an indicator of whether it's present on all selected images.
@@ -38,6 +77,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     private List<ImageEntry> _entries = new();
     private ImageRepository? _imageRepo;
     private TagRepository? _tagRepo;
+    private FaceRepository? _faceRepo;
     private MainViewModel? _main;
 
     [ObservableProperty]
@@ -77,6 +117,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     public partial bool IsCaptionMixed { get; set; }
 
     public ObservableCollection<TagDisplayItem> Tags { get; } = [];
+    public ObservableCollection<PersonTagDisplayItem> PeopleTags { get; } = [];
 
     /// <summary>Date taken common to all selected entries; null if mixed or unset.</summary>
     [ObservableProperty]
@@ -140,11 +181,23 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public MetadataPanelViewModel() { }
 
-    public void Initialize(ImageRepository imageRepo, TagRepository tagRepo, MainViewModel main)
+    public void Initialize(
+        ImageRepository imageRepo,
+        TagRepository tagRepo,
+        FaceRepository faceRepo,
+        MainViewModel main)
     {
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
+        _faceRepo = faceRepo;
         _main = main;
+        _main.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.IsManualFaceTaggingActive))
+            {
+                IsManualFaceTaggingActive = _main.IsManualFaceTaggingActive;
+            }
+        };
     }
 
     /// <summary>
@@ -300,6 +353,71 @@ public partial class MetadataPanelViewModel : ObservableObject
                 Tags.Add(new TagDisplayItem(kvp.Key, kvp.Value, considered));
             }
         }
+
+        await ReloadPeopleTagsAsync();
+    }
+
+    [ObservableProperty]
+    public partial bool IsManualFaceTaggingActive { get; set; }
+
+    public async Task ReloadPeopleTagsAsync()
+    {
+        PeopleTags.Clear();
+        if (_faceRepo == null) return;
+
+        foreach (var entry in _entries.Where(entry => entry.Id > 0))
+        {
+            var faces = await _faceRepo.GetFacesForImageAsync(entry.Id);
+            foreach (var face in faces.Where(face => !string.IsNullOrWhiteSpace(face.PersonName)))
+            {
+                var item = new PersonTagDisplayItem(entry, face);
+                PeopleTags.Add(item);
+                _ = LoadThumbnailSafelyAsync(item);
+            }
+        }
+
+        OnPropertyChanged(nameof(PeopleTags));
+    }
+
+    public void StartManualFaceTagging()
+    {
+        if (_main is null) return;
+        if (_main.IsManualFaceTaggingActive)
+        {
+            _main.CancelManualFaceTagging();
+            return;
+        }
+        if (_entries.Count != 1) return;
+        _main.StartManualFaceTagging(_entries[0]);
+    }
+
+    public async Task RemoveFaceTagAsync(PersonTagDisplayItem item)
+    {
+        if (_main is null) return;
+        await _main.RemoveFaceTagAsync(item.FaceId);
+    }
+
+    /// <summary>
+    /// Called when the pointer enters/leaves a people-tags row so the image (full viewer
+    /// or grid thumbnail) can highlight where that face is. Pass null to clear the highlight.
+    /// </summary>
+    public void SetHoveredFace(PersonTagDisplayItem? item)
+    {
+        _main?.SetHoveredFace(item?.Image, item?.Face);
+    }
+
+    private static async Task LoadThumbnailSafelyAsync(PersonTagDisplayItem item)
+    {
+        try
+        {
+            await item.LoadThumbnailAsync();
+        }
+        catch (IOException)
+        {
+        }
+        catch (InvalidDataException)
+        {
+        }
     }
 
     private static string CommonStringOrMixed(List<ImageEntry> entries, Func<ImageEntry, string> selector)
@@ -321,6 +439,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         FileName = "";
         FolderPath = "";
         Tags.Clear();
+        PeopleTags.Clear();
         CommonDateTaken = null;
         IsDateMixed = false;
         IsRatingMixed = false;

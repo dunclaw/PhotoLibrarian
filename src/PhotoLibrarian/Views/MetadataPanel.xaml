@@ -1,7 +1,8 @@
 <UserControl
     x:Class="PhotoLibrarian.Views.MetadataPanel"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:PhotoLibrarian.ViewModels">
 
     <UserControl.Resources>
         <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
@@ -58,7 +59,51 @@
                     </Border>
 
                     <TextBlock Text="People tags" Style="{StaticResource SectionHeaderStyle}" />
-                    <TextBlock Text="Add people tags" Style="{StaticResource PlaceholderStyle}" Margin="0,2,0,0" />
+                    <ItemsRepeater x:Name="PeopleTagsList" Margin="0,2,0,0">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Orientation="Vertical" Spacing="4" />
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PersonTagDisplayItem">
+                                <Grid ColumnSpacing="8"
+                                      PointerEntered="OnPersonRowPointerEntered"
+                                      PointerExited="OnPersonRowPointerExited">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Ellipse Width="32" Height="32">
+                                        <Ellipse.Fill>
+                                            <ImageBrush ImageSource="{x:Bind Thumbnail, Mode=OneWay}"
+                                                        Stretch="UniformToFill" />
+                                        </Ellipse.Fill>
+                                    </Ellipse>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{x:Bind Name, Mode=OneWay}"
+                                               VerticalAlignment="Center"
+                                               FontSize="13" />
+                                    <Button Grid.Column="2"
+                                            AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Remove this people tag"
+                                            Click="OnRemoveFaceTagClick"
+                                            Padding="6"
+                                            Background="Transparent"
+                                            BorderThickness="0">
+                                        <FontIcon Glyph="&#xE711;" FontSize="12" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                    <Button x:Name="AddPeopleTagsButton"
+                            AutomationProperties.AutomationId="AddPeopleTagsButton"
+                            AutomationProperties.Name="Add people tags"
+                            Content="Add people tags"
+                            Click="OnAddPeopleTagsClick"
+                            HorizontalAlignment="Left"
+                            Padding="8,4"
+                            Margin="0,2,0,0" />
 
                     <TextBlock Text="Geotag" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBlock x:Name="GeotagText" Style="{StaticResource PlaceholderStyle}" Margin="0,2,0,0" />

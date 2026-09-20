@@ -254,6 +254,9 @@ public partial class PeopleReviewViewModel : ObservableObject
 
     public Task<IReadOnlyList<Person>> GetPeopleAsync() => _service.GetPeopleAsync();
 
+    /// <summary>The most recently tagged-as people, newest first, for quick-access UI.</summary>
+    public IReadOnlyList<Person> RecentPeople => _service.RecentPeople;
+
     public async Task EnsurePersonDropTargetsLoadedAsync(
         CancellationToken cancellationToken = default)
     {

@@ -20,6 +20,11 @@ public sealed partial class ImageGridView : UserControl
         this.Loaded += OnLoaded;
     }
 
+    /// <summary>Highlights the given face's rectangle over its image's grid thumbnail, if
+    /// currently rendered. Pass null to clear. Forwarded from the Browse panel on hover.</summary>
+    public void SetFaceHighlight(ImageThumbnailViewModel? item, Core.Models.FaceRegion? region) =>
+        PhotoGrid.SetFaceHighlight(item, region);
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null || _isInitialized) return;
