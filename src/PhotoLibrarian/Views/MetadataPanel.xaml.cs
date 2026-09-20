@@ -179,24 +179,40 @@ public sealed partial class MetadataPanel : UserControl
     private void OnAddPeopleTagsClick(object sender, RoutedEventArgs e) =>
         ViewModel?.StartManualFaceTagging();
 
-    private void OnRemoveFaceTagClick(object sender, RoutedEventArgs e)
+    private async void OnRemoveFaceTagClick(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: PersonTagDisplayItem item })
+        var item = GetPersonTag(sender);
+        if (item is null || ViewModel is null) return;
+
+        try
         {
-            _ = ViewModel?.RemoveFaceTagAsync(item);
+            ViewModel.SetHoveredFace(null);
+            await ViewModel.RemoveFaceTagAsync(item);
+        }
+        catch (Exception exception)
+        {
+            App.ViewModel.StatusText = $"Could not remove people tag: {exception.Message}";
         }
     }
 
     private void OnPersonRowPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: PersonTagDisplayItem item })
-        {
-            ViewModel?.SetHoveredFace(item);
-        }
+        ViewModel?.SetHoveredFace(GetPersonTag(sender));
     }
 
     private void OnPersonRowPointerExited(object sender, PointerRoutedEventArgs e) =>
         ViewModel?.SetHoveredFace(null);
+
+    private PersonTagDisplayItem? GetPersonTag(object sender)
+    {
+        if (ViewModel is null ||
+            sender is not FrameworkElement { Tag: long faceId })
+        {
+            return null;
+        }
+
+        return ViewModel.PeopleTags.FirstOrDefault(item => item.FaceId == faceId);
+    }
 
     // --- Flag ---
 

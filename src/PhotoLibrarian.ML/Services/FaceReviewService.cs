@@ -14,14 +14,16 @@ public sealed class FaceReviewService
     private readonly FaceClusteringService _clusteringService;
     private readonly FaceRecognitionService _recognitionService;
     private readonly IFaceMetadataStore _faceMetadataStore;
-    private readonly List<Person> _recentPeople = [];
+    private readonly RecentPeopleStore? _recentPeopleStore;
+    private readonly List<Person> _recentPeople;
 
     public FaceReviewService(
         FaceRepository faceRepository,
         ImageRepository imageRepository,
         FaceClusteringService clusteringService,
         FaceRecognitionService recognitionService,
-        IFaceMetadataStore? faceMetadataStore = null)
+        IFaceMetadataStore? faceMetadataStore = null,
+        RecentPeopleStore? recentPeopleStore = null)
     {
         _faceRepository = faceRepository;
         _imageRepository = imageRepository;
@@ -29,6 +31,8 @@ public sealed class FaceReviewService
         _recognitionService = recognitionService;
         _faceMetadataStore =
             faceMetadataStore ?? NullFaceMetadataStore.Instance;
+        _recentPeopleStore = recentPeopleStore;
+        _recentPeople = recentPeopleStore?.Load().ToList() ?? [];
     }
 
     public async Task<IReadOnlyList<FaceSuggestionGroup>> GetSuggestionGroupsAsync(
@@ -153,7 +157,6 @@ public sealed class FaceReviewService
 
     /// <summary>
     /// The most recently tagged-as people, newest first, for quick-access in person pickers.
-    /// In-memory for the current app session only.
     /// </summary>
     public IReadOnlyList<Person> RecentPeople => _recentPeople;
 
@@ -165,6 +168,7 @@ public sealed class FaceReviewService
         {
             _recentPeople.RemoveRange(MaxRecentPeople, _recentPeople.Count - MaxRecentPeople);
         }
+        _recentPeopleStore?.Save(_recentPeople);
     }
 
     public async Task<IReadOnlyList<PersonDropTarget>> GetPersonDropTargetsAsync(

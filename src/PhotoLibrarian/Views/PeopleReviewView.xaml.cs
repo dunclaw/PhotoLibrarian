@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Core.Models;
@@ -420,7 +421,8 @@ public sealed partial class PeopleReviewView : UserControl
             "NewPersonName");
         var content = new StackPanel { Spacing = 12 };
         var recentPeople = ViewModel.RecentPeople
-            .Select(recent => people.FirstOrDefault(person => person.Id == recent.Id) ?? recent)
+            .Select(recent => people.FirstOrDefault(person => person.Id == recent.Id))
+            .OfType<Person>()
             .ToList();
         if (recentPeople.Count > 0)
         {
@@ -433,6 +435,12 @@ public sealed partial class PeopleReviewView : UserControl
             foreach (var recentPerson in recentPeople)
             {
                 var recentButton = new Button { Content = recentPerson.Name, Tag = recentPerson };
+                AutomationProperties.SetAutomationId(
+                    recentButton,
+                    $"RecentPerson{recentPerson.Id}");
+                AutomationProperties.SetName(
+                    recentButton,
+                    $"Select recent person {recentPerson.Name}");
                 recentButton.Click += (_, _) =>
                 {
                     existingPeople.SelectedItem = recentPerson;

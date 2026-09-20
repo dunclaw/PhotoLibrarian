@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -691,7 +692,8 @@ public sealed partial class ImageViewerOverlay : UserControl
     {
         ManualFaceRecentPeoplePanel.Children.Clear();
         var recentPeople = App.ViewModel.PeopleReview.RecentPeople
-            .Select(recent => people.FirstOrDefault(person => person.Id == recent.Id) ?? recent)
+            .Select(recent => people.FirstOrDefault(person => person.Id == recent.Id))
+            .OfType<Person>()
             .ToList();
         var hasRecent = recentPeople.Count > 0;
         ManualFaceRecentPeopleLabel.Visibility = hasRecent ? Visibility.Visible : Visibility.Collapsed;
@@ -699,6 +701,8 @@ public sealed partial class ImageViewerOverlay : UserControl
         foreach (var person in recentPeople)
         {
             var button = new Button { Content = person.Name, Tag = person };
+            AutomationProperties.SetAutomationId(button, $"RecentPerson{person.Id}");
+            AutomationProperties.SetName(button, $"Select recent person {person.Name}");
             button.Click += (_, _) =>
             {
                 ManualFacePersonCombo.SelectedItem = person;

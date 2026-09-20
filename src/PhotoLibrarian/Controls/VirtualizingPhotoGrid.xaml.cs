@@ -609,7 +609,15 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         _faceHighlightElement = null;
 
         if (item is null || region is null) return;
-        if (!_activeElements.TryGetValue(item, out var element) || element is not Grid grid) return;
+        if (!_activeElements.TryGetValue(item, out var element))
+        {
+            element = _activeElements
+                .FirstOrDefault(pair =>
+                    pair.Key is ImageThumbnailViewModel candidate &&
+                    candidate.Entry.Id == item.Entry.Id)
+                .Value;
+        }
+        if (element is not Grid grid) return;
 
         var entry = item.Entry;
         if (entry.Width <= 0 || entry.Height <= 0) return;

@@ -13,6 +13,9 @@ public sealed class FaceReviewServiceTests
     public async Task AddManualFace_AssignsExistingPersonAndWritesFaceMetadata()
     {
         var databasePath = CreateDatabasePath();
+        var recentPeoplePath = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-recent-people-{Guid.NewGuid():N}.json");
 
         try
         {
@@ -31,7 +34,8 @@ public sealed class FaceReviewServiceTests
                 images,
                 new FaceClusteringService(),
                 new FaceRecognitionService(),
-                metadataStore);
+                metadataStore,
+                new RecentPeopleStore(recentPeoplePath));
 
             await service.AddManualFaceAsync(
                 image,
@@ -56,10 +60,22 @@ public sealed class FaceReviewServiceTests
             var persistedFace = Assert.Single(write.Metadata.Faces);
             Assert.Equal("Alex", persistedFace.PersonName);
             Assert.Equal(0.15, persistedFace.Width);
+
+            var restartedService = new FaceReviewService(
+                faces,
+                images,
+                new FaceClusteringService(),
+                new FaceRecognitionService(),
+                recentPeopleStore: new RecentPeopleStore(recentPeoplePath));
+            var recentPerson = Assert.Single(restartedService.RecentPeople);
+            Assert.Equal(alexId, recentPerson.Id);
+            Assert.Equal("Alex", recentPerson.Name);
         }
         finally
         {
             DeleteDatabase(databasePath);
+            File.Delete(recentPeoplePath);
+            File.Delete(recentPeoplePath + ".tmp");
         }
     }
 

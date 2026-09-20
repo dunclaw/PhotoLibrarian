@@ -65,7 +65,8 @@
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="vm:PersonTagDisplayItem">
-                                <Grid ColumnSpacing="8"
+                                <Grid Tag="{x:Bind FaceId, Mode=OneWay}"
+                                      ColumnSpacing="8"
                                       PointerEntered="OnPersonRowPointerEntered"
                                       PointerExited="OnPersonRowPointerExited">
                                     <Grid.ColumnDefinitions>
@@ -84,7 +85,9 @@
                                                VerticalAlignment="Center"
                                                FontSize="13" />
                                     <Button Grid.Column="2"
-                                            AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
+                                            Tag="{x:Bind FaceId, Mode=OneWay}"
+                                            AutomationProperties.AutomationId="RemovePeopleTagButton"
+                                            AutomationProperties.Name="Remove people tag"
                                             ToolTipService.ToolTip="Remove this people tag"
                                             Click="OnRemoveFaceTagClick"
                                             Padding="6"
