@@ -46,6 +46,17 @@ public sealed class FaceRepository : IFaceScanStore
         return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
+    public async Task DeleteFaceRegionAsync(
+        long faceRegionId,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM face_regions WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", faceRegionId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<List<FaceRegion>> GetFacesForImageAsync(long imageId)
     {
         using var conn = _db.CreateConnection();
@@ -458,6 +469,12 @@ public sealed class FaceRepository : IFaceScanStore
             foreach (var existingFace in existingFaces)
             {
                 if (retainedFaceIds.Contains(existingFace.Id)) continue;
+
+                // Manually-added/edited faces have no corresponding automatic
+                // detection to match against, so an unrelated rescan must never
+                // discard them — otherwise a manual tag can silently vanish if a
+                // background face scan for this image completes shortly after.
+                if (existingFace.IsMetadataManaged) continue;
 
                 id.Value = existingFace.Id;
                 await delete.ExecuteNonQueryAsync(cancellationToken);

@@ -21,6 +21,7 @@ public partial class MainViewModel : ObservableObject
     private readonly OriginalBackupService _backupService;
     private readonly IDisposable _faceResources;
     private readonly RecognitionPipeline _recognitionPipeline;
+    private readonly FaceReviewService _faceReviewService;
     private readonly UserActivityGate _activityGate;
     private CancellationTokenSource? _indexingCts;
     private CancellationTokenSource? _recognitionCts;
@@ -71,6 +72,11 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     public partial int TotalImages { get; set; }
 
+    /// <summary>True while the viewer is in manual face-tagging (draw-a-box) mode, so the
+    /// Browse panel's "Add people tags" button can reflect and toggle it.</summary>
+    [ObservableProperty]
+    public partial bool IsManualFaceTaggingActive { get; set; }
+
     public MainViewModel(
         CacheDatabase db,
         ImageRepository imageRepo,
@@ -97,6 +103,7 @@ public partial class MainViewModel : ObservableObject
         _indexingService = indexingService;
         _backupService = backupService;
         _recognitionPipeline = recognitionPipeline;
+        _faceReviewService = faceReviewService;
         _faceResources = faceResources;
         _activityGate = activityGate;
 
@@ -116,7 +123,7 @@ public partial class MainViewModel : ObservableObject
         ImageViewer = new ImageViewerViewModel();
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
-        MetadataPanel.Initialize(imageRepo, tagRepo, this);
+        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this);
         PeopleReview = new PeopleReviewViewModel(faceReviewService);
         Settings = new SettingsViewModel(
             db,
@@ -193,6 +200,80 @@ public partial class MainViewModel : ObservableObject
 
     public Task EnsureFaceMetadataPersistedAsync() =>
         _indexingService.ExportPendingFaceMetadataAsync();
+
+    public void StartManualFaceTagging(ImageEntry entry)
+    {
+        if (entry.MediaType != MediaType.Image)
+        {
+            StatusText = "People tags can only be added to photos.";
+            return;
+        }
+
+        if (ImageViewer.CurrentEntry?.Id != entry.Id)
+        {
+            ImageViewer.OpenImage(
+                entry,
+                ImageGrid.Images.Select(image => image.Entry).ToList());
+        }
+
+        if (App.MainWindow is MainWindow window)
+        {
+            IsManualFaceTaggingActive = true;
+            window.BeginManualFaceTagging();
+        }
+    }
+
+    /// <summary>Cancels manual face-tagging mode, e.g. when the user clicks the toggled
+    /// "Add people tags" button again while it is active.</summary>
+    public void CancelManualFaceTagging()
+    {
+        if (App.MainWindow is MainWindow window)
+        {
+            window.CancelManualFaceTagging();
+        }
+        IsManualFaceTaggingActive = false;
+    }
+
+    /// <summary>Called when manual face-tagging mode ends from inside the viewer (Save,
+    /// Cancel button, or Escape) so the panel's toggle button state stays in sync.</summary>
+    public void OnManualFaceTaggingExited()
+    {
+        IsManualFaceTaggingActive = false;
+    }
+
+    /// <summary>Forwarded from the Browse panel when the user hovers/unhovers a people-tags
+    /// row, so the full viewer and/or grid thumbnail can highlight that face's location.</summary>
+    public void SetHoveredFace(ImageEntry? entry, FaceRegion? region)
+    {
+        if (App.MainWindow is MainWindow window)
+        {
+            window.SetHoveredFace(entry, region);
+        }
+    }
+
+    public async Task AddManualFaceAsync(
+        ImageEntry image,
+        FaceRegion region,
+        long? existingPersonId,
+        string personName,
+        CancellationToken cancellationToken = default)
+    {
+        await _faceReviewService.AddManualFaceAsync(
+            image,
+            region,
+            existingPersonId,
+            personName,
+            cancellationToken);
+        await MetadataPanel.ReloadPeopleTagsAsync();
+        StatusText = $"Added people tag for {personName.Trim()}.";
+    }
+
+    public async Task RemoveFaceTagAsync(long faceRegionId, CancellationToken cancellationToken = default)
+    {
+        await _faceReviewService.UnassignFacesAsync([faceRegionId], cancellationToken);
+        await MetadataPanel.ReloadPeopleTagsAsync();
+        StatusText = "Removed people tag.";
+    }
     
     [RelayCommand]
     public async Task RunBenchmarkAsync()

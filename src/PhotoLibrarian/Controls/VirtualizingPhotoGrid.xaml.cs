@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -455,6 +456,8 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         if (element is Grid grid && dataContext is ImageThumbnailViewModel)
         {
             ApplySelectionVisual(element, false);
+            GetFaceHighlightBorder(grid).Visibility = Visibility.Collapsed;
+            if (ReferenceEquals(_faceHighlightElement, element)) _faceHighlightElement = null;
         }
         
         element.DataContext = null;
@@ -559,7 +562,21 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             Mode = Microsoft.UI.Xaml.Data.BindingMode.OneWay
         });
         grid.Children.Add(flagBadge);
-        
+
+        // Face highlight overlay — hidden by default, positioned/shown by SetFaceHighlight
+        // when the user hovers a people-tags row in the Browse panel.
+        var faceHighlight = new Border
+        {
+            Tag = FaceHighlightTag,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            BorderThickness = new Thickness(3),
+            BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Yellow),
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        };
+        grid.Children.Add(faceHighlight);
+
         // Click and double-click handling
         grid.Tapped += OnPhotoTapped;
         grid.DoubleTapped += OnPhotoDoubleTapped;
@@ -573,7 +590,67 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         
         return grid;
     }
-    
+
+    private const string FaceHighlightTag = "FaceHighlightBorder";
+    private FrameworkElement? _faceHighlightElement;
+
+    /// <summary>
+    /// Highlights the rectangle for <paramref name="region"/> over <paramref name="item"/>'s
+    /// thumbnail, if that item currently has a rendered (pooled) element. Pass null for either
+    /// argument to clear any active highlight. Best-effort: does nothing if the item is
+    /// scrolled out of the virtualized viewport.
+    /// </summary>
+    public void SetFaceHighlight(ImageThumbnailViewModel? item, FaceRegion? region)
+    {
+        if (_faceHighlightElement is Grid previousGrid)
+        {
+            GetFaceHighlightBorder(previousGrid).Visibility = Visibility.Collapsed;
+        }
+        _faceHighlightElement = null;
+
+        if (item is null || region is null) return;
+        if (!_activeElements.TryGetValue(item, out var element))
+        {
+            element = _activeElements
+                .FirstOrDefault(pair =>
+                    pair.Key is ImageThumbnailViewModel candidate &&
+                    candidate.Entry.Id == item.Entry.Id)
+                .Value;
+        }
+        if (element is not Grid grid) return;
+
+        var entry = item.Entry;
+        if (entry.Width <= 0 || entry.Height <= 0) return;
+
+        var border = GetFaceHighlightBorder(grid);
+        var cellSize = ItemSize;
+        var imageAspect = (double)entry.Width / entry.Height;
+        double displayedWidth, displayedHeight;
+        if (imageAspect >= 1)
+        {
+            displayedWidth = cellSize;
+            displayedHeight = cellSize / imageAspect;
+        }
+        else
+        {
+            displayedHeight = cellSize;
+            displayedWidth = cellSize * imageAspect;
+        }
+        var offsetX = (cellSize - displayedWidth) / 2;
+        var offsetY = (cellSize - displayedHeight) / 2;
+
+        border.Margin = new Thickness(
+            offsetX + (region.X * displayedWidth),
+            offsetY + (region.Y * displayedHeight),
+            0, 0);
+        border.Width = Math.Max(0, region.Width * displayedWidth);
+        border.Height = Math.Max(0, region.Height * displayedHeight);
+        border.Visibility = Visibility.Visible;
+        _faceHighlightElement = grid;
+    }
+
+    private static Border GetFaceHighlightBorder(Grid grid) =>
+        (Border)grid.Children.First(child => child is Border border && Equals(border.Tag, FaceHighlightTag));
     private void OnPhotoTapped(object sender, TappedRoutedEventArgs e)
     {
         if (sender is FrameworkElement element && element.DataContext is ImageThumbnailViewModel vm)

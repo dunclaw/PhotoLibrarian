@@ -7,19 +7,23 @@ namespace PhotoLibrarian.ML.Services;
 public sealed class FaceReviewService
 {
     private const int ClusteringBatchSize = 512;
+    private const int MaxRecentPeople = 4;
 
     private readonly FaceRepository _faceRepository;
     private readonly ImageRepository _imageRepository;
     private readonly FaceClusteringService _clusteringService;
     private readonly FaceRecognitionService _recognitionService;
     private readonly IFaceMetadataStore _faceMetadataStore;
+    private readonly RecentPeopleStore? _recentPeopleStore;
+    private readonly List<Person> _recentPeople;
 
     public FaceReviewService(
         FaceRepository faceRepository,
         ImageRepository imageRepository,
         FaceClusteringService clusteringService,
         FaceRecognitionService recognitionService,
-        IFaceMetadataStore? faceMetadataStore = null)
+        IFaceMetadataStore? faceMetadataStore = null,
+        RecentPeopleStore? recentPeopleStore = null)
     {
         _faceRepository = faceRepository;
         _imageRepository = imageRepository;
@@ -27,6 +31,8 @@ public sealed class FaceReviewService
         _recognitionService = recognitionService;
         _faceMetadataStore =
             faceMetadataStore ?? NullFaceMetadataStore.Instance;
+        _recentPeopleStore = recentPeopleStore;
+        _recentPeople = recentPeopleStore?.Load().ToList() ?? [];
     }
 
     public async Task<IReadOnlyList<FaceSuggestionGroup>> GetSuggestionGroupsAsync(
@@ -148,6 +154,22 @@ public sealed class FaceReviewService
 
     public Task<IReadOnlyList<Person>> GetPeopleAsync() =>
         GetPeopleCoreAsync();
+
+    /// <summary>
+    /// The most recently tagged-as people, newest first, for quick-access in person pickers.
+    /// </summary>
+    public IReadOnlyList<Person> RecentPeople => _recentPeople;
+
+    private void RecordRecentPerson(long personId, string personName)
+    {
+        _recentPeople.RemoveAll(person => person.Id == personId);
+        _recentPeople.Insert(0, new Person { Id = personId, Name = personName });
+        if (_recentPeople.Count > MaxRecentPeople)
+        {
+            _recentPeople.RemoveRange(MaxRecentPeople, _recentPeople.Count - MaxRecentPeople);
+        }
+        _recentPeopleStore?.Save(_recentPeople);
+    }
 
     public async Task<IReadOnlyList<PersonDropTarget>> GetPersonDropTargetsAsync(
         CancellationToken cancellationToken = default)
@@ -311,6 +333,7 @@ public sealed class FaceReviewService
                 trimmedName,
                 faceIds,
                 cancellationToken);
+            RecordRecentPerson(created.PersonId, trimmedName);
             return new FaceTagOperation(
                 created.PersonId,
                 trimmedName,
@@ -344,11 +367,55 @@ public sealed class FaceReviewService
             personId,
             trimmedName,
             cancellationToken);
+        RecordRecentPerson(personId, trimmedName);
         return new FaceTagOperation(
             personId,
             trimmedName,
             false,
             previousStates);
+    }
+
+    public async Task<FaceTagOperation> AddManualFaceAsync(
+        ImageEntry image,
+        FaceRegion region,
+        long? existingPersonId,
+        string personName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(region);
+        if (image.Id <= 0)
+        {
+            throw new ArgumentException("The selected photo has not been indexed.", nameof(image));
+        }
+        if (region.X < 0 || region.Y < 0 || region.Width <= 0 || region.Height <= 0 ||
+            region.X + region.Width > 1 || region.Y + region.Height > 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(region),
+                "The face region must be contained within the image.");
+        }
+
+        region.ImageId = image.Id;
+        region.Confidence = 1;
+        // Marks the region as manually managed so a later automatic face
+        // rescan of this image can never discard it as an unmatched stale
+        // detection (see FaceRepository.TryReplaceFaceRegionsAsync).
+        region.IsMetadataManaged = true;
+        var faceRegionId = await _faceRepository.AddFaceRegionAsync(region);
+        try
+        {
+            return await TagAsAsync(
+                [faceRegionId],
+                existingPersonId,
+                personName,
+                cancellationToken);
+        }
+        catch
+        {
+            await _faceRepository.DeleteFaceRegionAsync(faceRegionId, cancellationToken);
+            throw;
+        }
     }
 
     public Task<FaceTagOperation> ReassignFacesAsync(

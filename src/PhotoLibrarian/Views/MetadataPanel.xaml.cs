@@ -46,6 +46,7 @@ public sealed partial class MetadataPanel : UserControl
         if (ViewModel is null) return;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         TagsList.ItemsSource = ViewModel.Tags;
+        PeopleTagsList.ItemsSource = ViewModel.PeopleTags;
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -69,6 +70,24 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.IsFlagMixed):
                 DispatcherQueue.TryEnqueue(UpdateFlag);
                 break;
+            case nameof(MetadataPanelViewModel.IsManualFaceTaggingActive):
+                DispatcherQueue.TryEnqueue(UpdateAddPeopleTagsButtonState);
+                break;
+        }
+    }
+
+    private void UpdateAddPeopleTagsButtonState()
+    {
+        if (ViewModel is null) return;
+        if (ViewModel.IsManualFaceTaggingActive)
+        {
+            AddPeopleTagsButton.Content = "Cancel adding a face tag";
+            AddPeopleTagsButton.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        }
+        else
+        {
+            AddPeopleTagsButton.Content = "Add people tags";
+            AddPeopleTagsButton.ClearValue(Button.StyleProperty);
         }
     }
 
@@ -139,6 +158,10 @@ public sealed partial class MetadataPanel : UserControl
         InfoLatitude.Text = ViewModel.GpsLatitude;
         InfoLongitude.Text = ViewModel.GpsLongitude;
         InfoFilePath.Text = ViewModel.FilePath;
+        AddPeopleTagsButton.Visibility = ViewModel.IsMultiSelect
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        UpdateAddPeopleTagsButtonState();
 
         InfoCameraRow.Visibility = string.IsNullOrEmpty(ViewModel.Camera) ? Visibility.Collapsed : Visibility.Visible;
         InfoExposureRow.Visibility = string.IsNullOrEmpty(ViewModel.Exposure) ? Visibility.Collapsed : Visibility.Visible;
@@ -151,6 +174,44 @@ public sealed partial class MetadataPanel : UserControl
 
         UpdateStars();
         UpdateFlag();
+    }
+
+    private void OnAddPeopleTagsClick(object sender, RoutedEventArgs e) =>
+        ViewModel?.StartManualFaceTagging();
+
+    private async void OnRemoveFaceTagClick(object sender, RoutedEventArgs e)
+    {
+        var item = GetPersonTag(sender);
+        if (item is null || ViewModel is null) return;
+
+        try
+        {
+            ViewModel.SetHoveredFace(null);
+            await ViewModel.RemoveFaceTagAsync(item);
+        }
+        catch (Exception exception)
+        {
+            App.ViewModel.StatusText = $"Could not remove people tag: {exception.Message}";
+        }
+    }
+
+    private void OnPersonRowPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        ViewModel?.SetHoveredFace(GetPersonTag(sender));
+    }
+
+    private void OnPersonRowPointerExited(object sender, PointerRoutedEventArgs e) =>
+        ViewModel?.SetHoveredFace(null);
+
+    private PersonTagDisplayItem? GetPersonTag(object sender)
+    {
+        if (ViewModel is null ||
+            sender is not FrameworkElement { Tag: long faceId })
+        {
+            return null;
+        }
+
+        return ViewModel.PeopleTags.FirstOrDefault(item => item.FaceId == faceId);
     }
 
     // --- Flag ---

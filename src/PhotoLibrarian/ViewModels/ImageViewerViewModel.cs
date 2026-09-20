@@ -67,6 +67,7 @@ public partial class ImageViewerViewModel : ObservableObject
         _currentIndex = allImages.IndexOf(entry);
         if (_currentIndex < 0) _currentIndex = 0;
         IsOpen = true;
+        CurrentImage = null;
         RaiseCurrentEntryChanged();
         _ = LoadCurrentImageAsync();
     }

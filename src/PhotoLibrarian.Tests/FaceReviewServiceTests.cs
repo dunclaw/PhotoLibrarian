@@ -10,6 +10,76 @@ namespace PhotoLibrarian.Tests;
 public sealed class FaceReviewServiceTests
 {
     [Fact]
+    public async Task AddManualFace_AssignsExistingPersonAndWritesFaceMetadata()
+    {
+        var databasePath = CreateDatabasePath();
+        var recentPeoplePath = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-recent-people-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage();
+            image.Width = 1600;
+            image.Height = 1200;
+            image.Id = await images.UpsertImageAsync(image);
+            var alexId = await faces.CreatePersonAsync("Alex");
+            var metadataStore = new RecordingFaceMetadataStore();
+            var service = new FaceReviewService(
+                faces,
+                images,
+                new FaceClusteringService(),
+                new FaceRecognitionService(),
+                metadataStore,
+                new RecentPeopleStore(recentPeoplePath));
+
+            await service.AddManualFaceAsync(
+                image,
+                new FaceRegion
+                {
+                    X = 0.2,
+                    Y = 0.25,
+                    Width = 0.15,
+                    Height = 0.2
+                },
+                alexId,
+                "Alex",
+                TestContext.Current.CancellationToken);
+
+            var face = Assert.Single(await faces.GetFacesForImageAsync(image.Id));
+            Assert.Equal(alexId, face.PersonId);
+            Assert.Equal("Alex", face.PersonName);
+            Assert.Equal(0.2, face.X);
+            Assert.Equal(0.2, face.Height);
+            var write = Assert.Single(metadataStore.Writes);
+            Assert.Equal(image.FilePath, write.ImagePath);
+            var persistedFace = Assert.Single(write.Metadata.Faces);
+            Assert.Equal("Alex", persistedFace.PersonName);
+            Assert.Equal(0.15, persistedFace.Width);
+
+            var restartedService = new FaceReviewService(
+                faces,
+                images,
+                new FaceClusteringService(),
+                new FaceRecognitionService(),
+                recentPeopleStore: new RecentPeopleStore(recentPeoplePath));
+            var recentPerson = Assert.Single(restartedService.RecentPeople);
+            Assert.Equal(alexId, recentPerson.Id);
+            Assert.Equal("Alex", recentPerson.Name);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+            File.Delete(recentPeoplePath);
+            File.Delete(recentPeoplePath + ".tmp");
+        }
+    }
+
+    [Fact]
     public async Task SuggestionGroups_IncludeFacesAcrossClusteringBatches()
     {
         var databasePath = CreateDatabasePath();
@@ -1125,6 +1195,22 @@ public sealed class FaceReviewServiceTests
             PhotoFaceMetadata metadata,
             CancellationToken cancellationToken = default) =>
             Task.FromException(new IOException("Metadata write failed."));
+
+        public PhotoFaceMetadata Read(string imagePath) => new(0, 0, []);
+    }
+
+    private sealed class RecordingFaceMetadataStore : IFaceMetadataStore
+    {
+        public List<(string ImagePath, PhotoFaceMetadata Metadata)> Writes { get; } = [];
+
+        public Task WriteAsync(
+            string imagePath,
+            PhotoFaceMetadata metadata,
+            CancellationToken cancellationToken = default)
+        {
+            Writes.Add((imagePath, metadata));
+            return Task.CompletedTask;
+        }
 
         public PhotoFaceMetadata Read(string imagePath) => new(0, 0, []);
     }

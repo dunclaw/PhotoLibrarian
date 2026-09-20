@@ -7,6 +7,50 @@
     KeyDown="OnKeyDown">
 
     <Grid x:Name="RootGrid" Background="Black">
+        <Grid.Resources>
+            <Flyout x:Name="ManualFaceTagFlyout"
+                    Placement="Bottom"
+                    Closed="OnManualFaceTagFlyoutClosed">
+                <StackPanel Width="280" Spacing="12">
+                    <TextBlock Text="Tag this face"
+                               Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="ManualFaceRecentPeopleLabel"
+                               Text="Recent"
+                               Visibility="Collapsed"
+                               Style="{StaticResource CaptionTextBlockStyle}" />
+                    <StackPanel x:Name="ManualFaceRecentPeoplePanel"
+                                Orientation="Horizontal"
+                                Spacing="8"
+                                Visibility="Collapsed" />
+                    <ComboBox x:Name="ManualFacePersonCombo"
+                              AutomationProperties.AutomationId="ManualFacePerson"
+                              AutomationProperties.Name="Choose an existing person"
+                              DisplayMemberPath="Name"
+                              PlaceholderText="Choose an existing person" />
+                    <TextBox x:Name="ManualFaceNewPersonBox"
+                             AutomationProperties.AutomationId="ManualFaceNewPerson"
+                             AutomationProperties.Name="Create a new person"
+                             Header="Or create a new person"
+                             PlaceholderText="Person name" />
+                    <TextBlock Text="Choose an existing person or enter a new name."
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap"
+                               Style="{StaticResource CaptionTextBlockStyle}" />
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                Spacing="8">
+                        <Button Content="Cancel"
+                                Click="OnCancelManualFaceTagClick" />
+                        <Button x:Name="SaveManualFaceTagButton"
+                                AutomationProperties.AutomationId="SaveManualFaceTag"
+                                AutomationProperties.Name="Save people tag"
+                                Content="Save"
+                                Click="OnSaveManualFaceTagClick"
+                                Style="{StaticResource AccentButtonStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </Flyout>
+        </Grid.Resources>
         <Grid.RowDefinitions>
             <!-- The top bar takes its own row rather than floating over the image, so the
                  viewport used for best-fit is the space the image actually gets. -->
@@ -32,6 +76,11 @@
                            VerticalAlignment="Center" />
                 <TextBlock x:Name="IndexText" Foreground="#99FFFFFF"
                            VerticalAlignment="Center" />
+                <TextBlock x:Name="ManualFaceTagHelpText"
+                           Text="Draw a box around the face, then choose or add a person."
+                           Foreground="White"
+                           Visibility="Collapsed"
+                           VerticalAlignment="Center" />
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
@@ -52,6 +101,15 @@
                         AutomationProperties.Name="Zoom in"
                         Click="OnZoomIn" ToolTipService.ToolTip="Zoom in" Padding="8">
                     <FontIcon Glyph="&#xE8A3;" FontSize="14" Foreground="White" />
+                </Button>
+                <Button x:Name="CancelManualFaceTaggingButton"
+                        AutomationProperties.AutomationId="CancelManualFaceTagging"
+                        AutomationProperties.Name="Cancel adding a people tag"
+                        Click="OnCancelManualFaceTagging"
+                        ToolTipService.ToolTip="Cancel adding a people tag (Escape)"
+                        Padding="8"
+                        Visibility="Collapsed">
+                    <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="White" />
                 </Button>
                 <Button AutomationProperties.AutomationId="ViewerClose"
                         AutomationProperties.Name="Close viewer"
@@ -86,6 +144,30 @@
                         </Image.RenderTransform>
                     </Image>
                     <views:CropOverlay x:Name="CropOverlayView" Visibility="Collapsed" />
+                    <Canvas x:Name="FaceHighlightOverlay"
+                            Background="Transparent"
+                            IsHitTestVisible="False">
+                        <Rectangle x:Name="FaceHighlightRectangle"
+                                   IsHitTestVisible="False"
+                                   Stroke="{ThemeResource SystemFillColorCautionBrush}"
+                                   StrokeThickness="3"
+                                   Visibility="Collapsed" />
+                    </Canvas>
+                    <Canvas x:Name="ManualFaceOverlay"
+                            AutomationProperties.AutomationId="ManualFaceTagCanvas"
+                            AutomationProperties.Name="Draw a box around a face"
+                            Background="Transparent"
+                            PointerPressed="OnManualFacePointerPressed"
+                            PointerMoved="OnManualFacePointerMoved"
+                            PointerReleased="OnManualFacePointerReleased"
+                            PointerCanceled="OnManualFacePointerCanceled"
+                            Visibility="Collapsed">
+                        <Rectangle x:Name="ManualFaceRectangle"
+                                   IsHitTestVisible="False"
+                                   Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                                   StrokeThickness="2"
+                                   Visibility="Collapsed" />
+                    </Canvas>
                     <Grid x:Name="StraightenGrid"
                           IsHitTestVisible="False"
                           Visibility="Collapsed">
@@ -225,5 +307,6 @@
                 Opacity="0.7" ToolTipService.ToolTip="Next (Right arrow)">
             <FontIcon Glyph="&#xE76C;" FontSize="20" />
         </Button>
+
     </Grid>
 </UserControl>

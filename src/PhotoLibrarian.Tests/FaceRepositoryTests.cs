@@ -9,6 +9,53 @@ namespace PhotoLibrarian.Tests;
 public sealed class FaceRepositoryTests
 {
     [Fact]
+    public async Task GetFacesForImage_ReturnsAssignedPersonAndRegion()
+    {
+        var databasePath = CreateDatabasePath();
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage(MediaType.Image);
+            image.Id = await images.UpsertImageAsync(image);
+            var personId = await faces.CreatePersonAsync("Alex");
+
+            await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.1,
+                        Y = 0.2,
+                        Width = 0.3,
+                        Height = 0.4,
+                        PersonId = personId,
+                        PersonName = "Alex",
+                        Confidence = 0.9f
+                    }
+                ],
+                "browse-test",
+                TestContext.Current.CancellationToken);
+
+            var face = Assert.Single(await faces.GetFacesForImageAsync(image.Id));
+            Assert.Equal(personId, face.PersonId);
+            Assert.Equal("Alex", face.PersonName);
+            Assert.Equal(0.1, face.X);
+            Assert.Equal(0.4, face.Height);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
     public async Task ReplaceFaceRegions_MarksImageScannedAndFileChangeInvalidatesScan()
     {
         var databasePath = CreateDatabasePath();
@@ -166,6 +213,90 @@ public sealed class FaceRepositoryTests
                     await faces.GetAllPersonsAsync(),
                     person => person.Id == personId)
                     .RepresentativeFaceRegionId);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ReplaceFaceRegions_PreservesManuallyAddedFaceWithNoMatchingDetection()
+    {
+        var databasePath = CreateDatabasePath();
+
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage(MediaType.Image);
+            image.Id = await images.UpsertImageAsync(image);
+            var personId = await faces.CreatePersonAsync("Alex");
+            var cancellationToken = TestContext.Current.CancellationToken;
+
+            // Seed one automatically-detected face.
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.1,
+                        Y = 0.2,
+                        Width = 0.3,
+                        Height = 0.4,
+                        Confidence = 0.9f
+                    }
+                ],
+                "pipeline-v1",
+                cancellationToken));
+
+            // Simulate a manually-added face tag that automatic detection missed
+            // (no bounding-box overlap with any detected face), flagged as
+            // metadata-managed so a later rescan does not treat it as stale.
+            await faces.AddFaceRegionAsync(
+                new FaceRegion
+                {
+                    ImageId = image.Id,
+                    X = 0.7,
+                    Y = 0.7,
+                    Width = 0.2,
+                    Height = 0.2,
+                    PersonId = personId,
+                    PersonName = "Alex",
+                    IsMetadataManaged = true
+                });
+
+            // A background rescan re-detects only the original automatic face;
+            // the manual face has no matching incoming detection.
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id,
+                image.FileSize,
+                image.DateModified,
+                [
+                    new FaceRegion
+                    {
+                        ImageId = image.Id,
+                        X = 0.1,
+                        Y = 0.2,
+                        Width = 0.3,
+                        Height = 0.4,
+                        Confidence = 0.95f
+                    }
+                ],
+                "pipeline-v2",
+                cancellationToken));
+
+            var remainingFaces = await faces.GetFacesForImageAsync(image.Id);
+            var manualFace = Assert.Single(
+                remainingFaces,
+                f => f.PersonId == personId);
+            Assert.True(manualFace.IsMetadataManaged);
+            Assert.Equal(2, remainingFaces.Count);
         }
         finally
         {

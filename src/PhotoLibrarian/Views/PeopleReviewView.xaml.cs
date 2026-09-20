@@ -1,10 +1,12 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ViewModels;
 using System.ComponentModel;
+using System.Linq;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace PhotoLibrarian.Views;
@@ -418,6 +420,37 @@ public sealed partial class PeopleReviewView : UserControl
             newName,
             "NewPersonName");
         var content = new StackPanel { Spacing = 12 };
+        var recentPeople = ViewModel.RecentPeople
+            .Select(recent => people.FirstOrDefault(person => person.Id == recent.Id))
+            .OfType<Person>()
+            .ToList();
+        if (recentPeople.Count > 0)
+        {
+            var recentLabel = new TextBlock
+            {
+                Text = "Recent",
+                Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"]
+            };
+            var recentRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            foreach (var recentPerson in recentPeople)
+            {
+                var recentButton = new Button { Content = recentPerson.Name, Tag = recentPerson };
+                AutomationProperties.SetAutomationId(
+                    recentButton,
+                    $"RecentPerson{recentPerson.Id}");
+                AutomationProperties.SetName(
+                    recentButton,
+                    $"Select recent person {recentPerson.Name}");
+                recentButton.Click += (_, _) =>
+                {
+                    existingPeople.SelectedItem = recentPerson;
+                    newName.Text = "";
+                };
+                recentRow.Children.Add(recentButton);
+            }
+            content.Children.Add(recentLabel);
+            content.Children.Add(recentRow);
+        }
         content.Children.Add(existingPeople);
         content.Children.Add(newName);
 

@@ -1,13 +1,17 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Services;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Windows.Foundation;
 
 namespace PhotoLibrarian.Views;
@@ -21,6 +25,10 @@ public sealed partial class ImageViewerOverlay : UserControl
     private bool _isStraightenGuideDragging;
     private Point _straightenGuideStart;
     private double _straightenAngleAtGuideStart;
+    private bool _isManualFaceTagging;
+    private bool _pendingManualFaceTagging;
+    private bool _isDrawingManualFace;
+    private Point _manualFaceStart;
     public bool IsCropping { get; private set; }
     public bool IsStraightening { get; private set; }
     public event EventHandler? CropExited;
@@ -107,6 +115,54 @@ public sealed partial class ImageViewerOverlay : UserControl
         });
     }
 
+    public void EnterManualFaceTagging()
+    {
+        if (ViewModel?.CurrentEntry?.MediaType != MediaType.Image) return;
+        if (ViewModel.CurrentImage is null ||
+            _currentImagePixelWidth == 0 ||
+            _currentImagePixelHeight == 0)
+        {
+            _pendingManualFaceTagging = true;
+            return;
+        }
+
+        if (IsCropping) ExitCropMode();
+        if (IsStraightening) ExitStraightenMode();
+
+        _pendingManualFaceTagging = false;
+        _isManualFaceTagging = true;
+        ManualFaceOverlay.Visibility = Visibility.Visible;
+        ManualFaceTagHelpText.Visibility = Visibility.Visible;
+        CancelManualFaceTaggingButton.Visibility = Visibility.Visible;
+        PreviousButton.Visibility = Visibility.Collapsed;
+        NextButton.Visibility = Visibility.Collapsed;
+        SetZoomControlsEnabled(false);
+        ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.Cross);
+        _zoomPan?.ApplyBestFit();
+    }
+
+    /// <summary>Raised whenever manual face-tagging mode ends, however it was triggered
+    /// (Save, Cancel, Escape) so other UI (the panel's toggle button) can stay in sync.</summary>
+    public event EventHandler? ManualFaceTaggingExited;
+
+    public void ExitManualFaceTagging()
+    {
+        var wasActive = _isManualFaceTagging || _pendingManualFaceTagging;
+        _pendingManualFaceTagging = false;
+        _isManualFaceTagging = false;
+        _isDrawingManualFace = false;
+        ManualFaceOverlay.Visibility = Visibility.Collapsed;
+        ManualFaceRectangle.Visibility = Visibility.Collapsed;
+        ManualFaceTagHelpText.Visibility = Visibility.Collapsed;
+        CancelManualFaceTaggingButton.Visibility = Visibility.Collapsed;
+        PreviousButton.Visibility = Visibility.Visible;
+        NextButton.Visibility = Visibility.Visible;
+        SetZoomControlsEnabled(true);
+        ProtectedCursor = null;
+        ManualFaceTagFlyout.Hide();
+        if (wasActive) ManualFaceTaggingExited?.Invoke(this, EventArgs.Empty);
+    }
+
     public void ExitStraightenMode()
     {
         var wasStraightening = IsStraightening;
@@ -178,6 +234,7 @@ public sealed partial class ImageViewerOverlay : UserControl
                     // Cancel any in-progress edit mode when navigating to a different image.
                     if (IsCropping) ExitCropMode();
                     if (IsStraightening) ExitStraightenMode();
+                    if (_isManualFaceTagging) ExitManualFaceTagging();
                     // Attach handler BEFORE setting source (in case image is cached and fires immediately)
                     FullImage.ImageOpened += OnImageOpened;
                     FullImage.Source = ViewModel.CurrentImage;
@@ -190,6 +247,7 @@ public sealed partial class ImageViewerOverlay : UserControl
                         _currentImagePixelHeight = (uint)bmp.PixelHeight;
                         _zoomPan?.SetImageSize(bmp.PixelWidth, bmp.PixelHeight);
                         _zoomPan?.ApplyBestFit();
+                        if (_pendingManualFaceTagging) EnterManualFaceTagging();
                     }
                     break;
                 case nameof(ImageViewerViewModel.IsVideo):
@@ -288,6 +346,7 @@ public sealed partial class ImageViewerOverlay : UserControl
         _currentImagePixelWidth = (uint)width;
         _currentImagePixelHeight = (uint)height;
         DebugLog.WriteLine("ImageViewerOverlay: Applied best fit");
+        if (_pendingManualFaceTagging) EnterManualFaceTagging();
     }
 
     private void ImageScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -316,19 +375,19 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void ImageScrollViewer_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping || IsStraightening) return;
+        if (IsCropping || IsStraightening || _isManualFaceTagging) return;
         _zoomPan?.HandlePointerPressed(ImageScrollViewer, e);
     }
 
     private void ImageScrollViewer_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping || IsStraightening) return;
+        if (IsCropping || IsStraightening || _isManualFaceTagging) return;
         _zoomPan?.HandlePointerMoved(ImageScrollViewer, e);
     }
 
     private void ImageScrollViewer_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping || IsStraightening) return;
+        if (IsCropping || IsStraightening || _isManualFaceTagging) return;
         _zoomPan?.HandlePointerReleased(ImageScrollViewer, e);
     }
 
@@ -374,6 +433,14 @@ public sealed partial class ImageViewerOverlay : UserControl
                 StraightenCancelRequested?.Invoke(this, EventArgs.Empty);
             else if (e.Key == Windows.System.VirtualKey.Enter)
                 StraightenApplyRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+            return;
+        }
+
+        if (_isManualFaceTagging)
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape)
+                ExitManualFaceTagging();
             e.Handled = true;
             return;
         }
@@ -569,5 +636,173 @@ public sealed partial class ImageViewerOverlay : UserControl
         ZoomOutButton.IsEnabled = isEnabled;
         ZoomFitButton.IsEnabled = isEnabled;
         ZoomInButton.IsEnabled = isEnabled;
+    }
+
+    private void OnCancelManualFaceTagging(object sender, RoutedEventArgs e) =>
+        ExitManualFaceTagging();
+
+    private void OnManualFacePointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isManualFaceTagging || !e.GetCurrentPoint(ManualFaceOverlay).Properties.IsLeftButtonPressed)
+            return;
+
+        _isDrawingManualFace = true;
+        _manualFaceStart = e.GetCurrentPoint(ManualFaceOverlay).Position;
+        SetManualFaceRectangle(_manualFaceStart, _manualFaceStart);
+        ManualFaceRectangle.Visibility = Visibility.Visible;
+        ManualFaceOverlay.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnManualFacePointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDrawingManualFace) return;
+        SetManualFaceRectangle(
+            _manualFaceStart,
+            e.GetCurrentPoint(ManualFaceOverlay).Position);
+        e.Handled = true;
+    }
+
+    private async void OnManualFacePointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDrawingManualFace) return;
+
+        _isDrawingManualFace = false;
+        ManualFaceOverlay.ReleasePointerCapture(e.Pointer);
+        SetManualFaceRectangle(
+            _manualFaceStart,
+            e.GetCurrentPoint(ManualFaceOverlay).Position);
+        if (ManualFaceRectangle.Width < 8 || ManualFaceRectangle.Height < 8)
+        {
+            ManualFaceRectangle.Visibility = Visibility.Collapsed;
+            e.Handled = true;
+            return;
+        }
+
+        var people = await App.ViewModel.PeopleReview.GetPeopleAsync();
+        ManualFacePersonCombo.ItemsSource = people;
+        ManualFacePersonCombo.SelectedItem = null;
+        ManualFaceNewPersonBox.Text = "";
+        PopulateManualFaceRecentPeople(people);
+        ManualFaceTagFlyout.ShowAt(ManualFaceRectangle);
+        e.Handled = true;
+    }
+
+    private void PopulateManualFaceRecentPeople(IReadOnlyList<Person> people)
+    {
+        ManualFaceRecentPeoplePanel.Children.Clear();
+        var recentPeople = App.ViewModel.PeopleReview.RecentPeople
+            .Select(recent => people.FirstOrDefault(person => person.Id == recent.Id))
+            .OfType<Person>()
+            .ToList();
+        var hasRecent = recentPeople.Count > 0;
+        ManualFaceRecentPeopleLabel.Visibility = hasRecent ? Visibility.Visible : Visibility.Collapsed;
+        ManualFaceRecentPeoplePanel.Visibility = hasRecent ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var person in recentPeople)
+        {
+            var button = new Button { Content = person.Name, Tag = person };
+            AutomationProperties.SetAutomationId(button, $"RecentPerson{person.Id}");
+            AutomationProperties.SetName(button, $"Select recent person {person.Name}");
+            button.Click += (_, _) =>
+            {
+                ManualFacePersonCombo.SelectedItem = person;
+                ManualFaceNewPersonBox.Text = "";
+            };
+            ManualFaceRecentPeoplePanel.Children.Add(button);
+        }
+    }
+
+    private void OnManualFacePointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDrawingManualFace) return;
+        ManualFaceOverlay.ReleasePointerCapture(e.Pointer);
+        _isDrawingManualFace = false;
+        ManualFaceRectangle.Visibility = Visibility.Collapsed;
+        e.Handled = true;
+    }
+
+    /// <summary>Highlights <paramref name="region"/> over the currently displayed image
+    /// (only if this viewer is the surface currently on screen for that image — the caller
+    /// is responsible for that check). Pass null to clear.</summary>
+    public void SetFaceHighlight(FaceRegion? region)
+    {
+        if (region is null ||
+            FaceHighlightOverlay.ActualWidth <= 0 ||
+            FaceHighlightOverlay.ActualHeight <= 0)
+        {
+            FaceHighlightRectangle.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var width = FaceHighlightOverlay.ActualWidth;
+        var height = FaceHighlightOverlay.ActualHeight;
+        Canvas.SetLeft(FaceHighlightRectangle, region.X * width);
+        Canvas.SetTop(FaceHighlightRectangle, region.Y * height);
+        FaceHighlightRectangle.Width = region.Width * width;
+        FaceHighlightRectangle.Height = region.Height * height;
+        FaceHighlightRectangle.Visibility = Visibility.Visible;
+    }
+
+    private void SetManualFaceRectangle(Point first, Point second)
+    {
+        var left = Math.Clamp(Math.Min(first.X, second.X), 0, ManualFaceOverlay.ActualWidth);
+        var top = Math.Clamp(Math.Min(first.Y, second.Y), 0, ManualFaceOverlay.ActualHeight);
+        var right = Math.Clamp(Math.Max(first.X, second.X), 0, ManualFaceOverlay.ActualWidth);
+        var bottom = Math.Clamp(Math.Max(first.Y, second.Y), 0, ManualFaceOverlay.ActualHeight);
+        Canvas.SetLeft(ManualFaceRectangle, left);
+        Canvas.SetTop(ManualFaceRectangle, top);
+        ManualFaceRectangle.Width = right - left;
+        ManualFaceRectangle.Height = bottom - top;
+    }
+
+    private async void OnSaveManualFaceTagClick(object sender, RoutedEventArgs e)
+    {
+        var entry = ViewModel?.CurrentEntry;
+        if (entry is null || ManualFaceOverlay.ActualWidth <= 0 || ManualFaceOverlay.ActualHeight <= 0)
+            return;
+
+        var existingPerson = ManualFacePersonCombo.SelectedItem as Person;
+        var name = ManualFaceNewPersonBox.Text.Trim();
+        if (existingPerson is null && name.Length == 0)
+        {
+            ManualFaceNewPersonBox.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        SaveManualFaceTagButton.IsEnabled = false;
+        try
+        {
+            var region = new FaceRegion
+            {
+                X = Canvas.GetLeft(ManualFaceRectangle) / ManualFaceOverlay.ActualWidth,
+                Y = Canvas.GetTop(ManualFaceRectangle) / ManualFaceOverlay.ActualHeight,
+                Width = ManualFaceRectangle.Width / ManualFaceOverlay.ActualWidth,
+                Height = ManualFaceRectangle.Height / ManualFaceOverlay.ActualHeight
+            };
+            var personName = existingPerson?.Name ?? name;
+            await App.ViewModel.AddManualFaceAsync(
+                entry,
+                region,
+                existingPerson?.Id,
+                personName);
+            ExitManualFaceTagging();
+        }
+        catch (Exception exception)
+        {
+            App.ViewModel.StatusText = $"Could not add people tag: {exception.Message}";
+        }
+        finally
+        {
+            SaveManualFaceTagButton.IsEnabled = true;
+        }
+    }
+
+    private void OnCancelManualFaceTagClick(object sender, RoutedEventArgs e) =>
+        ExitManualFaceTagging();
+
+    private void OnManualFaceTagFlyoutClosed(object sender, object e)
+    {
+        if (_isManualFaceTagging && !_isDrawingManualFace)
+            ManualFaceRectangle.Visibility = Visibility.Collapsed;
     }
 }

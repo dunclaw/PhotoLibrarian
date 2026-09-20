@@ -66,7 +66,8 @@ public partial class App : Application
             imageRepo,
             new FaceClusteringService(),
             new FaceRecognitionService(),
-            faceMetadataStore);
+            faceMetadataStore,
+            new RecentPeopleStore());
         var activityGate = new UserActivityGate();
         var autoTagModelManager = new AutoTagModelManager(sessionManager);
         var autoTaggingService = new AutoTaggingService(
