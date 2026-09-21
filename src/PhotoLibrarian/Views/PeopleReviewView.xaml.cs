@@ -112,6 +112,7 @@ public sealed partial class PeopleReviewView : UserControl
         var suggestions = ViewModel.SelectedGroup?.Suggestions;
         if (!ReferenceEquals(SuggestionGrid.ItemsSource, suggestions))
         {
+            SuggestionGrid.SelectedItems.Clear();
             SuggestionGrid.ItemsSource = suggestions;
             ClearContextPreview();
         }
@@ -119,6 +120,7 @@ public sealed partial class PeopleReviewView : UserControl
         var assignedFaces = ViewModel.SelectedPerson?.Faces;
         if (!ReferenceEquals(PersonFaceGrid.ItemsSource, assignedFaces))
         {
+            PersonFaceGrid.SelectedItems.Clear();
             PersonFaceGrid.ItemsSource = assignedFaces;
             ClearContextPreview();
         }
@@ -149,9 +151,14 @@ public sealed partial class PeopleReviewView : UserControl
         if (ViewModel.IsApplyingSuggestionRefresh) return;
 
         var selectedGroup = GroupList.SelectedItem as FaceSuggestionGroupViewModel;
-        if (ReferenceEquals(ViewModel.SelectedGroup, selectedGroup)) return;
+        if (ReferenceEquals(ViewModel.SelectedGroup, selectedGroup))
+        {
+            SuggestionGrid.SelectedItems.Clear();
+            return;
+        }
 
         ViewModel.SelectedGroup = selectedGroup;
+        SuggestionGrid.SelectedItems.Clear();
         SuggestionGrid.ItemsSource = selectedGroup?.Suggestions;
         ClearContextPreview();
         UpdateActions();
@@ -160,9 +167,14 @@ public sealed partial class PeopleReviewView : UserControl
     private void OnPersonSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var selectedPerson = PeopleList.SelectedItem as PersonManagementItemViewModel;
-        if (ReferenceEquals(ViewModel.SelectedPerson, selectedPerson)) return;
+        if (ReferenceEquals(ViewModel.SelectedPerson, selectedPerson))
+        {
+            PersonFaceGrid.SelectedItems.Clear();
+            return;
+        }
 
         ViewModel.SelectedPerson = selectedPerson;
+        PersonFaceGrid.SelectedItems.Clear();
         PersonFaceGrid.ItemsSource = selectedPerson?.Faces;
         ClearContextPreview();
         UpdateActions();
