@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Controls;
 using PhotoLibrarian.ViewModels;
 using System.ComponentModel;
 using System.Linq;
@@ -15,8 +16,11 @@ public sealed partial class PeopleReviewView : UserControl
 {
     private int _previewRequest;
     private List<FaceSuggestionItemViewModel> _draggedFaces = [];
-    private GridView? _dragSourceGrid;
+    private VirtualizingPhotoGrid? _dragSourceGrid;
     private long? _dragSourcePersonId;
+    private CancellationTokenSource? _suggestionThumbnailLoads;
+    private CancellationTokenSource? _personThumbnailLoads;
+    private CancellationTokenSource? _excludedThumbnailLoads;
 
     public PeopleReviewViewModel ViewModel => App.ViewModel.PeopleReview;
 
@@ -41,6 +45,7 @@ public sealed partial class PeopleReviewView : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        CancelThumbnailLoads();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -168,11 +173,10 @@ public sealed partial class PeopleReviewView : UserControl
         UpdateActions();
     }
 
-    private async void OnFaceSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnFaceSelectionChanged(object sender, IReadOnlyList<object> selected)
     {
         UpdateActions();
-        if (sender is GridView grid &&
-            grid.SelectedItems.LastOrDefault() is FaceSuggestionItemViewModel face)
+        if (selected.LastOrDefault() is FaceSuggestionItemViewModel face)
         {
             await ShowContextPreviewAsync(face);
         }
@@ -180,7 +184,7 @@ public sealed partial class PeopleReviewView : UserControl
 
     private void UpdateActions()
     {
-        var selectedCount = SuggestionGrid.SelectedItems.Count;
+        var selectedCount = SuggestionGrid.FlatSelectedItems.Count;
         var totalCount = ViewModel.SelectedGroup?.Suggestions.Count ?? 0;
         var actionCount = selectedCount > 0 ? selectedCount : totalCount;
         var hasPerson = ViewModel.SelectedGroup?.HasSuggestedPerson == true;
@@ -210,7 +214,7 @@ public sealed partial class PeopleReviewView : UserControl
                 : ViewModel.StatusMessage;
 
         var selectedPerson = ViewModel.SelectedPerson;
-        var selectedAssignedCount = PersonFaceGrid.SelectedItems.Count;
+        var selectedAssignedCount = PersonFaceGrid.FlatSelectedItems.Count;
         RenamePersonButton.IsEnabled = selectedPerson is not null && !ViewModel.IsBusy;
         MergePersonButton.IsEnabled =
             selectedPerson is not null && ViewModel.People.Count > 1 && !ViewModel.IsBusy;
@@ -225,7 +229,7 @@ public sealed partial class PeopleReviewView : UserControl
             ? $"Remove from person ({selectedAssignedCount})"
             : "Remove from person";
 
-        var selectedHiddenCount = ExcludedFaceGrid.SelectedItems.Count;
+        var selectedHiddenCount = ExcludedFaceGrid.FlatSelectedItems.Count;
         RestoreFacesButton.IsEnabled = selectedHiddenCount > 0 && !ViewModel.IsBusy;
         ExcludedUndoTagButton.IsEnabled =
             ViewModel.CanUndoLastTag && !ViewModel.IsBusy;
@@ -255,16 +259,55 @@ public sealed partial class PeopleReviewView : UserControl
         }
     }
 
-    private async void OnFaceContainerContentChanging(
-        ListViewBase sender,
-        ContainerContentChangingEventArgs args)
+    private void OnFaceVisibleItemsChanged(object sender, IReadOnlyList<object> items)
     {
-        if (args.InRecycleQueue ||
-            args.Item is not FaceSuggestionItemViewModel suggestion)
+        if (sender is not VirtualizingPhotoGrid grid) return;
+
+        var cancellation = new CancellationTokenSource();
+        if (ReferenceEquals(grid, SuggestionGrid))
         {
-            return;
+            _suggestionThumbnailLoads?.Cancel();
+            _suggestionThumbnailLoads = cancellation;
+        }
+        else if (ReferenceEquals(grid, PersonFaceGrid))
+        {
+            _personThumbnailLoads?.Cancel();
+            _personThumbnailLoads = cancellation;
+        }
+        else
+        {
+            _excludedThumbnailLoads?.Cancel();
+            _excludedThumbnailLoads = cancellation;
         }
 
+        _ = LoadVisibleFaceThumbnailsAsync(items, cancellation.Token);
+    }
+
+    private static async Task LoadVisibleFaceThumbnailsAsync(
+        IReadOnlyList<object> items,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(75, cancellationToken);
+            var pending = items.OfType<FaceSuggestionItemViewModel>()
+                .Where(item => item.Thumbnail is null)
+                .Distinct()
+                .ToList();
+            foreach (var batch in pending.Chunk(4))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.WhenAll(batch.Select(LoadFaceThumbnailSafelyAsync));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private static async Task LoadFaceThumbnailSafelyAsync(
+        FaceSuggestionItemViewModel suggestion)
+    {
         try
         {
             await suggestion.LoadThumbnailAsync();
@@ -276,19 +319,17 @@ public sealed partial class PeopleReviewView : UserControl
         }
     }
 
-    private async void OnSuggestionPointerEntered(
-        object sender,
-        PointerRoutedEventArgs e)
+    private void CancelThumbnailLoads()
     {
-        if (sender is not FrameworkElement
-            {
-                DataContext: FaceSuggestionItemViewModel suggestion
-            })
-        {
-            return;
-        }
+        _suggestionThumbnailLoads?.Cancel();
+        _personThumbnailLoads?.Cancel();
+        _excludedThumbnailLoads?.Cancel();
+    }
 
-        await ShowContextPreviewAsync(suggestion);
+    private async void OnFlatFacePointerEntered(object sender, object item)
+    {
+        if (item is FaceSuggestionItemViewModel suggestion)
+            await ShowContextPreviewAsync(suggestion);
     }
 
     private async void OnConfirmClick(object sender, RoutedEventArgs e) =>
@@ -306,14 +347,14 @@ public sealed partial class PeopleReviewView : UserControl
             SuggestionGrid,
             () => ViewModel.HideFacesAsync(GetReviewActionFaces()));
 
-    private void OnSuggestionDragItemsStarting(
+    private void OnSuggestionDragStarting(
         object sender,
-        DragItemsStartingEventArgs e)
+        VirtualizingPhotoGridDragStartingEventArgs e)
     {
         _draggedFaces = e.Items
             .OfType<FaceSuggestionItemViewModel>()
             .ToList();
-        _dragSourceGrid = sender as GridView;
+        _dragSourceGrid = sender as VirtualizingPhotoGrid;
         _dragSourcePersonId = ReferenceEquals(_dragSourceGrid, PersonFaceGrid)
             ? ViewModel.SelectedPerson?.Id
             : null;
@@ -324,15 +365,13 @@ public sealed partial class PeopleReviewView : UserControl
             return;
         }
 
-        e.Data.RequestedOperation = DataPackageOperation.Move;
-        e.Data.SetText(string.Join(
+        e.DragArguments.Data.RequestedOperation = DataPackageOperation.Move;
+        e.DragArguments.Data.SetText(string.Join(
             ",",
             _draggedFaces.Select(face => face.FaceRegionId)));
     }
 
-    private void OnSuggestionDragItemsCompleted(
-        ListViewBase sender,
-        DragItemsCompletedEventArgs args)
+    private void OnSuggestionDragCompleted(object sender, EventArgs args)
     {
         ClearDragState();
     }
@@ -601,19 +640,17 @@ public sealed partial class PeopleReviewView : UserControl
             () => ViewModel.SetRepresentativeFaceAsync(person, face));
     }
 
-    private void OnAssignedFaceRightTapped(
-        object sender,
-        RightTappedRoutedEventArgs e)
+    private void OnAssignedFaceRightTapped(object sender, object item)
     {
         if (ViewModel.IsBusy ||
             ViewModel.SelectedPerson is null ||
-            e.OriginalSource is not FrameworkElement element ||
-            element.DataContext is not FaceSuggestionItemViewModel face)
+            item is not FaceSuggestionItemViewModel face ||
+            sender is not VirtualizingPhotoGrid grid)
         {
             return;
         }
 
-        PersonFaceGrid.SelectedItem = face;
+        var element = grid;
         var setPicture = new MenuFlyoutItem
         {
             Text = "Set as person's picture",
@@ -633,8 +670,7 @@ public sealed partial class PeopleReviewView : UserControl
         };
         var menu = new MenuFlyout();
         menu.Items.Add(setPicture);
-        menu.ShowAt(element, e.GetPosition(element));
-        e.Handled = true;
+        menu.ShowAt(element);
     }
 
     private async void OnDeletePersonClick(object sender, RoutedEventArgs e)
@@ -683,8 +719,8 @@ public sealed partial class PeopleReviewView : UserControl
         await RunActionAsync(() => ViewModel.UndoLastTagAsync());
     }
 
-    private static List<FaceSuggestionItemViewModel> GetSelectedFaces(GridView grid) =>
-        grid.SelectedItems.OfType<FaceSuggestionItemViewModel>().ToList();
+    private static List<FaceSuggestionItemViewModel> GetSelectedFaces(VirtualizingPhotoGrid grid) =>
+        grid.FlatSelectedItems.OfType<FaceSuggestionItemViewModel>().ToList();
 
     private List<FaceSuggestionItemViewModel> GetReviewActionFaces()
     {
@@ -694,7 +730,7 @@ public sealed partial class PeopleReviewView : UserControl
             : ViewModel.SelectedGroup?.Suggestions.ToList() ?? [];
     }
 
-    private GridView GetActiveFaceGrid() =>
+    private VirtualizingPhotoGrid GetActiveFaceGrid() =>
         IsReviewMode
             ? SuggestionGrid
             : IsPeopleMode
@@ -711,9 +747,9 @@ public sealed partial class PeopleReviewView : UserControl
         }
 
         var grid = GetActiveFaceGrid();
-        if (grid.Items.Count == 0) return;
+        if (grid.ItemsSource is null || !grid.ItemsSource.Cast<object>().Any()) return;
 
-        grid.SelectAll();
+        grid.SelectAllFlatItems();
         grid.Focus(FocusState.Programmatic);
         args.Handled = true;
     }
@@ -743,23 +779,23 @@ public sealed partial class PeopleReviewView : UserControl
     }
 
     private async Task RunGridActionAsync(
-        GridView grid,
+        VirtualizingPhotoGrid grid,
         Func<Task> action)
     {
         if (ViewModel.IsBusy) return;
 
-        var selectedIndexes = grid.SelectedItems
+        var selectedIndexes = grid.FlatSelectedItems
             .OfType<FaceSuggestionItemViewModel>()
-            .Select(item => grid.Items.IndexOf(item))
+            .Select(item => grid.ItemsSource?.Cast<object>().ToList().IndexOf(item) ?? -1)
             .Where(index => index >= 0)
             .ToList();
         var restoreIndex = selectedIndexes.DefaultIfEmpty(
-            Math.Max(0, grid.SelectedIndex)).Min();
+            0).Min();
         try
         {
             await action();
             RefreshDisplay();
-            RestoreGridPosition(grid, restoreIndex);
+            grid.Focus(FocusState.Programmatic);
         }
         catch (Exception ex)
         {
@@ -767,15 +803,6 @@ public sealed partial class PeopleReviewView : UserControl
         }
     }
 
-    private static void RestoreGridPosition(GridView grid, int preferredIndex)
-    {
-        if (grid.Items.Count == 0) return;
-
-        var index = Math.Clamp(preferredIndex, 0, grid.Items.Count - 1);
-        grid.SelectedIndex = index;
-        grid.ScrollIntoView(grid.Items[index]);
-        grid.Focus(FocusState.Programmatic);
-    }
 
     private async Task ShowErrorAsync(string title, Exception exception)
     {

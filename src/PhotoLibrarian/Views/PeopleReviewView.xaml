@@ -3,13 +3,13 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:PhotoLibrarian.ViewModels"
+    xmlns:local="using:PhotoLibrarian.Controls"
     KeyDown="OnKeyDown">
     <UserControl.Resources>
         <DataTemplate x:Key="FaceThumbnailTemplate"
                       x:DataType="vm:FaceSuggestionItemViewModel">
             <Grid Width="144"
-                  Height="184"
-                  PointerEntered="OnSuggestionPointerEntered">
+                  Height="184">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="144" />
                     <RowDefinition Height="Auto" />
@@ -20,6 +20,7 @@
                         CornerRadius="{ThemeResource ControlCornerRadius}">
                     <Grid>
                         <Image Source="{x:Bind Thumbnail, Mode=OneWay}"
+                               x:Phase="1"
                                Stretch="UniformToFill" />
                         <ProgressRing Width="32"
                                       Height="32"
@@ -188,16 +189,17 @@
                 </ListView>
 
                 <Grid Grid.Column="1">
-                    <GridView x:Name="SuggestionGrid"
+                    <local:VirtualizingPhotoGrid x:Name="SuggestionGrid"
                               AutomationProperties.AutomationId="FaceSuggestions"
                               AutomationProperties.Name="Face suggestions"
-                              CanDragItems="True"
-                              ContainerContentChanging="OnFaceContainerContentChanging"
-                              DragItemsStarting="OnSuggestionDragItemsStarting"
-                              DragItemsCompleted="OnSuggestionDragItemsCompleted"
+                              ItemSize="144"
+                              ItemHeight="184"
                               ItemTemplate="{StaticResource FaceThumbnailTemplate}"
-                              SelectionChanged="OnFaceSelectionChanged"
-                              SelectionMode="Extended" />
+                              FlatVisibleItemsChanged="OnFaceVisibleItemsChanged"
+                              FlatSelectionChanged="OnFaceSelectionChanged"
+                              FlatItemPointerEntered="OnFlatFacePointerEntered"
+                              FlatDragStarting="OnSuggestionDragStarting"
+                              FlatDragCompleted="OnSuggestionDragCompleted" />
                     <StackPanel x:Name="ReviewEmptyState"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
@@ -238,17 +240,18 @@
                 </ListView>
 
                 <Grid Grid.Column="1">
-                    <GridView x:Name="PersonFaceGrid"
+                    <local:VirtualizingPhotoGrid x:Name="PersonFaceGrid"
                               AutomationProperties.AutomationId="AssignedFaces"
                               AutomationProperties.Name="Faces assigned to the selected person"
-                              CanDragItems="True"
-                              ContainerContentChanging="OnFaceContainerContentChanging"
-                              DragItemsStarting="OnSuggestionDragItemsStarting"
-                              DragItemsCompleted="OnSuggestionDragItemsCompleted"
+                              ItemSize="144"
+                              ItemHeight="184"
                               ItemTemplate="{StaticResource FaceThumbnailTemplate}"
-                              RightTapped="OnAssignedFaceRightTapped"
-                              SelectionChanged="OnFaceSelectionChanged"
-                              SelectionMode="Extended" />
+                              FlatVisibleItemsChanged="OnFaceVisibleItemsChanged"
+                              FlatSelectionChanged="OnFaceSelectionChanged"
+                              FlatItemPointerEntered="OnFlatFacePointerEntered"
+                              FlatItemRightTapped="OnAssignedFaceRightTapped"
+                              FlatDragStarting="OnSuggestionDragStarting"
+                              FlatDragCompleted="OnSuggestionDragCompleted" />
                     <StackPanel x:Name="PeopleEmptyState"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
@@ -264,14 +267,18 @@
             <Grid x:Name="ExcludedPanel"
                   Grid.ColumnSpan="2"
                   Visibility="Collapsed">
-                <GridView x:Name="ExcludedFaceGrid"
+                <local:VirtualizingPhotoGrid x:Name="ExcludedFaceGrid"
                           AutomationProperties.AutomationId="ExcludedFaces"
                           AutomationProperties.Name="Excluded faces"
-                          ContainerContentChanging="OnFaceContainerContentChanging"
+                          ItemSize="144"
+                          ItemHeight="184"
                           ItemTemplate="{StaticResource FaceThumbnailTemplate}"
                           ItemsSource="{x:Bind ViewModel.HiddenFaces, Mode=OneWay}"
-                          SelectionChanged="OnFaceSelectionChanged"
-                          SelectionMode="Extended" />
+                          FlatVisibleItemsChanged="OnFaceVisibleItemsChanged"
+                          FlatSelectionChanged="OnFaceSelectionChanged"
+                          FlatItemPointerEntered="OnFlatFacePointerEntered"
+                          FlatDragStarting="OnSuggestionDragStarting"
+                          FlatDragCompleted="OnSuggestionDragCompleted" />
                 <StackPanel x:Name="ExcludedEmptyState"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
