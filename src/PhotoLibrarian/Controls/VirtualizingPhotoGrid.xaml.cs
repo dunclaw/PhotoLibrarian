@@ -7,6 +7,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
+using System.Collections;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Linq;
@@ -23,6 +24,14 @@ public sealed class ContextMenuRequestedEventArgs : EventArgs
     public required ImageThumbnailViewModel PrimaryItem { get; init; }
     public required FrameworkElement Source { get; init; }
     public Point Position { get; init; }
+}
+
+public sealed class VirtualizingPhotoGridDragStartingEventArgs : EventArgs
+{
+    public required IReadOnlyList<object> Items { get; init; }
+    public required DragStartingEventArgs DragArguments { get; init; }
+    public required FrameworkElement Source { get; init; }
+    public bool Cancel { get; set; }
 }
 
 public sealed partial class VirtualizingPhotoGrid : UserControl
@@ -44,6 +53,34 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         set => SetValue(ItemSizeProperty, value);
     }
 
+    /// <summary>Optional flat, template-driven mode used by other thumbnail surfaces.</summary>
+    public static readonly DependencyProperty ItemsSourceProperty =
+        DependencyProperty.Register(nameof(ItemsSource), typeof(IEnumerable), typeof(VirtualizingPhotoGrid),
+            new PropertyMetadata(null, OnItemsSourceChanged));
+    public IEnumerable? ItemsSource
+    {
+        get => (IEnumerable?)GetValue(ItemsSourceProperty);
+        set => SetValue(ItemsSourceProperty, value);
+    }
+
+    public static readonly DependencyProperty ItemTemplateProperty =
+        DependencyProperty.Register(nameof(ItemTemplate), typeof(DataTemplate), typeof(VirtualizingPhotoGrid),
+            new PropertyMetadata(null, OnFlatLayoutChanged));
+    public DataTemplate? ItemTemplate
+    {
+        get => (DataTemplate?)GetValue(ItemTemplateProperty);
+        set => SetValue(ItemTemplateProperty, value);
+    }
+
+    public static readonly DependencyProperty ItemHeightProperty =
+        DependencyProperty.Register(nameof(ItemHeight), typeof(double), typeof(VirtualizingPhotoGrid),
+            new PropertyMetadata(180d, OnFlatLayoutChanged));
+    public double ItemHeight
+    {
+        get => (double)GetValue(ItemHeightProperty);
+        set => SetValue(ItemHeightProperty, value);
+    }
+
     private static void OnItemSizeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is VirtualizingPhotoGrid grid)
@@ -51,11 +88,40 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             grid.OnItemSizeUpdated();
         }
     }
+
+    private static void OnFlatLayoutChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is VirtualizingPhotoGrid grid && grid.ItemsSource is not null)
+            grid.RecalculateFlatLayout();
+    }
+
+    private static void OnItemsSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is VirtualizingPhotoGrid grid)
+        {
+            if (grid._flatCollection is not null)
+                grid._flatCollection.CollectionChanged -= grid.OnFlatCollectionChanged;
+            grid._flatCollection = e.NewValue as INotifyCollectionChanged;
+            if (grid._flatCollection is not null)
+                grid._flatCollection.CollectionChanged += grid.OnFlatCollectionChanged;
+            grid._flatItems = (e.NewValue as IEnumerable)?.Cast<object>().ToList() ?? [];
+            grid._flatSelectedItems.RemoveWhere(item => !grid._flatItems.Contains(item));
+            grid.RecalculateFlatLayout();
+        }
+    }
+
+    private void OnFlatCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        RecalculateFlatLayout();
     
     // Element pools (separate pools for different element types)
     private readonly Queue<FrameworkElement> _availablePhotoElements = new();
     private readonly Queue<FrameworkElement> _availableHeaderElements = new();
     private readonly Dictionary<object, FrameworkElement> _activeElements = new(); // dataContext -> element
+    private readonly Dictionary<object, FrameworkElement> _flatActiveElements = new();
+    private readonly HashSet<object> _flatSelectedItems = new();
+    private List<object> _flatItems = [];
+    private object? _flatAnchorItem;
+    private INotifyCollectionChanged? _flatCollection;
     
     // Layout state
     private double _totalContentHeight = 0;
@@ -80,6 +146,20 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
 
     /// <summary>Raised when the user presses F to toggle the flag on the current selection.</summary>
     public event EventHandler? FlagToggleRequested;
+    public event EventHandler<IReadOnlyList<object>>? FlatSelectionChanged;
+    public event EventHandler<object>? FlatItemPointerEntered;
+    public event EventHandler<VirtualizingPhotoGridDragStartingEventArgs>? FlatDragStarting;
+    public event EventHandler? FlatDragCompleted;
+    public event EventHandler<object>? FlatItemRightTapped;
+    public IReadOnlyList<object> FlatSelectedItems => _flatSelectedItems.ToList();
+    public void SelectAllFlatItems()
+    {
+        _flatSelectedItems.Clear();
+        foreach (var item in _flatItems) _flatSelectedItems.Add(item);
+        foreach (var element in _flatActiveElements)
+            ApplyFlatSelectionVisual(element.Value, true);
+        FlatSelectionChanged?.Invoke(this, FlatSelectedItems);
+    }
 
     /// <summary>
     /// Read-only view of currently selected items.
@@ -150,6 +230,11 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (ItemsSource is not null)
+        {
+            RecalculateFlatLayout();
+            return;
+        }
         // Pre-create pools of elements
         for (int i = 0; i < InitialPoolSize; i++)
         {
@@ -199,14 +284,200 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
         // Width changed - recalculate columns
-        RecalculateLayout();
+        if (ItemsSource is not null) RecalculateFlatLayout();
+        else RecalculateLayout();
     }
     
     private void OnScrollViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
     {
         // Update viewport on every scroll change (both during and after scrolling)
-        UpdateViewport();
+        if (ItemsSource is not null) UpdateFlatViewport();
+        else UpdateViewport();
     }
+
+    private void RecalculateFlatLayout()
+    {
+        if (_isUpdating || ItemsSource is null) return;
+        _isUpdating = true;
+        try
+        {
+            _flatItems = ItemsSource.Cast<object>().ToList();
+            var width = ScrollContainer.ActualWidth;
+            if (width <= 0) return;
+            var cellWidth = Math.Max(1, ItemSize + ItemSpacing);
+            _columnCount = Math.Max(1, (int)((width - ItemSpacing) / cellWidth));
+            var rows = Math.Ceiling((double)_flatItems.Count / _columnCount);
+            _totalContentHeight = rows * (ItemHeight + ItemSpacing);
+            ContentPlaceholder.Height = _totalContentHeight;
+            UpdateFlatViewport();
+        }
+        finally { _isUpdating = false; }
+    }
+
+    private void UpdateFlatViewport()
+    {
+        if (ItemsSource is null) return;
+        if (_flatItems.Count == 0)
+        {
+            foreach (var element in _flatActiveElements.Values)
+                ItemsCanvas.Children.Remove(element);
+            _flatActiveElements.Clear();
+            ContentPlaceholder.Height = 0;
+            FlatVisibleItemsChanged?.Invoke(this, Array.Empty<object>());
+            return;
+        }
+        var start = Math.Max(0, ScrollContainer.VerticalOffset - BufferZone);
+        var end = ScrollContainer.VerticalOffset + ScrollContainer.ViewportHeight + BufferZone;
+        var rowHeight = ItemHeight + ItemSpacing;
+        var firstRow = Math.Max(0, (int)(start / rowHeight));
+        var lastRow = Math.Min((int)Math.Ceiling(_flatItems.Count / (double)_columnCount) - 1,
+            (int)(end / rowHeight) + 1);
+        var visible = new Dictionary<object, int>();
+        for (var row = firstRow; row <= lastRow; row++)
+        {
+            for (var column = 0; column < _columnCount; column++)
+            {
+                var index = row * _columnCount + column;
+                if (index >= _flatItems.Count) break;
+                var item = _flatItems[index];
+                visible[item] = row;
+                if (!_flatActiveElements.TryGetValue(item, out var element))
+                {
+                    element = CreateFlatElement();
+                    element.DataContext = item;
+                    if (element.Tag is ContentPresenter presenter)
+                        presenter.Content = item;
+                    _flatActiveElements[item] = element;
+                    ItemsCanvas.Children.Add(element);
+                }
+                ApplyFlatSelectionVisual(element, _flatSelectedItems.Contains(item));
+                Canvas.SetLeft(element, column * (ItemSize + ItemSpacing));
+                Canvas.SetTop(element, row * rowHeight);
+            }
+        }
+        foreach (var pair in _flatActiveElements.Where(pair => !visible.ContainsKey(pair.Key)).ToList())
+        {
+            ItemsCanvas.Children.Remove(pair.Value);
+            _flatActiveElements.Remove(pair.Key);
+        }
+        var viewportCenter = ScrollContainer.VerticalOffset + ScrollContainer.ViewportHeight / 2;
+        var prioritizedItems = visible
+            .OrderBy(pair =>
+                Math.Abs((pair.Value + 0.5) * rowHeight - viewportCenter))
+            .Select(pair => pair.Key)
+            .ToList();
+        FlatVisibleItemsChanged?.Invoke(this, prioritizedItems);
+    }
+
+    public event EventHandler<IReadOnlyList<object>>? FlatVisibleItemsChanged;
+
+    private FrameworkElement CreateFlatElement()
+    {
+        var host = new Grid
+        {
+            Width = ItemSize,
+            Height = ItemHeight,
+            IsTabStop = true
+        };
+        var presenter = new ContentPresenter
+        {
+            ContentTemplate = ItemTemplate,
+            Width = ItemSize,
+            Height = ItemHeight
+        };
+        host.Children.Add(presenter);
+        host.Children.Add(new Border
+        {
+            Tag = "FlatSelection",
+            BorderThickness = new Thickness(3),
+            BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.CornflowerBlue),
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        });
+        host.Tapped += OnFlatItemTapped;
+        host.PointerEntered += OnFlatItemPointerEntered;
+        host.RightTapped += OnFlatItemRightTapped;
+        host.CanDrag = true;
+        host.DragStarting += OnFlatDragStarting;
+        host.DropCompleted += OnFlatDragCompleted;
+        host.Tag = presenter;
+        return host;
+    }
+
+    private static void ApplyFlatSelectionVisual(FrameworkElement element, bool selected)
+    {
+        if (element is Grid grid &&
+            grid.Children.OfType<Border>().FirstOrDefault(border => Equals(border.Tag, "FlatSelection"))
+                is Border border)
+            border.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnFlatItemTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement element || element.DataContext is not object item) return;
+        var ctrl = GetModifierState();
+        if (ctrl.HasFlag(ModifierState.Shift) && _flatAnchorItem is not null)
+        {
+            var a = _flatItems.IndexOf(_flatAnchorItem);
+            var b = _flatItems.IndexOf(item);
+            _flatSelectedItems.Clear();
+            foreach (var value in _flatItems.Skip(Math.Min(a, b)).Take(Math.Abs(a - b) + 1))
+                _flatSelectedItems.Add(value);
+        }
+        else if (ctrl.HasFlag(ModifierState.Ctrl))
+        {
+            if (!_flatSelectedItems.Add(item)) _flatSelectedItems.Remove(item);
+            _flatAnchorItem = item;
+        }
+        else
+        {
+            _flatSelectedItems.Clear();
+            _flatSelectedItems.Add(item);
+            _flatAnchorItem = item;
+        }
+        FlatSelectionChanged?.Invoke(this, FlatSelectedItems);
+        foreach (var active in _flatActiveElements)
+            ApplyFlatSelectionVisual(active.Value, _flatSelectedItems.Contains(active.Key));
+        e.Handled = true;
+    }
+
+    private void OnFlatItemPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: object item })
+            FlatItemPointerEntered?.Invoke(this, item);
+    }
+
+    private void OnFlatItemRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: object item })
+            FlatItemRightTapped?.Invoke(this, item);
+    }
+
+    private void OnFlatDragStarting(UIElement sender, DragStartingEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: object item })
+        {
+            if (!_flatSelectedItems.Contains(item))
+            {
+                _flatSelectedItems.Clear();
+                _flatSelectedItems.Add(item);
+                FlatSelectionChanged?.Invoke(this, FlatSelectedItems);
+                foreach (var element in _flatActiveElements)
+                    ApplyFlatSelectionVisual(element.Value, _flatSelectedItems.Contains(element.Key));
+            }
+            var args = new VirtualizingPhotoGridDragStartingEventArgs
+            {
+                Items = FlatSelectedItems,
+                DragArguments = e,
+                Source = (FrameworkElement)sender
+            };
+            FlatDragStarting?.Invoke(this, args);
+            e.Cancel = args.Cancel;
+        }
+    }
+
+    private void OnFlatDragCompleted(UIElement sender, DropCompletedEventArgs args) =>
+        FlatDragCompleted?.Invoke(this, EventArgs.Empty);
     
     /// <summary>
     /// Recalculates layout and updates viewport

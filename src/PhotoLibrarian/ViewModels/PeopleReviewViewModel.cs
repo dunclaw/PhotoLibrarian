@@ -1105,7 +1105,17 @@ public partial class FaceSuggestionItemViewModel : ObservableObject
 
     public void Update(FaceSuggestion source)
     {
+        var imageChanged = !string.Equals(
+            _source.ImagePath,
+            source.ImagePath,
+            StringComparison.OrdinalIgnoreCase);
         _source = source;
+        if (imageChanged)
+        {
+            Thumbnail = null;
+            _thumbnailLoadTask = null;
+            IsLoading = true;
+        }
         OnPropertyChanged(nameof(FileName));
         OnPropertyChanged(nameof(Similarity));
         OnPropertyChanged(nameof(SimilarityText));
@@ -1147,7 +1157,12 @@ public partial class FaceSuggestionItemViewModel : ObservableObject
     public Task LoadThumbnailAsync()
     {
         if (Thumbnail is not null) return Task.CompletedTask;
-        return _thumbnailLoadTask ??= LoadThumbnailCoreAsync();
+        if (_thumbnailLoadTask is { IsCompleted: false })
+        {
+            return _thumbnailLoadTask;
+        }
+
+        return _thumbnailLoadTask = LoadThumbnailCoreAsync();
     }
 
     private async Task LoadThumbnailCoreAsync()
@@ -1168,6 +1183,11 @@ public partial class FaceSuggestionItemViewModel : ObservableObject
             using var stream = new MemoryStream(bytes);
             await bitmap.SetSourceAsync(stream.AsRandomAccessStream());
             Thumbnail = bitmap;
+        }
+        catch
+        {
+            _thumbnailLoadTask = null;
+            throw;
         }
         finally
         {
