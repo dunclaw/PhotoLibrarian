@@ -35,6 +35,7 @@ public partial class MainViewModel : ObservableObject
 
     public FolderNavigationViewModel FolderNav { get; }
     public DateNavigationViewModel DateNav { get; }
+    public PeopleNavigationViewModel PeopleNav { get; }
     public TagNavigationViewModel TagNav { get; }
     public FlagNavigationViewModel FlagNav { get; }
     public ImageGridViewModel ImageGrid { get; }
@@ -111,6 +112,7 @@ public partial class MainViewModel : ObservableObject
 
         FolderNav = new FolderNavigationViewModel(db, scanner, indexingService, this);
         DateNav = new DateNavigationViewModel(imageRepo);
+        PeopleNav = new PeopleNavigationViewModel(faceRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
         FlagNav = new FlagNavigationViewModel(imageRepo);
         ImageGrid = new ImageGridViewModel(
@@ -265,6 +267,8 @@ public partial class MainViewModel : ObservableObject
             personName,
             cancellationToken);
         await MetadataPanel.ReloadPeopleTagsAsync();
+        if (App.MainWindow is MainWindow window)
+            await window.RefreshPeopleFiltersAsync();
         StatusText = $"Added people tag for {personName.Trim()}.";
     }
 
@@ -272,6 +276,8 @@ public partial class MainViewModel : ObservableObject
     {
         await _faceReviewService.UnassignFacesAsync([faceRegionId], cancellationToken);
         await MetadataPanel.ReloadPeopleTagsAsync();
+        if (App.MainWindow is MainWindow window)
+            await window.RefreshPeopleFiltersAsync();
         StatusText = "Removed people tag.";
     }
     
@@ -966,6 +972,7 @@ public partial class MainViewModel : ObservableObject
         StatusText = $"{TotalImages:N0} items";
         // Refresh date and tag navigation data
         await DateNav.LoadDatesAsync();
+        await PeopleNav.LoadPeopleAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
         StartBackgroundFaceDetection();

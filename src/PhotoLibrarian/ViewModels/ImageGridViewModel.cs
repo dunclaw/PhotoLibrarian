@@ -64,6 +64,8 @@ public partial class ImageGridViewModel : ObservableObject
     private bool _currentDateRootSelected; // Root "Dates" node selected (show all dated images)
     private List<int>? _currentYearFilters;
     private List<(int Year, int Month)>? _currentMonthFilters;
+    private bool _currentPeopleRootSelected;
+    private List<long>? _currentPersonFilters;
     private bool _currentTagRootSelected; // Root "Tags" node selected (show all tagged images)
     private List<string>? _currentTagFilters;
     private bool _currentFlaggedSelected; // "Flagged" node selected (show flagged working set)
@@ -192,7 +194,10 @@ public partial class ImageGridViewModel : ObservableObject
         var tagsByImageId = Refinement.RequiresTags
             ? await _tagRepo.GetTagsByImageIdAsync()
             : null;
-        var personIdsByImageId = Refinement.RequiresPeople
+        bool hasPeopleFilter = _currentPeopleRootSelected ||
+                               (_currentPersonFilters is not null &&
+                                _currentPersonFilters.Count > 0);
+        var personIdsByImageId = Refinement.RequiresPeople || hasPeopleFilter
             ? await _faceRepo.GetPersonIdsByImageIdAsync()
             : null;
         
@@ -223,7 +228,8 @@ public partial class ImageGridViewModel : ObservableObject
         bool hasFlagFilter = _currentFlaggedSelected;
 
         // If no filters active, show nothing
-        if (!hasFolderFilter && !hasDateFilter && !hasTagFilter && !hasFlagFilter)
+        if (!hasFolderFilter && !hasDateFilter && !hasPeopleFilter &&
+            !hasTagFilter && !hasFlagFilter)
         {
             DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
             return;
@@ -244,7 +250,9 @@ public partial class ImageGridViewModel : ObservableObject
         ).ToList();
 
         DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {allImages.Count}, FolderFilters: {folderFilters?.Count ?? 0}, DateFilters: {hasDateFilter}, TagFilters: {hasTagFilter}");
-        DebugLog.WriteLine($"  UNION logic: Show images matching ANY filter (folder OR date OR tag)");
+        DebugLog.WriteLine(
+            "  UNION logic: Show images matching ANY filter " +
+            "(folder OR date OR people OR tag OR flag)");
 
         int matchCount = 0;
         int skipCount = 0;
@@ -287,6 +295,15 @@ public partial class ImageGridViewModel : ObservableObject
                         matchesAnyFilter = true;
                     }
                 }
+            }
+
+            // Check people filter
+            if (!matchesAnyFilter && hasPeopleFilter &&
+                personIdsByImageId is not null &&
+                personIdsByImageId.TryGetValue(img.Id, out var navigationPersonIds))
+            {
+                matchesAnyFilter = _currentPeopleRootSelected ||
+                    (_currentPersonFilters?.Any(navigationPersonIds.Contains) ?? false);
             }
 
             // Check tag filter
@@ -873,12 +890,14 @@ public partial class ImageGridViewModel : ObservableObject
         bool dateRootSelected,
         List<int>? years,
         List<(int Year, int Month)>? months,
+        bool peopleRootSelected,
+        List<long>? personIds,
         bool tagRootSelected,
         List<string>? tags,
         bool flaggedSelected = false)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}");
+        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, people={personIds?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}");
         
         // Pause background indexing while user is browsing
         _main.PauseBackgroundIndexing();
@@ -887,6 +906,8 @@ public partial class ImageGridViewModel : ObservableObject
         _currentDateRootSelected = dateRootSelected;
         _currentYearFilters = years;
         _currentMonthFilters = months;
+        _currentPeopleRootSelected = peopleRootSelected;
+        _currentPersonFilters = personIds;
         _currentTagRootSelected = tagRootSelected;
         _currentTagFilters = tags;
         _currentFlaggedSelected = flaggedSelected;
@@ -1210,6 +1231,8 @@ public partial class ImageGridViewModel : ObservableObject
         _currentDateRootSelected = false;
         _currentYearFilters = null;
         _currentMonthFilters = null;
+        _currentPeopleRootSelected = false;
+        _currentPersonFilters = null;
         _currentTagRootSelected = false;
         _currentTagFilters = null;
         _currentFlaggedSelected = false;

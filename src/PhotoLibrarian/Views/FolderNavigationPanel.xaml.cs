@@ -16,6 +16,7 @@ public sealed partial class FolderNavigationPanel : UserControl
     private FolderNavigationViewModel? ViewModel => App.ViewModel?.FolderNav;
     private readonly SemaphoreSlim _tagRefreshGate = new(1, 1);
     private bool _isRefreshingTagTree;
+    private bool _isRefreshingPeopleTree;
 
     public FolderNavigationPanel()
     {
@@ -27,6 +28,7 @@ public sealed partial class FolderNavigationPanel : UserControl
     {
         RefreshLibraryTree();
         await RefreshDateTreeAsync();
+        await RefreshPeopleTreeAsync();
         await RefreshTagsTreeAsync();
         RefreshFlagTree();
     }
@@ -34,6 +36,7 @@ public sealed partial class FolderNavigationPanel : UserControl
     public async Task RefreshMetadataTreesAsync()
     {
         await RefreshDateTreeAsync();
+        await RefreshPeopleTreeAsync();
         await RefreshTagsTreeAsync();
         RefreshFlagTree();
     }
@@ -63,8 +66,9 @@ public sealed partial class FolderNavigationPanel : UserControl
         ViewModel.RootFolders.CollectionChanged += (s, args) => RefreshLibraryTree();
         RefreshLibraryTree();
         
-        // Initial load of date and tag trees (don't bind to CollectionChanged to avoid recursion)
+        // Initial metadata trees load (don't bind to CollectionChanged to avoid recursion)
         _ = RefreshDateTreeAsync();
+        _ = RefreshPeopleTreeAsync();
         _ = RefreshTagsTreeAsync();
         RefreshFlagTree();
     }
@@ -175,6 +179,78 @@ public sealed partial class FolderNavigationPanel : UserControl
         foreach (var child in dateNode.Children)
         {
             treeNode.Children.Add(BuildDateNode(child));
+        }
+
+        return treeNode;
+    }
+
+    public async Task RefreshPeopleTreeAsync()
+    {
+        if (App.ViewModel?.PeopleNav is null) return;
+
+        await App.ViewModel.PeopleNav.LoadPeopleAsync();
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _isRefreshingPeopleTree = true;
+            bool rootSelected = false;
+            HashSet<long?> selectedIds = [];
+            try
+            {
+                selectedIds = PeopleTree.SelectedNodes
+                    .Select(node => node.Content)
+                    .OfType<PersonNodeWrapper>()
+                    .Select(wrapper => wrapper.PersonNode.PersonId)
+                    .ToHashSet();
+                rootSelected = PeopleTree.SelectedNodes.Any(
+                    node => node.Content is PersonNodeWrapper { PersonNode.IsRoot: true });
+
+                PeopleTree.SelectedNodes.Clear();
+                PeopleTree.RootNodes.Clear();
+                foreach (var personNode in App.ViewModel.PeopleNav.RootNodes)
+                {
+                    PeopleTree.RootNodes.Add(BuildPersonNode(personNode));
+                }
+
+                foreach (var rootNode in PeopleTree.RootNodes)
+                {
+                    if (rootSelected &&
+                        rootNode.Content is PersonNodeWrapper { PersonNode.IsRoot: true })
+                    {
+                        PeopleTree.SelectedNodes.Add(rootNode);
+                    }
+
+                    foreach (var child in rootNode.Children)
+                    {
+                        if (child.Content is PersonNodeWrapper wrapper &&
+                            selectedIds.Contains(wrapper.PersonNode.PersonId))
+                        {
+                            PeopleTree.SelectedNodes.Add(child);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _isRefreshingPeopleTree = false;
+            }
+
+            if (rootSelected || selectedIds.Any(id => id.HasValue))
+                UpdateGridFromSelection();
+        });
+    }
+
+    private static TreeViewNode BuildPersonNode(PersonNode personNode)
+    {
+        var treeNode = new TreeViewNode
+        {
+            Content = new PersonNodeWrapper(personNode),
+            IsExpanded = personNode.IsRoot
+        };
+
+        foreach (var child in personNode.Children)
+        {
+            treeNode.Children.Add(BuildPersonNode(child));
         }
 
         return treeNode;
@@ -405,6 +481,18 @@ public sealed partial class FolderNavigationPanel : UserControl
         }
     }
 
+    private void OnPeopleItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItem is not TreeViewNode node) return;
+
+        if (sender.SelectedNodes.Contains(node))
+            sender.SelectedNodes.Remove(node);
+        else
+            sender.SelectedNodes.Add(node);
+
+        UpdateGridFromSelection();
+    }
+
     private void OnLibraryExpanding(TreeView sender, TreeViewExpandingEventArgs args)
     {
         if (args.Node.Content is not FolderNodeWrapper wrapper || wrapper.FolderNode is null) return;
@@ -450,6 +538,16 @@ public sealed partial class FolderNavigationPanel : UserControl
         }
 
         DebugLog.WriteLine($"OnTagsSelectionChanged: AddedItems={args.AddedItems.Count}, RemovedItems={args.RemovedItems.Count}, TotalSelected={sender.SelectedNodes.Count}");
+        UpdateGridFromSelection();
+    }
+
+    private void OnPeopleSelectionChanged(
+        TreeView sender,
+        TreeViewSelectionChangedEventArgs args)
+    {
+        if (_isRefreshingPeopleTree)
+            return;
+
         UpdateGridFromSelection();
     }
 
@@ -538,15 +636,29 @@ public sealed partial class FolderNavigationPanel : UserControl
             }
         }
 
-        DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, DateRoot={dateRootSelected}, Years={selectedYears.Count}, Months={selectedMonths.Count}, TagRoot={tagRootSelected}, Tags={selectedTags.Count}");
+        var selectedPeople = new List<long>();
+        bool peopleRootSelected = false;
+        foreach (var node in PeopleTree.SelectedNodes)
+        {
+            if (node.Content is not PersonNodeWrapper wrapper) continue;
+
+            if (wrapper.PersonNode.IsRoot)
+                peopleRootSelected = true;
+            else if (wrapper.PersonNode.PersonId is long personId)
+                selectedPeople.Add(personId);
+        }
+
+        DebugLog.WriteLine($"UpdateGridFromSelection: PhotoLibraryRoot={photoLibraryRootSelected}, Folders={selectedFolders.Count}, DateRoot={dateRootSelected}, Years={selectedYears.Count}, Months={selectedMonths.Count}, PeopleRoot={peopleRootSelected}, People={selectedPeople.Count}, TagRoot={tagRootSelected}, Tags={selectedTags.Count}");
 
         // Flagged working set
         bool flaggedSelected = FlagsTree.SelectedNodes.Any(n => n.Content is FlagNavigationViewModel);
 
         // If nothing selected anywhere, clear filters to show empty grid
-        if (!photoLibraryRootSelected && !dateRootSelected && !tagRootSelected && !flaggedSelected &&
+        if (!photoLibraryRootSelected && !dateRootSelected && !peopleRootSelected &&
+            !tagRootSelected && !flaggedSelected &&
             selectedFolders.Count == 0 && selectedYears.Count == 0 && 
-            selectedMonths.Count == 0 && selectedTags.Count == 0)
+            selectedMonths.Count == 0 && selectedPeople.Count == 0 &&
+            selectedTags.Count == 0)
         {
             DebugLog.WriteLine("  No selections - clearing filter");
             App.ViewModel.ImageGrid.ClearFilterCommand.Execute(null);
@@ -566,6 +678,8 @@ public sealed partial class FolderNavigationPanel : UserControl
             dateRootSelected,
             selectedYears.Count > 0 ? selectedYears : null,
             selectedMonths.Count > 0 ? selectedMonths : null,
+            peopleRootSelected,
+            selectedPeople.Count > 0 ? selectedPeople : null,
             tagRootSelected,
             selectedTags.Count > 0 ? selectedTags : null,
             flaggedSelected);
@@ -698,6 +812,24 @@ public sealed partial class FolderNavigationPanel : UserControl
                 return $"{DateNode.DisplayName} ({DateNode.Count})";
             else
                 return $"📅 {DateNode.DisplayName} ({DateNode.Count})";
+        }
+    }
+
+    private sealed class PersonNodeWrapper
+    {
+        public PersonNode PersonNode { get; }
+
+        public PersonNodeWrapper(PersonNode personNode)
+        {
+            PersonNode = personNode;
+        }
+
+        public override string ToString()
+        {
+            if (PersonNode.IsRoot)
+                return $"{PersonNode.DisplayName} ({PersonNode.Count})";
+
+            return $"👤 {PersonNode.DisplayName} ({PersonNode.Count})";
         }
     }
 

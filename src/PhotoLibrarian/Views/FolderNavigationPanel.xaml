@@ -25,7 +25,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- Sections: Library, Date, Tags, Flags -->
+        <!-- Sections: Library, Date, People, Tags, Flags -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="16">
                 
@@ -46,6 +46,17 @@
                               SelectionMode="Multiple"
                               ItemInvoked="OnDateItemInvoked"
                               SelectionChanged="OnDateSelectionChanged" />
+                </StackPanel>
+
+                <!-- People Section -->
+                <StackPanel>
+                    <TextBlock Text="People" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TreeView x:Name="PeopleTree"
+                              AutomationProperties.AutomationId="PeopleTree"
+                              AutomationProperties.Name="People"
+                              SelectionMode="Multiple"
+                              ItemInvoked="OnPeopleItemInvoked"
+                              SelectionChanged="OnPeopleSelectionChanged" />
                 </StackPanel>
 
                 <!-- Tags Section -->

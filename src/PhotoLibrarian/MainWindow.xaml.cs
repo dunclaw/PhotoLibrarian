@@ -23,6 +23,13 @@ public sealed partial class MainWindow : Window
     public async Task RefreshMetadataTreesAsync()
     {
         await FolderNavPanel.RefreshMetadataTreesAsync();
+        await ImageGridPanel.RefreshPeopleAsync();
+    }
+
+    public async Task RefreshPeopleFiltersAsync()
+    {
+        await FolderNavPanel.RefreshPeopleTreeAsync();
+        await ImageGridPanel.RefreshPeopleAsync();
     }
 
     public Task RefreshTagsTreeAsync() =>
@@ -421,6 +428,9 @@ public sealed partial class MainWindow : Window
         PeopleReviewOverlay.Visibility = ViewModel.PeopleReview.IsOpen
             ? Visibility.Visible
             : Visibility.Collapsed;
+
+        if (!ViewModel.PeopleReview.IsOpen)
+            _ = RefreshPeopleFiltersAsync();
     }
     
     private async void OnBenchmarkClick(object sender, RoutedEventArgs e)
