@@ -14,7 +14,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 ## Highlights
 
 - 🚀 **Custom virtualized grid** that handles 18 000+ items per folder smoothly. No `ItemsRepeater` layout cycles, no per-item bindings — just a `Canvas` with a recycled element pool.
-- 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **Tag**, and **Flag** trees; the sections combine as a union filter.
+- 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **People**, **Tag**, and **Flag** trees; the sections combine as a union filter.
 - 🏷️ **Hierarchical tags** (`people/family/kids` indexes `people` + `people/family` + `people/family/kids` so you can filter at any level).
 - ⚡ **SQLite metadata index** + Windows native thumbnail cache for instant viewport-aware loads.
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
@@ -39,8 +39,8 @@ Active personal project — usable for daily browsing, tagging, and rating today
 │  ┌─────────────────┬──────────────────┬────────────────────┐  │
 │  │  FolderNav      │   ImageGrid      │   MetadataPanel    │  │
 │  │  (Library/      │   (custom virt.  │   (multi-select    │  │
-│  │   Date/Tag      │    Canvas grid)  │    aware editor)   │  │
-│  │   trees,        │                  │                    │  │
+│  │   Date/People/  │    Canvas grid)  │    aware editor)   │  │
+│  │   Tag trees,    │                  │                    │  │
 │  │   union filter) │   ImageViewer    │   ImageEditor      │  │
 │  │                 │   overlay        │   (Win2D)          │  │
 │  └─────────────────┴──────────────────┴────────────────────┘  │

@@ -75,11 +75,11 @@ public sealed partial class ImageGridView : UserControl
         UpdateSortOrderIcon();
         ViewModel.ResultsChanged += OnResultsChanged;
         InitializeRefinementControls(ViewModel.Refinement);
-        await LoadPeopleAsync();
+        await RefreshPeopleAsync();
         UpdateActiveFilterChips();
     }
 
-    private async System.Threading.Tasks.Task LoadPeopleAsync()
+    public async System.Threading.Tasks.Task RefreshPeopleAsync()
     {
         if (ViewModel is null) return;
 
@@ -87,22 +87,38 @@ public sealed partial class ImageGridView : UserControl
         {
             var selectedPersonId = ViewModel.Refinement.PersonId;
             var people = await ViewModel.GetAvailablePeopleAsync();
+            while (PersonCombo.Items.Count > 1)
+                PersonCombo.Items.RemoveAt(PersonCombo.Items.Count - 1);
+
+            ComboBoxItem? selectedItem = null;
             foreach (var person in people)
             {
-                PersonCombo.Items.Add(new ComboBoxItem
+                var item = new ComboBoxItem
                 {
                     Content = $"{person.Name} ({person.FaceCount:N0})",
                     Tag = person.Id
-                });
+                };
+                PersonCombo.Items.Add(item);
+                if (person.Id == selectedPersonId)
+                    selectedItem = item;
             }
 
-            if (selectedPersonId.HasValue)
+            if (selectedItem is not null)
             {
-                PersonCombo.SelectedItem = PersonCombo.Items
-                    .OfType<ComboBoxItem>()
-                    .FirstOrDefault(item =>
-                        item.Tag is long id && id == selectedPersonId.Value);
+                PersonCombo.SelectedItem = selectedItem;
             }
+            else if (selectedPersonId.HasValue)
+            {
+                PersonCombo.SelectedIndex = 0;
+                await ViewModel.ApplyRefinementAsync(
+                    ViewModel.Refinement with { PersonId = null });
+            }
+
+            if (PersonCombo.SelectedIndex < 0)
+                PersonCombo.SelectedIndex = 0;
+
+            if (_isInitialized)
+                UpdateActiveFilterChips();
         }
         catch (Exception ex)
         {
