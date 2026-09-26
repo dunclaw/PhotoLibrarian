@@ -9,6 +9,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? CropClicked;
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
+    public event EventHandler? RedEyeClicked;
     public event EventHandler? CloseViewerClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
@@ -65,10 +66,25 @@ public sealed partial class TopRibbon : UserControl
         SetContextSubLabel(null);
     }
 
+    public void EnterRedEyeMode()
+    {
+        ViewerTools.Visibility = Visibility.Collapsed;
+        CloseViewerButton.Visibility = Visibility.Collapsed;
+        SetContextSubLabel("Drag a rectangle around both eyes (Esc to cancel)");
+    }
+
+    public void ExitRedEyeMode()
+    {
+        ViewerTools.Visibility = Visibility.Visible;
+        CloseViewerButton.Visibility = Visibility.Visible;
+        SetContextSubLabel(null);
+    }
+
     private void OnCropClick(object sender, RoutedEventArgs e) => CropClicked?.Invoke(this, EventArgs.Empty);
     private void OnStraightenClick(object sender, RoutedEventArgs e) =>
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
+    private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
     private void OnCloseViewerClick(object sender, RoutedEventArgs e) => CloseViewerClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnCancelCropClick(object sender, RoutedEventArgs e) => CancelCropClicked?.Invoke(this, EventArgs.Empty);

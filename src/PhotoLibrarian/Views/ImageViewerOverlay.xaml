@@ -168,6 +168,21 @@
                                    StrokeThickness="2"
                                    Visibility="Collapsed" />
                     </Canvas>
+                    <Canvas x:Name="RedEyeOverlay"
+                            AutomationProperties.AutomationId="RedEyeSelectionCanvas"
+                            AutomationProperties.Name="Draw a box around the eyes"
+                            Background="Transparent"
+                            PointerPressed="OnRedEyePointerPressed"
+                            PointerMoved="OnRedEyePointerMoved"
+                            PointerReleased="OnRedEyePointerReleased"
+                            PointerCanceled="OnRedEyePointerCanceled"
+                            Visibility="Collapsed">
+                        <Rectangle x:Name="RedEyeRectangle"
+                                   IsHitTestVisible="False"
+                                   Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                                   StrokeThickness="2"
+                                   Visibility="Collapsed" />
+                    </Canvas>
                     <Grid x:Name="StraightenGrid"
                           IsHitTestVisible="False"
                           Visibility="Collapsed">
