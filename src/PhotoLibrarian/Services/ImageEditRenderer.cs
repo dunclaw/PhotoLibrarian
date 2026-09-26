@@ -100,6 +100,16 @@ public static class ImageEditRenderer
         return changed;
     }
 
+    /// <summary>
+    /// Bakes a quarter-turn rotation into the image pixels and resets EXIF orientation.
+    /// </summary>
+    public static Task<(uint Width, uint Height)> RenderRotatedAsync(
+        string filePath,
+        bool clockwise) =>
+        RenderToFileAsync(
+            filePath,
+            new EditParameters { RotationAngle = clockwise ? 90 : -90 });
+
     private static async Task<(uint Width, uint Height)> RenderToFileAsync(
         string filePath,
         EditParameters parameters,
