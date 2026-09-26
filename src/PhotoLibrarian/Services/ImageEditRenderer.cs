@@ -1,6 +1,7 @@
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Effects;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 using System.Numerics;
 using Windows.Graphics.Imaging;
 using Windows.Security.Cryptography;
@@ -77,6 +78,26 @@ public static class ImageEditRenderer
             filePath,
             new EditParameters { RotationAngle = angleDegrees },
             autoCropRotation: true);
+    }
+
+    /// <summary>
+    /// Removes red-dominant pupil pixels inside a user-selected image region.
+    /// </summary>
+    public static async Task<int> RemoveRedEyeAsync(string filePath, RedEyeBounds bounds)
+    {
+        if (!IsSupported(filePath))
+            throw new NotSupportedException($"Editing not supported for {Path.GetExtension(filePath)}");
+
+        var device = CanvasDevice.GetSharedDevice();
+        using var source = await LoadOrientedAsync(device, filePath);
+        var width = (int)source.SizeInPixels.Width;
+        var height = (int)source.SizeInPixels.Height;
+        var pixels = source.GetPixelBytes();
+        var changed = RedEyeRemovalProcessor.Apply(pixels, width, height, bounds);
+        if (changed == 0) return 0;
+
+        await EncodeOverFileAsync(filePath, pixels, (uint)width, (uint)height);
+        return changed;
     }
 
     private static async Task<(uint Width, uint Height)> RenderToFileAsync(

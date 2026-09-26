@@ -72,6 +72,16 @@
                         <TextBlock Text="Adjust" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="RedEyeButton" Click="OnRedEyeClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonRedEye"
+                        AutomationProperties.Name="Red eye"
+                        ToolTipService.ToolTip="Remove red eye from this photo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE77B;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Red eye" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
 
             <!-- ===== Crop sub-mode (replaces ViewerTools when crop is active) ===== -->

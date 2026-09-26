@@ -29,18 +29,45 @@ public sealed partial class ImageViewerOverlay : UserControl
     private bool _pendingManualFaceTagging;
     private bool _isDrawingManualFace;
     private Point _manualFaceStart;
+    private bool _isRedEyeRemoving;
+    private bool _isDrawingRedEye;
+    private Point _redEyeStart;
     public bool IsCropping { get; private set; }
     public bool IsStraightening { get; private set; }
+    public bool IsRedEyeRemoving => _isRedEyeRemoving;
     public event EventHandler? CropExited;
     public event EventHandler? CropApplyRequested;
     public event EventHandler? CropCancelRequested;
     public event EventHandler? StraightenApplyRequested;
     public event EventHandler? StraightenCancelRequested;
+    public event EventHandler<RedEyeBounds>? RedEyeSelectionCompleted;
 
     public CropOverlay CropOverlay => CropOverlayView;
     public uint CurrentImagePixelWidth => _currentImagePixelWidth;
     public uint CurrentImagePixelHeight => _currentImagePixelHeight;
     public double StraightenAngle => StraightenAngleSlider.Value;
+
+    public void EnterRedEyeMode()
+    {
+        if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
+        if (IsCropping) ExitCropMode();
+        if (IsStraightening) ExitStraightenMode();
+        _isRedEyeRemoving = true;
+        PreviousButton.Visibility = Visibility.Collapsed;
+        NextButton.Visibility = Visibility.Collapsed;
+        RedEyeRectangle.Visibility = Visibility.Collapsed;
+        RedEyeOverlay.Visibility = Visibility.Visible;
+    }
+
+    public void ExitRedEyeMode()
+    {
+        _isRedEyeRemoving = false;
+        _isDrawingRedEye = false;
+        RedEyeRectangle.Visibility = Visibility.Collapsed;
+        RedEyeOverlay.Visibility = Visibility.Collapsed;
+        PreviousButton.Visibility = Visibility.Visible;
+        NextButton.Visibility = Visibility.Visible;
+    }
 
     // Gap left around the image while cropping so the handles — which overhang the crop rect
     // by half their hit size — are never clipped by the viewport edge.
@@ -50,6 +77,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     {
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsStraightening) ExitStraightenMode();
+        if (IsRedEyeRemoving) ExitRedEyeMode();
 
         IsCropping = true;
 
@@ -94,6 +122,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     {
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsCropping) ExitCropMode();
+        if (IsRedEyeRemoving) ExitRedEyeMode();
 
         IsStraightening = true;
         StraightenAngleSlider.Value = 0;
@@ -205,7 +234,7 @@ public sealed partial class ImageViewerOverlay : UserControl
             DebugLog.WriteLine("ImageViewerOverlay: ViewModel is null");
             return;
         }
-        
+
         _zoomPan = new ImageZoomPanController(ImageScrollViewer, ScrollContent, ImageHost, FullImage);
         DebugLog.WriteLine("ImageViewerOverlay: ZoomPanController created");
         
@@ -363,6 +392,7 @@ public sealed partial class ImageViewerOverlay : UserControl
             UpdateStraightenClip();
             return;
         }
+
         _zoomPan?.HandleSizeChanged(e.PreviousSize);
     }
 
@@ -433,6 +463,14 @@ public sealed partial class ImageViewerOverlay : UserControl
                 StraightenCancelRequested?.Invoke(this, EventArgs.Empty);
             else if (e.Key == Windows.System.VirtualKey.Enter)
                 StraightenApplyRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+            return;
+        }
+
+        if (IsRedEyeRemoving)
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape)
+                ExitRedEyeMode();
             e.Handled = true;
             return;
         }
@@ -804,5 +842,63 @@ public sealed partial class ImageViewerOverlay : UserControl
     {
         if (_isManualFaceTagging && !_isDrawingManualFace)
             ManualFaceRectangle.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnRedEyePointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isRedEyeRemoving || !e.GetCurrentPoint(RedEyeOverlay).Properties.IsLeftButtonPressed)
+            return;
+        _isDrawingRedEye = true;
+        _redEyeStart = e.GetCurrentPoint(RedEyeOverlay).Position;
+        SetRedEyeRectangle(_redEyeStart, _redEyeStart);
+        RedEyeRectangle.Visibility = Visibility.Visible;
+        RedEyeOverlay.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnRedEyePointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDrawingRedEye) return;
+        SetRedEyeRectangle(_redEyeStart, e.GetCurrentPoint(RedEyeOverlay).Position);
+        e.Handled = true;
+    }
+
+    private void OnRedEyePointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDrawingRedEye) return;
+        _isDrawingRedEye = false;
+        RedEyeOverlay.ReleasePointerCapture(e.Pointer);
+        var end = e.GetCurrentPoint(RedEyeOverlay).Position;
+        SetRedEyeRectangle(_redEyeStart, end);
+
+        var zoom = _zoomPan?.ZoomFactor ?? 1f;
+        var left = (int)Math.Floor(Math.Min(_redEyeStart.X, end.X) / zoom);
+        var top = (int)Math.Floor(Math.Min(_redEyeStart.Y, end.Y) / zoom);
+        var right = (int)Math.Ceiling(Math.Max(_redEyeStart.X, end.X) / zoom);
+        var bottom = (int)Math.Ceiling(Math.Max(_redEyeStart.Y, end.Y) / zoom);
+        if (right - left >= 4 && bottom - top >= 4)
+            RedEyeSelectionCompleted?.Invoke(this,
+                new RedEyeBounds(left, top, right - left, bottom - top));
+        else
+            RedEyeRectangle.Visibility = Visibility.Collapsed;
+        e.Handled = true;
+    }
+
+    private void OnRedEyePointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isDrawingRedEye) return;
+        RedEyeOverlay.ReleasePointerCapture(e.Pointer);
+        _isDrawingRedEye = false;
+        RedEyeRectangle.Visibility = Visibility.Collapsed;
+    }
+
+    private void SetRedEyeRectangle(Point start, Point end)
+    {
+        var left = Math.Min(start.X, end.X);
+        var top = Math.Min(start.Y, end.Y);
+        RedEyeRectangle.Width = Math.Abs(end.X - start.X);
+        RedEyeRectangle.Height = Math.Abs(end.Y - start.Y);
+        Canvas.SetLeft(RedEyeRectangle, left);
+        Canvas.SetTop(RedEyeRectangle, top);
     }
 }

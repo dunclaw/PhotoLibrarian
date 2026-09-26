@@ -108,6 +108,7 @@ public sealed partial class MainWindow : Window
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
+        TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
         TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
         TopRibbon.CropAspectChanged += OnRibbonCropAspectChanged;
@@ -117,6 +118,7 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.CropCancelRequested += OnRibbonCancelCropClicked;
         ViewerOverlay.StraightenApplyRequested += OnRibbonApplyStraightenClicked;
         ViewerOverlay.StraightenCancelRequested += OnRibbonCancelStraightenClicked;
+        ViewerOverlay.RedEyeSelectionCompleted += OnRedEyeSelectionCompleted;
         ViewerOverlay.ManualFaceTaggingExited += (_, _) => ViewModel.OnManualFaceTaggingExited();
 
         // Cleanup on window close
@@ -232,6 +234,11 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitStraightenMode();
             TopRibbon.ExitStraightenMode();
         }
+        if (!ViewModel.ImageViewer.IsOpen && ViewerOverlay.IsRedEyeRemoving)
+        {
+            ViewerOverlay.ExitRedEyeMode();
+            TopRibbon.ExitRedEyeMode();
+        }
     }
 
     private void OnRibbonCropClicked(object? sender, EventArgs e)
@@ -291,8 +298,59 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitStraightenMode();
             TopRibbon.ExitStraightenMode();
         }
+        if (ViewerOverlay.IsRedEyeRemoving)
+        {
+            ViewerOverlay.ExitRedEyeMode();
+            TopRibbon.ExitRedEyeMode();
+        }
 
         await ViewModel.ImageEditor.OpenForEditAsync(entry);
+    }
+
+    private void OnRibbonRedEyeClicked(object? sender, EventArgs e)
+    {
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (entry is null || ViewModel.ImageViewer.IsVideo) return;
+        if (!ImageEditRenderer.IsSupported(entry.FilePath))
+        {
+            ViewModel.StatusText =
+                $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
+            return;
+        }
+
+        if (ViewerOverlay.IsCropping) OnRibbonCancelCropClicked(sender, e);
+        if (ViewerOverlay.IsStraightening) OnRibbonCancelStraightenClicked(sender, e);
+        ViewerOverlay.EnterRedEyeMode();
+        TopRibbon.EnterRedEyeMode();
+    }
+
+    private async void OnRedEyeSelectionCompleted(object? sender, RedEyeBounds bounds)
+    {
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (entry is null) return;
+
+        TopRibbon.IsEnabled = false;
+        try
+        {
+            await ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
+            ViewModel.StatusText = "Removing red eye…";
+            var changed = await ImageEditRenderer.RemoveRedEyeAsync(entry.FilePath, bounds);
+            await ViewModel.RefreshAfterPixelEditAsync(
+                entry.FilePath,
+                ViewerOverlay.CurrentImagePixelWidth,
+                ViewerOverlay.CurrentImagePixelHeight,
+                changed == 0 ? "No red eye found in selection" : "Removed red eye from");
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusText = $"Red-eye removal failed: {ex.Message}";
+        }
+        finally
+        {
+            ViewerOverlay.ExitRedEyeMode();
+            TopRibbon.ExitRedEyeMode();
+            TopRibbon.IsEnabled = true;
+        }
     }
 
     private void OnRibbonCancelCropClicked(object? sender, EventArgs e)
