@@ -16,9 +16,14 @@ public sealed class PhotoOperationsService
 {
     private readonly ImageRepository _imageRepo;
 
-    public PhotoOperationsService(ImageRepository imageRepo)
+    private readonly OriginalBackupService _backupService;
+
+    public PhotoOperationsService(
+        ImageRepository imageRepo,
+        OriginalBackupService backupService)
     {
         _imageRepo = imageRepo;
+        _backupService = backupService;
     }
 
     // -----------------------------------------------------------------
@@ -83,45 +88,38 @@ public sealed class PhotoOperationsService
     }
 
     // -----------------------------------------------------------------
-    //  Rotation (EXIF orientation — lossless, fast, no re-encode)
+    //  Rotation (baked pixel edit)
     // -----------------------------------------------------------------
 
     /// <summary>
-    /// Rotates the image by updating its EXIF orientation tag. No pixel changes — fully
-    /// lossless. Apps that honor EXIF orientation (Explorer, Photo Gallery, browsers) display
-    /// the new orientation; the raw pixels remain unchanged.
+    /// Rotates the image by rendering a quarter-turn into the pixels. The original is backed up
+    /// before the first edit, and the EXIF orientation is reset because the rotation is baked.
     /// </summary>
     /// <param name="clockwise">true = rotate 90° clockwise, false = 90° counter-clockwise.</param>
-    public async Task RotateAsync(ImageEntry entry, bool clockwise)
+    public async Task<(uint Width, uint Height)> RotateAsync(ImageEntry entry, bool clockwise)
     {
-        int current = entry.Orientation <= 0 ? 1 : entry.Orientation;
-        int next = NextOrientation(current, clockwise);
+        if (!ImageEditRenderer.IsSupported(entry.FilePath))
+            throw new NotSupportedException($"Editing not supported for {Path.GetExtension(entry.FilePath)}");
 
-        if (EmbeddedMetadataWriter.IsSupported(entry.FilePath))
+        await _backupService.BackupOriginalAsync(entry.FilePath);
+        var size = await ImageEditRenderer.RenderRotatedAsync(entry.FilePath, clockwise);
+
+        entry.Width = (int)size.Width;
+        entry.Height = (int)size.Height;
+        entry.Orientation = 1;
+        if (entry.Id > 0)
         {
-            try
-            {
-                await EmbeddedMetadataWriter.WriteAsync(entry.FilePath, orientation: (ushort)next);
-                entry.Orientation = next;
-                if (entry.Id > 0) await _imageRepo.UpdateOrientationAsync(entry.Id, next);
-                return;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[OPS] Rotate failed for {entry.FilePath}: {ex.Message}");
-            }
+            var fileInfo = new FileInfo(entry.FilePath);
+            await _imageRepo.UpdateDimensionsAsync(
+                entry.Id,
+                entry.Width,
+                entry.Height,
+                fileInfo.Length,
+                fileInfo.LastWriteTimeUtc,
+                invalidateFaceScan: true);
         }
-    }
 
-    /// <summary>Cycles EXIF orientation through the 4 right-angle states.</summary>
-    private static int NextOrientation(int current, bool clockwise)
-    {
-        // The 4 right-angle EXIF orientations in CW order: 1 → 6 → 3 → 8 → 1
-        int[] cw = { 1, 6, 3, 8 };
-        int idx = Array.IndexOf(cw, current);
-        if (idx < 0) idx = 0; // treat unknown/mirrored as normal
-        idx = clockwise ? (idx + 1) % 4 : (idx + 3) % 4;
-        return cw[idx];
+        return size;
     }
 
     // -----------------------------------------------------------------

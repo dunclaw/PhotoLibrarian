@@ -609,14 +609,24 @@ public sealed partial class ImageGridView : UserControl
         var rotateRight = new MenuFlyoutItem { Text = "Rotate right" };
         rotateRight.Click += async (_, _) =>
         {
-            foreach (var vm in selected) await ops.RotateAsync(vm.Entry, clockwise: true);
+            foreach (var vm in selected)
+            {
+                var size = await ops.RotateAsync(vm.Entry, clockwise: true);
+                await App.ViewModel!.RefreshAfterPixelEditAsync(
+                    vm.Entry.FilePath, size.Width, size.Height, "Rotated");
+            }
         };
         menu.Items.Add(rotateRight);
 
         var rotateLeft = new MenuFlyoutItem { Text = "Rotate left" };
         rotateLeft.Click += async (_, _) =>
         {
-            foreach (var vm in selected) await ops.RotateAsync(vm.Entry, clockwise: false);
+            foreach (var vm in selected)
+            {
+                var size = await ops.RotateAsync(vm.Entry, clockwise: false);
+                await App.ViewModel!.RefreshAfterPixelEditAsync(
+                    vm.Entry.FilePath, size.Width, size.Height, "Rotated");
+            }
         };
         menu.Items.Add(rotateLeft);
 
