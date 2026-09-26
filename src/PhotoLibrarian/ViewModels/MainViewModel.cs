@@ -134,7 +134,7 @@ public partial class MainViewModel : ObservableObject
             autoTagBenchmarkProcessor);
         _autoTaggingEnabled =
             Settings.CurrentAutoTaggingSettings.CanRun;
-        PhotoOps = new Services.PhotoOperationsService(imageRepo);
+        PhotoOps = new Services.PhotoOperationsService(imageRepo, backupService);
 
         _indexingService.Progress += OnIndexingProgress;
         _recognitionPipeline.Progress += OnRecognitionProgress;
