@@ -117,7 +117,7 @@ public sealed partial class PeopleReviewView : UserControl
         var suggestions = ViewModel.SelectedGroup?.Suggestions;
         if (!ReferenceEquals(SuggestionGrid.ItemsSource, suggestions))
         {
-            SuggestionGrid.SelectedItems.Clear();
+            SuggestionGrid.ClearSelection();
             SuggestionGrid.ItemsSource = suggestions;
             ClearContextPreview();
         }
@@ -125,7 +125,7 @@ public sealed partial class PeopleReviewView : UserControl
         var assignedFaces = ViewModel.SelectedPerson?.Faces;
         if (!ReferenceEquals(PersonFaceGrid.ItemsSource, assignedFaces))
         {
-            PersonFaceGrid.SelectedItems.Clear();
+            PersonFaceGrid.ClearSelection();
             PersonFaceGrid.ItemsSource = assignedFaces;
             ClearContextPreview();
         }
@@ -158,12 +158,12 @@ public sealed partial class PeopleReviewView : UserControl
         var selectedGroup = GroupList.SelectedItem as FaceSuggestionGroupViewModel;
         if (ReferenceEquals(ViewModel.SelectedGroup, selectedGroup))
         {
-            SuggestionGrid.SelectedItems.Clear();
+            SuggestionGrid.ClearSelection();
             return;
         }
 
         ViewModel.SelectedGroup = selectedGroup;
-        SuggestionGrid.SelectedItems.Clear();
+        SuggestionGrid.ClearSelection();
         SuggestionGrid.ItemsSource = selectedGroup?.Suggestions;
         ClearContextPreview();
         UpdateActions();
@@ -174,12 +174,12 @@ public sealed partial class PeopleReviewView : UserControl
         var selectedPerson = PeopleList.SelectedItem as PersonManagementItemViewModel;
         if (ReferenceEquals(ViewModel.SelectedPerson, selectedPerson))
         {
-            PersonFaceGrid.SelectedItems.Clear();
+            PersonFaceGrid.ClearSelection();
             return;
         }
 
         ViewModel.SelectedPerson = selectedPerson;
-        PersonFaceGrid.SelectedItems.Clear();
+        PersonFaceGrid.ClearSelection();
         PersonFaceGrid.ItemsSource = selectedPerson?.Faces;
         ClearContextPreview();
         UpdateActions();
