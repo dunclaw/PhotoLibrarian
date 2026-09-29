@@ -26,6 +26,68 @@ public sealed class PhotoOperationsService
         _backupService = backupService;
     }
 
+    /// <summary>
+    /// Creates a uniquely named sibling copy of an image and its XMP sidecar, if present.
+    /// </summary>
+    public static Task<string> MakeCopyForEditingAsync(string filePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+
+        return Task.Run(() =>
+        {
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException("The photo to copy could not be found.", filePath);
+
+            var directory = Path.GetDirectoryName(filePath)
+                ?? throw new IOException("The photo does not have a parent folder.");
+            var fileName = Path.GetFileNameWithoutExtension(filePath);
+            var extension = Path.GetExtension(filePath);
+            var sourceSidecar = FaceMetadataStore.GetSidecarPathForImage(filePath);
+            var hasSidecar = File.Exists(sourceSidecar);
+            var sidecarIsAppended = string.Equals(
+                sourceSidecar,
+                $"{filePath}.xmp",
+                StringComparison.OrdinalIgnoreCase);
+
+            for (var copyNumber = 1; ; copyNumber++)
+            {
+                var suffix = copyNumber == 1 ? " - Copy" : $" - Copy ({copyNumber})";
+                var copyPath = Path.Combine(directory, $"{fileName}{suffix}{extension}");
+                var copySidecar = sidecarIsAppended
+                    ? $"{copyPath}.xmp"
+                    : Path.ChangeExtension(copyPath, ".xmp");
+
+                if (File.Exists(copyPath) || File.Exists(copySidecar))
+                    continue;
+
+                try
+                {
+                    File.Copy(filePath, copyPath, overwrite: false);
+                }
+                catch (IOException) when (File.Exists(copyPath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (hasSidecar)
+                        File.Copy(sourceSidecar, copySidecar, overwrite: false);
+                    return copyPath;
+                }
+                catch (IOException) when (File.Exists(copySidecar))
+                {
+                    File.Delete(copyPath);
+                }
+                catch
+                {
+                    File.Delete(copyPath);
+                    throw;
+                }
+            }
+        });
+    }
+
     // -----------------------------------------------------------------
     //  Open / reveal
     // -----------------------------------------------------------------

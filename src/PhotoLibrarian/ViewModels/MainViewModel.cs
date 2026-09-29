@@ -18,6 +18,7 @@ public partial class MainViewModel : ObservableObject
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
+    private readonly WatchedFolderChangeService _watchedChanges;
     private readonly OriginalBackupService _backupService;
     private readonly IDisposable _faceResources;
     private readonly RecognitionPipeline _recognitionPipeline;
@@ -102,6 +103,10 @@ public partial class MainViewModel : ObservableObject
         _scanner = scanner;
         _metadataReader = metadataReader;
         _indexingService = indexingService;
+        _watchedChanges = new WatchedFolderChangeService(scanner, indexingService, imageRepo);
+        _watchedChanges.LibraryChanged += OnWatchedLibraryChanged;
+        _watchedChanges.SyncFailed += OnWatchedSyncFailed;
+        _scanner.WatcherError += OnWatcherError;
         _backupService = backupService;
         _recognitionPipeline = recognitionPipeline;
         _faceReviewService = faceReviewService;
@@ -198,6 +203,65 @@ public partial class MainViewModel : ObservableObject
         StartBackgroundIndexing();
         StartBackgroundFaceDetection();
         StartBackgroundAutoTagging();
+    }
+
+    public void SyncWatchedFolders()
+    {
+        try
+        {
+            _scanner.SyncWatchedFolders(
+                FolderNav.RootFolders.Select(folder => (folder.Path, folder.IncludeSubfolders)));
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Failed to watch library folders: {ex}");
+            var detail = ex is AggregateException aggregate
+                ? string.Join("; ", aggregate.InnerExceptions.Select(error => error.Message))
+                : ex.Message;
+            StatusText = $"Folder monitoring failed: {detail}";
+        }
+    }
+
+    private void OnWatcherError(object? sender, Exception error)
+    {
+        DebugLog.WriteLine($"Folder watcher error; rescanning watched folders: {error}");
+        if (_isShuttingDown) return;
+        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isShuttingDown) return;
+            StatusText = $"Folder watcher lost changes; rescanning: {error.Message}";
+            StartBackgroundIndexing();
+        });
+    }
+
+    private void OnWatchedSyncFailed(object? sender, Exception error)
+    {
+        if (_isShuttingDown) return;
+        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+            StatusText = $"Library update failed: {error.Message}");
+    }
+
+    private void OnWatchedLibraryChanged(object? sender, EventArgs e)
+    {
+        if (_isShuttingDown) return;
+        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (_isShuttingDown) return;
+            try
+            {
+                if (ImageViewer.CurrentEntry is { } current &&
+                    !System.IO.File.Exists(current.FilePath))
+                    ImageViewer.CloseCommand.Execute(null);
+                await RefreshAfterIndexAsync();
+                ImageViewer.UpdateLibraryImages(
+                    ImageGrid.Images.Select(image => image.Entry).ToList());
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"Failed to refresh after filesystem change: {ex}");
+                StatusText = $"Library refresh failed: {ex.Message}";
+            }
+        });
     }
 
     public Task EnsureFaceMetadataPersistedAsync() =>
@@ -965,6 +1029,37 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    public async Task MakeCopyForEditingAsync(ImageEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (entry.MediaType != MediaType.Image)
+            throw new NotSupportedException("Only photos can be copied for editing.");
+
+        var copyPath = await Services.PhotoOperationsService.MakeCopyForEditingAsync(entry.FilePath);
+        var folderPath = System.IO.Path.GetDirectoryName(copyPath)
+            ?? throw new InvalidOperationException("The copied photo has no parent folder.");
+        await _indexingService.IndexFolderAsync(folderPath, includeSubfolders: false);
+
+        var copyEntry = await _imageRepo.GetByPathAsync(copyPath)
+            ?? throw new InvalidOperationException(
+                $"The copy was created at '{copyPath}' but could not be added to the library.");
+
+        await RefreshAfterIndexAsync();
+
+        var viewerEntries = ImageGrid.Images.Select(image => image.Entry).ToList();
+        var visibleCopy = viewerEntries.FirstOrDefault(image => image.Id == copyEntry.Id);
+        if (visibleCopy is not null)
+        {
+            copyEntry = visibleCopy;
+        }
+        else
+        {
+            viewerEntries.Add(copyEntry);
+        }
+        ImageViewer.OpenImage(copyEntry, viewerEntries);
+        StatusText = $"Created copy {copyEntry.FileName}; edits will not change the original";
+    }
+
     public async Task RefreshAfterIndexAsync()
     {
         await ImageGrid.LoadImagesAsync();
@@ -992,6 +1087,8 @@ public partial class MainViewModel : ObservableObject
     {
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
+        _watchedChanges.Dispose();
+        _scanner.WatcherError -= OnWatcherError;
         _indexingCts?.Cancel();
         _indexingCts?.Dispose();
         _faceDetectionEnabled = false;

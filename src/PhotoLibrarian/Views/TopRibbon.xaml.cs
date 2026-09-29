@@ -7,6 +7,7 @@ namespace PhotoLibrarian.Views;
 public sealed partial class TopRibbon : UserControl
 {
     public event EventHandler? CropClicked;
+    public event EventHandler? MakeCopyClicked;
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
     public event EventHandler? RedEyeClicked;
@@ -31,6 +32,8 @@ public sealed partial class TopRibbon : UserControl
         ContextSubLabel.Text = text ?? "";
         ContextSubLabel.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    public void SetMakeCopyEnabled(bool enabled) => MakeCopyButton.IsEnabled = enabled;
 
     /// <summary>Switch the ribbon into crop sub-mode (replaces standard viewer tools with Apply/Cancel/Aspect).</summary>
     public void EnterCropMode()
@@ -81,6 +84,8 @@ public sealed partial class TopRibbon : UserControl
     }
 
     private void OnCropClick(object sender, RoutedEventArgs e) => CropClicked?.Invoke(this, EventArgs.Empty);
+    private void OnMakeCopyClick(object sender, RoutedEventArgs e) =>
+        MakeCopyClicked?.Invoke(this, EventArgs.Empty);
     private void OnStraightenClick(object sender, RoutedEventArgs e) =>
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);

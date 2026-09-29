@@ -54,6 +54,7 @@ public partial class FolderNavigationViewModel : ObservableObject
             BuildChildNodes(node);
             RootFolders.Add(node);
         }
+        _main.SyncWatchedFolders();
     }
 
     public static void BuildChildNodes(FolderNode parent)
