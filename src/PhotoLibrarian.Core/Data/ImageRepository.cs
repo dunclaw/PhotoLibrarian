@@ -191,6 +191,30 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<int> DeleteMissingInDirectoryAsync(string directoryPath)
+    {
+        var prefix = Path.TrimEndingDirectorySeparator(directoryPath) + Path.DirectorySeparatorChar;
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT file_path FROM images
+            WHERE substr(file_path, 1, length($prefix)) = $prefix COLLATE NOCASE
+            """;
+        cmd.Parameters.AddWithValue("$prefix", prefix);
+        var missing = new List<string>();
+        using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                var path = reader.GetString(0);
+                if (!File.Exists(path)) missing.Add(path);
+            }
+        }
+        foreach (var path in missing)
+            await DeleteByPathAsync(path);
+        return missing.Count;
+    }
+
     public async Task UpdateRatingAsync(long imageId, int? rating)
     {
         using var conn = _db.CreateConnection();

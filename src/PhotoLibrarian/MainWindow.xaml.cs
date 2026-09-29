@@ -105,6 +105,7 @@ public sealed partial class MainWindow : Window
 
         // Top-ribbon events
         TopRibbon.CropClicked += OnRibbonCropClicked;
+        TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
@@ -165,7 +166,16 @@ public sealed partial class MainWindow : Window
             DispatcherQueue.TryEnqueue(() =>
             {
                 if (!_isClosing)
+                {
                     TopRibbon.SetContextLabel(ViewModel.ImageViewer.Title ?? "");
+                    TopRibbon.SetMakeCopyEnabled(!ViewModel.ImageViewer.IsVideo);
+                }
+            });
+        if (e.PropertyName == nameof(ImageViewerViewModel.IsVideo))
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing)
+                    TopRibbon.SetMakeCopyEnabled(!ViewModel.ImageViewer.IsVideo);
             });
     }
 
@@ -253,6 +263,27 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.EnterCropMode();
         ViewerOverlay.CropOverlay.AspectRatio = _pendingAspect;
         TopRibbon.EnterCropMode();
+    }
+
+    private async void OnRibbonMakeCopyClicked(object? sender, EventArgs e)
+    {
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (entry is null || entry.MediaType != Core.Models.MediaType.Image) return;
+
+        TopRibbon.IsEnabled = false;
+        ViewModel.StatusText = "Creating a copy…";
+        try
+        {
+            await ViewModel.MakeCopyForEditingAsync(entry);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusText = $"Make a copy failed: {ex.Message}";
+        }
+        finally
+        {
+            TopRibbon.IsEnabled = true;
+        }
     }
 
     private void OnRibbonStraightenClicked(object? sender, EventArgs e)

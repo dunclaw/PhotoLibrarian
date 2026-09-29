@@ -42,6 +42,16 @@
 
             <!-- ===== Viewer mode (default) ===== -->
             <StackPanel x:Name="ViewerTools" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="MakeCopyButton" Click="OnMakeCopyClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonMakeCopy"
+                        AutomationProperties.Name="Make a copy"
+                        ToolTipService.ToolTip="Create a separate copy of this photo to edit">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE8C8;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Make a copy" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="CropButton" Click="OnCropClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonCrop"

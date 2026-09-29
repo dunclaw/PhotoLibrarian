@@ -72,6 +72,23 @@ public partial class ImageViewerViewModel : ObservableObject
         _ = LoadCurrentImageAsync();
     }
 
+    public void UpdateLibraryImages(List<ImageEntry> images)
+    {
+        var current = CurrentEntry;
+        if (current is null) return;
+
+        _allImages = images;
+        _currentIndex = images.FindIndex(image =>
+            string.Equals(image.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase));
+        if (_currentIndex < 0)
+        {
+            _currentIndex = _allImages.Count;
+            _allImages.Add(current);
+        }
+        ImageInfo = $"{_currentIndex + 1} / {_allImages.Count}";
+        RaiseCurrentEntryChanged();
+    }
+
     [RelayCommand]
     private void Close()
     {

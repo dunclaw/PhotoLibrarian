@@ -22,6 +22,7 @@ public sealed class FolderScannerService : IDisposable
 
     public event EventHandler<FileDiscoveredEventArgs>? FileDiscovered;
     public event EventHandler<FileChangedEventArgs>? FileChanged;
+    public event EventHandler<FileChangedEventArgs>? DirectoryChanged;
     public event EventHandler<ScanProgressEventArgs>? ScanProgress;
 
     /// <summary>
@@ -68,17 +69,63 @@ public sealed class FolderScannerService : IDisposable
         var watcher = new FileSystemWatcher(folderPath)
         {
             IncludeSubdirectories = includeSubfolders,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
-            EnableRaisingEvents = true
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName |
+                NotifyFilters.LastWrite | NotifyFilters.CreationTime,
+            InternalBufferSize = 32 * 1024
         };
 
-        // Watch all supported extensions
         watcher.Created += OnFileCreated;
         watcher.Changed += OnFileModified;
         watcher.Deleted += OnFileDeleted;
         watcher.Renamed += OnFileRenamed;
+        watcher.Error += (_, e) => WatcherError?.Invoke(this, e.GetException());
+        try
+        {
+            watcher.EnableRaisingEvents = true;
+            _watchers.Add(watcher);
+        }
+        catch
+        {
+            watcher.Dispose();
+            throw;
+        }
+    }
 
-        _watchers.Add(watcher);
+    public event EventHandler<Exception>? WatcherError;
+
+    public void SyncWatchedFolders(IEnumerable<(string Path, bool IncludeSubfolders)> folders)
+    {
+        var wanted = folders.ToDictionary(
+            folder => folder.Path,
+            folder => folder.IncludeSubfolders,
+            StringComparer.OrdinalIgnoreCase);
+        var errors = new List<Exception>();
+
+        foreach (var watcher in _watchers.ToArray())
+        {
+            if (!wanted.TryGetValue(watcher.Path, out var includeSubfolders) ||
+                watcher.IncludeSubdirectories != includeSubfolders ||
+                !Directory.Exists(watcher.Path))
+                StopWatching(watcher.Path);
+        }
+
+        foreach (var folder in wanted)
+        {
+            if (Directory.Exists(folder.Key) &&
+                !_watchers.Any(w => w.Path.Equals(folder.Key, StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    StartWatching(folder.Key, folder.Value);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    errors.Add(new IOException($"Could not monitor '{folder.Key}'.", ex));
+                }
+            }
+        }
+        if (errors.Count > 0)
+            throw new AggregateException(errors);
     }
 
     public void StopWatching(string folderPath)
@@ -105,29 +152,45 @@ public sealed class FolderScannerService : IDisposable
 
     private void OnFileCreated(object sender, FileSystemEventArgs e)
     {
-        if (IsSupportedFile(e.FullPath))
+        if (Directory.Exists(e.FullPath))
+        {
+            DirectoryChanged?.Invoke(this, new FileChangedEventArgs(e.FullPath, FileChangeType.Created));
+            return;
+        }
+        if (IsSupportedFile(e.FullPath) || IsSidecar(e.FullPath))
             FileChanged?.Invoke(this, new FileChangedEventArgs(e.FullPath, FileChangeType.Created));
     }
 
     private void OnFileModified(object sender, FileSystemEventArgs e)
     {
-        if (IsSupportedFile(e.FullPath))
+        if (IsSupportedFile(e.FullPath) || IsSidecar(e.FullPath))
             FileChanged?.Invoke(this, new FileChangedEventArgs(e.FullPath, FileChangeType.Modified));
     }
 
     private void OnFileDeleted(object sender, FileSystemEventArgs e)
     {
-        if (IsSupportedFile(e.FullPath))
+        if (IsSupportedFile(e.FullPath) || IsSidecar(e.FullPath))
             FileChanged?.Invoke(this, new FileChangedEventArgs(e.FullPath, FileChangeType.Deleted));
+        else
+            DirectoryChanged?.Invoke(this, new FileChangedEventArgs(e.FullPath, FileChangeType.Deleted));
     }
 
     private void OnFileRenamed(object sender, RenamedEventArgs e)
     {
-        if (IsSupportedFile(e.OldFullPath))
+        if (Directory.Exists(e.FullPath))
+        {
+            DirectoryChanged?.Invoke(this, new FileChangedEventArgs(e.OldFullPath, FileChangeType.Deleted));
+            DirectoryChanged?.Invoke(this, new FileChangedEventArgs(e.FullPath, FileChangeType.Created));
+            return;
+        }
+        if (IsSupportedFile(e.OldFullPath) || IsSidecar(e.OldFullPath))
             FileChanged?.Invoke(this, new FileChangedEventArgs(e.OldFullPath, FileChangeType.Deleted));
-        if (IsSupportedFile(e.FullPath))
+        if (IsSupportedFile(e.FullPath) || IsSidecar(e.FullPath))
             FileChanged?.Invoke(this, new FileChangedEventArgs(e.FullPath, FileChangeType.Created));
     }
+
+    private static bool IsSidecar(string path) =>
+        Path.GetExtension(path).Equals(".xmp", StringComparison.OrdinalIgnoreCase);
 
     public void Dispose()
     {
