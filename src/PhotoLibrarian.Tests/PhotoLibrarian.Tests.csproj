@@ -23,4 +23,10 @@
     <ProjectReference Include="..\PhotoLibrarian.ML\PhotoLibrarian.ML.csproj" />
     <ProjectReference Include="..\..\tools\PhotoLibrarian.ModelBench\PhotoLibrarian.ModelBench.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml"
+          Link="TestAssets\ImageViewerOverlay.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
