@@ -205,15 +205,15 @@ public partial class ImageEditorViewModel : ObservableObject
         _currentEntry = null;
     }
 
-    [RelayCommand]
-    private void AutoEnhance()
+    public void ApplyAutoEnhance(EditParameters adjustments)
     {
-        // Simple auto-enhance: boost contrast and saturation slightly
-        Contrast = 0.15;
-        Saturation = 0.1;
-        Clarity = 0.1;
-        Shadows = 0.1;
-        Highlights = -0.05;
+        ArgumentNullException.ThrowIfNull(adjustments);
+        Exposure = adjustments.Exposure;
+        Contrast = adjustments.Contrast;
+        Highlights = adjustments.Highlights;
+        Shadows = adjustments.Shadows;
+        Saturation = adjustments.Saturation;
+        Clarity = adjustments.Clarity;
         HasChanges = true;
         ParametersChanged?.Invoke(this, EventArgs.Empty);
     }

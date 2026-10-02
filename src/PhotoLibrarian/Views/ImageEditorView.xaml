@@ -102,26 +102,31 @@
                 <StackPanel Spacing="2">
                     <TextBlock Text="Exposure" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="ExposureSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel Spacing="2">
                     <TextBlock Text="Brightness" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="BrightnessSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel Spacing="2">
                     <TextBlock Text="Contrast" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="ContrastSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel Spacing="2">
                     <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="HighlightsSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel Spacing="2">
                     <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="ShadowsSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
 
@@ -133,16 +138,19 @@
                 <StackPanel Spacing="2">
                     <TextBlock Text="Saturation" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="SaturationSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel Spacing="2">
                     <TextBlock Text="Temperature" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="TemperatureSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel Spacing="2">
                     <TextBlock Text="Tint" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="TintSlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
 
@@ -154,6 +162,7 @@
                 <StackPanel Spacing="2">
                     <TextBlock Text="Clarity" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="ClaritySlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
+                            TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel Spacing="2">
@@ -187,6 +196,7 @@
                 <StackPanel Spacing="2">
                     <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="MidtonesSlider" Minimum="0.1" Maximum="0.9" StepFrequency="0.01"
+                            TickFrequency="0.4" TickPlacement="Inline"
                             Value="0.5" ValueChanged="OnSliderChanged" />
                 </StackPanel>
 
@@ -197,6 +207,7 @@
                 <StackPanel Spacing="2">
                     <TextBlock Text="Rotation" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="RotationSlider" Minimum="-180" Maximum="180" StepFrequency="0.5"
+                            TickFrequency="180" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
             </StackPanel>

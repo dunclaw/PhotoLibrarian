@@ -29,12 +29,15 @@ public sealed partial class ImageEditorView : UserControl
     private string? _loadedPath;
     private uint? _panPointerId;
     private Vector2 _lastPanPoint;
+    private readonly Dictionary<Slider, (double Neutral, double Threshold)> _sliderSnaps = new();
+    private Slider? _draggedSlider;
 
     public ImageEditorView()
     {
         _suppressSliderEvents = true;
         this.InitializeComponent();
         _suppressSliderEvents = false;
+        RegisterCenterSnaps();
         this.Loaded += OnLoaded;
         this.Unloaded += OnUnloaded;
         AddZoomAccelerator(Windows.System.VirtualKey.Add, () => ZoomBy(zoomIn: true));
@@ -422,9 +425,53 @@ public sealed partial class ImageEditorView : UserControl
         }
     }
 
+    private void RegisterCenterSnaps()
+    {
+        Slider[] centered =
+        [
+            ExposureSlider, BrightnessSlider, ContrastSlider, HighlightsSlider, ShadowsSlider,
+            SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, MidtonesSlider
+        ];
+        foreach (var slider in centered)
+        {
+            var neutral = (slider.Minimum + slider.Maximum) / 2;
+            AddCenterSnap(slider, neutral, SliderSnap.ThresholdFor(slider.Minimum, slider.Maximum));
+        }
+
+        // A percentage of ±180° would swallow small straightening angles, so rotation snaps within 1°.
+        AddCenterSnap(RotationSlider, 0, 1);
+    }
+
+    private void AddCenterSnap(Slider slider, double neutral, double threshold)
+    {
+        _sliderSnaps[slider] = (neutral, threshold);
+        // Slider marks pointer events handled internally, so listen for handled events too.
+        slider.AddHandler(PointerPressedEvent, new PointerEventHandler((_, _) => _draggedSlider = slider), true);
+        slider.AddHandler(PointerReleasedEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
+        slider.AddHandler(PointerCanceledEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
+        slider.AddHandler(PointerCaptureLostEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
+    }
+
+    private void EndSliderDrag(Slider slider)
+    {
+        if (_draggedSlider == slider) _draggedSlider = null;
+    }
+
     private void OnSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_suppressSliderEvents || ViewModel is null) return;
+
+        // Snap only while dragging so arrow-key fine tuning can still reach values near neutral.
+        if (sender is Slider slider && slider == _draggedSlider &&
+            _sliderSnaps.TryGetValue(slider, out var snap))
+        {
+            var snapped = SliderSnap.Apply(e.NewValue, snap.Neutral, snap.Threshold);
+            if (snapped != e.NewValue)
+            {
+                slider.Value = snapped; // Re-raises ValueChanged with the neutral value.
+                return;
+            }
+        }
 
         ViewModel.Brightness = BrightnessSlider.Value;
         ViewModel.Contrast = ContrastSlider.Value;
@@ -445,7 +492,8 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnAutoEnhance(object sender, RoutedEventArgs e)
     {
-        ViewModel?.AutoEnhanceCommand.Execute(null);
+        if (ViewModel is not null && _sourcePixels is not null)
+            ViewModel.ApplyAutoEnhance(AutoEnhanceAnalyzer.Analyze(_sourcePixels));
         SyncSlidersFromViewModel();
     }
 
