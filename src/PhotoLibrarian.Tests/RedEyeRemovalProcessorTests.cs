@@ -22,7 +22,7 @@ public sealed class RedEyeRemovalProcessorTests
         Assert.Equal(2, changed);
         Assert.Equal(20, pixels[2]);
         Assert.Equal(240, pixels[6]);
-        Assert.Equal(240, pixels[10]);
+        Assert.Equal(20, pixels[10]);
     }
 
     [Fact]

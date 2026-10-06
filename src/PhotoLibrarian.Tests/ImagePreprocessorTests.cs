@@ -13,7 +13,12 @@ public sealed class ImagePreprocessorTests
             $"PhotoLibrarian-{Guid.NewGuid():N}.png");
         try
         {
-            await WicTestImage.CreateAsync(imagePath, 4, 2);
+            await WicTestImage.CreateAsync(
+                imagePath,
+                4,
+                2,
+                false,
+                (_, _) => (0, 0, 255));
 
             var tensor = await ImagePreprocessor
                 .PreprocessImageUnitNchwLetterboxAsync(
