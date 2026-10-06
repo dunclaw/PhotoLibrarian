@@ -27,6 +27,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\**" />
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <Target Name="IncludeCompiledXamlInPublish" BeforeTargets="ComputeFilesToPublish"
+          DependsOnTargets="Prep_ComputeProcessXamlFiles">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(GeneratedXamlDest)">
+        <RelativePath>$([MSBuild]::MakeRelative('$(TargetDir)', '%(FullPath)'))</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>
