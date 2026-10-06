@@ -53,8 +53,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             8.0.x
@@ -68,7 +68,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-x64
           path: artifacts/test-results/
@@ -84,8 +84,8 @@ jobs:
       matrix:
         architecture: [x64, ARM64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             8.0.x
@@ -95,7 +95,7 @@ jobs:
           PACKAGE_VERSION: ${{ needs.version.outputs.package_version }}
           PACKAGE_ARCHITECTURE: ${{ matrix.architecture }}
         run: .\tools\Build-Msix.ps1 -Architecture $env:PACKAGE_ARCHITECTURE -Version $env:PACKAGE_VERSION
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: msix-${{ matrix.architecture }}
           path: artifacts/packages/*.msix
@@ -107,7 +107,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: msix-*
           path: artifacts/packages
@@ -127,7 +127,7 @@ jobs:
           New-Item artifacts\store -ItemType Directory -Force | Out-Null
           & $makeAppx bundle /d artifacts\packages /p "artifacts\store\PhotoLibrarian_$env:PACKAGE_VERSION.msixbundle" /bv $env:PACKAGE_VERSION /o
           if ($LASTEXITCODE -ne 0) { throw "MakeAppx bundle failed: $LASTEXITCODE" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: store-msixbundle
           path: artifacts/store/*.msixbundle
