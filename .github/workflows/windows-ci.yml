@@ -1,0 +1,135 @@
+name: Windows CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: 'Optional Store version: major.minor.build.0 (otherwise 1.0.<run number>.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  version:
+    runs-on: windows-latest
+    outputs:
+      package_version: ${{ steps.version.outputs.package_version }}
+    steps:
+      - name: Resolve package version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.package_version }}
+        run: |
+          $version = $env:REQUESTED_VERSION
+          if (-not $version) {
+            if ($env:GITHUB_REF_TYPE -eq 'tag') {
+              $version = $env:GITHUB_REF_NAME.Substring(1)
+              if ($version -match '^\d+\.\d+\.\d+$') { $version += '.0' }
+            } else {
+              $version = "1.0.$env:GITHUB_RUN_NUMBER.0"
+            }
+          }
+          if ($version -notmatch '^[1-9]\d*\.\d+\.\d+\.0$' -or
+              @($version.Split('.') | Where-Object { [long]$_ -gt 65535 }).Count -gt 0) {
+            throw 'Invalid Store version. Use major.minor.build.0; fields must be <= 65535.'
+          }
+          "package_version=$version" >> $env:GITHUB_OUTPUT
+
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build application and test projects
+        run: dotnet build src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64
+      - name: Run xUnit tests
+        run: |
+          New-Item artifacts\test-results -ItemType Directory -Force | Out-Null
+          dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 --no-build -- -result-xml artifacts\test-results\tests.xml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-x64
+          path: artifacts/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  package:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, ARM64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build unsigned Store MSIX
+        env:
+          PACKAGE_VERSION: ${{ needs.version.outputs.package_version }}
+          PACKAGE_ARCHITECTURE: ${{ matrix.architecture }}
+        run: .\tools\Build-Msix.ps1 -Architecture $env:PACKAGE_ARCHITECTURE -Version $env:PACKAGE_VERSION
+      - uses: actions/upload-artifact@v7
+        with:
+          name: msix-${{ matrix.architecture }}
+          path: artifacts/packages/*.msix
+          if-no-files-found: error
+          retention-days: 14
+
+  bundle:
+    needs: [version, package]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: msix-*
+          path: artifacts/packages
+          merge-multiple: true
+      - name: Build Store bundle
+        env:
+          PACKAGE_VERSION: ${{ needs.version.outputs.package_version }}
+        run: |
+          $kitsRoot = Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' 'KitsRoot10'
+          $makeAppx = Get-ChildItem (Join-Path $kitsRoot 'bin') -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64\makeappx.exe' } |
+            Where-Object { Test-Path $_ } |
+            Select-Object -First 1
+          if (-not $makeAppx) { throw 'Windows SDK MakeAppx.exe not found.' }
+          New-Item artifacts\store -ItemType Directory -Force | Out-Null
+          & $makeAppx bundle /d artifacts\packages /p "artifacts\store\PhotoLibrarian_$env:PACKAGE_VERSION.msixbundle" /bv $env:PACKAGE_VERSION /o
+          if ($LASTEXITCODE -ne 0) { throw "MakeAppx bundle failed: $LASTEXITCODE" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: store-msixbundle
+          path: artifacts/store/*.msixbundle
+          if-no-files-found: error
+          retention-days: 30

@@ -52,6 +52,9 @@ ARM64/
 # Test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
+/artifacts/
+*.pfx
+*.p12
 
 # ONNX models (large files)
 *.onnx

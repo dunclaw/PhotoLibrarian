@@ -116,6 +116,14 @@ dotnet run --project src/PhotoLibrarian/PhotoLibrarian.csproj -c Release
 
 Open `PhotoLibrarian.slnx`, set **PhotoLibrarian** as the startup project, pick the **x64** platform, and hit F5.
 
+### CI and Microsoft Store packages
+
+GitHub Actions builds the app, runs the xUnit tests, and creates unsigned,
+self-contained x64 and ARM64 MSIX packages plus a combined Store bundle.
+See [Windows CI and Store releases](docs/STORE-RELEASE.md) for workflow triggers,
+versioning, local packaging, and Partner Center submission instructions.
+Microsoft signs the Store-distributed package; CI does not need a certificate.
+
 ### First run
 
 1. Click the gear icon → **Manage folders** and add the root(s) you want to index.
