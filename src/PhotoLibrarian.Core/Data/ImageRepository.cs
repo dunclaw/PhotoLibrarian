@@ -296,15 +296,17 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdatePathAsync(long imageId, string newPath)
+    public async Task UpdatePathAsync(long imageId, string newPath, string? sidecarPath)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE images SET file_path = $path, file_name = $name WHERE id = $id";
+        cmd.CommandText = "UPDATE images SET file_path = $path, file_name = $name, face_sidecar_path = $sidecar WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", imageId);
         cmd.Parameters.AddWithValue("$path", newPath);
         cmd.Parameters.AddWithValue("$name", System.IO.Path.GetFileName(newPath));
-        await cmd.ExecuteNonQueryAsync();
+        cmd.Parameters.AddWithValue("$sidecar", (object?)sidecarPath ?? DBNull.Value);
+        if (await cmd.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("The photo is no longer in the library.");
     }
 
     internal static ImageEntry ReadImageEntry(SqliteDataReader reader)

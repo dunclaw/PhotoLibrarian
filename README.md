@@ -20,12 +20,22 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Clarity / Sharpness / Levels / Rotation.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
+- **Batch rename with a live preview** from the grid's multi-select context menu. Use `Trip_{####}` for sequential names, `{original}` for the original basename, and `{yyyy}`, `{MM}`, `{dd}`, `{HH}`, `{mm}`, `{ss}` for capture-date parts (modified date when capture date is missing). Extensions are preserved, XMP sidecars move with their photos, and existing or duplicate photo/sidecar destinations block the operation.
 - 💾 **In-place metadata writing** for JPEG / TIFF / PNG / HEIC / JPEG-XR via `BitmapEncoder.CreateForInPlacePropertyEncodingAsync` — image bytes are preserved exactly; only the metadata block is rewritten. RAW formats (CR2/CR3/NEF/ARW) fall back to XMP sidecars (industry-standard limitation).
 - 🔍 **Background indexing** with restartable re-index and a manage-folders dialog.
 - 🔄 **Watched-folder updates** detect Explorer copies, edits, and deletions automatically; filesystem events are batched and only affected files are re-indexed.
 - 🧠 **Opt-in local automatic content tags** with pluggable, checksum-pinned ONNX model profiles. A profile must be benchmarked and explicitly approved before generated labels can enter the distinct `Auto` tag hierarchy.
 
 ---
+
+### Batch rename
+
+Batch rename numbers files from 1 in selection order. Patterns specify the basename only
+(for example, `{yyyy}-{MM}-{dd}_{original}_{###}`). Renaming into occupied names,
+including those of other selected photos, is not supported; use a distinct prefix first.
+If a filesystem or database error occurs during a batch, the failed photo's moves are
+rolled back and processing stops; earlier successful renames remain in place and the
+error reports how many completed.
 
 ## Status
 
