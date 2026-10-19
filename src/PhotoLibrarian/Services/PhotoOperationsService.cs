@@ -285,35 +285,9 @@ public sealed class PhotoOperationsService
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(newName)) return null;
-
-            var dir = Path.GetDirectoryName(entry.FilePath) ?? "";
-            // If the user didn't include an extension, keep the original
-            if (!Path.HasExtension(newName))
-                newName += Path.GetExtension(entry.FilePath);
-
-            var newPath = Path.Combine(dir, newName);
-            if (string.Equals(newPath, entry.FilePath, StringComparison.OrdinalIgnoreCase)) return entry.FilePath;
-            if (File.Exists(newPath)) return null; // conflict — caller can show error
-
-            // Move sidecar if present
-            var oldSidecar =
-                FaceMetadataStore.GetSidecarPathForImage(entry.FilePath);
-            File.Move(entry.FilePath, newPath);
-            var newSidecar =
-                FaceMetadataStore.GetSidecarPathForImage(newPath);
-            if (File.Exists(oldSidecar) && !File.Exists(newSidecar))
-            {
-                try { File.Move(oldSidecar, newSidecar); } catch { }
-            }
-
-            // Update DB
-            var oldPath = entry.FilePath;
-            entry.FilePath = newPath;
-            entry.FileName = Path.GetFileName(newPath);
-            if (entry.Id > 0) await _imageRepo.UpdatePathAsync(entry.Id, newPath);
-
-            return newPath;
+            await new BatchRenameService(_imageRepo).RenameAsync(
+                BatchRenameService.PreviewSingle(entry, newName));
+            return entry.FilePath;
         }
         catch (Exception ex)
         {
@@ -321,6 +295,9 @@ public sealed class PhotoOperationsService
             return null;
         }
     }
+
+    public Task RenameBatchAsync(IReadOnlyList<RenamePreview> previews) =>
+        Task.Run(() => new BatchRenameService(_imageRepo).RenameAsync(previews));
 
     // -----------------------------------------------------------------
     //  Windows shell Properties dialog
