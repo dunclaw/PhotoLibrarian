@@ -1,5 +1,5 @@
-using MetadataExtractor;
 using MetadataExtractor.Formats.Xmp;
+using ImageMetadataReader = MetadataExtractor.ImageMetadataReader;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Globalization;
