@@ -200,7 +200,10 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         var xmp = LoadEmbeddedXmp(imagePath) ?? XmpMetaFactory.Create();
         ApplyMetadata(xmp, metadata);
         xmp.DeleteProperty(PhotoLibrarian, AuthorityProperty);
-        var serialized = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions());
+        // XmpCore's string includes an encoding preamble outside the packet.
+        // WIC cannot read embedded XMP with that leading BOM.
+        var serialized = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions())
+            .TrimStart('\uFEFF');
 
         var embedded = false;
         try

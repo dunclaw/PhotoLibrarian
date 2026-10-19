@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Xml.Linq;
 using Windows.Graphics.Imaging;
+using Windows.Storage;
 using XmpCore;
 using Xunit;
 
@@ -82,7 +83,7 @@ public sealed class MicrosoftPeopleTagsTests : IDisposable
     }
 
     [Fact]
-    public async Task Jpeg_ExposesNamesThroughWindowsWicPeopleProperty()
+    public async Task Jpeg_ExposesNamesThroughWindowsPeopleProperty()
     {
         var path = Path.Combine(_directory, "people.jpg");
         await WicTestImage.CreateAsync(path, 120, 80, true);
@@ -100,6 +101,11 @@ public sealed class MicrosoftPeopleTagsTests : IDisposable
                 new XmpCore.Options.SerializeOptions()));
         var names = Assert.IsAssignableFrom<IEnumerable<string>>(properties["System.Photo.PeopleNames"].Value);
         Assert.Equal(["Alex", "Sam"], names.Order(StringComparer.Ordinal).ToArray());
+
+        var storageFile = await StorageFile.GetFileFromPathAsync(path);
+        var shellProperties = await storageFile.Properties.RetrievePropertiesAsync(["System.Photo.PeopleNames"]);
+        var shellNames = Assert.IsAssignableFrom<IEnumerable<string>>(shellProperties["System.Photo.PeopleNames"]);
+        Assert.Equal(["Alex", "Sam"], shellNames.Order(StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
