@@ -98,7 +98,7 @@ PhotoLibrarian writes metadata in this priority order so your photos remain port
    - **Tags** → `System.Keywords` (XMP `dc:subject` + EXIF XPKeywords + IPTC Keywords)
    - **Date taken** → `System.Photo.DateTaken` (EXIF DateTimeOriginal)
    - **Flag** → XMP `plib:Flagged` in the PhotoLibrarian namespace (`http://ns.photolibrarian.app/1.0/`) — there is no standard EXIF/XMP flag field, so a private namespace is used rather than hijacking `xmp:Label`
-2. **XMP sidecar** (`*.xmp`) — only for RAW formats that can't be safely rewritten. Lightroom does the same.
+2. **XMP sidecar** (`*.xmp`) — for RAW formats that can't be safely rewritten, or when an embedded write fails. Temporary file locks are retried up to three times (100, 200, then 400 ms delays) before giving up. An unexpected fallback shows a dismissible warning identifying the image and sidecar; keep both files together so the edit stays portable. Expected RAW sidecars do not show a warning.
 3. **SQLite cache** at `%LOCALAPPDATA%\PhotoLibrarian\cache.db` — cache only; never authoritative. Wipe and re-index any time.
 
 Move a JPEG to another drive or another machine and every edit goes with it.

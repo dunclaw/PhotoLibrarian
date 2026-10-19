@@ -100,6 +100,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
         ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
+        MetadataWriterService.SidecarFallback += OnMetadataSidecarFallback;
 
         UpdateFaceDetectionButton();
 
@@ -124,6 +125,19 @@ public sealed partial class MainWindow : Window
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;
+    }
+
+    private void OnMetadataSidecarFallback(object? sender, MetadataWriteFallbackEventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosing) return;
+            MetadataFallbackInfoBar.Message =
+                $"The latest {e.PropertyName} edit could not be written into \"{e.ImagePath}\". " +
+                $"It was saved to \"{e.SidecarPath}\" instead. Keep this sidecar with the image. " +
+                $"Reason: {e.Error.Message}";
+            MetadataFallbackInfoBar.IsOpen = true;
+        });
     }
 
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -219,6 +233,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
+        MetadataWriterService.SidecarFallback -= OnMetadataSidecarFallback;
         ViewModel.ImageGrid.Cleanup();
         await ViewModel.CleanupAsync();
     }

@@ -21,6 +21,7 @@ public static class TagWriterService
             .Select(t => t.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        Exception? embeddedError = null;
 
         if (EmbeddedMetadataWriter.IsSupported(imagePath))
         {
@@ -31,6 +32,7 @@ public static class TagWriterService
             }
             catch (Exception ex)
             {
+                embeddedError = ex;
                 System.Diagnostics.Debug.WriteLine($"[TAGS] In-place keyword write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
             }
         }
@@ -60,6 +62,8 @@ public static class TagWriterService
             var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
             File.WriteAllText(sidecarPath, serialized);
         });
+        if (embeddedError is not null)
+            MetadataWriterService.ReportSidecarFallback(imagePath, "tags", embeddedError);
     }
 
     /// <summary>
