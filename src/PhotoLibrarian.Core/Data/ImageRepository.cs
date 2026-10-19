@@ -24,11 +24,14 @@ public sealed class ImageRepository
             INSERT INTO images (file_path, file_name, file_hash, file_size, width, height,
                                 date_taken, date_modified, camera_make, camera_model, lens_model,
                                 focal_length, aperture, exposure_time, iso, gps_latitude, gps_longitude,
-                                rating, orientation, media_type, video_duration, is_flagged)
+                                rating, orientation, media_type, video_duration, is_flagged, caption, title,
+                                search_metadata_indexed)
             VALUES ($path, $name, $hash, $size, $w, $h, $taken, $modified,
                     $make, $model, $lens, $focal, $aperture, $exposure, $iso,
-                    $lat, $lon, $rating, $orient, $mediatype, $duration, $flagged)
+                    $lat, $lon, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title, 1)
             ON CONFLICT(file_path) DO UPDATE SET
+                file_name=excluded.file_name, caption=excluded.caption, title=excluded.title,
+                search_metadata_indexed=1,
                 file_hash=excluded.file_hash, file_size=excluded.file_size,
                 width=excluded.width, height=excluded.height,
                 date_taken=excluded.date_taken, date_modified=excluded.date_modified,
@@ -78,6 +81,8 @@ public sealed class ImageRepository
         cmd.Parameters.AddWithValue("$mediatype", (int)image.MediaType);
         cmd.Parameters.AddWithValue("$duration", (object?)image.VideoDuration ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$flagged", image.IsFlagged ? 1 : 0);
+        cmd.Parameters.AddWithValue("$caption", (object?)image.Caption ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$title", (object?)image.Title ?? DBNull.Value);
 
         var result = await cmd.ExecuteScalarAsync();
         return (long)result!;
@@ -307,6 +312,16 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdateCaptionAsync(long imageId, string? caption)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET caption = $caption WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$caption", (object?)caption ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     internal static ImageEntry ReadImageEntry(SqliteDataReader reader)
     {
         return new ImageEntry
@@ -314,6 +329,9 @@ public sealed class ImageRepository
             Id = reader.GetInt64(reader.GetOrdinal("id")),
             FilePath = reader.GetString(reader.GetOrdinal("file_path")),
             FileName = reader.GetString(reader.GetOrdinal("file_name")),
+            Caption = ReadNullableString(reader, "caption"),
+            Title = ReadNullableString(reader, "title"),
+            SearchMetadataIndexed = ReadBoolean(reader, "search_metadata_indexed"),
             FileHash = reader.IsDBNull(reader.GetOrdinal("file_hash")) ? null : reader.GetString(reader.GetOrdinal("file_hash")),
             FileSize = reader.GetInt64(reader.GetOrdinal("file_size")),
             Width = reader.GetInt32(reader.GetOrdinal("width")),

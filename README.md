@@ -17,6 +17,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **People**, **Tag**, and **Flag** trees; the sections combine as a union filter.
 - 🏷️ **Hierarchical tags** (`people/family/kids` indexes `people` + `people/family` + `people/family/kids` so you can filter at any level).
 - ⚡ **SQLite metadata index** + Windows native thumbnail cache for instant viewport-aware loads.
+- **Library search** in the header finds filename, caption/title, tags, camera make/model, and people using a local SQLite FTS5 index. Type for suggestions and press Enter or select a suggestion to search the whole indexed library. Words match prefixes (case/accent insensitive); multiple words must all match. Clearing the box restores navigation filters; refinement filters still apply during search. Existing libraries get filename, camera, tag, and people search immediately; the next background scan automatically populates captions/titles from photo metadata.
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Clarity / Sharpness / Levels / Rotation.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.

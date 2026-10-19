@@ -150,6 +150,7 @@ public sealed class LibraryIndexingService
 
         if (existing is not null &&
             existing.DateModified >= fileInfo.LastWriteTimeUtc &&
+            existing.SearchMetadataIndexed &&
             existing.FaceMetadataImported &&
             !sidecarChanged)
             return false;

@@ -47,6 +47,7 @@ public partial class MainViewModel : ObservableObject
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
     public OriginalBackupService BackupService => _backupService;
+    public LibrarySearchViewModel Search { get; }
 
     [ObservableProperty]
     public partial string StatusText { get; set; }
@@ -120,14 +121,17 @@ public partial class MainViewModel : ObservableObject
         PeopleNav = new PeopleNavigationViewModel(faceRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
         FlagNav = new FlagNavigationViewModel(imageRepo);
+        var searchRepo = new ImageSearchRepository(db);
         ImageGrid = new ImageGridViewModel(
             imageRepo,
             tagRepo,
             faceRepo,
+            searchRepo,
             scanner,
             metadataReader,
             this);
         ImageViewer = new ImageViewerViewModel();
+        Search = new LibrarySearchViewModel(searchRepo, ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
         MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this);
@@ -1085,6 +1089,7 @@ public partial class MainViewModel : ObservableObject
 
     public async Task CleanupAsync()
     {
+        Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
         _watchedChanges.Dispose();
