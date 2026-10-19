@@ -7,6 +7,9 @@
     Title="PhotoLibrarian">
 
     <Grid x:Name="AppRoot">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="F11" Invoked="OnSlideshowInvoked" />
+        </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />

@@ -19,6 +19,59 @@ public sealed partial class MainWindow : Window
 
     private CropAspectRatio _pendingAspect = CropAspectRatio.Free;
     private bool _isClosing;
+    private SlideshowWindow? _slideshow;
+    private Control? _slideshowReturnFocus;
+    private double _slideshowIntervalSeconds = 5;
+
+    private void OnSlideshowInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+            ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
+            ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
+            ViewerOverlay.IsManualFaceTagging)
+            return;
+
+        args.Handled = true;
+        if (_slideshow is not null)
+        {
+            _slideshow.Activate();
+            return;
+        }
+
+        var grid = ViewModel.ImageGrid;
+        var selection = grid.SelectedImages.Count > 0
+            ? grid.SelectedImages.Select(image => image.Entry)
+            : grid.SelectedImage is { } selected ? [selected.Entry] : Enumerable.Empty<Core.Models.ImageEntry>();
+        var sequence = new Core.Models.SlideshowSequence(
+            grid.Images.Select(image => image.Entry),
+            selection,
+            ViewModel.ImageViewer.CurrentEntry?.FilePath ?? grid.SelectedImage?.Entry.FilePath);
+        if (sequence.Count == 0)
+        {
+            ViewModel.StatusText = "No photos available for a slideshow in the current selection or filtered set.";
+            return;
+        }
+
+        ViewerOverlay.PauseVideo();
+        _slideshowReturnFocus = FocusManager.GetFocusedElement(AppRoot.XamlRoot) as Control;
+        _slideshow = new SlideshowWindow(sequence, _slideshowIntervalSeconds);
+        _slideshow.Closed += OnSlideshowClosed;
+        _slideshow.Activate();
+    }
+
+    private void OnSlideshowClosed(object sender, WindowEventArgs args)
+    {
+        if (_slideshow is null) return;
+        _slideshowIntervalSeconds = _slideshow.ViewModel.IntervalSeconds;
+        _slideshow.Closed -= OnSlideshowClosed;
+        _slideshow = null;
+        if (!_isClosing)
+        {
+            Activate();
+            _slideshowReturnFocus?.Focus(FocusState.Programmatic);
+        }
+        _slideshowReturnFocus = null;
+    }
 
     public async Task RefreshMetadataTreesAsync()
     {
@@ -215,6 +268,7 @@ public sealed partial class MainWindow : Window
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
         _isClosing = true;
+        _slideshow?.Close();
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;

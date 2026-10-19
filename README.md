@@ -507,8 +507,19 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
 | Next / previous in viewer | ←  →  arrow keys |
 | Flag / unflag selection | F (grid and viewer) |
+| Start full-screen slideshow | F11 (grid and viewer) |
+| Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
+| Exit slideshow | Esc or F11 |
 
-More shortcuts (Del, F2, 0-5 rating, F11 slideshow) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
+The slideshow uses the selected photos, or the current filtered set if nothing is selected,
+in grid order. Videos are excluded. From the viewer it starts at the current photo when
+that photo is in the working set. Photos wrap at either end. Use **Pause / Resume** and
+**Seconds per photo** (1-60 seconds, default 5) in the slideshow toolbar to control
+auto-advance. Each photo gets a full interval after loading or manual navigation.
+The interval is remembered until the app closes. Exiting returns to the unchanged
+grid or viewer; slideshow shortcuts are unavailable while editing or in settings.
+
+More shortcuts (Del, F2, 0-5 rating) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
 
 ---
 
