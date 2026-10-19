@@ -96,6 +96,19 @@ public sealed partial class MainWindow : Window
         _slideshowReturnFocus = null;
     }
 
+    private async void LibrarySearchBox_TextChanged(
+        AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+            await ViewModel.Search.UpdateSuggestionsAsync(sender.Text);
+    }
+
+    private async void LibrarySearchBox_QuerySubmitted(
+        AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        await ViewModel.Search.SubmitAsync(args.QueryText);
+    }
+
     public async Task RefreshMetadataTreesAsync()
     {
         await FolderNavPanel.RefreshMetadataTreesAsync();

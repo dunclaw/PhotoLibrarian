@@ -516,7 +516,12 @@ public partial class MetadataPanelViewModel : ObservableObject
         if (_entries.Count == 0) return;
         IsCaptionMixed = false;
         foreach (var entry in _entries)
+        {
             await MetadataWriterService.WriteCaptionAsync(entry.FilePath, Caption);
+            if (_imageRepo is not null)
+                await _imageRepo.UpdateCaptionAsync(entry.Id, Caption);
+            entry.Caption = Caption;
+        }
     }
 
     /// <summary>

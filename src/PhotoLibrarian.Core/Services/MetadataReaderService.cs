@@ -3,6 +3,7 @@ using MetadataExtractor.Formats.Exif;
 using MetadataExtractor.Formats.Iptc;
 using MetadataExtractor.Formats.Xmp;
 using PhotoLibrarian.Core.Models;
+using XmpCore;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -42,7 +43,27 @@ public sealed class MetadataReaderService
         if (!entry.IsFlagged && MetadataWriterService.ReadFlagFromSidecar(filePath) == true)
             entry.IsFlagged = true;
 
+        ReadSidecarText(entry);
         return entry;
+    }
+
+    private static void ReadSidecarText(ImageEntry entry)
+    {
+        var sidecarPath = Path.ChangeExtension(entry.FilePath, ".xmp");
+        if (!File.Exists(sidecarPath)) return;
+        try
+        {
+            const string dcNs = "http://purl.org/dc/elements/1.1/";
+            var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+            if (string.IsNullOrWhiteSpace(entry.Caption))
+                entry.Caption = xmp.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value;
+            if (string.IsNullOrWhiteSpace(entry.Title))
+                entry.Title = xmp.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value;
+        }
+        catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
+        {
+            Diagnostics.DebugLog.WriteLine($"Could not read search metadata from {sidecarPath}: {exception.Message}");
+        }
     }
 
     private static void ReadExifData(IReadOnlyList<MetadataExtractor.Directory> directories, ImageEntry entry)
@@ -53,6 +74,9 @@ public sealed class MetadataReaderService
         {
             entry.CameraMake = ifd0.GetDescription(ExifDirectoryBase.TagMake)?.Trim();
             entry.CameraModel = ifd0.GetDescription(ExifDirectoryBase.TagModel)?.Trim();
+            entry.Title = ifd0.GetDescription(0x9C9B)?.Trim(); // XPTitle (System.Title)
+            entry.Caption = ifd0.GetDescription(0x9C9C)?.Trim()
+                ?? ifd0.GetDescription(ExifDirectoryBase.TagImageDescription)?.Trim();
             if (ifd0.TryGetInt32(ExifDirectoryBase.TagOrientation, out var orientation))
                 entry.Orientation = orientation;
         }
@@ -109,6 +133,8 @@ public sealed class MetadataReaderService
         var iptc = directories.OfType<IptcDirectory>().FirstOrDefault();
         if (iptc is null) return;
 
+        entry.Title ??= iptc.GetDescription(IptcDirectory.TagObjectName);
+        entry.Caption ??= iptc.GetDescription(IptcDirectory.TagCaption);
         if (iptc.TryGetInt32(IptcDirectory.TagUrgency, out var rating))
             entry.Rating ??= Math.Clamp(rating, 0, 5);
     }
@@ -118,6 +144,11 @@ public sealed class MetadataReaderService
         var xmp = directories.OfType<XmpDirectory>().FirstOrDefault();
         if (xmp?.XmpMeta is null) return;
 
+        const string dcNs = "http://purl.org/dc/elements/1.1/";
+        entry.Title = xmp.XmpMeta.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value
+            ?? entry.Title;
+        entry.Caption = xmp.XmpMeta.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value
+            ?? entry.Caption;
         // Read rating from XMP if not already set
         const string xapNs = "http://ns.adobe.com/xap/1.0/";
         if (xmp.XmpMeta.DoesPropertyExist(xapNs, "xmp:Rating"))
