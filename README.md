@@ -37,6 +37,31 @@ If a filesystem or database error occurs during a batch, the failed photo's move
 rolled back and processing stops; earlier successful renames remain in place and the
 error reports how many completed.
 
+### Portable people tags
+
+Face edits write MWG Region XMP plus Microsoft Photo 1.2 People Tags
+(`MP:RegionInfo/MPRI:Regions`, an unordered bag of `MPReg:PersonDisplayName`
+and `MPReg:Rectangle` structures). Microsoft rectangles use normalized
+top-left X, Y, width, height; MWG retains its normalized center-based areas.
+Unnamed detections and portable review decisions remain in MWG/PhotoLibrarian
+metadata and are not exported as named Microsoft tags.
+
+JPEG and PNG store both representations in embedded XMP; other formats, or
+images that cannot be updated in place, use the existing XMP sidecar fallback.
+Renaming/removing people replaces both sets of face tags, and sidecar cropping
+clips/removes rectangles in both schemas. Existing non-face MWG regions and
+unrelated XMP fields are preserved. Microsoft-only named rectangles can also
+be imported; matching MWG faces take precedence without duplicating them.
+
+The Microsoft representation follows the
+[WIC People Tagging schema](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-people-tagging)
+and the HTTP namespace URIs used by
+[Exiv2](https://exiv2.org/tags-xmp-MP.html) and Windows Photo Gallery.
+Windows exposes embedded names through `System.Photo.PeopleNames` (Explorer's
+People property); consumers must support XMP sidecars to see fallback metadata.
+Photo Gallery is discontinued, so compatibility is checked at the schema and
+Windows property-handler level rather than by running Photo Gallery itself.
+
 ## Status
 
 Active personal project — usable for daily browsing, tagging, and rating today. See [Roadmap](#roadmap) for what's missing relative to Windows Live Photo Gallery.
