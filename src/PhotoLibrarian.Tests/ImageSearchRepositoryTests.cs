@@ -85,7 +85,7 @@ public sealed class ImageSearchRepositoryTests : IAsyncLifetime
         image.Title = "changed";
         image.CameraMake = "Nikon";
         await _images.UpsertImageAsync(image);
-        await _images.UpdatePathAsync(image.Id, Path.Combine(_directory, "after.jpg"));
+        await _images.UpdatePathAsync(image.Id, Path.Combine(_directory, "after.jpg"), sidecarPath: null);
         Assert.Empty(await _search.SearchAsync("before"));
         Assert.Empty(await _search.SearchAsync("original"));
         Assert.Empty(await _search.SearchAsync("initial"));
