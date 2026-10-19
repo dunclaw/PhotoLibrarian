@@ -6,6 +6,19 @@ namespace PhotoLibrarian.Core.Data;
 
 public sealed class ImageSearchRepository(CacheDatabase database)
 {
+    public async Task<List<ImageEntry>> FilterAsync(
+        string text, IReadOnlyList<ImageEntry> scope, int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
+        if (scope.Count == 0) return [];
+        var matches = (await SearchAsync(text, cancellationToken: cancellationToken))
+            .Select(image => image.Id).ToHashSet();
+        // Preserve the caller's grid order, not FTS relevance. Limit only after intersecting.
+        return scope.Where(image => matches.Contains(image.Id))
+            .Take(limit ?? int.MaxValue).ToList();
+    }
+
     internal static async Task InitializeAsync(SqliteConnection connection)
     {
         using var transaction = connection.BeginTransaction();

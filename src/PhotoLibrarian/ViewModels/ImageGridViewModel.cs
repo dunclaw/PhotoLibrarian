@@ -71,6 +71,8 @@ public partial class ImageGridViewModel : ObservableObject
     private List<string>? _currentTagFilters;
     private bool _currentFlaggedSelected; // "Flagged" node selected (show flagged working set)
     private string _searchText = "";
+    private IReadOnlyList<ImageEntry> _searchScope = [];
+    private int _groupingVersion;
     private string? _currentSortBy = "date_taken";
     private CancellationTokenSource? _loadCts;
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
@@ -168,6 +170,7 @@ public partial class ImageGridViewModel : ObservableObject
     
     public async Task LoadImagesAsync()
     {
+        ++_groupingVersion;
         // Cancel any pending thumbnail loads from previous folder
         _loadCts?.Cancel();
         _loadCts = new CancellationTokenSource();
@@ -196,21 +199,7 @@ public partial class ImageGridViewModel : ObservableObject
         // Get all images from DB (we'll filter to union of all criteria)
         var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending);
         if (ct.IsCancellationRequested) return;
-        // Re-query on refresh so edits, renames and newly indexed photos are reflected.
         var searchText = _searchText;
-        HashSet<long>? searchImageIds = null;
-        if (!string.IsNullOrWhiteSpace(searchText))
-        {
-            try
-            {
-                searchImageIds = (await Task.Run(() => _searchRepo.SearchAsync(searchText, cancellationToken: ct)))
-                    .Select(image => image.Id).ToHashSet();
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                return;
-            }
-        }
         var tagsByImageId = Refinement.RequiresTags
             ? await _tagRepo.GetTagsByImageIdAsync()
             : null;
@@ -247,12 +236,13 @@ public partial class ImageGridViewModel : ObservableObject
         bool hasTagFilter = _currentTagRootSelected || 
                            (_currentTagFilters is not null && _currentTagFilters.Count > 0);
         bool hasFlagFilter = _currentFlaggedSelected;
-        bool hasSearch = searchImageIds is not null;
+        bool hasSearch = !string.IsNullOrWhiteSpace(searchText);
 
         // If no filters active, show nothing
         if (!hasFolderFilter && !hasDateFilter && !hasPeopleFilter &&
-            !hasTagFilter && !hasFlagFilter && !hasSearch)
+            !hasTagFilter && !hasFlagFilter)
         {
+            _searchScope = [];
             DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
             _main.StatusText = "Select a folder to view photos";
             await ApplyGroupingAsync();
@@ -283,7 +273,7 @@ public partial class ImageGridViewModel : ObservableObject
 
         int matchCount = 0;
         int skipCount = 0;
-        int index = 0;
+        var searchScope = new List<ImageEntry>();
         foreach (var img in allImages)
         {
             bool matchesAnyFilter = false;
@@ -353,21 +343,36 @@ public partial class ImageGridViewModel : ObservableObject
             tagsByImageId?.TryGetValue(img.Id, out imageTags);
             personIdsByImageId?.TryGetValue(img.Id, out imagePersonIds);
 
-            if ((hasSearch ? searchImageIds!.Contains(img.Id) : matchesAnyFilter) &&
+            if (matchesAnyFilter &&
                 Refinement.Matches(img, imageTags, imagePersonIds))
             {
+                searchScope.Add(img);
                 matchCount++;
                 if (matchCount <= 3)
                     DebugLog.WriteLine($"  Including '{img.FilePath}'");
-
-                Images.Add(new ImageThumbnailViewModel(img, ct) { Index = index });
-                index++;
             }
             else
             {
                 skipCount++;
             }
         }
+        _searchScope = searchScope;
+        IReadOnlyList<ImageEntry> displayedImages = searchScope;
+        if (hasSearch)
+        {
+            try
+            {
+                displayedImages = await Task.Run(() => _searchRepo.FilterAsync(searchText, searchScope,
+                    cancellationToken: ct));
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            if (ct.IsCancellationRequested) return;
+        }
+        foreach (var image in displayedImages)
+            Images.Add(new ImageThumbnailViewModel(image, ct) { Index = Images.Count });
         
         if (skipCount > 2)
             DebugLog.WriteLine($"  ... and {skipCount - 2} more skipped");
@@ -389,7 +394,7 @@ public partial class ImageGridViewModel : ObservableObject
         if (!hasSearch && hasFolderFilter && folderFilters is not null)
         {
             // Get indexed file paths for quick lookup
-            var indexedPaths = new HashSet<string>(Images.Select(i => i.Entry.FilePath), StringComparer.OrdinalIgnoreCase);
+            var indexedPaths = new HashSet<string>(allImages.Select(i => i.FilePath), StringComparer.OrdinalIgnoreCase);
             var initialCount = Images.Count;
 
             foreach (var filter in folderFilters)
@@ -1005,10 +1010,12 @@ public partial class ImageGridViewModel : ObservableObject
     /// </summary>
     private async Task ApplyGroupingAsync()
     {
+        var version = ++_groupingVersion;
         var currentGroupBy = GroupBy;
         var currentSortBy = SortBy;
         var currentSortDesc = SortDescending;
         var imageCount = Images.Count;
+        var imageSnapshot = Images.ToList();
         
         DebugLog.WriteLine($"[GROUPING] ApplyGroupingAsync called, GroupBy={currentGroupBy}, Images.Count={imageCount}");
         
@@ -1019,7 +1026,7 @@ public partial class ImageGridViewModel : ObservableObject
                 var tcs = new TaskCompletionSource<bool>();
                 App.MainWindow.DispatcherQueue.TryEnqueue(() =>
                 {
-                    GroupedImages.Clear();
+                    if (version == _groupingVersion) GroupedImages.Clear();
                     tcs.SetResult(true);
                 });
                 await tcs.Task;
@@ -1033,9 +1040,6 @@ public partial class ImageGridViewModel : ObservableObject
         {
             try
             {
-                // Take snapshot of Images collection
-                var imageSnapshot = Images.ToList();
-                
                 if (currentGroupBy == GroupByOption.None)
                 {
                     // No grouping - single flat group. Still apply sort so dates/ratings reorder
@@ -1094,6 +1098,11 @@ public partial class ImageGridViewModel : ObservableObject
             {
                 try
                 {
+                    if (version != _groupingVersion)
+                    {
+                        tcs.SetResult(true);
+                        return;
+                    }
                     GroupedImages.Clear();
                     foreach (var group in groups)
                     {
@@ -1114,7 +1123,7 @@ public partial class ImageGridViewModel : ObservableObject
     
     private List<(string header, List<ImageThumbnailViewModel> items)> GroupByFileType(List<ImageThumbnailViewModel> items)
     {
-        return Images
+        return items
             .GroupBy(vm => Path.GetExtension(vm.Entry.FilePath).ToUpperInvariant())
             .OrderBy(g => g.Key)
             .Select(g => (g.Key.TrimStart('.') + " Files", g.ToList()))
@@ -1206,22 +1215,26 @@ public partial class ImageGridViewModel : ObservableObject
             .ToList();
     }
     
-    private List<ImageThumbnailViewModel> ApplySortToGroup(List<ImageThumbnailViewModel> items, SortByOption sortBy, bool sortDescending)
+    private static List<ImageThumbnailViewModel> ApplySortToGroup(List<ImageThumbnailViewModel> items, SortByOption sortBy, bool sortDescending)
+        => SortItems(items, item => item.Entry, sortBy, sortDescending).ToList();
+
+    private static IEnumerable<T> SortItems<T>(
+        IEnumerable<T> items, Func<T, ImageEntry> entry, SortByOption sortBy, bool sortDescending)
     {
         var sorted = sortBy switch
         {
-            SortByOption.FileName => items.OrderBy(vm => vm.Entry.FileName),
-            SortByOption.DateTaken => items.OrderBy(vm => vm.Entry.DateTaken ?? DateTime.MaxValue),
-            SortByOption.DateModified => items.OrderBy(vm => vm.Entry.DateModified),
-            SortByOption.FileSize => items.OrderBy(vm => vm.Entry.FileSize),
-            SortByOption.Rating => items.OrderBy(vm => vm.Entry.Rating ?? 0),
+            SortByOption.FileName => items.OrderBy(item => entry(item).FileName),
+            SortByOption.DateTaken => items.OrderBy(item => entry(item).DateTaken ?? DateTime.MaxValue),
+            SortByOption.DateModified => items.OrderBy(item => entry(item).DateModified),
+            SortByOption.FileSize => items.OrderBy(item => entry(item).FileSize),
+            SortByOption.Rating => items.OrderBy(item => entry(item).Rating ?? 0),
             _ => items.AsEnumerable()
         };
         
         if (sortDescending)
             sorted = sorted.Reverse();
             
-        return sorted.ToList();
+        return sorted;
     }
 
     [RelayCommand]
@@ -1257,6 +1270,16 @@ public partial class ImageGridViewModel : ObservableObject
         await LoadImagesAsync();
     }
 
+    public Task<List<ImageEntry>> GetSearchSuggestionsAsync(string text, CancellationToken cancellationToken)
+    {
+        var scope = _searchScope;
+        var sortBy = SortBy;
+        var descending = SortDescending;
+        return Task.Run(() => _searchRepo.FilterAsync(text,
+            SortItems(scope, image => image, sortBy, descending).ToList(),
+            8, cancellationToken), cancellationToken);
+    }
+
     [RelayCommand]
     private async Task ClearFilter()
     {
@@ -1269,6 +1292,7 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagRootSelected = false;
         _currentTagFilters = null;
         _currentFlaggedSelected = false;
+        _searchScope = [];
         Refinement = ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));
         Images.Clear();
@@ -1279,7 +1303,10 @@ public partial class ImageGridViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(_searchText))
             await LoadImagesAsync();
         else
+        {
             await ApplyGroupingAsync();
+            ResultsChanged?.Invoke(this, EventArgs.Empty);
+        }
         // Don't set status text here - let MainViewModel handle it
     }
 

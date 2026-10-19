@@ -1,17 +1,28 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
 
 namespace PhotoLibrarian.ViewModels;
 
-public partial class LibrarySearchViewModel(
-    ImageSearchRepository repository,
-    ImageGridViewModel grid,
-    ImageViewerViewModel viewer) : ObservableObject
+public partial class LibrarySearchViewModel : ObservableObject
 {
+    private readonly ImageGridViewModel _grid;
+    private readonly ImageViewerViewModel _viewer;
     private CancellationTokenSource? _suggestionsCts;
     private readonly SemaphoreSlim _submitGate = new(1, 1);
+
+    public LibrarySearchViewModel(ImageGridViewModel grid, ImageViewerViewModel viewer)
+    {
+        _grid = grid;
+        _viewer = viewer;
+        grid.ResultsChanged += OnResultsChanged;
+    }
+
+    private void OnResultsChanged(object? sender, EventArgs args)
+    {
+        _suggestionsCts?.Cancel();
+        Suggestions = [];
+    }
 
     [ObservableProperty]
     public partial IReadOnlyList<ImageEntry> Suggestions { get; set; } = [];
@@ -38,7 +49,7 @@ public partial class LibrarySearchViewModel(
         try
         {
             await Task.Delay(250, token);
-            var matches = await Task.Run(() => repository.SearchAsync(text, 8, token), token);
+            var matches = await _grid.GetSearchSuggestionsAsync(text, token);
             if (!token.IsCancellationRequested)
             {
                 Suggestions = matches;
@@ -60,8 +71,8 @@ public partial class LibrarySearchViewModel(
         try
         {
             IsError = false;
-            viewer.CloseCommand.Execute(null);
-            await grid.ApplySearchAsync(text);
+            _viewer.CloseCommand.Execute(null);
+            await _grid.ApplySearchAsync(text);
         }
         catch (Exception exception)
         {
@@ -82,6 +93,7 @@ public partial class LibrarySearchViewModel(
 
     public void Cleanup()
     {
+        _grid.ResultsChanged -= OnResultsChanged;
         _suggestionsCts?.Cancel();
         _suggestionsCts?.Dispose();
     }

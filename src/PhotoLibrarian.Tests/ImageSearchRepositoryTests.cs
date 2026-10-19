@@ -313,4 +313,57 @@ public sealed class ImageSearchRepositoryTests : IAsyncLifetime
         image.Id = await _images.UpsertImageAsync(image);
         return image;
     }
+
+    [Fact]
+    public async Task Filter_SearchOnlyRestrictsNavigationUnionAndHeaderRefinements()
+    {
+        var folderMatch = await AddImageAsync("folder.jpg", "holiday");
+        var personMatch = await AddImageAsync("person.jpg", "holiday");
+        var excludedByHeader = await AddImageAsync("lowrating.jpg", "holiday");
+        var outsideSelection = await AddImageAsync("outside.jpg", "holiday");
+        var noTextMatch = await AddImageAsync("other.jpg", "work");
+        folderMatch.Rating = 5;
+        personMatch.Rating = 4;
+        excludedByHeader.Rating = 1;
+        noTextMatch.Rating = 5;
+        var navigationUnion = new[] { folderMatch, personMatch, excludedByHeader, noTextMatch };
+        var refinement = new ImageRefinementFilter { Rating = 4 };
+        var scope = navigationUnion.Where(image => refinement.Matches(image)).ToList();
+
+        var results = await _search.FilterAsync("holiday", scope);
+
+        Assert.Equal(new[] { folderMatch.Id, personMatch.Id }, results.Select(image => image.Id));
+        Assert.DoesNotContain(results, image => image.Id == excludedByHeader.Id || image.Id == outsideSelection.Id);
+        Assert.Empty(await _search.FilterAsync("holiday", []));
+    }
+
+    [Fact]
+    public async Task Filter_SuggestionsLimitAfterScopingAndPreserveGridOrderRatherThanRelevance()
+    {
+        for (var i = 0; i < 10; i++)
+            await AddImageAsync($"outside-{i}.jpg", "holiday holiday holiday");
+        var first = await AddImageAsync("z.jpg", "holiday");
+        var second = await AddImageAsync("a.jpg", "holiday holiday");
+        var third = await AddImageAsync("m.jpg", "holiday");
+        var scope = new[] { first, second, third };
+
+        Assert.Equal(new[] { first.Id, second.Id },
+            (await _search.FilterAsync("holiday", scope, 2)).Select(image => image.Id));
+        Assert.Equal(scope.Select(image => image.Id),
+            (await _search.FilterAsync("holiday", scope)).Select(image => image.Id));
+        Assert.Equal(new[] { third.Id, second.Id, first.Id },
+            (await _search.FilterAsync("holiday", Enumerable.Reverse(scope).ToArray())).Select(image => image.Id));
+    }
+
+    [Fact]
+    public async Task Filter_ChangingSearchOrScopeDoesNotNarrowAgainstPreviousSearchResults()
+    {
+        var holiday = await AddImageAsync("holiday.jpg");
+        var work = await AddImageAsync("work.jpg");
+        var scope = new[] { holiday, work };
+        Assert.Equal(holiday.Id, Assert.Single(await _search.FilterAsync("holiday", scope)).Id);
+        Assert.Equal(work.Id, Assert.Single(await _search.FilterAsync("work", scope)).Id);
+        Assert.Empty(await _search.FilterAsync("holiday", [work]));
+        Assert.Equal(holiday.Id, Assert.Single(await _search.FilterAsync("holiday", scope)).Id);
+    }
 }

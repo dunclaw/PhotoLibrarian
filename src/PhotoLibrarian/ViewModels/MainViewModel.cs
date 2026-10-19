@@ -131,7 +131,7 @@ public partial class MainViewModel : ObservableObject
             metadataReader,
             this);
         ImageViewer = new ImageViewerViewModel();
-        Search = new LibrarySearchViewModel(searchRepo, ImageGrid, ImageViewer);
+        Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
         MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this);
