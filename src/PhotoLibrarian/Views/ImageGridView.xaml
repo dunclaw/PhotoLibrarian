@@ -33,6 +33,16 @@
 
             <!-- Group By controls -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                <!-- Slideshow: first in the toolbar so narrow windows never clip it -->
+                <Button x:Name="SlideshowButton"
+                        Click="OnSlideshowClick"
+                        Padding="6"
+                        Margin="0,0,8,0"
+                        AutomationProperties.AutomationId="GridSlideshowButton"
+                        AutomationProperties.Name="Slideshow"
+                        ToolTipService.ToolTip="Slideshow (F11): plays selected photos, or all photos starting at the selected one">
+                    <FontIcon Glyph="&#xE786;" FontSize="16" />
+                </Button>
                 <TextBlock Text="Group:" VerticalAlignment="Center" Margin="4,0" />
                 <ComboBox x:Name="GroupByCombo" 
                           SelectedIndex="0" 

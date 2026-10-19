@@ -43,6 +43,32 @@ public sealed class SlideshowTests
     }
 
     [Fact]
+    public void SingleSelectionPlaysWholeFilteredSetStartingAtSelectedPhoto()
+    {
+        var photos = new[] { Photo("first.jpg"), Photo("second.jpg"), Photo("third.jpg") };
+        var sequence = new SlideshowSequence(photos, [Photo("SECOND.JPG")]);
+
+        Assert.Equal(3, sequence.Count);
+        Assert.Same(photos[1], sequence.Current);
+        sequence.Next();
+        Assert.Same(photos[2], sequence.Current);
+        sequence.Next();
+        Assert.Same(photos[0], sequence.Current);
+    }
+
+    [Fact]
+    public void MultiSelectionStartsAtFirstSelectedPhotoInGridOrder()
+    {
+        var photos = Enumerable.Range(1, 20).Select(i => Photo($"photo{i:00}.jpg")).ToArray();
+        // Selection order (e.g. shift-click from the end) must not choose the start photo.
+        var selected = photos.Skip(4).Reverse().ToArray();
+        var sequence = new SlideshowSequence(photos, selected);
+
+        Assert.Equal(16, sequence.Count);
+        Assert.Same(photos[4], sequence.Current);
+    }
+
+    [Fact]
     public void ViewerStartsAtCurrentPhotoWhenItBelongsToWorkingSet()
     {
         var photos = new[] { Photo("first.jpg"), Photo("second.jpg"), Photo("third.jpg") };
@@ -58,7 +84,8 @@ public sealed class SlideshowTests
     public void SelectedVideosDoNotFallBackToUnselectedPhotos()
     {
         var video = Photo("video.mp4", MediaType.Video);
-        var sequence = new SlideshowSequence([Photo("photo.jpg"), video], [video]);
+        var clip = Photo("clip.mp4", MediaType.Video);
+        var sequence = new SlideshowSequence([Photo("photo.jpg"), video, clip], [video, clip]);
         Assert.Equal(0, sequence.Count);
         Assert.Null(sequence.Current);
         sequence.Next();

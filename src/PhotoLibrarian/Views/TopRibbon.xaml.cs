@@ -12,6 +12,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? AdjustClicked;
     public event EventHandler? RedEyeClicked;
     public event EventHandler? CloseViewerClicked;
+    public event EventHandler? SlideshowClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
     public event EventHandler? ApplyStraightenClicked;
@@ -91,6 +92,7 @@ public sealed partial class TopRibbon : UserControl
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
     private void OnCloseViewerClick(object sender, RoutedEventArgs e) => CloseViewerClicked?.Invoke(this, EventArgs.Empty);
+    private void OnSlideshowClick(object sender, RoutedEventArgs e) => SlideshowClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnCancelCropClick(object sender, RoutedEventArgs e) => CancelCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyStraightenClick(object sender, RoutedEventArgs e) =>

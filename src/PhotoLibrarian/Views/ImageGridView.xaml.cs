@@ -555,6 +555,13 @@ public sealed partial class ImageGridView : UserControl
         SizeSlider.Value = Math.Min(SizeSlider.Value + 40, 400);
     }
 
+    /// <summary>Raised when the user asks for a slideshow. The argument is the photo selection to
+    /// use, or null to use the grid's current selection.</summary>
+    public event EventHandler<IReadOnlyList<Core.Models.ImageEntry>?>? SlideshowRequested;
+
+    private void OnSlideshowClick(object sender, RoutedEventArgs e) =>
+        SlideshowRequested?.Invoke(this, null);
+
     // =================================================================
     //  Right-click context menu
     // =================================================================
@@ -581,6 +588,17 @@ public sealed partial class ImageGridView : UserControl
         };
         viewItem.IsEnabled = !isMulti;
         menu.Items.Add(viewItem);
+
+        var slideshowItem = new MenuFlyoutItem
+        {
+            Text = isMulti ? $"Slideshow ({selected.Count})" : "Slideshow from here",
+            Icon = new FontIcon { Glyph = "\uE786" },
+            KeyboardAcceleratorTextOverride = "F11"
+        };
+        AutomationProperties.SetAutomationId(slideshowItem, "GridContextSlideshow");
+        var selectedEntries = selected.Select(vm => vm.Entry).ToArray();
+        slideshowItem.Click += (_, _) => SlideshowRequested?.Invoke(this, selectedEntries);
+        menu.Items.Add(slideshowItem);
 
         // Open with default
         var openWith = new MenuFlyoutItem { Text = "Open with default app" };

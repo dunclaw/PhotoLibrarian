@@ -521,9 +521,16 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
 | Exit slideshow | Esc or F11 |
 
-The slideshow uses the selected photos, or the current filtered set if nothing is selected,
-in grid order. Videos are excluded. From the viewer it starts at the current photo when
-that photo is in the working set. Photos wrap at either end. Use **Pause / Resume** and
+Start a slideshow with F11, the **Slideshow** button at the left of the grid toolbar or in
+the viewer ribbon, or **Slideshow** in a photo's right-click menu. Photos play in the order
+the grid shows them (including grouping) and videos are excluded:
+
+- **Viewer:** plays the viewer's photos, starting at the photo on screen.
+- **Grid, two or more photos selected:** plays only the selected photos, starting at the first.
+- **Grid, one photo selected:** plays the whole filtered set, starting at that photo.
+- **Grid, nothing selected:** plays the whole filtered set from the beginning.
+
+Photos wrap at either end. Use **Pause / Resume** and
 **Seconds per photo** (1-60 seconds, default 5) in the slideshow toolbar to control
 auto-advance. Each photo gets a full interval after loading or manual navigation.
 The interval is remembered until the app closes. Exiting returns to the unchanged

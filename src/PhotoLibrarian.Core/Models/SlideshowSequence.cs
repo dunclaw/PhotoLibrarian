@@ -1,6 +1,11 @@
 namespace PhotoLibrarian.Core.Models;
 
 /// <summary>A fixed photo working set, independent of subsequent grid selection changes.</summary>
+/// <remarks>
+/// Two or more selected photos restrict the slideshow to that selection, starting at the first one
+/// in display order. A single selected photo plays the whole filtered set starting at that photo.
+/// An explicit <c>startingPath</c> (e.g. the photo shown in the viewer) always wins when present.
+/// </remarks>
 public sealed class SlideshowSequence
 {
     private readonly List<ImageEntry> _photos;
@@ -17,11 +22,14 @@ public sealed class SlideshowSequence
         var selectedPaths = selectedImages
             .Select(image => image.FilePath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var restrictToSelection = selectedPaths.Count > 1;
         _photos = filteredImages
             .Where(image => image.MediaType == MediaType.Image &&
-                (selectedPaths.Count == 0 || selectedPaths.Contains(image.FilePath)))
+                (!restrictToSelection || selectedPaths.Contains(image.FilePath)))
             .ToList();
-        var start = _photos.FindIndex(image =>
+        if (startingPath is null && selectedPaths.Count == 1)
+            startingPath = selectedPaths.First();
+        var start = startingPath is null ? -1 : _photos.FindIndex(image =>
             string.Equals(image.FilePath, startingPath, StringComparison.OrdinalIgnoreCase));
         Index = Math.Max(0, start);
     }

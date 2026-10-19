@@ -25,27 +25,50 @@ public sealed partial class MainWindow : Window
 
     private void OnSlideshowInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
-            ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
-            ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
-            ViewerOverlay.IsManualFaceTagging)
-            return;
+        if (CanStartSlideshow())
+        {
+            args.Handled = true;
+            StartSlideshow(null);
+        }
+    }
 
-        args.Handled = true;
+    private bool CanStartSlideshow() =>
+        !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+          ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
+          ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
+          ViewerOverlay.IsManualFaceTagging);
+
+    /// <summary>Opens the slideshow. In the viewer it plays the viewer's photos from the photo on
+    /// screen; in the grid it uses <paramref name="gridSelection"/> (or the grid's selection).</summary>
+    private void StartSlideshow(IReadOnlyList<Core.Models.ImageEntry>? gridSelection)
+    {
+        if (!CanStartSlideshow()) return;
         if (_slideshow is not null)
         {
             _slideshow.Activate();
             return;
         }
 
+        Core.Models.SlideshowSequence sequence;
+        var viewer = ViewModel.ImageViewer;
         var grid = ViewModel.ImageGrid;
-        var selection = grid.SelectedImages.Count > 0
-            ? grid.SelectedImages.Select(image => image.Entry)
-            : grid.SelectedImage is { } selected ? [selected.Entry] : Enumerable.Empty<Core.Models.ImageEntry>();
-        var sequence = new Core.Models.SlideshowSequence(
-            grid.Images.Select(image => image.Entry),
-            selection,
-            ViewModel.ImageViewer.CurrentEntry?.FilePath ?? grid.SelectedImage?.Entry.FilePath);
+        var displayed = grid.DisplayedEntries;
+        if (viewer.IsOpen && viewer.CurrentEntry is { } current)
+        {
+            var source = displayed.Any(entry =>
+                string.Equals(entry.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase))
+                ? displayed
+                : viewer.Images;
+            sequence = new Core.Models.SlideshowSequence(source, [], current.FilePath);
+        }
+        else
+        {
+            IEnumerable<Core.Models.ImageEntry> selection = gridSelection
+                ?? (grid.SelectedImages.Count > 0
+                    ? grid.SelectedImages.Select(image => image.Entry)
+                    : grid.SelectedImage is { } selected ? [selected.Entry] : []);
+            sequence = new Core.Models.SlideshowSequence(displayed, selection);
+        }
         if (sequence.Count == 0)
         {
             ViewModel.StatusText = "No photos available for a slideshow in the current selection or filtered set.";
@@ -162,6 +185,8 @@ public sealed partial class MainWindow : Window
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
+        TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
+        ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
