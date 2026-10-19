@@ -93,6 +93,11 @@ public sealed class MicrosoftPeopleTagsTests : IDisposable
         await using var file = File.OpenRead(path);
         var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
         var properties = await decoder.BitmapProperties.GetPropertiesAsync(["System.Photo.PeopleNames"]);
+        Assert.True(properties.ContainsKey("System.Photo.PeopleNames"),
+            "WIC did not expose PeopleNames. Embedded XMP: " +
+            XmpMetaFactory.SerializeToString(
+                Assert.Single(ImageMetadataReader.ReadMetadata(path).OfType<XmpDirectory>()).XmpMeta!,
+                new XmpCore.Options.SerializeOptions()));
         var names = Assert.IsAssignableFrom<IEnumerable<string>>(properties["System.Photo.PeopleNames"].Value);
         Assert.Equal(["Alex", "Sam"], names.Order(StringComparer.Ordinal).ToArray());
     }
