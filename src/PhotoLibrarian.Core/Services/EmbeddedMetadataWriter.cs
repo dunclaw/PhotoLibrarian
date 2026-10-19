@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -193,13 +194,41 @@ public static class EmbeddedMetadataWriter
     /// Two-tier write: try in-place first (byte-exact); fall back to transcoding when in-place
     /// doesn't have room for the new metadata (the common case when adding a tag to a complex file).
     /// </summary>
-    private static async Task WritePropertiesAsync(string filePath, BitmapPropertySet props)
+    private static Task WritePropertiesAsync(string filePath, BitmapPropertySet props) =>
+        RetryOnFileLockAsync(() => WritePropertiesOnceAsync(filePath, props));
+
+    internal static async Task RetryOnFileLockAsync(
+        Func<Task> write, Func<TimeSpan, Task>? delay = null)
+    {
+        delay ??= Task.Delay;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await write();
+                return;
+            }
+            catch (Exception ex) when (IsFileLock(ex) && attempt < 3)
+            {
+                await delay(TimeSpan.FromMilliseconds(100 * (1 << attempt)));
+            }
+        }
+    }
+
+    private static bool IsFileLock(Exception exception) =>
+        exception.HResult is unchecked((int)0x80070020) // ERROR_SHARING_VIOLATION
+            or unchecked((int)0x80070021) // ERROR_LOCK_VIOLATION
+            or unchecked((int)0x80030020) // STG_E_SHAREVIOLATION
+            or unchecked((int)0x80030021); // STG_E_LOCKVIOLATION
+
+    private static async Task WritePropertiesOnceAsync(string filePath, BitmapPropertySet props)
     {
         // === Tier 1: in-place (preserves bytes exactly) ===
         try
         {
-            var file = await StorageFile.GetFileFromPathAsync(filePath);
-            using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
+            // FileStream preserves sharing-violation HRESULTs; StorageFile can map them to access denied.
+            using (var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+            using (var stream = fileStream.AsRandomAccessStream())
             {
                 var decoder = await BitmapDecoder.CreateAsync(stream);
                 var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
@@ -213,7 +242,7 @@ public static class EmbeddedMetadataWriter
             // Fall through to transcoding
             System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder full for {filePath}, transcoding…");
         }
-        catch (System.Runtime.InteropServices.COMException ex)
+        catch (System.Runtime.InteropServices.COMException ex) when (!IsFileLock(ex))
         {
             // Other WIC error — also try transcoding as a more resilient path
             System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder threw 0x{ex.HResult:X8}, attempting transcode…");
@@ -225,11 +254,11 @@ public static class EmbeddedMetadataWriter
 
     private static async Task TranscodeWriteAsync(string filePath, BitmapPropertySet props)
     {
-        var file = await StorageFile.GetFileFromPathAsync(filePath);
-        var destBuffer = new InMemoryRandomAccessStream();
+        using var destBuffer = new InMemoryRandomAccessStream();
 
         // 1) Read source + transcode into memory with merged properties
-        using (var srcStream = await file.OpenAsync(FileAccessMode.Read))
+        using (var fileStream = File.OpenRead(filePath))
+        using (var srcStream = fileStream.AsRandomAccessStream())
         {
             var decoder = await BitmapDecoder.CreateAsync(srcStream);
             var encoder = await BitmapEncoder.CreateForTranscodingAsync(destBuffer, decoder);
@@ -239,12 +268,12 @@ public static class EmbeddedMetadataWriter
 
         // 2) Atomically replace the source file with the in-memory result
         destBuffer.Seek(0);
-        using (var outStream = await file.OpenAsync(FileAccessMode.ReadWrite))
+        using (var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+        using (var outStream = fileStream.AsRandomAccessStream())
         {
             outStream.Size = 0;
             await RandomAccessStream.CopyAsync(destBuffer.GetInputStreamAt(0), outStream);
             await outStream.FlushAsync();
         }
-        destBuffer.Dispose();
     }
 }

@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="PhotoLibrarian.Tests" />
     <PackageReference Include="MetadataExtractor" />
     <PackageReference Include="XmpCore" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
