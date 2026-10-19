@@ -20,6 +20,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Clarity / Sharpness / Levels / Rotation.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
+- **Synchronized photo navigation** follows the grid's current filters, sort, and grouping. Returning from full view selects and reveals the displayed item. If a filter removes it, full view moves to the first matching item (or closes when no items match).
 - 💾 **In-place metadata writing** for JPEG / TIFF / PNG / HEIC / JPEG-XR via `BitmapEncoder.CreateForInPlacePropertyEncodingAsync` — image bytes are preserved exactly; only the metadata block is rewritten. RAW formats (CR2/CR3/NEF/ARW) fall back to XMP sidecars (industry-standard limitation).
 - 🔍 **Background indexing** with restartable re-index and a manage-folders dialog.
 - 🔄 **Watched-folder updates** detect Explorer copies, edits, and deletions automatically; filesystem events are batched and only affected files are re-indexed.
