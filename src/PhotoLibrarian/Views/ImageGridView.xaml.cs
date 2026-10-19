@@ -13,6 +13,7 @@ public sealed partial class ImageGridView : UserControl
 {
     private ImageGridViewModel? ViewModel => App.ViewModel?.ImageGrid;
     private bool _isInitialized;
+    private bool _isExporting;
 
     public ImageGridView()
     {
@@ -630,6 +631,15 @@ public sealed partial class ImageGridView : UserControl
         };
         menu.Items.Add(rotateLeft);
 
+        var resize = new MenuFlyoutItem
+        {
+            Text = isMulti ? $"Resize and export ({selected.Count})..." : "Resize and export...",
+            IsEnabled = !_isExporting && selected.All(vm => vm.Entry.MediaType == MediaType.Image)
+        };
+        AutomationProperties.SetAutomationId(resize, "ResizeExportSelection");
+        resize.Click += async (_, _) => await ShowResizeExportAsync(selected);
+        menu.Items.Add(resize);
+
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Flag / Unflag — mirrors the F shortcut. A mixed selection is flagged first.
@@ -683,6 +693,96 @@ public sealed partial class ImageGridView : UserControl
         menu.Items.Add(props);
 
         menu.ShowAt(e.Source, e.Position);
+    }
+
+    private async Task ShowResizeExportAsync(IReadOnlyList<ImageThumbnailViewModel> selected)
+    {
+        if (_isExporting) return;
+        _isExporting = true;
+        try
+        {
+            // Snapshot paths before opening a dialog; navigation or selection changes must not
+            // change which photos belong to this batch.
+            var paths = selected.Select(vm => vm.Entry.FilePath).ToArray();
+            var optionsDialog = new ResizeExportDialog(paths.Length)
+            {
+                XamlRoot = XamlRoot,
+                RequestedTheme = ActualTheme
+            };
+            if (await optionsDialog.ShowAsync() != ContentDialogResult.Primary)
+                return;
+
+            var outputFolder = optionsDialog.OutputFolder;
+            var options = optionsDialog.Options;
+            using var cancellation = new System.Threading.CancellationTokenSource();
+            var bar = new ProgressBar { Minimum = 0, Maximum = paths.Length, Value = 0 };
+            AutomationProperties.SetAutomationId(bar, "ExportProgress");
+            var label = new TextBlock { Text = $"Exporting 0 of {paths.Length:N0}", TextWrapping = TextWrapping.Wrap };
+            var progressDialog = new ContentDialog
+            {
+                Title = "Exporting resized copies",
+                CloseButtonText = "Cancel",
+                XamlRoot = XamlRoot,
+                RequestedTheme = ActualTheme,
+                Content = new StackPanel { Spacing = 16, Children = { label, bar } }
+            };
+            var exportFinished = false;
+            progressDialog.Closing += (_, args) =>
+            {
+                if (exportFinished) return;
+                args.Cancel = true;
+                cancellation.Cancel();
+                label.Text = "Cancelling after the current operation...";
+            };
+            var progress = new Progress<Core.Services.ImageExportProgress>(update =>
+            {
+                bar.Value = update.Completed;
+                if (!cancellation.IsCancellationRequested)
+                    label.Text = $"Exporting {update.Completed:N0} of {update.Total:N0}: {update.FileName}";
+            });
+            var showingProgress = progressDialog.ShowAsync();
+            Core.Services.ImageExportResult result;
+            try
+            {
+                result = await Task.Run(() => Core.Services.ImageExportService.ExportAsync(
+                    paths, outputFolder, options, progress, cancellation.Token));
+            }
+            finally
+            {
+                exportFinished = true;
+                progressDialog.Hide();
+                await showingProgress;
+            }
+
+            var summary = $"{(result.IsCancelled ? "Export cancelled." : "Export complete.")} " +
+                $"{result.ExportedPaths.Count:N0} exported, {result.Failures.Count:N0} failed.";
+            App.ViewModel.StatusText = summary;
+            var details = summary;
+            if (result.Failures.Count > 0)
+                details += "\n\n" + string.Join("\n", result.Failures.Select(failure =>
+                    $"{failure.SourcePath}: {failure.Message}"));
+            await new ContentDialog
+            {
+                Title = result.Failures.Count > 0 ? "Export finished with errors" : "Resize and export",
+                Content = new ScrollViewer
+                {
+                    Content = new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap },
+                    MaxHeight = 400
+                },
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot,
+                RequestedTheme = ActualTheme
+            }.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[EXPORT] {ex}");
+            App.ViewModel.StatusText = $"Resize and export failed: {ex.Message}";
+        }
+        finally
+        {
+            _isExporting = false;
+        }
     }
 
     private static void BuildOpenWithSubMenu(
