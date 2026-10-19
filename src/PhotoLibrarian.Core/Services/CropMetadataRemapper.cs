@@ -193,9 +193,10 @@ public static class CropMetadataRemapper
         const string regionsPath = "Regions";
         const string regionListPath = "Regions/mwg-rs:RegionList";
 
+        var microsoftRegionsRemapped = MicrosoftPeopleTags.Remap(xmp, sourceWidth, sourceHeight, crop);
         if (!xmp.DoesPropertyExist(MwgRs, regionsPath))
         {
-            return false;
+            return microsoftRegionsRemapped;
         }
 
         XmpMetaFactory.SchemaRegistry.RegisterNamespace(MwgRs, "mwg-rs");
