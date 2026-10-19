@@ -11,6 +11,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0">
@@ -102,8 +103,15 @@
             <views:PeopleReviewView />
         </Border>
 
+        <InfoBar x:Name="MetadataFallbackInfoBar"
+                 AutomationProperties.AutomationId="MetadataFallbackInfoBar"
+                 Grid.Row="2"
+                 Severity="Warning"
+                 Title="Metadata saved outside the image"
+                 IsOpen="False" />
+
         <!-- Status bar -->
-        <Grid Grid.Row="2" Padding="12,6"
+        <Grid Grid.Row="3" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

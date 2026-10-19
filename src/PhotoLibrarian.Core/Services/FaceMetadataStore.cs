@@ -835,7 +835,12 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
     }
 
     public static string GetSidecarPathForImage(string imagePath) =>
-        File.Exists(imagePath) && CanWriteEmbedded(imagePath)
+        File.Exists(imagePath)
+            ? GetSidecarPathForDestinationImage(imagePath)
+            : Path.ChangeExtension(imagePath, ".xmp");
+
+    internal static string GetSidecarPathForDestinationImage(string imagePath) =>
+        CanWriteEmbedded(imagePath)
             ? $"{imagePath}.xmp"
             : Path.ChangeExtension(imagePath, ".xmp");
 

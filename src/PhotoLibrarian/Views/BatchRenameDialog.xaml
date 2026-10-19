@@ -1,0 +1,66 @@
+<ContentDialog
+    x:Class="PhotoLibrarian.Views.BatchRenameDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:PhotoLibrarian.Core.Services"
+    PrimaryButtonText="Rename"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary">
+    <StackPanel MinWidth="400" Spacing="12">
+        <TextBox x:Name="PatternBox"
+                 AutomationProperties.AutomationId="BatchRenamePattern"
+                 Header="Filename pattern"
+                 Text="Trip_{####}" />
+        <TextBlock TextWrapping="Wrap">
+            <Run Text="Tokens: {####} = sequence starting at 1; {original} = original name; {yyyy}, {MM}, {dd}, {HH}, {mm}, {ss} = date taken (modified date if unavailable)." />
+            <LineBreak />
+            <Run Text="Extensions are kept. Sequence follows selection order. Existing destinations are not overwritten." />
+        </TextBlock>
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Original name" Style="{StaticResource BodyStrongTextBlockStyle}" />
+            <TextBlock Grid.Column="1" Text="New name" Style="{StaticResource BodyStrongTextBlockStyle}" />
+        </Grid>
+        <ListView x:Name="PreviewList"
+                  AutomationProperties.AutomationId="BatchRenamePreview"
+                  AutomationProperties.Name="Original and resulting filenames"
+                  MaxHeight="320"
+                  SelectionMode="None">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="services:RenamePreview">
+                    <Grid Padding="0,4" ColumnSpacing="12" RowSpacing="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="{x:Bind OriginalName, Mode=OneTime}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1" Text="{x:Bind NewName, Mode=OneTime}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
+                                   Text="{x:Bind SourcePath, Mode=OneTime}"
+                                   TextWrapping="Wrap"
+                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock Grid.Row="2" Grid.ColumnSpan="2"
+                                   Text="{x:Bind Error, Mode=OneTime}"
+                                   TextWrapping="Wrap" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+        <TextBlock x:Name="StatusText"
+                   AutomationProperties.LiveSetting="Polite"
+                   TextWrapping="Wrap" />
+    </StackPanel>
+</ContentDialog>
