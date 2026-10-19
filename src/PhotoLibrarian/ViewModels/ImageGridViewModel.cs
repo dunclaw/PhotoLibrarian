@@ -1317,6 +1317,12 @@ public partial class ImageGridViewModel : ObservableObject
         RefreshMetadataFromSelection();
     }
 
+    /// <summary>The filtered photos in the order the grid shows them (group order, then sort).</summary>
+    public IReadOnlyList<ImageEntry> DisplayedEntries =>
+        GroupedImages.Count > 0
+            ? GroupedImages.SelectMany(group => group.Items).Select(vm => vm.Entry).ToList()
+            : Images.Select(vm => vm.Entry).ToList();
+
     [RelayCommand]
     private void OpenViewer()
     {
