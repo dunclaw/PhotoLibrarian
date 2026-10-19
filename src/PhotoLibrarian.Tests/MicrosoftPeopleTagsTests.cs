@@ -3,8 +3,9 @@ using ImageMetadataReader = MetadataExtractor.ImageMetadataReader;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Globalization;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Xml.Linq;
-using Windows.Storage;
+using Windows.Graphics.Imaging;
 using XmpCore;
 using Xunit;
 
@@ -81,7 +82,7 @@ public sealed class MicrosoftPeopleTagsTests : IDisposable
     }
 
     [Fact]
-    public async Task Jpeg_ExposesNamesThroughWindowsExplorerPeopleProperty()
+    public async Task Jpeg_ExposesNamesThroughWindowsWicPeopleProperty()
     {
         var path = Path.Combine(_directory, "people.jpg");
         await WicTestImage.CreateAsync(path, 120, 80, true);
@@ -89,9 +90,10 @@ public sealed class MicrosoftPeopleTagsTests : IDisposable
             Face("Alex"), Face("Sam") with { X = 0.6 }, Face(null)),
             TestContext.Current.CancellationToken);
 
-        var file = await StorageFile.GetFileFromPathAsync(path);
-        var properties = await file.Properties.RetrievePropertiesAsync(["System.Photo.PeopleNames"]);
-        var names = Assert.IsAssignableFrom<IEnumerable<string>>(properties["System.Photo.PeopleNames"]);
+        await using var file = File.OpenRead(path);
+        var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
+        var properties = await decoder.BitmapProperties.GetPropertiesAsync(["System.Photo.PeopleNames"]);
+        var names = Assert.IsAssignableFrom<IEnumerable<string>>(properties["System.Photo.PeopleNames"].Value);
         Assert.Equal(["Alex", "Sam"], names.Order(StringComparer.Ordinal).ToArray());
     }
 
