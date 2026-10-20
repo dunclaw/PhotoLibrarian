@@ -1,0 +1,27 @@
+using Microsoft.Graphics.Canvas;
+using PhotoLibrarian.Core.Models;
+using System.Numerics;
+
+namespace PhotoLibrarian.Services;
+
+internal static class ImageEditRenderPass
+{
+    internal static void Draw(
+        CanvasDrawingSession session,
+        CanvasBitmap source,
+        EditParameters parameters,
+        Vector2 sourceSize,
+        Matrix3x2 transform)
+    {
+        var effect = EditEffectGraph.Build(source, sourceSize, parameters);
+        try
+        {
+            session.Transform = transform;
+            session.DrawImage(effect);
+        }
+        finally
+        {
+            if (!ReferenceEquals(effect, source)) (effect as IDisposable)?.Dispose();
+        }
+    }
+}

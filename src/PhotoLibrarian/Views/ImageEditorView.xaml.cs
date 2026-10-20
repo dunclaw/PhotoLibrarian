@@ -176,11 +176,6 @@ public sealed partial class ImageEditorView : UserControl
         if (_sourceBitmap is null || ViewModel is null) return;
 
         var p = ViewModel.GetCurrentParameters();
-        var effect = EditEffectGraph.Build(
-            _sourceBitmap,
-            new Vector2((float)_sourceBitmap.Size.Width, (float)_sourceBitmap.Size.Height),
-            p);
-
         // Frame the *output* extent — rotation makes it larger than the source — so the preview
         // shows exactly what a save would write.
         var imageSize = _sourceBitmap.Size;
@@ -191,12 +186,17 @@ public sealed partial class ImageEditorView : UserControl
         _viewport.SetContentSize(new Vector2(outputWidth, outputHeight), resetView: false);
         var origin = _viewport.ContentOrigin;
 
-        args.DrawingSession.Transform =
+        var transform =
             Matrix3x2.CreateTranslation(originOffset) *
             Matrix3x2.CreateScale(_viewport.Scale) *
             Matrix3x2.CreateTranslation(origin);
 
-        args.DrawingSession.DrawImage(effect);
+        ImageEditRenderPass.Draw(
+            args.DrawingSession,
+            _sourceBitmap,
+            p,
+            new Vector2((float)imageSize.Width, (float)imageSize.Height),
+            transform);
     }
 
     private void OnEditCanvasSizeChanged(object sender, SizeChangedEventArgs e)
@@ -622,7 +622,9 @@ public sealed partial class ImageEditorView : UserControl
             _sourceBitmap?.Dispose();
             _sourceBitmap = null;
 
-            var saved = await ViewModel.SaveAsync(ImageEditRenderer.RenderToFileAsync);
+            var device = EditCanvas.Device;
+            var saved = await ViewModel.SaveAsync(
+                (path, parameters) => ImageEditRenderer.RenderToFileAsync(path, parameters, device));
             SyncSlidersFromViewModel();
 
             // Reload from disk so the preview shows the baked pixels.
