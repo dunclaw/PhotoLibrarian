@@ -15,6 +15,17 @@ namespace PhotoLibrarian.Core.Services;
 /// </summary>
 public static class MetadataWriterService
 {
+    /// <summary>Raised after an unexpected sidecar fallback has been saved successfully.</summary>
+    public static event EventHandler<MetadataWriteFallbackEventArgs>? SidecarFallback;
+
+    internal static void ReportSidecarFallback(string imagePath, string propertyName, Exception error)
+    {
+        var args = new MetadataWriteFallbackEventArgs(imagePath, propertyName, error);
+        System.Diagnostics.Trace.TraceWarning(
+            $"[METADATA] Saved {propertyName} to {args.SidecarPath}, not {imagePath}: {error.Message}");
+        SidecarFallback?.Invoke(null, args);
+    }
+
     private const string XapNamespace = "http://ns.adobe.com/xap/1.0/";
     private const string DcNamespace = "http://purl.org/dc/elements/1.1/";
     private const string ExifNamespace = "http://ns.adobe.com/exif/1.0/";
@@ -34,6 +45,7 @@ public static class MetadataWriterService
     /// </summary>
     public static async Task WriteFlagAsync(string imagePath, bool flagged)
     {
+        Exception? embeddedError = null;
         if (EmbeddedMetadataWriter.IsSupported(imagePath))
         {
             try
@@ -43,6 +55,7 @@ public static class MetadataWriterService
             }
             catch (Exception ex)
             {
+                embeddedError = ex;
                 System.Diagnostics.Debug.WriteLine($"[METADATA] In-place flag write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
             }
         }
@@ -56,6 +69,8 @@ public static class MetadataWriterService
                 try { xmp.DeleteProperty(PhotoLibrarianNamespace, FlagPropertyName); } catch { }
             SaveSidecar(imagePath, xmp);
         });
+        if (embeddedError is not null)
+            ReportSidecarFallback(imagePath, "flag", embeddedError);
     }
 
     /// <summary>
@@ -84,6 +99,7 @@ public static class MetadataWriterService
     /// <summary>Writes rating (0=clear, 1-5 stars) to the image (in-file) or sidecar (RAW fallback).</summary>
     public static async Task WriteRatingAsync(string imagePath, int? rating)
     {
+        Exception? embeddedError = null;
         if (EmbeddedMetadataWriter.IsSupported(imagePath))
         {
             try
@@ -93,6 +109,7 @@ public static class MetadataWriterService
             }
             catch (Exception ex)
             {
+                embeddedError = ex;
                 System.Diagnostics.Debug.WriteLine($"[METADATA] In-place rating write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
             }
         }
@@ -107,12 +124,15 @@ public static class MetadataWriterService
                 try { xmp.DeleteProperty(XapNamespace, "xmp:Rating"); } catch { }
             SaveSidecar(imagePath, xmp);
         });
+        if (embeddedError is not null)
+            ReportSidecarFallback(imagePath, "rating", embeddedError);
     }
 
     /// <summary>Writes caption to the image (in-file: System.Title + System.Comment) or sidecar fallback.</summary>
     public static async Task WriteCaptionAsync(string imagePath, string? caption)
     {
         var safe = caption ?? "";
+        Exception? embeddedError = null;
 
         if (EmbeddedMetadataWriter.IsSupported(imagePath))
         {
@@ -123,6 +143,7 @@ public static class MetadataWriterService
             }
             catch (Exception ex)
             {
+                embeddedError = ex;
                 System.Diagnostics.Debug.WriteLine($"[METADATA] In-place caption write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
             }
         }
@@ -136,6 +157,8 @@ public static class MetadataWriterService
                 try { xmp.DeleteProperty(DcNamespace, "dc:description"); } catch { }
             SaveSidecar(imagePath, xmp);
         });
+        if (embeddedError is not null)
+            ReportSidecarFallback(imagePath, "caption", embeddedError);
     }
 
     /// <summary>
@@ -200,6 +223,7 @@ public static class MetadataWriterService
     /// <summary>Writes capture date directly into the image (in-file) or to sidecar (RAW fallback).</summary>
     public static async Task WriteDateTakenAsync(string imagePath, DateTime? dateTaken)
     {
+        Exception? embeddedError = null;
         if (EmbeddedMetadataWriter.IsSupported(imagePath) && dateTaken.HasValue)
         {
             try
@@ -209,6 +233,7 @@ public static class MetadataWriterService
             }
             catch (Exception ex)
             {
+                embeddedError = ex;
                 System.Diagnostics.Debug.WriteLine($"[METADATA] In-place date write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
             }
         }
@@ -231,6 +256,8 @@ public static class MetadataWriterService
             }
             SaveSidecar(imagePath, xmp);
         });
+        if (embeddedError is not null)
+            ReportSidecarFallback(imagePath, "date taken", embeddedError);
     }
 
     private static IXmpMeta LoadOrCreateSidecar(string imagePath)

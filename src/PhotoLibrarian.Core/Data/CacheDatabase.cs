@@ -162,6 +162,7 @@ public sealed class CacheDatabase : IDisposable
         }
 
         await MigrateAsync(conn);
+        await ImageSearchRepository.InitializeAsync(conn);
     }
 
     /// <summary>
@@ -170,6 +171,9 @@ public sealed class CacheDatabase : IDisposable
     /// </summary>
     private static async Task MigrateAsync(SqliteConnection conn)
     {
+        await AddColumnIfMissingAsync(conn, "images", "caption", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "title", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "search_metadata_indexed", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "auto_tag_scan_version", "TEXT");

@@ -556,6 +556,13 @@ public sealed partial class ImageGridView : UserControl
         SizeSlider.Value = Math.Min(SizeSlider.Value + 40, 400);
     }
 
+    /// <summary>Raised when the user asks for a slideshow. The argument is the photo selection to
+    /// use, or null to use the grid's current selection.</summary>
+    public event EventHandler<IReadOnlyList<Core.Models.ImageEntry>?>? SlideshowRequested;
+
+    private void OnSlideshowClick(object sender, RoutedEventArgs e) =>
+        SlideshowRequested?.Invoke(this, null);
+
     // =================================================================
     //  Right-click context menu
     // =================================================================
@@ -582,6 +589,17 @@ public sealed partial class ImageGridView : UserControl
         };
         viewItem.IsEnabled = !isMulti;
         menu.Items.Add(viewItem);
+
+        var slideshowItem = new MenuFlyoutItem
+        {
+            Text = isMulti ? $"Slideshow ({selected.Count})" : "Slideshow from here",
+            Icon = new FontIcon { Glyph = "\uE786" },
+            KeyboardAcceleratorTextOverride = "F11"
+        };
+        AutomationProperties.SetAutomationId(slideshowItem, "GridContextSlideshow");
+        var selectedEntries = selected.Select(vm => vm.Entry).ToArray();
+        slideshowItem.Click += (_, _) => SlideshowRequested?.Invoke(this, selectedEntries);
+        menu.Items.Add(slideshowItem);
 
         // Open with default
         var openWith = new MenuFlyoutItem { Text = "Open with default app" };
@@ -678,10 +696,8 @@ public sealed partial class ImageGridView : UserControl
         };
         menu.Items.Add(delete);
 
-        // Rename — single only
-        var rename = new MenuFlyoutItem { Text = "Rename…" };
-        rename.Click += async (_, _) => await ShowRenameDialogAsync(primary.Entry);
-        rename.IsEnabled = !isMulti;
+        var rename = new MenuFlyoutItem { Text = isMulti ? $"Rename ({selected.Count})…" : "Rename…" };
+        rename.Click += async (_, _) => await RenameEntriesAsync(selected.Select(vm => vm.Entry).ToArray());
         menu.Items.Add(rename);
 
         menu.Items.Add(new MenuFlyoutSeparator());
@@ -829,6 +845,48 @@ public sealed partial class ImageGridView : UserControl
         menu.Items.Add(subFlyout);
     }
 
+    public async Task RenameSelectedAsync()
+    {
+        if (ViewModel is null) return;
+        var entries = ViewModel.SelectedImages.Select(vm => vm.Entry).ToArray();
+        if (entries.Length == 0 && ViewModel.SelectedImage is { } primary)
+            entries = [primary.Entry];
+        await RenameEntriesAsync(entries);
+    }
+
+    private async Task RenameEntriesAsync(IReadOnlyList<Core.Models.ImageEntry> entries)
+    {
+        if (ViewModel is null || entries.Count == 0) return;
+        if (entries.Count == 1)
+        {
+            await ShowRenameDialogAsync(entries[0]);
+            return;
+        }
+
+        var dialog = new BatchRenameDialog(entries) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        try
+        {
+            await App.ViewModel!.PhotoOps.RenameBatchAsync(dialog.Preview);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OPS] Batch rename failed: {ex}");
+            await new ContentDialog
+            {
+                Title = "Rename failed",
+                Content = ex.Message,
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot
+            }.ShowAsync();
+        }
+        finally
+        {
+            ViewModel.UpdateSelection(ViewModel.SelectedImages.ToArray(), ViewModel.SelectedImage);
+            await ViewModel.LoadImagesAsync();
+        }
+    }
+
     private async Task ShowRenameDialogAsync(Core.Models.ImageEntry entry)
     {
         if (ViewModel is null) return;
@@ -884,5 +942,7 @@ public sealed partial class ImageGridView : UserControl
         {
             App.ViewModel.MetadataPanel.ShowMetadata(entry);
         }
+        ViewModel.UpdateSelection(ViewModel.SelectedImages.ToArray(), ViewModel.SelectedImage);
+        await ViewModel.LoadImagesAsync();
     }
 }

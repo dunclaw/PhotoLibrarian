@@ -167,6 +167,14 @@ public sealed class CropMetadataRemapperTests
 
     private static void AssertRemappedXmp(IXmpMeta xmp)
     {
+        Assert.Equal(1, xmp.CountArrayItems(MicrosoftPeopleTags.Namespace, MicrosoftPeopleTags.RegionsPath));
+        Assert.Equal(
+            "0.100000, 0.000000, 0.800000, 1.000000",
+            xmp.GetStructField(
+                MicrosoftPeopleTags.Namespace,
+                $"{MicrosoftPeopleTags.RegionsPath}[1]",
+                MicrosoftPeopleTags.RegionNamespace,
+                "Rectangle")?.Value);
         const string listPath = "Regions/mwg-rs:RegionList";
         Assert.Equal(1, xmp.CountArrayItems(CropMetadataRemapper.MwgRs, listPath));
 

@@ -9,6 +9,9 @@ public sealed class ImageEntry
     public required string FilePath { get; set; }
     public required string FileName { get; set; }
     public string? FileHash { get; set; }
+    public string? Caption { get; set; }
+    public string? Title { get; set; }
+    public bool SearchMetadataIndexed { get; set; }
     public long FileSize { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }

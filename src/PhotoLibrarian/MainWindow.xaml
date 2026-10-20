@@ -7,14 +7,36 @@
     Title="PhotoLibrarian">
 
     <Grid x:Name="AppRoot">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="F11" Invoked="OnSlideshowInvoked" />
+        </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Top ribbon (shown when viewer is open) -->
-        <views:TopRibbon x:Name="TopRibbon" Grid.Row="0" Visibility="Collapsed" />
+        <StackPanel Grid.Row="0">
+            <AutoSuggestBox x:Name="LibrarySearchBox"
+                            AutomationProperties.AutomationId="LibrarySearchBox"
+                            AutomationProperties.Name="Search current photos"
+                            MinWidth="280" MaxWidth="480"
+                            Margin="12,8" HorizontalAlignment="Right"
+                            PlaceholderText="Search current photos"
+                            ToolTipService.ToolTip="Search within the left-pane selection and header filters. Select all photos and clear filters to search the whole library."
+                            QueryIcon="Find"
+                            TextMemberPath="FileName"
+                            DisplayMemberPath="FileName"
+                            ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
+                            TextChanged="LibrarySearchBox_TextChanged"
+                            QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
+            <InfoBar AutomationProperties.AutomationId="LibrarySearchError"
+                     IsOpen="{x:Bind ViewModel.Search.IsError, Mode=TwoWay}"
+                     Message="{x:Bind ViewModel.Search.ErrorMessage, Mode=OneWay}"
+                     Severity="Error" />
+            <views:TopRibbon x:Name="TopRibbon" Visibility="Collapsed" />
+        </StackPanel>
 
         <!-- Main 3-panel layout -->
         <Grid x:Name="MainLayout" Grid.Row="1">
@@ -85,8 +107,15 @@
             <views:PeopleReviewView />
         </Border>
 
+        <InfoBar x:Name="MetadataFallbackInfoBar"
+                 AutomationProperties.AutomationId="MetadataFallbackInfoBar"
+                 Grid.Row="2"
+                 Severity="Warning"
+                 Title="Metadata saved outside the image"
+                 IsOpen="False" />
+
         <!-- Status bar -->
-        <Grid Grid.Row="2" Padding="12,6"
+        <Grid Grid.Row="3" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
