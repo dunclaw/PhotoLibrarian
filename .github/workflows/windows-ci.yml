@@ -24,6 +24,17 @@ defaults:
     shell: pwsh
 
 jobs:
+  model-research-tests:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test local dataset audit and split preparation
+        run: python -m unittest discover -s tools\PhotoLibrarian.ModelTraining -p "test_*.py" -v
+
   version:
     runs-on: windows-latest
     outputs:
