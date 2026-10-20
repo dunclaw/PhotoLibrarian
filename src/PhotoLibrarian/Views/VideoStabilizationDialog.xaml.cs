@@ -18,19 +18,6 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
             Path.GetFileNameWithoutExtension(sourcePath) + "-stabilized.mp4");
     }
 
-    private async void OnChooseExecutable(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var picker = new Microsoft.Windows.Storage.Pickers.FileOpenPicker(
-                XamlRoot.ContentIslandEnvironment.AppWindowId);
-            picker.FileTypeFilter.Add(".exe");
-            var file = await picker.PickSingleFileAsync();
-            if (file is not null) ExecutableBox.Text = file.Path;
-        }
-        catch (Exception ex) { ShowError($"Could not choose FFmpeg: {ex.Message}"); }
-    }
-
     private async void OnChooseFolder(object sender, RoutedEventArgs e)
     {
         try
@@ -54,14 +41,20 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
         IsPrimaryButtonEnabled = false;
         CloseButtonText = "Cancel";
         ExportProgress.Visibility = Visibility.Visible;
+        ExportProgress.Value = 0;
         ResultBar.IsOpen = false;
         StatusText.Text = "Stabilizing video...";
         try
         {
             string destination = OutputBox.Text.Trim();
             await new VideoStabilizationService().StabilizeAsync(
-                ExecutableBox.Text.Trim(), _sourcePath, destination,
-                new Progress<string>(message => StatusText.Text = message), cancellation.Token);
+                _sourcePath, destination,
+                new Progress<double>(percent =>
+                {
+                    if (_cancellation != cancellation || cancellation.IsCancellationRequested) return;
+                    ExportProgress.Value = percent;
+                    StatusText.Text = $"Stabilizing video: {percent:F0}%";
+                }), cancellation.Token);
             StatusText.Text = "";
             ResultBar.Severity = InfoBarSeverity.Success;
             ResultBar.Message = $"Saved stabilized copy: {destination}";

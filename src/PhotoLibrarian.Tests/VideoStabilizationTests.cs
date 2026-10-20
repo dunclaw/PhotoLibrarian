@@ -1,6 +1,11 @@
-using System.Diagnostics;
-using System.Text;
+using System.Runtime.InteropServices.WindowsRuntime;
 using PhotoLibrarian.Core.Services;
+using Windows.Graphics.Imaging;
+using Windows.Media.Core;
+using Windows.Media.Editing;
+using Windows.Media.MediaProperties;
+using Windows.Media.Transcoding;
+using Windows.Storage;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
@@ -10,221 +15,354 @@ public sealed class VideoStabilizationTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-Video-{Guid.NewGuid():N}");
     private string Source => Path.Combine(_directory, "source & original.mp4");
     private string Output => Path.Combine(_directory, "stabilized copy.mp4");
-    private string FakeExecutable => Path.Combine(_directory, "ffmpeg.exe");
 
     public VideoStabilizationTests()
     {
         Directory.CreateDirectory(_directory);
         File.WriteAllText(Source, "original");
-        File.WriteAllText(FakeExecutable, "");
     }
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     [Fact]
-    public void ArgumentsAreSeparateAndExportOnlySelectedStreams()
-    {
-        var info = VideoStabilizationService.CreateStartInfo(FakeExecutable, Source, Output);
-        Assert.False(info.UseShellExecute);
-        Assert.True(info.RedirectStandardError);
-        Assert.True(info.RedirectStandardOutput);
-        Assert.Contains(Source, info.ArgumentList);
-        Assert.Equal(Output, info.ArgumentList.Last());
-        Assert.Contains("-n", info.ArgumentList);
-        Assert.Contains("-nostdin", info.ArgumentList);
-        Assert.Contains("0:a:0?", info.ArgumentList);
-        Assert.Contains("0:v:0", info.ArgumentList);
-        Assert.Contains("deshake=rx=16:ry=16:edge=mirror,pad=ceil(iw/2)*2:ceil(ih/2)*2", info.ArgumentList);
-    }
-
-    [Fact]
     public void RejectsMissingRelativeAndNonMp4Paths()
     {
-        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths("ffmpeg.exe", Source, Output));
-        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(Output, Source, Output));
-        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(FakeExecutable, Output, Output));
-        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(FakeExecutable, Source, "out.mp4"));
-        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(FakeExecutable, Source, Output + ".avi"));
+        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(Output, Output));
+        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(Source, "out.mp4"));
+        Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(Source, Output + ".avi"));
     }
 
     [Fact]
     public async Task NeverOverwritesSourceOrExistingOutput()
     {
         var service = new VideoStabilizationService();
-        await Assert.ThrowsAsync<IOException>(() => service.StabilizeAsync(FakeExecutable, Source, Source,
+        await Assert.ThrowsAsync<IOException>(() => service.StabilizeAsync(Source, Source,
             cancellationToken: TestContext.Current.CancellationToken));
         File.WriteAllText(Output, "existing");
-        await Assert.ThrowsAsync<IOException>(() => service.StabilizeAsync(FakeExecutable, Source, Output,
+        await Assert.ThrowsAsync<IOException>(() => service.StabilizeAsync(Source, Output,
             cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal("original", File.ReadAllText(Source));
         Assert.Equal("existing", File.ReadAllText(Output));
     }
 
     [Fact]
-    public async Task PreCanceledExportDoesNotStartAProcess()
+    public async Task PreCanceledExportDoesNotStart()
     {
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new VideoStabilizationService().StabilizeAsync(FakeExecutable, Source, Output,
-                cancellationToken: cancellation.Token));
+            new VideoStabilizationService().StabilizeAsync(Source, Output, cancellationToken: cancellation.Token));
         AssertNoTemporaryFiles();
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FfmpegExportsAndReducesSyntheticShake(bool withAudio)
+    public void ProfilePreservesSizeFrameRateAndAudioPresence(bool withAudio)
     {
-        string ffmpeg = GetIntegrationExecutable();
-        string pattern = Path.Combine(_directory, "pattern.ppm");
-        using (var stream = File.Create(pattern))
+        var input = FixtureProfile(withAudio);
+        input.Video.Width = 641;
+        input.Video.Height = 481;
+        input.Video.FrameRate.Numerator = 30_000;
+        input.Video.FrameRate.Denominator = 1001;
+        var rotationKey = new Guid("C380465D-2271-428C-9B83-ECEA3B4A85C1");
+        input.Video.Properties[rotationKey] = 90u;
+        var profile = VideoStabilizationService.CreateOutputProfile(input);
+        Assert.Equal(MediaEncodingSubtypes.H264, profile.Video.Subtype);
+        Assert.Equal(642u, profile.Video.Width);
+        Assert.Equal(482u, profile.Video.Height);
+        Assert.Equal(30_000u, profile.Video.FrameRate.Numerator);
+        Assert.Equal(1001u, profile.Video.FrameRate.Denominator);
+        Assert.Equal(90u, profile.Video.Properties[rotationKey]);
+        Assert.Equal(withAudio, profile.Audio is not null);
+        if (withAudio) Assert.Equal(MediaEncodingSubtypes.Aac, profile.Audio!.Subtype, ignoreCase: true);
+    }
+
+    [Fact]
+    public void RejectsAudioOnlyInput()
+    {
+        var input = MediaEncodingProfile.CreateM4a(AudioEncodingQuality.High);
+        Assert.Throws<ArgumentException>(() => VideoStabilizationService.CreateOutputProfile(input));
+    }
+
+    [Theory]
+    [InlineData(640, 480)]
+    [InlineData(1280, 720)]
+    [InlineData(3840, 2160)]
+    public void FrameStabilizerReducesMotionAtDifferentResolutions(int width, int height)
+    {
+        var stabilizer = new VideoFrameStabilizer(width, height);
+        byte[]? previousInput = null, previousOutput = null;
+        long before = 0, after = 0;
+        for (int frame = 0; frame < 12; frame++)
         {
-            stream.Write(Encoding.ASCII.GetBytes("P6\n352 272\n255\n"));
-            var random = new Random(77);
-            byte[] blocks = new byte[44 * 34];
-            random.NextBytes(blocks);
-            for (int y = 0; y < 272; y++)
-            for (int x = 0; x < 352; x++)
-            {
-                byte value = blocks[y / 8 * 44 + x / 8];
-                stream.Write([value, value, value]);
-            }
+            var input = MotionFrame(width, height, frame % 2 == 0 ? 6 : -6, frame % 3 == 0 ? 4 : -4);
+            var output = stabilizer.Process(input, TestContext.Current.CancellationToken);
+            if (previousInput is not null && previousOutput is not null)
+                for (int y = 64; y < height - 64; y += 8)
+                for (int x = 64; x < width - 64; x += 8)
+                {
+                    int index = y * width + x;
+                    before += Math.Abs(input[index] - previousInput[index]);
+                    after += Math.Abs(output[index] - previousOutput[index]);
+                }
+            previousInput = input;
+            previousOutput = output;
         }
-        var arguments = new List<string> { "-y", "-loop", "1", "-framerate", "24", "-i", pattern };
-        if (withAudio) arguments.AddRange(["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000"]);
-        arguments.AddRange(["-t", "3", "-vf", "crop=320:240:16+8*sin(n*2):16+8*cos(n*2)",
-            "-c:v", "libx264", "-crf", "15", "-pix_fmt", "yuv420p", Source]);
-        await RunFfmpegAsync(ffmpeg, arguments);
+        Assert.True(after < before * 0.8, $"Motion ratio: {after / (double)before:F3}");
+    }
+
+    [Fact]
+    public void FrameStabilizerResetsAtSceneCutsAndPreservesFlatFrames()
+    {
+        var stabilizer = new VideoFrameStabilizer(640, 480);
+        stabilizer.Process(MotionFrame(640, 480, 0, 0), TestContext.Current.CancellationToken);
+        stabilizer.Process(MotionFrame(640, 480, 8, -8), TestContext.Current.CancellationToken);
+        var flat = Enumerable.Repeat((byte)235, 640 * 480 * 3 / 2).ToArray();
+        Assert.Same(flat, stabilizer.Process(flat, TestContext.Current.CancellationToken));
+        Assert.Equal(flat, stabilizer.Process(flat, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void FrameStabilizerRejectsInvalidLayoutsAndHonorsCancellation()
+    {
+        Assert.Throws<ArgumentException>(() => new VideoFrameStabilizer(3, 4).Process(new byte[18],
+            TestContext.Current.CancellationToken));
+        Assert.Throws<ArgumentException>(() => new VideoFrameStabilizer(4, 4).Process(new byte[1],
+            TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() =>
+            new VideoFrameStabilizer(4, 4).Process(new byte[24], cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData(false, 640, 480)]
+    [InlineData(true, 640, 480)]
+    [InlineData(false, 1920, 1080)]
+    public async Task WindowsExportsAndReducesSyntheticShakeWithoutExternalTools(bool withAudio, int width, int height)
+    {
+        await CreateFixtureAsync(withAudio, width: width, height: height);
         byte[] original = File.ReadAllBytes(Source);
-        await new VideoStabilizationService().StabilizeAsync(ffmpeg, Source, Output,
-            cancellationToken: TestContext.Current.CancellationToken);
+        var progress = new CaptureProgress();
+        await new VideoStabilizationService().StabilizeAsync(Source, Output, progress,
+            TestContext.Current.CancellationToken);
         Assert.Equal(original, File.ReadAllBytes(Source));
         Assert.True(new FileInfo(Output).Length > 0);
-        byte[] before = await DecodeAsync(ffmpeg, Source);
-        byte[] after = await DecodeAsync(ffmpeg, Output);
-        Assert.Equal(before.Length, after.Length);
-        double ratio = TemporalDifference(after) / TemporalDifference(before);
+        var profile = await MediaEncodingProfile.CreateFromFileAsync(await StorageFile.GetFileFromPathAsync(Output));
+        Assert.Equal(MediaEncodingSubtypes.H264, profile.Video.Subtype);
+        Assert.Equal(withAudio, profile.Audio is not null);
+        Assert.Equal((uint)width, profile.Video.Width);
+        Assert.Equal((uint)height, profile.Video.Height);
+        var outputClip = await MediaClip.CreateFromFileAsync(await StorageFile.GetFileFromPathAsync(Output));
+        Assert.InRange(outputClip.OriginalDuration.TotalSeconds, 2.95, 3.1);
+        Assert.NotEmpty(progress.Values);
+        Assert.All(progress.Values, value => Assert.InRange(value, 0, 100));
+        double before = await TemporalDifferenceAsync(Source);
+        double after = await TemporalDifferenceAsync(Output);
+        double ratio = after / before;
         TestContext.Current.TestOutputHelper?.WriteLine($"Temporal difference ratio: {ratio:F3}");
         Assert.True(ratio < 0.8,
             $"Stabilization must reduce central temporal differences by at least 20%; actual ratio {ratio:F3}.");
-        if (withAudio)
-            await RunFfmpegAsync(ffmpeg, ["-i", Output, "-map", "0:a:0", "-f", "null", "-"]);
         AssertNoTemporaryFiles();
     }
 
     [Fact]
-    public async Task FfmpegFailureIsReportedAndCleanedUp()
+    public async Task WindowsExportPreservesPortraitOrientation()
     {
-        string ffmpeg = GetIntegrationExecutable();
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new VideoStabilizationService().StabilizeAsync(ffmpeg, Source, Output,
-                cancellationToken: TestContext.Current.CancellationToken));
-        Assert.Contains("FFmpeg failed", error.Message);
-        Assert.False(File.Exists(Output));
-        AssertNoTemporaryFiles();
-    }
-
-    [Fact]
-    public async Task FfmpegPadsOddDimensionsForH264()
-    {
-        string ffmpeg = GetIntegrationExecutable();
-        await RunFfmpegAsync(ffmpeg, ["-y", "-f", "lavfi", "-i", "testsrc=size=321x241:rate=24",
-            "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv444p", Source]);
-        await new VideoStabilizationService().StabilizeAsync(ffmpeg, Source, Output,
+        await CreateFixtureAsync(false, rotation: 90);
+        var sourceProperties = await (await StorageFile.GetFileFromPathAsync(Source)).Properties.GetVideoPropertiesAsync();
+        Assert.Equal(Windows.Storage.FileProperties.VideoOrientation.Rotate90, sourceProperties.Orientation);
+        await new VideoStabilizationService().StabilizeAsync(Source, Output,
             cancellationToken: TestContext.Current.CancellationToken);
-        byte[] decoded = await DecodeAsync(ffmpeg, Output);
-        Assert.Equal(24 * 322 * 242, decoded.Length);
+        var outputProperties = await (await StorageFile.GetFileFromPathAsync(Output)).Properties.GetVideoPropertiesAsync();
+        Assert.Equal(sourceProperties.Orientation, outputProperties.Orientation);
+        Assert.Equal(sourceProperties.Width, outputProperties.Width);
+        Assert.Equal(sourceProperties.Height, outputProperties.Height);
+        AssertNoTemporaryFiles();
+    }
+
+    [Fact]
+    public async Task InvalidMediaIsReportedAndCleanedUp()
+    {
+        await Assert.ThrowsAnyAsync<Exception>(() => new VideoStabilizationService().StabilizeAsync(Source, Output,
+            cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(File.Exists(Output));
         AssertNoTemporaryFiles();
     }
 
     [Fact]
     public async Task OutputCreatedDuringExportIsNotOverwritten()
     {
-        string ffmpeg = GetIntegrationExecutable();
-        await RunFfmpegAsync(ffmpeg, ["-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24",
-            "-t", "1", "-c:v", "libx264", Source]);
+        await CreateFixtureAsync(false);
         await Assert.ThrowsAsync<IOException>(() =>
-            new VideoStabilizationService().StabilizeAsync(ffmpeg, Source, Output,
+            new VideoStabilizationService().StabilizeAsync(Source, Output,
                 new CreateOutputOnProgress(Output), TestContext.Current.CancellationToken));
         Assert.Equal("another file", File.ReadAllText(Output));
         AssertNoTemporaryFiles();
     }
 
     [Fact]
-    public async Task FfmpegCancellationStopsProcessAndRemovesPartialCopy()
+    public async Task WindowsCancellationRemovesPartialCopy()
     {
-        string ffmpeg = GetIntegrationExecutable();
-        await RunFfmpegAsync(ffmpeg, ["-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24",
-            "-t", "30", "-c:v", "libx264", "-preset", "ultrafast", Source]);
+        await CreateFixtureAsync(false);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var progress = new CancelOnProgress(cancellation);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new VideoStabilizationService().StabilizeAsync(ffmpeg, Source, Output, progress, cancellation.Token));
+            new VideoStabilizationService().StabilizeAsync(Source, Output, progress, cancellation.Token));
         Assert.True(progress.WasReported);
         Assert.False(File.Exists(Output));
         AssertNoTemporaryFiles();
     }
 
-    private static string GetIntegrationExecutable()
-    {
-        string? path = Environment.GetEnvironmentVariable("PHOTOLIBRARIAN_TEST_FFMPEG");
-        Assert.SkipWhen(string.IsNullOrEmpty(path), "Set PHOTOLIBRARIAN_TEST_FFMPEG to run FFmpeg integration checks.");
-        return path!;
-    }
-
     private void AssertNoTemporaryFiles() =>
         Assert.Empty(Directory.GetFiles(_directory, ".photolibrarian-*"));
 
-    private static async Task<byte[]> DecodeAsync(string executable, string path) =>
-        await RunFfmpegAsync(executable, ["-i", path, "-map", "0:v:0", "-pix_fmt", "gray", "-f", "rawvideo", "pipe:1"]);
-
-    private static double TemporalDifference(byte[] frames)
+    private static MediaEncodingProfile FixtureProfile(bool withAudio)
     {
-        const int width = 320, height = 240, size = width * height;
-        long difference = 0;
-        for (int frame = 1; frame < frames.Length / size; frame++)
-            for (int y = 32; y < height - 32; y++)
-                for (int x = 32; x < width - 32; x++)
+        var profile = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.Auto);
+        profile.Video.Width = 640;
+        profile.Video.Height = 480;
+        profile.Video.FrameRate.Numerator = 24;
+        profile.Video.FrameRate.Denominator = 1;
+        profile.Video.Bitrate = 4_000_000;
+        if (!withAudio) profile.Audio = null;
+        return profile;
+    }
+
+    private static byte[] MotionFrame(int width, int height, int dx, int dy)
+    {
+        var frame = new byte[width * height * 3 / 2];
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            int blockX = (x + dx + 64) / 16;
+            int blockY = (y + dy + 64) / 16;
+            frame[y * width + x] = (byte)(32 + (uint)(blockX * 12345 ^ blockY * 54321) % 192);
+        }
+        Array.Fill(frame, (byte)128, width * height, width * height / 2);
+        return frame;
+    }
+
+    private async Task CreateFixtureAsync(bool withAudio, uint rotation = 0, int width = 640, int height = 480)
+    {
+        const int frameCount = 72;
+        var video = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)width, (uint)height);
+        video.FrameRate.Numerator = 24;
+        video.FrameRate.Denominator = 1;
+        var videoDescriptor = new VideoStreamDescriptor(video);
+        var audioDescriptor = new AudioStreamDescriptor(AudioEncodingProperties.CreatePcm(48_000, 1, 16));
+        var source = withAudio
+            ? new MediaStreamSource(videoDescriptor, audioDescriptor)
+            : new MediaStreamSource(videoDescriptor);
+        source.BufferTime = TimeSpan.Zero;
+        source.Duration = TimeSpan.FromSeconds(3);
+        source.Starting += (_, args) => args.Request.SetActualStartPosition(TimeSpan.Zero);
+        int videoFrame = 0, audioFrame = 0;
+        var random = new Random(77);
+        int blockWidth = (width + 64) / 16;
+        byte[] blocks = new byte[blockWidth * ((height + 64) / 16)];
+        random.NextBytes(blocks);
+        source.SampleRequested += (_, args) =>
+        {
+            bool isVideo = args.Request.StreamDescriptor is VideoStreamDescriptor;
+            int frame = isVideo ? videoFrame++ : audioFrame++;
+            if (frame >= frameCount) return;
+            byte[] data;
+            if (isVideo)
+            {
+                data = new byte[width * height * 4];
+                int dx = 24 + (int)(8 * Math.Sin(frame * 1.7));
+                int dy = 24 + (int)(8 * Math.Cos(frame * 1.7));
+                for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
                 {
-                    int index = frame * size + y * width + x;
-                    difference += Math.Abs(frames[index] - frames[index - size]);
+                    byte value = blocks[(y + dy) / 16 * blockWidth + (x + dx) / 16];
+                    int index = (y * width + x) * 4;
+                    data[index] = data[index + 1] = data[index + 2] = value;
+                    data[index + 3] = 255;
                 }
+            }
+            else
+            {
+                data = new byte[2000 * 2];
+                for (int i = 0; i < 2000; i++)
+                {
+                    short value = (short)(4000 * Math.Sin(2 * Math.PI * 440 * (frame * 2000 + i) / 48_000));
+                    data[i * 2] = (byte)value;
+                    data[i * 2 + 1] = (byte)(value >> 8);
+                }
+            }
+            var sample = MediaStreamSample.CreateFromBuffer(data.AsBuffer(), TimeSpan.FromSeconds(frame / 24.0));
+            sample.Duration = TimeSpan.FromSeconds(1 / 24.0);
+            args.Request.Sample = sample;
+        };
+        using var file = new FileStream(Source, FileMode.Create, FileAccess.ReadWrite);
+        using var output = file.AsRandomAccessStream();
+        var transcoder = new MediaTranscoder { HardwareAccelerationEnabled = false };
+        var profile = FixtureProfile(withAudio);
+        profile.Video.Width = (uint)width;
+        profile.Video.Height = (uint)height;
+        if (rotation != 0)
+            profile.Video.Properties[new Guid("C380465D-2271-428C-9B83-ECEA3B4A85C1")] = rotation;
+        var prepared = await transcoder.PrepareMediaStreamSourceTranscodeAsync(source, output, profile)
+            .AsTask(TestContext.Current.CancellationToken);
+        Assert.True(prepared.CanTranscode, prepared.FailureReason.ToString());
+        await prepared.TranscodeAsync().AsTask(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<double> TemporalDifferenceAsync(string path)
+    {
+        var clip = await MediaClip.CreateFromFileAsync(await StorageFile.GetFileFromPathAsync(path));
+        var composition = new MediaComposition();
+        composition.Clips.Add(clip);
+        byte[]? previous = null;
+        long difference = 0;
+        for (int frame = 20; frame < 60; frame += 2)
+        {
+            using var thumbnail = await composition.GetThumbnailAsync(
+                TimeSpan.FromSeconds(frame / 24.0), 640, 480, VideoFramePrecision.NearestFrame);
+            var decoder = await BitmapDecoder.CreateAsync(thumbnail);
+            var pixels = await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore,
+                new BitmapTransform(), ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
+            byte[] current = pixels.DetachPixelData();
+            int maximumColorDifference = 0;
+            for (int pixel = 0; pixel < current.Length; pixel += 4)
+            {
+                maximumColorDifference = Math.Max(maximumColorDifference, Math.Max(
+                    Math.Abs(current[pixel] - current[pixel + 1]), Math.Abs(current[pixel] - current[pixel + 2])));
+            }
+            Assert.InRange(maximumColorDifference, 0, 12);
+            if (previous is not null)
+                for (int y = 80; y < 400; y++)
+                for (int x = 80; x < 560; x++)
+                {
+                    int index = (y * 640 + x) * 4;
+                    difference += Math.Abs(current[index] - previous[index]);
+                }
+            previous = current;
+        }
         return difference;
     }
 
-    private static async Task<byte[]> RunFfmpegAsync(string executable, IEnumerable<string> arguments)
+    private sealed class CaptureProgress : IProgress<double>
     {
-        var info = new ProcessStartInfo(executable)
-        {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardError = true, RedirectStandardOutput = true
-        };
-        info.ArgumentList.Add("-hide_banner");
-        info.ArgumentList.Add("-loglevel");
-        info.ArgumentList.Add("error");
-        foreach (string argument in arguments) info.ArgumentList.Add(argument);
-        using var process = Process.Start(info)!;
-        var errors = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
-        using var output = new MemoryStream();
-        await process.StandardOutput.BaseStream.CopyToAsync(output, TestContext.Current.CancellationToken);
-        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
-        Assert.True(process.ExitCode == 0, await errors);
-        return output.ToArray();
+        public List<double> Values { get; } = [];
+        public void Report(double value) => Values.Add(value);
     }
 
-    private sealed class CancelOnProgress(CancellationTokenSource cancellation) : IProgress<string>
+    private sealed class CancelOnProgress(CancellationTokenSource cancellation) : IProgress<double>
     {
         public bool WasReported { get; private set; }
-        public void Report(string value)
+        public void Report(double value)
         {
             WasReported = true;
             cancellation.Cancel();
         }
     }
 
-    private sealed class CreateOutputOnProgress(string output) : IProgress<string>
+    private sealed class CreateOutputOnProgress(string output) : IProgress<double>
     {
-        public void Report(string value) => File.WriteAllText(output, "another file");
+        public void Report(double value) => File.WriteAllText(output, "another file");
     }
 }

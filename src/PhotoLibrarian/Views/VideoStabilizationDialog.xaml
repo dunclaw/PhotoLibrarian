@@ -11,25 +11,19 @@
     Closing="OnClosing">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="16" MinWidth="320">
-            <TextBlock Text="Reduces small handheld shakes using FFmpeg deshake. Mirrored edges can be visible. Large movements, rolling shutter and motion blur cannot be repaired."
+            <TextBlock Text="Reduces small handheld shakes with the built-in stabilizer. No downloads or setup are needed. Mirrored edges may be visible; large movements, rotation, rolling shutter and motion blur cannot be repaired."
                        TextWrapping="Wrap" />
             <ContentControl x:Name="OptionsPanel" HorizontalContentAlignment="Stretch">
                 <StackPanel Spacing="12">
-                    <TextBox x:Name="ExecutableBox" Header="Trusted FFmpeg executable (with deshake and libx264)"
-                             AutomationProperties.AutomationId="StabilizationExecutable" />
-                    <Button Content="Choose FFmpeg..." Click="OnChooseExecutable"
-                            AutomationProperties.AutomationId="StabilizationChooseExecutable" />
-                    <TextBlock Text="FFmpeg is not bundled. Only select an executable from a source you trust; it will run on your computer."
-                               TextWrapping="Wrap" />
                     <TextBox x:Name="OutputBox" Header="New MP4 file"
                              AutomationProperties.AutomationId="StabilizationOutput" />
                     <Button Content="Choose output folder..." Click="OnChooseFolder"
                             AutomationProperties.AutomationId="StabilizationChooseFolder" />
                 </StackPanel>
             </ContentControl>
-            <TextBlock Text="Exports H.264/AAC locally; the original and existing files are never overwritten. Audio is re-encoded. Only the first video and audio streams are exported; subtitles, HDR fidelity, specialized metadata and sidecars are not preserved."
+            <TextBlock Text="Exports an H.264/AAC MP4 locally; the original and existing files are never overwritten. Video and audio are re-encoded. Subtitles, extra tracks, HDR fidelity, specialized metadata and sidecars are not preserved."
                        TextWrapping="Wrap" />
-            <ProgressBar x:Name="ExportProgress" IsIndeterminate="True" Visibility="Collapsed"
+            <ProgressBar x:Name="ExportProgress" Minimum="0" Maximum="100" Visibility="Collapsed"
                          AutomationProperties.Name="Stabilizing video" />
             <TextBlock x:Name="StatusText" TextWrapping="Wrap"
                        AutomationProperties.LiveSetting="Polite" />
