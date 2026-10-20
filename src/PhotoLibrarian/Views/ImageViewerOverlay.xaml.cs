@@ -281,6 +281,7 @@ public sealed partial class ImageViewerOverlay : UserControl
                     }
                     break;
                 case nameof(ImageViewerViewModel.IsVideo):
+                    StabilizeVideoButton.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     VideoPlayer.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
                     if (!ViewModel.IsVideo) StopVideo();
@@ -311,6 +312,14 @@ public sealed partial class ImageViewerOverlay : UserControl
     }
 
     public void PauseVideo() => VideoPlayer.MediaPlayer?.Pause();
+
+    private async void OnStabilizeVideo(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel?.CurrentEntry is not { MediaType: MediaType.Video } entry) return;
+        PauseVideo();
+        var dialog = new VideoStabilizationDialog(entry.FilePath) { XamlRoot = XamlRoot };
+        await dialog.ShowAsync();
+    }
 
     private void StopVideo()
     {
