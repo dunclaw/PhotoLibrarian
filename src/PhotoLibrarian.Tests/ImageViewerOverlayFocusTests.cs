@@ -18,4 +18,19 @@ public sealed class ImageViewerOverlayFocusTests
         Assert.Equal("True", (string?)root.Attribute("IsTabStop"));
         Assert.Equal("OnKeyDown", (string?)root.Attribute("KeyDown"));
     }
+
+    [Fact]
+    public void ImageScrollViewerDoesNotStealArrowKeys()
+    {
+        var xamlPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "TestAssets",
+            "ImageViewerOverlay.xaml");
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var scrollViewer = XDocument.Load(xamlPath)
+            .Descendants()
+            .Single(e => (string?)e.Attribute(x + "Name") == "ImageScrollViewer");
+
+        Assert.Equal("False", (string?)scrollViewer.Attribute("IsTabStop"));
+    }
 }

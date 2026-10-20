@@ -122,6 +122,14 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.RedEyeSelectionCompleted += OnRedEyeSelectionCompleted;
         ViewerOverlay.ManualFaceTaggingExited += (_, _) => ViewModel.OnManualFaceTaggingExited();
 
+        // The grid sits underneath the full viewer; if it takes focus (double-click or a
+        // selection sync), hand focus back so arrow keys navigate photos.
+        ImageGridPanel.GotFocus += (_, _) =>
+        {
+            if (ViewModel.ImageViewer.IsOpen)
+                DispatcherQueue.TryEnqueue(() => ViewerOverlay.FocusViewer());
+        };
+
         // Cleanup on window close
         this.Closed += OnWindowClosed;
     }

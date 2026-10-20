@@ -244,6 +244,66 @@ public sealed partial class ImageViewerOverlay : UserControl
         RootGrid.AddHandler(UIElement.PointerWheelChangedEvent,
             new PointerEventHandler(OnPointerWheelChanged), true);
         DebugLog.WriteLine("ImageViewerOverlay: Wheel handler attached to RootGrid");
+
+        // handledEventsToo: the zoom/pan controller marks image presses as handled.
+        RootGrid.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnRootPointerPressed), true);
+    }
+
+    private const int MaxFocusAttempts = 10;
+
+    /// <summary>
+    /// Moves keyboard focus into the viewer. Focus requests made in the same tick the
+    /// overlay becomes visible can fail before layout, so retry on later dispatcher ticks.
+    /// </summary>
+    public void FocusViewer(FocusState state = FocusState.Programmatic) =>
+        TryFocusViewer(state, MaxFocusAttempts);
+
+    private void TryFocusViewer(FocusState state, int attemptsRemaining)
+    {
+        if (ViewModel?.IsOpen != true || Visibility != Visibility.Visible) return;
+        if (HasFocusWithin()) return;
+
+        Focus(state);
+        if (HasFocusWithin() || attemptsRemaining <= 1) return;
+
+        DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () => TryFocusViewer(state, attemptsRemaining - 1));
+    }
+
+    private bool HasFocusWithin()
+    {
+        if (XamlRoot is null) return false;
+        return FocusManager.GetFocusedElement(XamlRoot) is DependencyObject focused
+            && IsWithinViewer(focused);
+    }
+
+    private bool IsWithinViewer(DependencyObject element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, this)) return true;
+        }
+        return false;
+    }
+
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsInteractiveControl(e.OriginalSource as DependencyObject)) return;
+        Focus(FocusState.Pointer);
+    }
+
+    private bool IsInteractiveControl(DependencyObject? element)
+    {
+        for (var current = element;
+             current is not null && !ReferenceEquals(current, this);
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is Control { IsTabStop: true, IsEnabled: true })
+                return true;
+        }
+        return false;
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -256,7 +316,7 @@ public sealed partial class ImageViewerOverlay : UserControl
             {
                 case nameof(ImageViewerViewModel.IsOpen):
                     Visibility = ViewModel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
-                    if (ViewModel.IsOpen) Focus(FocusState.Programmatic);
+                    if (ViewModel.IsOpen) FocusViewer();
                     if (!ViewModel.IsOpen) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
