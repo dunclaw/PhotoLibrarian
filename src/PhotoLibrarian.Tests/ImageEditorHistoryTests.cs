@@ -59,7 +59,7 @@ public sealed class ImageEditorHistoryTests : IDisposable
         vm.BeginEdit("Adjustments");
         for (var i = 1; i <= 20; i++) vm.Exposure = i / 100.0;
         vm.Brightness = vm.Contrast = vm.Highlights = vm.Shadows = 0.1;
-        vm.Saturation = vm.Temperature = vm.Tint = vm.Clarity = vm.Sharpness = 0.2;
+        vm.Saturation = vm.Temperature = vm.Tint = vm.Clarity = vm.Sharpness = vm.NoiseReduction = 0.2;
         vm.BlackPoint = 0.1;
         vm.WhitePoint = 0.9;
         vm.Midtones = 0.6;
@@ -168,6 +168,39 @@ public sealed class ImageEditorHistoryTests : IDisposable
         vm.UndoCommand.Execute(null);
         Assert.Equal(0.3, vm.Exposure);
         Assert.False(vm.HasChanges);
+    }
+
+    [Fact]
+    public async Task NoiseReduction_TracksHistoryResetPendingEditsAndSave()
+    {
+        await new ImageEditService(_backups).SaveEditParametersAsync(
+            _entry.FilePath, new EditParameters { NoiseReduction = 0.25 });
+        var vm = await OpenAsync();
+        Assert.Equal(0.25, vm.NoiseReduction);
+        Assert.False(vm.HasChanges);
+        vm.BeginEdit("Noise reduction");
+        vm.NoiseReduction = 0.4;
+        vm.NoiseReduction = 0.8;
+        vm.EndEdit();
+        Assert.Equal(new[] { "Noise reduction" }, vm.UndoHistory);
+        Assert.True(vm.HasChanges);
+        vm.UndoCommand.Execute(null);
+        Assert.Equal(0.25, vm.NoiseReduction);
+        Assert.False(vm.HasChanges);
+        vm.RedoCommand.Execute(null);
+        Assert.Equal(0.8, vm.GetCurrentParameters().NoiseReduction);
+        vm.ResetAllCommand.Execute(null);
+        Assert.Equal(0, vm.NoiseReduction);
+        vm.UndoCommand.Execute(null);
+        Assert.Equal(0.8, vm.NoiseReduction);
+        Assert.True(await vm.SaveAsync((_, parameters) =>
+        {
+            Assert.Equal(0.8, parameters.NoiseReduction);
+            return Task.FromResult((10u, 20u));
+        }));
+        Assert.Equal(0, vm.NoiseReduction);
+        Assert.Empty(vm.UndoHistory);
+        Assert.False(ImageEditService.ReadEditParameters(_entry.FilePath).HasAdjustments);
     }
 
     [Fact]

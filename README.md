@@ -19,7 +19,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - ⚡ **SQLite metadata index** + Windows native thumbnail cache for instant viewport-aware loads.
 - **Search current photos** in the header finds filename, caption/title, tags, camera make/model, and people using a local SQLite FTS5 index. The left-pane selections build a union; header refinement filters and search further restrict it. Suggestions use that same scope, and results keep the grid's selected sort and grouping. Type for suggestions and press Enter or select a suggestion to apply search. Words match prefixes (case/accent insensitive); multiple words must all match. Clearing search restores the selected, refined set. For a global search, select all photos and clear refinement filters first. Existing libraries get filename, camera, tag, and people search immediately; the next background scan automatically populates captions/titles from photo metadata.
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
-- 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Clarity / Sharpness / Levels / Rotation.
+- 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Noise reduction / Clarity / Sharpness / Levels / Rotation.
 - **Editor undo/redo** with split-button history menus. A slider or histogram drag, Auto enhance, and Reset each form one step; selecting a history entry undoes or redoes through that step. History covers pending adjustments only and clears on save, Revert, close, or opening another photo.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
 - **Batch resize and export** from the grid's right-click menu: export selected still images as JPEG copies using a maximum dimension or percentage, JPEG quality, an output folder and optional metadata stripping. Images are never enlarged; originals and existing files are never overwritten. Transparency is flattened onto white and only the first frame is exported. Unless stripped, common embedded captions, tags, ratings, capture date, author, copyright and camera name are retained; other metadata (including GPS and face regions) and sidecars are not copied. Progress, cancellation and per-file failures are shown.
@@ -30,6 +30,20 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - 🧠 **Opt-in local automatic content tags** with pluggable, checksum-pinned ONNX model profiles. A profile must be benchmarked and explicitly approved before generated labels can enter the distinct `Auto` tag hierarchy.
 
 ---
+
+### Noise reduction
+
+The editor's **Detail > Noise reduction** slider runs entirely locally with no
+model download. Zero is an exact bypass; increasing the value blends in a
+5-by-5 bilateral filter with a source-pixel radius of two. Spatial and RGB
+similarity weights reduce small color/luminance fluctuations while retaining
+strong edges. Strong settings can soften fine texture; this is not AI detail
+recovery, deblurring, or RAW sensor denoising.
+
+Filtering precedes tone/color adjustments and sharpening. Preview and save use
+the same full-resolution graph; zoom only scales its result. Image dimensions
+and alpha are unchanged by denoising. Undo/redo, Reset, pending XMP edits, and
+the existing original-backup/save flow include the new amount.
 
 ### Batch rename
 
@@ -140,6 +154,9 @@ Move a JPEG to another drive or another machine and every edit goes with it.
 - **Windows 10 1809** or newer (WinUI 3 requirement).
 - **.NET 8 SDK** with Windows targeting pack (`net8.0-windows10.0.22621.0`).
 - **Visual Studio 2022** 17.10+ with the *Windows App SDK C# Templates* component, or just `dotnet` CLI.
+- **Windows SDK shader compiler (`fxc.exe`)** to build the embedded noise-reduction
+  shader. The build finds it under `WindowsSdkDir` or the standard Windows Kits
+  installation; set `-p:FxcPath="C:\path\to\fxc.exe"` for a custom location.
 
 ### From the command line
 

@@ -26,6 +26,7 @@ public static class EditParametersSerializer
         SetDouble(xmp, "Tint", p.Tint);
         SetDouble(xmp, "Clarity", p.Clarity);
         SetDouble(xmp, "Sharpness", p.Sharpness);
+        SetDouble(xmp, "NoiseReduction", p.NoiseReduction);
         SetDouble(xmp, "BlackPoint", p.BlackPoint);
         SetDouble(xmp, "WhitePoint", p.WhitePoint);
         SetDouble(xmp, "Midtones", p.Midtones);
@@ -57,7 +58,7 @@ public static class EditParametersSerializer
         foreach (var prop in new[]
         {
             "Brightness", "Contrast", "Exposure", "Highlights", "Shadows",
-            "Saturation", "Temperature", "Tint", "Clarity", "Sharpness",
+            "Saturation", "Temperature", "Tint", "Clarity", "Sharpness", "NoiseReduction",
             "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
             "CropLeft", "CropTop", "CropWidth", "CropHeight"
         })
@@ -80,6 +81,7 @@ public static class EditParametersSerializer
             Tint = GetDouble(xmp, "Tint"),
             Clarity = GetDouble(xmp, "Clarity"),
             Sharpness = GetDouble(xmp, "Sharpness"),
+            NoiseReduction = GetDouble(xmp, "NoiseReduction"),
             BlackPoint = GetDouble(xmp, "BlackPoint"),
             WhitePoint = GetDouble(xmp, "WhitePoint", 1.0),
             Midtones = GetDouble(xmp, "Midtones", 0.5),
