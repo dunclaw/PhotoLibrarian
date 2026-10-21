@@ -157,7 +157,7 @@ public sealed class ImageViewerNavigationTests
         var first = new ImageThumbnailViewModel(Video("first"));
         var second = new ImageThumbnailViewModel(Video("second"));
         var third = new ImageThumbnailViewModel(Video("third"));
-        var grid = new ImageGridViewModel(null!, null!, null!, null!, null!, null!);
+        var grid = new ImageGridViewModel(null!, null!, null!, null!, null!, null!, null!);
         grid.Images.Add(first);
         grid.Images.Add(second);
         grid.Images.Add(third);

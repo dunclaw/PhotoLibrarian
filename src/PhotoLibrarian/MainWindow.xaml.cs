@@ -20,6 +20,95 @@ public sealed partial class MainWindow : Window
 
     private CropAspectRatio _pendingAspect = CropAspectRatio.Free;
     private bool _isClosing;
+    private SlideshowWindow? _slideshow;
+    private Control? _slideshowReturnFocus;
+    private double _slideshowIntervalSeconds = 5;
+
+    private void OnSlideshowInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (CanStartSlideshow())
+        {
+            args.Handled = true;
+            StartSlideshow(null);
+        }
+    }
+
+    private bool CanStartSlideshow() =>
+        !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+          ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
+          ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
+          ViewerOverlay.IsManualFaceTagging);
+
+    /// <summary>Opens the slideshow. In the viewer it plays the viewer's photos from the photo on
+    /// screen; in the grid it uses <paramref name="gridSelection"/> (or the grid's selection).</summary>
+    private void StartSlideshow(IReadOnlyList<Core.Models.ImageEntry>? gridSelection)
+    {
+        if (!CanStartSlideshow()) return;
+        if (_slideshow is not null)
+        {
+            _slideshow.Activate();
+            return;
+        }
+
+        Core.Models.SlideshowSequence sequence;
+        var viewer = ViewModel.ImageViewer;
+        var grid = ViewModel.ImageGrid;
+        var displayed = grid.DisplayedEntries;
+        if (viewer.IsOpen && viewer.CurrentEntry is { } current)
+        {
+            var source = displayed.Any(entry =>
+                string.Equals(entry.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase))
+                ? displayed
+                : viewer.Images;
+            sequence = new Core.Models.SlideshowSequence(source, [], current.FilePath);
+        }
+        else
+        {
+            IEnumerable<Core.Models.ImageEntry> selection = gridSelection
+                ?? (grid.SelectedImages.Count > 0
+                    ? grid.SelectedImages.Select(image => image.Entry)
+                    : grid.SelectedImage is { } selected ? [selected.Entry] : []);
+            sequence = new Core.Models.SlideshowSequence(displayed, selection);
+        }
+        if (sequence.Count == 0)
+        {
+            ViewModel.StatusText = "No photos available for a slideshow in the current selection or filtered set.";
+            return;
+        }
+
+        ViewerOverlay.PauseVideo();
+        _slideshowReturnFocus = FocusManager.GetFocusedElement(AppRoot.XamlRoot) as Control;
+        _slideshow = new SlideshowWindow(sequence, _slideshowIntervalSeconds);
+        _slideshow.Closed += OnSlideshowClosed;
+        _slideshow.Activate();
+    }
+
+    private void OnSlideshowClosed(object sender, WindowEventArgs args)
+    {
+        if (_slideshow is null) return;
+        _slideshowIntervalSeconds = _slideshow.ViewModel.IntervalSeconds;
+        _slideshow.Closed -= OnSlideshowClosed;
+        _slideshow = null;
+        if (!_isClosing)
+        {
+            Activate();
+            _slideshowReturnFocus?.Focus(FocusState.Programmatic);
+        }
+        _slideshowReturnFocus = null;
+    }
+
+    private async void LibrarySearchBox_TextChanged(
+        AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+            await ViewModel.Search.UpdateSuggestionsAsync(sender.Text);
+    }
+
+    private async void LibrarySearchBox_QuerySubmitted(
+        AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        await ViewModel.Search.SubmitAsync(args.QueryText);
+    }
 
     public async Task RefreshMetadataTreesAsync()
     {
@@ -105,6 +194,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
         ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
+        MetadataWriterService.SidecarFallback += OnMetadataSidecarFallback;
 
         UpdateFaceDetectionButton();
 
@@ -113,6 +203,8 @@ public sealed partial class MainWindow : Window
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
+        TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
+        ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
@@ -138,6 +230,19 @@ public sealed partial class MainWindow : Window
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;
+    }
+
+    private void OnMetadataSidecarFallback(object? sender, MetadataWriteFallbackEventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosing) return;
+            MetadataFallbackInfoBar.Message =
+                $"The latest {e.PropertyName} edit could not be written into \"{e.ImagePath}\". " +
+                $"It was saved to \"{e.SidecarPath}\" instead. Keep this sidecar with the image. " +
+                $"Reason: {e.Error.Message}";
+            MetadataFallbackInfoBar.IsOpen = true;
+        });
     }
 
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -272,10 +377,12 @@ public sealed partial class MainWindow : Window
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
         _isClosing = true;
+        _slideshow?.Close();
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
+        MetadataWriterService.SidecarFallback -= OnMetadataSidecarFallback;
         ViewModel.ImageGrid.Cleanup();
         await ViewModel.CleanupAsync();
     }

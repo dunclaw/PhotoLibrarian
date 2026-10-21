@@ -38,6 +38,7 @@ public sealed partial class ImageEditorView : UserControl
         this.InitializeComponent();
         _suppressSliderEvents = false;
         RegisterCenterSnaps();
+        RegisterEditGestures();
         this.Loaded += OnLoaded;
         this.Unloaded += OnUnloaded;
         AddZoomAccelerator(Windows.System.VirtualKey.Add, () => ZoomBy(zoomIn: true));
@@ -68,6 +69,7 @@ public sealed partial class ImageEditorView : UserControl
         if (ViewModel is null) return;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewModel.ParametersChanged += OnParametersChanged;
+        UpdateHistoryControls();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -103,14 +105,63 @@ public sealed partial class ImageEditorView : UserControl
                 case nameof(ImageEditorViewModel.HasBackup):
                     RevertBtn.Visibility = ViewModel.HasBackup ? Visibility.Visible : Visibility.Collapsed;
                     break;
+                case nameof(ImageEditorViewModel.CanUndo):
+                case nameof(ImageEditorViewModel.CanRedo):
+                case nameof(ImageEditorViewModel.IsSaving):
+                    UpdateHistoryControls();
+                    break;
             }
         });
     }
 
     private void OnParametersChanged(object? sender, EventArgs e)
     {
+        SyncSlidersFromViewModel();
         DispatcherQueue.TryEnqueue(() => EditCanvas.Invalidate());
         DispatcherQueue.TryEnqueue(() => HistogramCanvas.Invalidate());
+    }
+
+    private void UpdateHistoryControls()
+    {
+        UndoBtn.IsEnabled = ViewModel?.CanUndo == true;
+        RedoBtn.IsEnabled = ViewModel?.CanRedo == true;
+        var isSaving = ViewModel?.IsSaving == true;
+        AdjustmentsPanel.IsEnabled = !isSaving;
+        CloseBtn.IsEnabled = !isSaving;
+        SaveBtn.IsEnabled = !isSaving;
+    }
+
+    private void OnUndo(SplitButton sender, SplitButtonClickEventArgs args) =>
+        ViewModel?.UndoCommand.Execute(null);
+
+    private void OnRedo(SplitButton sender, SplitButtonClickEventArgs args) =>
+        ViewModel?.RedoCommand.Execute(null);
+
+    private void OnHistoryOpening(object sender, object e)
+    {
+        if (ViewModel is null || sender is not MenuFlyout flyout) return;
+        var undo = flyout == UndoFlyout;
+        var history = undo ? ViewModel.UndoHistory : ViewModel.RedoHistory;
+        flyout.Items.Clear();
+        for (var i = 0; i < history.Count; i++)
+        {
+            var steps = i + 1;
+            var item = new MenuFlyoutItem
+            {
+                Text = $"{steps}. {history[i]}",
+                IsEnabled = !ViewModel.IsSaving
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(
+                item, $"Editor{(undo ? "Undo" : "Redo")}Step{steps}");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+                item, $"{(undo ? "Undo" : "Redo")} {steps} {(steps == 1 ? "edit" : "edits")}: {history[i]}");
+            item.Click += (_, _) =>
+            {
+                if (undo) ViewModel.UndoSteps(steps);
+                else ViewModel.RedoSteps(steps);
+            };
+            flyout.Items.Add(item);
+        }
     }
 
     private void OnCanvasCreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
@@ -360,6 +411,7 @@ public sealed partial class ImageEditorView : UserControl
         _draggedHistogramAnchor = FindHistogramAnchor(position.X / HistogramCanvas.ActualWidth);
         if (_draggedHistogramAnchor != 0)
         {
+            ViewModel.BeginEdit("Levels");
             HistogramCanvas.CapturePointer(e.Pointer);
             UpdateHistogramAnchor(position.X);
         }
@@ -386,8 +438,9 @@ public sealed partial class ImageEditorView : UserControl
     private void EndHistogramDrag(Pointer pointer)
     {
         if (_draggedHistogramAnchor == 0) return;
-        HistogramCanvas.ReleasePointerCapture(pointer);
         _draggedHistogramAnchor = 0;
+        HistogramCanvas.ReleasePointerCapture(pointer);
+        ViewModel?.EndEdit();
     }
 
     private int FindHistogramAnchor(double position)
@@ -445,16 +498,40 @@ public sealed partial class ImageEditorView : UserControl
     private void AddCenterSnap(Slider slider, double neutral, double threshold)
     {
         _sliderSnaps[slider] = (neutral, threshold);
-        // Slider marks pointer events handled internally, so listen for handled events too.
-        slider.AddHandler(PointerPressedEvent, new PointerEventHandler((_, _) => _draggedSlider = slider), true);
-        slider.AddHandler(PointerReleasedEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
-        slider.AddHandler(PointerCanceledEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
-        slider.AddHandler(PointerCaptureLostEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
+    }
+
+    private void RegisterEditGestures()
+    {
+        Slider[] sliders =
+        [
+            ExposureSlider, BrightnessSlider, ContrastSlider, HighlightsSlider, ShadowsSlider,
+            SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, SharpnessSlider,
+            BlackPointSlider, WhitePointSlider, MidtonesSlider, RotationSlider
+        ];
+        foreach (var slider in sliders)
+        {
+            // Slider marks pointer events handled internally, so listen for handled events too.
+            slider.AddHandler(PointerPressedEvent, new PointerEventHandler((_, _) =>
+            {
+                _draggedSlider = slider;
+                ViewModel?.BeginEdit(slider.Name.Replace("Slider", "") switch
+                {
+                    "BlackPoint" => "Black point",
+                    "WhitePoint" => "White point",
+                    var label => label
+                });
+            }), true);
+            slider.AddHandler(PointerReleasedEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
+            slider.AddHandler(PointerCanceledEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
+            slider.AddHandler(PointerCaptureLostEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
+        }
     }
 
     private void EndSliderDrag(Slider slider)
     {
-        if (_draggedSlider == slider) _draggedSlider = null;
+        if (_draggedSlider != slider) return;
+        _draggedSlider = null;
+        ViewModel?.EndEdit();
     }
 
     private void OnSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -511,9 +588,19 @@ public sealed partial class ImageEditorView : UserControl
             _sourceBitmap?.Dispose();
             _sourceBitmap = null;
 
-            await ViewModel.RevertToOriginalCommand.ExecuteAsync(null);
-            SyncSlidersFromViewModel();
-            await LoadImageAsync(ViewModel.ImagePath);
+            try
+            {
+                await ViewModel.RevertToOriginalCommand.ExecuteAsync(null);
+                SyncSlidersFromViewModel();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Revert failed: {ex.Message}");
+            }
+            finally
+            {
+                await LoadImageAsync(ViewModel.ImagePath);
+            }
         }
     }
 

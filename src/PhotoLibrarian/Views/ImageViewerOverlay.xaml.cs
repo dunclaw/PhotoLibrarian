@@ -35,6 +35,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     public bool IsCropping { get; private set; }
     public bool IsStraightening { get; private set; }
     public bool IsRedEyeRemoving => _isRedEyeRemoving;
+    public bool IsManualFaceTagging => _isManualFaceTagging || _pendingManualFaceTagging;
     public event EventHandler? CropExited;
     public event EventHandler? CropApplyRequested;
     public event EventHandler? CropCancelRequested;
@@ -391,6 +392,8 @@ public sealed partial class ImageViewerOverlay : UserControl
         }
         catch { }
     }
+
+    public void PauseVideo() => VideoPlayer.MediaPlayer?.Pause();
 
     private void StopVideo()
     {

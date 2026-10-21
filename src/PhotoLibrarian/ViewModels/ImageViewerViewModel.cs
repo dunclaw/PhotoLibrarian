@@ -43,6 +43,9 @@ public partial class ImageViewerViewModel : ObservableObject
             ? _allImages[_currentIndex]
             : null;
 
+    /// <summary>The photos the viewer is stepping through (the grid's filtered set when opened).</summary>
+    public IReadOnlyList<ImageEntry> Images => _allImages;
+
     /// <summary>
     /// Raised whenever the viewer moves to a different image (or closes, with null). Lets the
     /// metadata panel follow the image on screen instead of staying on the grid selection.

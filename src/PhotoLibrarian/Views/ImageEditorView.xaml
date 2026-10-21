@@ -33,6 +33,23 @@
                            TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <SplitButton x:Name="UndoBtn" Click="OnUndo" IsEnabled="False"
+                                 AutomationProperties.Name="Undo edit" AutomationProperties.AutomationId="EditorUndo"
+                                 ToolTipService.ToolTip="Undo edit">
+                        <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                        <SplitButton.Flyout>
+                            <MenuFlyout x:Name="UndoFlyout" Opening="OnHistoryOpening" />
+                        </SplitButton.Flyout>
+                    </SplitButton>
+                    <SplitButton x:Name="RedoBtn" Click="OnRedo" IsEnabled="False"
+                                 AutomationProperties.Name="Redo edit" AutomationProperties.AutomationId="EditorRedo"
+                                 ToolTipService.ToolTip="Redo edit">
+                        <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                        <SplitButton.Flyout>
+                            <MenuFlyout x:Name="RedoFlyout" Opening="OnHistoryOpening" />
+                        </SplitButton.Flyout>
+                    </SplitButton>
+                    <AppBarSeparator />
                     <Button Click="OnZoomOut" ToolTipService.ToolTip="Zoom out (Ctrl+-)" Padding="8"
                             AutomationProperties.Name="Zoom out">
                         <FontIcon Glyph="&#xE71F;" FontSize="14" />
@@ -57,7 +74,7 @@
                             AutomationProperties.Name="Save edits">
                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
                     </Button>
-                    <Button Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8"
+                    <Button x:Name="CloseBtn" Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8"
                             AutomationProperties.Name="Close editor">
                         <FontIcon Glyph="&#xE711;" FontSize="14" />
                     </Button>
@@ -79,7 +96,7 @@
         </Grid>
 
         <!-- Adjustment sliders panel -->
-        <ScrollViewer Grid.Column="1" Padding="12"
+        <ScrollViewer x:Name="AdjustmentsPanel" Grid.Column="1" Padding="12"
                       Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                       BorderThickness="1,0,0,0">
@@ -181,7 +198,8 @@
                                       PointerPressed="OnHistogramPointerPressed"
                                       PointerMoved="OnHistogramPointerMoved"
                                       PointerReleased="OnHistogramPointerReleased"
-                                      PointerCanceled="OnHistogramPointerCanceled" />
+                                      PointerCanceled="OnHistogramPointerCanceled"
+                                      PointerCaptureLost="OnHistogramPointerCanceled" />
 
                 <StackPanel Spacing="2">
                     <TextBlock Text="Black Point" Style="{StaticResource CaptionTextBlockStyle}" />

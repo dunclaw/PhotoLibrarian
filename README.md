@@ -17,10 +17,14 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **People**, **Tag**, and **Flag** trees; the sections combine as a union filter.
 - 🏷️ **Hierarchical tags** (`people/family/kids` indexes `people` + `people/family` + `people/family/kids` so you can filter at any level).
 - ⚡ **SQLite metadata index** + Windows native thumbnail cache for instant viewport-aware loads.
+- **Search current photos** in the header finds filename, caption/title, tags, camera make/model, and people using a local SQLite FTS5 index. The left-pane selections build a union; header refinement filters and search further restrict it. Suggestions use that same scope, and results keep the grid's selected sort and grouping. Type for suggestions and press Enter or select a suggestion to apply search. Words match prefixes (case/accent insensitive); multiple words must all match. Clearing search restores the selected, refined set. For a global search, select all photos and clear refinement filters first. Existing libraries get filename, camera, tag, and people search immediately; the next background scan automatically populates captions/titles from photo metadata.
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Clarity / Sharpness / Levels / Rotation.
+- **Editor undo/redo** with split-button history menus. A slider or histogram drag, Auto enhance, and Reset each form one step; selecting a history entry undoes or redoes through that step. History covers pending adjustments only and clears on save, Revert, close, or opening another photo.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
 - **Synchronized photo navigation** follows the grid's current filters, sort, and grouping. Returning from full view selects and reveals the displayed item. If a filter removes it, full view moves to the first matching item (or closes when no items match).
+- **Batch resize and export** from the grid's right-click menu: export selected still images as JPEG copies using a maximum dimension or percentage, JPEG quality, an output folder and optional metadata stripping. Images are never enlarged; originals and existing files are never overwritten. Transparency is flattened onto white and only the first frame is exported. Unless stripped, common embedded captions, tags, ratings, capture date, author, copyright and camera name are retained; other metadata (including GPS and face regions) and sidecars are not copied. Progress, cancellation and per-file failures are shown.
+- **Batch rename with a live preview** from the grid's multi-select context menu. Use `Trip_{####}` for sequential names, `{original}` for the original basename, and `{yyyy}`, `{MM}`, `{dd}`, `{HH}`, `{mm}`, `{ss}` for capture-date parts (modified date when capture date is missing). Extensions are preserved, XMP sidecars move with their photos, and existing or duplicate photo/sidecar destinations block the operation.
 - 💾 **In-place metadata writing** for JPEG / TIFF / PNG / HEIC / JPEG-XR via `BitmapEncoder.CreateForInPlacePropertyEncodingAsync` — image bytes are preserved exactly; only the metadata block is rewritten. RAW formats (CR2/CR3/NEF/ARW) fall back to XMP sidecars (industry-standard limitation).
 - 🔍 **Background indexing** with restartable re-index and a manage-folders dialog.
 - 🔄 **Watched-folder updates** detect Explorer copies, edits, and deletions automatically; filesystem events are batched and only affected files are re-indexed.
@@ -28,9 +32,49 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 ---
 
+### Batch rename
+
+Batch rename numbers files from 1 in selection order. Patterns specify the basename only
+(for example, `{yyyy}-{MM}-{dd}_{original}_{###}`). Renaming into occupied names,
+including those of other selected photos, is not supported; use a distinct prefix first.
+If a filesystem or database error occurs during a batch, the failed photo's moves are
+rolled back and processing stops; earlier successful renames remain in place and the
+error reports how many completed.
+
+### Portable people tags
+
+Face edits write MWG Region XMP plus Microsoft Photo 1.2 People Tags
+(`MP:RegionInfo/MPRI:Regions`, an unordered bag of `MPReg:PersonDisplayName`
+and `MPReg:Rectangle` structures). Microsoft rectangles use normalized
+top-left X, Y, width, height; MWG retains its normalized center-based areas.
+Unnamed detections and portable review decisions remain in MWG/PhotoLibrarian
+metadata and are not exported as named Microsoft tags.
+
+JPEG and PNG store both representations in embedded XMP; other formats, or
+images that cannot be updated in place, use the existing XMP sidecar fallback.
+Renaming/removing people replaces both sets of face tags, and sidecar cropping
+clips/removes rectangles in both schemas. Existing non-face MWG regions and
+unrelated XMP fields are preserved. Microsoft-only named rectangles can also
+be imported; matching MWG faces take precedence without duplicating them.
+
+The Microsoft representation follows the
+[WIC People Tagging schema](https://learn.microsoft.com/en-us/windows/win32/wic/-wic-people-tagging)
+and the HTTP namespace URIs used by
+[Exiv2](https://exiv2.org/tags-xmp-MP.html) and Windows Photo Gallery.
+Windows exposes embedded names through `System.Photo.PeopleNames` (Explorer's
+People property); consumers must support XMP sidecars to see fallback metadata.
+Photo Gallery is discontinued, so compatibility is checked at the schema and
+Windows property-handler level rather than by running Photo Gallery itself.
+
 ## Status
 
 Active personal project — usable for daily browsing, tagging, and rating today. See [Roadmap](#roadmap) for what's missing relative to Windows Live Photo Gallery.
+
+Advanced denoising, motion/defocus deblurring, and RAW-aware tone mapping are
+research-stage, not current editor features. See the
+[advanced editing feasibility decision](docs/ADVANCED-EDITING.md) for the
+recommended implementation order, model/dependency costs, format boundaries,
+and quality/render-parity gates.
 
 ---
 
@@ -89,7 +133,7 @@ PhotoLibrarian writes metadata in this priority order so your photos remain port
    - **Tags** → `System.Keywords` (XMP `dc:subject` + EXIF XPKeywords + IPTC Keywords)
    - **Date taken** → `System.Photo.DateTaken` (EXIF DateTimeOriginal)
    - **Flag** → XMP `plib:Flagged` in the PhotoLibrarian namespace (`http://ns.photolibrarian.app/1.0/`) — there is no standard EXIF/XMP flag field, so a private namespace is used rather than hijacking `xmp:Label`
-2. **XMP sidecar** (`*.xmp`) — only for RAW formats that can't be safely rewritten. Lightroom does the same.
+2. **XMP sidecar** (`*.xmp`) — for RAW formats that can't be safely rewritten, or when an embedded write fails. Temporary file locks are retried up to three times (100, 200, then 400 ms delays) before giving up. An unexpected fallback shows a dismissible warning identifying the image and sidecar; keep both files together so the edit stays portable. Expected RAW sidecars do not show a warning.
 3. **SQLite cache** at `%LOCALAPPDATA%\PhotoLibrarian\cache.db` — cache only; never authoritative. Wipe and re-index any time.
 
 Move a JPEG to another drive or another machine and every edit goes with it.
@@ -508,8 +552,26 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
 | Next / previous in viewer | ←  →  arrow keys |
 | Flag / unflag selection | F (grid and viewer) |
+| Start full-screen slideshow | F11 (grid and viewer) |
+| Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
+| Exit slideshow | Esc or F11 |
 
-More shortcuts (Del, F2, 0-5 rating, F11 slideshow) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
+Start a slideshow with F11, the **Slideshow** button at the left of the grid toolbar or in
+the viewer ribbon, or **Slideshow** in a photo's right-click menu. Photos play in the order
+the grid shows them (including grouping) and videos are excluded:
+
+- **Viewer:** plays the viewer's photos, starting at the photo on screen.
+- **Grid, two or more photos selected:** plays only the selected photos, starting at the first.
+- **Grid, one photo selected:** plays the whole filtered set, starting at that photo.
+- **Grid, nothing selected:** plays the whole filtered set from the beginning.
+
+Photos wrap at either end. Use **Pause / Resume** and
+**Seconds per photo** (1-60 seconds, default 5) in the slideshow toolbar to control
+auto-advance. Each photo gets a full interval after loading or manual navigation.
+The interval is remembered until the app closes. Exiting returns to the unchanged
+grid or viewer; slideshow shortcuts are unavailable while editing or in settings.
+
+More shortcuts (Del, F2, 0-5 rating) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
 
 ---
 

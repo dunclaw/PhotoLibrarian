@@ -200,7 +200,10 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         var xmp = LoadEmbeddedXmp(imagePath) ?? XmpMetaFactory.Create();
         ApplyMetadata(xmp, metadata);
         xmp.DeleteProperty(PhotoLibrarian, AuthorityProperty);
-        var serialized = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions());
+        // XmpCore's string includes an encoding preamble outside the packet.
+        // WIC cannot read embedded XMP with that leading BOM.
+        var serialized = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions())
+            .TrimStart('\uFEFF');
 
         var embedded = false;
         try
@@ -259,6 +262,7 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         const string regionsPath = "Regions";
         const string regionListPath = "Regions/mwg-rs:RegionList";
         RemoveFaceRegions(xmp);
+        MicrosoftPeopleTags.Write(xmp, metadata.Faces);
         xmp.DeleteProperty(PhotoLibrarian, ReviewProperty);
 
         if (metadata.Faces.Count == 0) return;
@@ -383,6 +387,19 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
                 false,
                 false,
                 []));
+        }
+
+        foreach (var microsoftFace in MicrosoftPeopleTags.Read(xmp))
+        {
+            var matchIndex = FindBestMatch(faces, microsoftFace);
+            if (matchIndex < 0)
+            {
+                faces.Add(microsoftFace);
+            }
+            else if (faces[matchIndex].PersonName is null)
+            {
+                faces[matchIndex] = faces[matchIndex] with { PersonName = microsoftFace.PersonName };
+            }
         }
 
         if (xmp.DoesPropertyExist(PhotoLibrarian, ReviewProperty))
@@ -796,6 +813,7 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
 
         var sidecar = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
         RemoveFaceRegions(sidecar);
+        MicrosoftPeopleTags.Clear(sidecar);
         sidecar.DeleteProperty(PhotoLibrarian, ReviewProperty);
         sidecar.DeleteProperty(PhotoLibrarian, AuthorityProperty);
         SaveSidecar(imagePath, sidecar);
@@ -835,7 +853,12 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
     }
 
     public static string GetSidecarPathForImage(string imagePath) =>
-        File.Exists(imagePath) && CanWriteEmbedded(imagePath)
+        File.Exists(imagePath)
+            ? GetSidecarPathForDestinationImage(imagePath)
+            : Path.ChangeExtension(imagePath, ".xmp");
+
+    internal static string GetSidecarPathForDestinationImage(string imagePath) =>
+        CanWriteEmbedded(imagePath)
             ? $"{imagePath}.xmp"
             : Path.ChangeExtension(imagePath, ".xmp");
 

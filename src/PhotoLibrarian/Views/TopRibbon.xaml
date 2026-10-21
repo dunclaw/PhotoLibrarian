@@ -92,6 +92,16 @@
                         <TextBlock Text="Red eye" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="SlideshowButton" Click="OnSlideshowClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonSlideshow"
+                        AutomationProperties.Name="Slideshow"
+                        ToolTipService.ToolTip="Play a full-screen slideshow starting at this photo (F11)">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE786;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Slideshow" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
 
             <!-- ===== Crop sub-mode (replaces ViewerTools when crop is active) ===== -->
