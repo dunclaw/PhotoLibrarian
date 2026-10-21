@@ -1113,7 +1113,8 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     /// </summary>
     public void RestoreSelection(
         IReadOnlyCollection<ImageThumbnailViewModel> selected,
-        ImageThumbnailViewModel? primary)
+        ImageThumbnailViewModel? primary,
+        bool scrollIntoView = false)
     {
         _selectedItems.Clear();
         foreach (var item in selected)
@@ -1122,6 +1123,8 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         _primaryItem = primary;
         _anchorItem = primary;
         RefreshAllSelectionVisuals();
+        if (scrollIntoView && primary is not null)
+            ScrollItemIntoView(primary);
     }
     
     private static void ApplySelectionVisual(FrameworkElement element, bool selected)

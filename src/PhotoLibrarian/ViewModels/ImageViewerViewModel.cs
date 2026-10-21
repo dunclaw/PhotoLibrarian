@@ -3,7 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
-using System.Collections.ObjectModel;
+using PhotoLibrarian.Diagnostics;
 
 namespace PhotoLibrarian.ViewModels;
 
@@ -11,6 +11,7 @@ public partial class ImageViewerViewModel : ObservableObject
 {
     private List<ImageEntry> _allImages = [];
     private int _currentIndex;
+    private int _loadVersion;
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
@@ -34,7 +35,7 @@ public partial class ImageViewerViewModel : ObservableObject
     public partial string? VideoPath { get; set; }
 
     /// <summary>
-    /// The currently-viewed image entry, or null if the viewer is closed or showing a video.
+    /// The currently-viewed photo or video entry, or null if the viewer is closed.
     /// Used by the ribbon/crop overlay to know which file to act on.
     /// </summary>
     public ImageEntry? CurrentEntry =>
@@ -66,12 +67,16 @@ public partial class ImageViewerViewModel : ObservableObject
 
     public void OpenImage(ImageEntry entry, List<ImageEntry> allImages)
     {
-        _allImages = allImages;
-        _currentIndex = allImages.IndexOf(entry);
-        if (_currentIndex < 0) _currentIndex = 0;
+        _allImages = allImages.ToList();
+        _currentIndex = _allImages.FindIndex(image =>
+            string.Equals(image.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
+        if (_currentIndex < 0)
+        {
+            _currentIndex = _allImages.Count;
+            _allImages.Add(entry);
+        }
         IsOpen = true;
         CurrentImage = null;
-        RaiseCurrentEntryChanged();
         _ = LoadCurrentImageAsync();
     }
 
@@ -80,13 +85,21 @@ public partial class ImageViewerViewModel : ObservableObject
         var current = CurrentEntry;
         if (current is null) return;
 
-        _allImages = images;
+        _allImages = images.ToList();
+        if (_allImages.Count == 0)
+        {
+            Close();
+            return;
+        }
+
         _currentIndex = images.FindIndex(image =>
             string.Equals(image.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase));
         if (_currentIndex < 0)
         {
-            _currentIndex = _allImages.Count;
-            _allImages.Add(current);
+            _currentIndex = 0;
+            CurrentImage = null;
+            _ = LoadCurrentImageAsync();
+            return;
         }
         ImageInfo = $"{_currentIndex + 1} / {_allImages.Count}";
         RaiseCurrentEntryChanged();
@@ -95,6 +108,7 @@ public partial class ImageViewerViewModel : ObservableObject
     [RelayCommand]
     private void Close()
     {
+        _loadVersion++;
         IsOpen = false;
         CurrentImage = null;
         VideoPath = null;
@@ -146,8 +160,9 @@ public partial class ImageViewerViewModel : ObservableObject
 
     private async Task LoadCurrentImageAsync()
     {
-        if (_currentIndex < 0 || _currentIndex >= _allImages.Count) return;
+        if (!IsOpen || _currentIndex < 0 || _currentIndex >= _allImages.Count) return;
 
+        var loadVersion = ++_loadVersion;
         var entry = _allImages[_currentIndex];
         Title = entry.FileName;
         ImageInfo = $"{_currentIndex + 1} / {_allImages.Count}";
@@ -167,15 +182,20 @@ public partial class ImageViewerViewModel : ObservableObject
         try
         {
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(entry.FilePath);
+            if (loadVersion != _loadVersion) return;
             using var stream = await file.OpenReadAsync();
+            if (loadVersion != _loadVersion) return;
             var bmp = new BitmapImage();
             await bmp.SetSourceAsync(stream);
+            if (loadVersion != _loadVersion) return;
             CurrentImage = bmp;
             ZoomFactor = 1.0;
         }
-        catch
+        catch (Exception ex)
         {
-            CurrentImage = null;
+            DebugLog.WriteLine($"Failed to load viewer image '{entry.FilePath}': {ex}");
+            if (loadVersion == _loadVersion)
+                CurrentImage = null;
         }
     }
 }

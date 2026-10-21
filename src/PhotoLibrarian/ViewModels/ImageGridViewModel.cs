@@ -94,6 +94,10 @@ public partial class ImageGridViewModel : ObservableObject
     public ImageRefinementFilter Refinement { get; private set; } = ImageRefinementFilter.Empty;
 
     public event EventHandler? ResultsChanged;
+    public event EventHandler? SelectionRestoreRequested;
+
+    public List<ImageEntry> GetViewerImages() =>
+        GroupedImages.SelectMany(group => group.Items).Select(item => item.Entry).ToList();
 
     [ObservableProperty]
     private GroupByOption _groupBy = GroupByOption.None;
@@ -483,8 +487,6 @@ public partial class ImageGridViewModel : ObservableObject
         StartBackgroundLoadingIfNeeded();
         
         await ApplyGroupingAsync();
-        RestoreSelectionAfterLoad();
-        ResultsChanged?.Invoke(this, EventArgs.Empty);
     }
     
     
@@ -1032,6 +1034,8 @@ public partial class ImageGridViewModel : ObservableObject
                 await tcs.Task;
             }
             DebugLog.WriteLine($"[GROUPING] No images to group");
+            RestoreSelectionAfterLoad();
+            ResultsChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
         
@@ -1119,6 +1123,8 @@ public partial class ImageGridViewModel : ObservableObject
             });
             await tcs.Task;
         }
+        RestoreSelectionAfterLoad();
+        ResultsChanged?.Invoke(this, EventArgs.Empty);
     }
     
     private List<(string header, List<ImageThumbnailViewModel> items)> GroupByFileType(List<ImageThumbnailViewModel> items)
@@ -1324,6 +1330,7 @@ public partial class ImageGridViewModel : ObservableObject
 
     partial void OnSelectedImageChanged(ImageThumbnailViewModel? value)
     {
+        if (_main.ImageViewer.IsOpen) return;
         // Push selection (single or multi) to the metadata panel.
         if (SelectedImages.Count > 0)
         {
@@ -1344,6 +1351,14 @@ public partial class ImageGridViewModel : ObservableObject
     /// closes and the panel should go back to describing the selection.
     /// </summary>
     public void RefreshMetadataFromSelection() => OnSelectedImageChanged(SelectedImage);
+
+    public void SelectViewerEntry(ImageEntry entry)
+    {
+        var item = Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
+        UpdateSelection(item is null ? [] : [item], item);
+        SelectionRestoreRequested?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>
     /// Called by ImageGridView when the grid's SelectionChanged event fires.
@@ -1391,7 +1406,7 @@ public partial class ImageGridViewModel : ObservableObject
     {
         if (SelectedImage is not null)
         {
-            _main.ImageViewer.OpenImage(SelectedImage.Entry, Images.Select(i => i.Entry).ToList());
+            _main.ImageViewer.OpenImage(SelectedImage.Entry, GetViewerImages());
         }
     }
 
