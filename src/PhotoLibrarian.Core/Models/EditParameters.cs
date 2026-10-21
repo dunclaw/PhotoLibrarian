@@ -21,6 +21,8 @@ public sealed class EditParameters
     // Detail
     public double Clarity { get; set; }
     public double Sharpness { get; set; }
+    /// <summary>Edge-aware noise reduction (0.0 to 1.0, 0 = off).</summary>
+    public double NoiseReduction { get; set; }
 
     // Levels (0.0 to 1.0)
     public double BlackPoint { get; set; }
@@ -34,7 +36,7 @@ public sealed class EditParameters
     public bool HasAdjustments =>
         Brightness != 0 || Contrast != 0 || Exposure != 0 ||
         Highlights != 0 || Shadows != 0 || Saturation != 0 ||
-        Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 ||
+        Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
         BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 ||
         RotationAngle != 0 || Crop is not null;
 
@@ -50,6 +52,7 @@ public sealed class EditParameters
         Tint = Tint,
         Clarity = Clarity,
         Sharpness = Sharpness,
+        NoiseReduction = NoiseReduction,
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
@@ -62,7 +65,7 @@ public sealed class EditParameters
         Brightness = Contrast = Exposure = 0;
         Highlights = Shadows = 0;
         Saturation = Temperature = Tint = 0;
-        Clarity = Sharpness = 0;
+        Clarity = Sharpness = NoiseReduction = 0;
         BlackPoint = 0;
         WhitePoint = 1.0;
         Midtones = 0.5;

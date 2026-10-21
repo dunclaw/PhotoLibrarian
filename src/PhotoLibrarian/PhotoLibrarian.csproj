@@ -28,7 +28,31 @@
 
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\NoiseReduction.cso"
+                      LogicalName="PhotoLibrarian.Shaders.NoiseReduction.cso" />
   </ItemGroup>
+
+  <Target Name="CompileNoiseReductionShader" BeforeTargets="PrepareResources"
+          Inputs="Shaders\NoiseReduction.hlsl;$(MSBuildProjectFullPath)"
+          Outputs="$(IntermediateOutputPath)Shaders\NoiseReduction.cso">
+    <PropertyGroup>
+      <_ShaderSdkRoot Condition="'$(WindowsSdkDir)' != ''">$(WindowsSdkDir)</_ShaderSdkRoot>
+      <_ShaderSdkRoot Condition="'$(_ShaderSdkRoot)' == ''">$(MSBuildProgramFiles32)\Windows Kits\10\</_ShaderSdkRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ShaderCompiler Include="$(_ShaderSdkRoot)\bin\*\$(WindowsSDKBuildToolsArchFolder)\fxc.exe" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_ShaderCompilerPaths>@(_ShaderCompiler)</_ShaderCompilerPaths>
+      <FxcPath Condition="'$(FxcPath)' == '' AND '$(_ShaderCompilerPaths)' != ''">$(_ShaderCompilerPaths.Split(';')[0])</FxcPath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(FxcPath)')" Text="Install the Windows SDK shader compiler (fxc.exe), or set FxcPath to its location." />
+    <MakeDir Directories="$(IntermediateOutputPath)Shaders" />
+    <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\NoiseReduction.cso&quot; &quot;$(MSBuildProjectDirectory)\Shaders\NoiseReduction.hlsl&quot;" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)Shaders\NoiseReduction.cso" />
+    </ItemGroup>
+  </Target>
 
   <Target Name="IncludeCompiledXamlInPublish" BeforeTargets="ComputeFilesToPublish"
           DependsOnTargets="Prep_ComputeProcessXamlFiles">

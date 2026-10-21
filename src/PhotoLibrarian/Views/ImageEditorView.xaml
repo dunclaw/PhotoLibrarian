@@ -177,6 +177,15 @@
                 <TextBlock Text="Detail" Style="{StaticResource BodyStrongTextBlockStyle}" />
 
                 <StackPanel Spacing="2">
+                    <TextBlock Text="Noise reduction" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="NoiseReductionSlider"
+                            AutomationProperties.Name="Noise reduction"
+                            AutomationProperties.AutomationId="EditorNoiseReduction"
+                            Minimum="0" Maximum="1" StepFrequency="0.01" SmallChange="0.01"
+                            ToolTipService.ToolTip="Smooth noise while retaining strong edges. Higher values can soften fine texture."
+                            Value="0" ValueChanged="OnSliderChanged" />
+                </StackPanel>
+                <StackPanel Spacing="2">
                     <TextBlock Text="Clarity" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="ClaritySlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
                             TickFrequency="1" TickPlacement="Inline"
