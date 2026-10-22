@@ -1,0 +1,101 @@
+label,mids,sourceNames,negativePolicy,rationale
+animal,/m/0jbk,Animal,all,General animal concept; source annotation quality still requires sampling
+cat,/m/01yrx,Cat,all,Use general Cat rather than kitten-only absence
+dog,/m/0bt9lr,Dog,all,Use general Dog rather than puppy-only absence
+bird,/m/015p6,Bird,all,General bird concept
+duck,/m/09ddx,Duck,all,General duck concept
+chicken,/m/09b5t,Chicken,positive-only,Check live poultry versus food ambiguity; no source negatives transferred
+horse,/m/03k3r,Horse,all,General horse rather than pony-only labels
+cow,/m/01xq0k1,Cattle,all,Pilot explicitly includes cattle
+sheep,/m/07bgp,Sheep,all,General sheep concept
+goat,/m/03fwl,Goat,all,General goat concept
+rabbit,/m/06mf6,Rabbit,positive-only,Pilot also permits hare; Rabbit absence cannot exclude hare
+deer,/m/09kx5,Deer,all,General deer concept
+fish,/m/0ch_cf,Fish,positive-only,Check live versus prepared-fish ambiguity
+insect,/m/03vt0,Insect,all,General insect concept
+butterfly,/m/0cyf8,Butterfly,all,General butterfly concept
+flower,/m/0c9ph5,Flower,all,General flower concept
+tree,/m/07j7r,Tree,all,General tree concept
+forest,/m/02zr8,Forest,all,General forest concept
+grass,/m/08t9c_,Grass,all,General grass concept
+leaves,/m/09t49,Leaf,all,Singular/plural normalization
+mushroom,/m/052sf,Mushroom,all,General visible mushroom concept
+garden,/m/0bl0l,Garden,all,General garden concept
+mountain,/m/09d_r,Mountain,all,General mountain concept
+rocks,/m/01cbzq,Rock,all,Singular/plural normalization
+beach,/m/0b3yr,Beach,all,General beach concept
+ocean,/m/05kq4|/m/06npx,Ocean|Sea,all,Pilot is union; require both source negatives for target absence
+lake,/m/04h4w,Lake,all,General lake concept
+river,/m/06cnp|/m/0j6m2,River|Stream,all,Pilot is union; require both source negatives for target absence
+waterfall,/m/0j2kx,Waterfall,all,General waterfall concept
+desert,/m/0284w,Desert,all,General desert concept
+house,/m/03jm5,House,all,General house concept
+building,/m/0cgh4,Building,all,General building concept
+bridge,/m/015kr,Bridge (structure),all,Disambiguated from musical-instrument bridge
+road,/m/06gfj,Road,all,General road concept
+street,/m/01c8br,Street,all,General street concept
+stairs,/m/01lynh,Stairs,all,General stairs concept
+playground,/m/01h_1n,Playground,all,General playground concept
+fountain,/m/0220r2,Fountain,all,General fountain concept
+tent,/m/01j61q,Tent,all,General tent concept
+market,/m/09y4pm,Market,positive-only,Market may encode economic rather than visible-stall context; sample before training
+car,/m/0k4j,Car,all,General car concept
+bus,/m/01bjv,Bus,all,General bus concept
+truck,/m/07r04,Truck,all,General truck concept
+bicycle,/m/0199g,Bicycle,all,Object not evidence of cycling
+motorcycle,/m/04_sv,Motorcycle,all,General motorcycle concept
+train,/m/07jdr,Train,all,General train concept
+boat,/m/019jd,Boat,all,General boat concept
+airplane,/m/05czz6l,Airplane,all,Fixed-wing class
+helicopter,/m/09ct_,Helicopter,all,General helicopter concept
+wheelchair,/m/0qmmr,Wheelchair,all,Object only; no diagnosis
+chair,/m/01mzpv,Chair,all,General chair concept
+table,/m/04bcr3,Table,all,General table concept
+sofa,/m/02crq1,Couch,all,Canonical synonym
+bed,/m/03ssj5,Bed,all,General bed concept
+kitchen,/m/0d4wf,Kitchen,all,Room not lone appliance
+bathroom,/m/01j2bj,Bathroom,all,Room not lone sanitary fixture
+book,/m/0bt_c3,Book,all,Object not evidence of reading
+computer,/m/01c648,Laptop,positive-only,Narrow laptop subset avoids broad Computer including non-desktop devices
+television,/m/07c52,Television,all,General television concept
+houseplant,/m/03fp41,Houseplant,positive-only,Indoor placement may be unknown in closeups; sample before training
+food,/m/02wbm,Food,all,General food concept
+fruit,/m/02xwb,Fruit,all,General fruit concept
+vegetable,/m/0f4s2w,Vegetable,all,General vegetable concept
+bread,/m/09728,Bread,all,General bread concept
+cake,/m/0fszt,Cake,all,Object not evidence of an occasion
+pizza,/m/0663v,Pizza,all,General pizza concept
+rice,/m/09759,Rice,positive-only,Source may include rice plants; sample before training
+noodles,/m/0mfnf|/m/05z55,Noodle|Pasta,all,Pilot union; require both source negatives for target absence
+meal,/m/0krfg,Meal,positive-only,Require served-food visual support; sample before training
+drink,/m/0271t,Drink,all,No ingredient inference
+walking,/m/083mg,Walking,positive-only,Activity label needs visible-action spot check
+running,/m/06h7j,Running,positive-only,Activity label needs visible-action spot check
+swimming,/m/06z6r,Swimming,positive-only,Activity label needs visible-action spot check
+cycling,/m/01sgl,Cycling,positive-only,Activity label needs visible-action spot check
+cooking,/m/01mtb,Cooking,positive-only,Activity label needs visible-action spot check
+reading,/m/04yclrg,Reading,positive-only,Activity label needs visible-action spot check
+playing music,,,defer,No reviewed image-level equivalent; instrument presence does not prove performance
+dancing,,,defer,Dance art/event class does not establish visible dancing action
+gardening,/m/034v_,Gardening,positive-only,Activity label needs visible-action spot check
+fishing,/m/094jc,Fishing,positive-only,Activity label needs visible-action spot check
+person,/m/01g317,Person,all,Use Person rather than ambiguous People
+group of people,,,defer,Person presence does not establish at least three people
+picnic,/m/01kt56,Picnic,positive-only,Event label needs visible-evidence spot check
+concert,/m/01jddz,Concert,positive-only,Event label needs visible-evidence spot check
+celebration,,,defer,No general visually supported equivalent; no holiday-specific proxy
+snow,/m/06_dn,Snow,all,General snow concept
+rain,/m/06mb1,Rain,positive-only,Wet ground alone insufficient; sample before training
+clouds,/m/0csby,Cloud,all,Singular/plural normalization
+rainbow,/m/0b48hv,Rainbow,all,General rainbow concept
+sunset or sunrise,/m/01b2q6|/m/01b2w5,Sunrise|Sunset,all,Union avoids time-of-day inference; require both negatives for absence
+ball,/m/018xm,Ball (Object),all,Disambiguated from mathematical ball
+toy,/m/0138tl,Toy,all,General toy concept
+musical instrument,/m/04szw,Musical instrument,all,Object not evidence of active performance
+camera,/m/0dv5r,Camera,all,General camera concept
+phone,/m/07cx4|/m/0169zh,Telephone|Smartphone,all,Pilot union; require both source negatives for absence
+bag,/m/0n5v01m|/m/01940j,Bag|Backpack,all,Pilot union; require both source negatives for absence
+umbrella,/m/0hnnb,Umbrella,all,Object not weather inference
+hat,/m/02dl1y,Hat,all,No affiliation inference
+shoes,/m/06rrc,Shoe,all,Singular/plural normalization
+sign,/m/06zsq,Sign,all,No exact-location inference

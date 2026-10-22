@@ -1,16 +1,16 @@
 # Compact home-photo tagger: research foundation
 
 This is the **data-readiness stage of #66**, not a trained model, shipping
-profile, or completion of that issue. No private collection, consented inventory,
-training run, ONNX export, or scored custom-model comparison was available for
-this work. No dataset or weights are downloaded by these tools. The application,
-RAM++/TinyCLIP profiles, existing approvals, and metadata are unchanged.
+profile, or completion of that issue. No training run, ONNX export, or scored
+custom-model comparison is claimed. The application, RAM++/TinyCLIP profiles,
+existing approvals, and photo metadata are unchanged.
 
-The next actionable step is for the maintainer to review the vocabulary and
-provide a local, explicitly mapped inventory, then run this audit. Do not start
-training on a personal taxonomy unchanged or publish the audit's private files.
-Training/export implementation follows the data and license review, rather than
-producing an untested trainer or claiming fabricated model quality.
+The maintainer approved the pilot vocabulary and chose **public Open Images
+training data**. A personally labeled collection or hand-written JSONL inventory
+is **not a prerequisite**. Use the public-data workflow below; the local audit
+remains available for optional consented private data. Existing reviewed
+comparison photos should stay out of training and remain a regression set,
+not be relabeled from scratch or claimed as an untouched final test.
 
 ## Vocabulary proposal and rationale
 
@@ -156,12 +156,169 @@ never overwritten. **Both files are private**, even the aggregate audit (source
 names and rare label counts can be identifying). Keep inventories, photos,
 checkpoints and reports outside the checkout; never upload them in a PR.
 
-## Open Images V7 selection and provenance
+## Reproducible Open Images V7 workflow
+
+The public-data tools use only the standard library and keep all downloaded
+data outside the checkout. `open-images-mapping.csv` explicitly covers all 100
+pilot concepts: 96 have candidate MID mappings and four are deferred (`playing
+music`, `dancing`, `group of people`, `celebration`). These are conservative
+source-mapping proposals, not proof of source-annotation accuracy. Each MID is
+checked against its exact official class name. No fuzzy matching or mapping
+from object presence to an activity is permitted.
+
+`negativePolicy=all` transfers a positive if any listed MID is verified present,
+but transfers a negative **only when every listed MID is explicitly absent**.
+This protects union concepts such as `sunset or sunrise`. `positive-only`
+transfers no negatives: a narrower class such as Laptop cannot establish that
+all computers are absent. Ambiguous activity/event/food mappings require a
+small visual quality sample before inclusion in the trained head; they are not
+automatically cleared because a matching class name exists.
+
+### Acquire the official metadata, not the complete image dataset
+
+```powershell
+python tools\PhotoLibrarian.ModelTraining\fetch_open_images.py `
+  --output D:\Training\OpenImages\metadata `
+  --sources classes validation-labels validation-metadata train-labels train-metadata
+```
+
+This explicit command fetches about **3.42 GB of metadata**, mostly the V7
+training image-label CSV, **not millions of photos**. The default without
+`--sources` fetches only classes and validation metadata/labels (~44 MB).
+Each transfer checks Content-Length, the server's MD5 and a checked-in reviewed
+SHA-256; a source receipt records URL, generation, ETag and modification date.
+Cached data is rehashed before reuse. Failed/incomplete downloads are retained
+as `.downloading` files and never published as valid sources: inspect the named
+file before removing it to retry. No automatic overwrite or silent source
+revision change occurs.
+
+V7's full human image-level labels are used, not only the 600 boxable labels.
+The official training **image provenance** CSV used here covers the 1.7M
+boxable-image subset, not all ~9M images. IDs lacking corresponding license and
+attribution metadata are excluded and counted; they are not silently treated
+as licensed. Source coverage and selected coverage must be reported separately.
+
+### Measure coverage and choose a capped subset
+
+```powershell
+$metadata = 'D:\Training\OpenImages\metadata'
+python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations "$metadata\oidv7-train-annotations-human-imagelabels.csv" `
+  --metadata "$metadata\train-images-boxable-with-rotation.csv" `
+  --classes "$metadata\oidv7-class-descriptions.csv" `
+  --split train --per-state 100 --max-images 5000 `
+  --output D:\Training\OpenImages\selection-train-v1
+
+python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations "$metadata\oidv7-val-annotations-human-imagelabels.csv" `
+  --metadata "$metadata\validation-images-with-rotation.csv" `
+  --classes "$metadata\oidv7-class-descriptions.csv" `
+  --split validation --per-state 25 --max-images 1000 `
+  --output D:\Training\OpenImages\selection-validation-v1
+```
+
+The selector makes two streaming passes over annotations with bounded candidate
+memory. First it retains the lowest seeded SHA-256 ranks per source MID/state;
+then it joins **all** mapped human annotations for those image IDs. Verified
+confidence `1`/`1.0` and `0`/`0.0` are accepted; machine/other sources never
+transfer ground truth. Contradictory verified states on a selected image/MID
+fail explicitly. Missing target labels remain unknown. Duplicate rows cannot
+fill a candidate reservoir with repeated copies of the same ID.
+
+Then it filters to metadata-listed CC BY 2.0 images with author/landing-page
+attribution and applies the global image cap deterministically. Metadata
+filtering after candidate sampling may reduce coverage; the tool reports that
+shortfall instead of silently downloading more images. Per-state is a
+**candidate cap**, not a guarantee of 100 independent positives/negatives.
+`coverage.json`/`coverage.csv` distinguish source annotation-row counts from
+actual selected positive/negative/unknown image counts and report rejections.
+All input file hashes, source split, seed and limits are recorded.
+
+`selection.jsonl` retains source labels, original split and image provenance
+including original MD5 and rotation metadata; `image-list.txt` is compatible
+with the upstream subset downloader. Selection files contain public metadata
+but should remain local rather than become repository fixtures.
+No original test annotations or images are fetched. Original validation photos
+must **never** become training photos; validation/calibration partitioning and
+cross-split duplicate exclusion still need to be frozen before model fitting.
+
+### Download only the explicit selection
+
+```powershell
+python tools\PhotoLibrarian.ModelTraining\download_open_images.py `
+  --selection D:\Training\OpenImages\selection-train-v1\selection.jsonl `
+  --output D:\Training\OpenImages\download-train-smoke-v1 --limit 128
+```
+
+The initial 128-image cap is a download/decode smoke sample, not a training run.
+Use a new output and `--limit 5000` for the complete capped training selection
+after reviewing coverage. There is no uncapped download mode (maximum 10,000,
+maximum 8 workers and 20 MiB per image). Downloads use the fixed official
+Open Images S3 mirror, not arbitrary URLs from metadata, verify byte counts and
+JPEG framing, and retain each image's URL/ETag/size/SHA-256 in a sidecar.
+These checks do not replace a full image decoder. The original-image MD5 may
+differ from mirror/resized bytes and is retained as provenance, not misused as
+a checksum of the mirror JPEG.
+
+Rerunning the identical selection/limit verifies and reuses downloaded files;
+different selections/limits need a different directory. Download failures
+produce errors, never placeholder photos or a success manifest. A complete
+`download-manifest.jsonl` is published only after every requested image succeeds.
+The selection, sidecars and manifest all retain licensing and unresolved review
+status; downloading does not confer rights or approve a shipping model.
+
+### Observed initial coverage (2026-10-22)
+
+Using the pinned files, default seed and the train/validation commands above:
+
+| Measurement | Training selection | Validation selection |
+| --- | ---: | ---: |
+| Unique candidate IDs before provenance/cap filtering | 14,074 | 3,449 |
+| Candidate IDs missing image metadata | 6,509 | 0 |
+| Candidate IDs without transferable known target labels | 31 | 21 |
+| Eligible IDs excluded by the global cap | 2,534 | 2,428 |
+| Final selected images | 5,000 | 1,000 |
+| Concepts with at least one selected positive | 96 | 92 |
+| Concepts with at least one transferred negative | 76 | 67 |
+
+No metadata-matched candidate was rejected for license/attribution in this run.
+The four deliberately deferred concepts have no positives in either selection.
+`rice`, `gardening`, `rain` and `rainbow` additionally have no positives in the
+capped validation selection; this is **not** evidence they are absent from the
+complete dataset. Initial selected positive counts range from 2 to 2,034 in
+training and 1 to 185 in validation (among concepts with positives).
+
+Only 52 concepts have at least 50 selected training-positive images; 41 have at
+least ten validation-positive images, and only 32 meet both illustrative
+thresholds. These are **image counts, not independent event counts**. Thus this
+first capped sample demonstrates feasibility and pinpoints imbalance, not
+readiness to train a validated 100-label model. Expand targeted source sampling
+or defer sparse concepts rather than request wholesale personal relabeling.
+There was no cross-split source-ID or nonempty original-MD5 overlap in the
+selected cohorts; perceptual/edited-copy/event overlap is not ruled out.
+
+An actual bounded smoke run downloaded **128 training and 32 validation JPEGs**
+(52,726,515 bytes total). All 160 passed SHA-256 verification and full Pillow
+decode; each cohort had distinct byte hashes. Repeating selection reproduced
+the same IDs, labels and coverage, and repeating the download reused the
+hash-verified cache. These are data-pipeline checks, **not training or quality
+results**. No original test data or private regression photos were downloaded,
+uploaded, modified or added to training.
+
+Before training: decode files, check SHA-256 and perceptual/near-duplicate/event
+overlap (including against the existing private regression set, locally), honor
+source splits, review a small stratified sample of mapping quality, resolve
+license/weight terms and freeze the final head. None requires asking the
+maintainer to manually annotate hundreds of photos again. The existing local
+audit's reviewed grouping contract must not be bypassed by auto-generating
+purportedly reviewed singleton groups for public images.
+
+### Source semantics and provenance
 
 Use the official [V7 download/format documentation][oi-download] and
 [license/statistics documentation][oi-facts]. Select image IDs for reviewed pilot
 concepts first, then use the official subset downloader with an explicit cap;
-do not fetch all 9M images. There is deliberately no downloader in this stage.
+do not fetch all 9M images.
 
 Prepare a reviewed MID-to-pilot mapping with concept scope and version, rather
 than matching class descriptions as strings. Not every scene, action or event
@@ -269,10 +426,13 @@ multi-label quality result.
 python -m unittest discover -s tools\PhotoLibrarian.ModelTraining -p "test_*.py" -v
 ```
 
-Tests use synthetic byte fixtures, not real photos or training evidence. They
-cover unknown-state preservation, alias/hierarchy validation, transitive leakage
+Tests use synthetic byte fixtures, not training evidence. They cover
+unknown-state preservation, alias/hierarchy validation, transitive leakage
 constraints, reviewed-cohort exclusion, source holdout conflicts, reproducibility,
-invalid inputs and unchanged source contents/modification times.
+invalid inputs and unchanged source contents/modification times. Public-data
+tests mock all network access and cover duplicate checksum headers, source
+pinning, truncated/corrupt payloads, exact cache reuse, union/narrow-label
+semantics, machine-label exclusion, license/attribution gates and selection caps.
 
 [oi-download]: https://storage.googleapis.com/openimages/web/download_v7.html
 [oi-facts]: https://storage.googleapis.com/openimages/web/factsfigures_v7.html#licenses
