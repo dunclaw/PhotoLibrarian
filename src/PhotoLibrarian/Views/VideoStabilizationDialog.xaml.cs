@@ -15,8 +15,7 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
     {
         InitializeComponent();
         _sourcePath = sourcePath;
-        OutputBox.Text = Path.Combine(Path.GetDirectoryName(sourcePath)!,
-            Path.GetFileNameWithoutExtension(sourcePath) + "-stabilized.mp4");
+        OutputBox.Text = VideoStabilizationService.GetAvailableOutputPath(sourcePath);
     }
 
     private async void OnChooseFolder(object sender, RoutedEventArgs e)
@@ -27,8 +26,7 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
                 XamlRoot.ContentIslandEnvironment.AppWindowId);
             var folder = await picker.PickSingleFolderAsync();
             if (folder is not null)
-                OutputBox.Text = Path.Combine(folder.Path,
-                    Path.GetFileNameWithoutExtension(_sourcePath) + "-stabilized.mp4");
+                OutputBox.Text = VideoStabilizationService.GetAvailableOutputPath(_sourcePath, folder.Path);
         }
         catch (Exception ex) { ShowError($"Could not choose an output folder: {ex.Message}"); }
     }

@@ -25,6 +25,25 @@ public sealed class VideoStabilizationTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     [Fact]
+    public void DefaultOutputNameSkipsExistingVideosAndSidecars()
+    {
+        string first = Path.Combine(_directory, "source & original-stabilized.mp4");
+        Assert.Equal(first, VideoStabilizationService.GetAvailableOutputPath(Source));
+
+        File.WriteAllText(first, "existing");
+        string second = Path.Combine(_directory, "source & original-stabilized (1).mp4");
+        Assert.Equal(second, VideoStabilizationService.GetAvailableOutputPath(Source));
+
+        File.WriteAllText(FaceMetadataStore.GetSidecarPathForDestinationImage(second), "<xmp/>");
+        Assert.Equal(Path.Combine(_directory, "source & original-stabilized (2).mp4"),
+            VideoStabilizationService.GetAvailableOutputPath(Source));
+
+        string other = Path.Combine(_directory, "other");
+        Assert.Equal(Path.Combine(other, "source & original-stabilized.mp4"),
+            VideoStabilizationService.GetAvailableOutputPath(Source, other));
+    }
+
+    [Fact]
     public void RejectsMissingRelativeAndNonMp4Paths()
     {
         Assert.Throws<ArgumentException>(() => VideoStabilizationService.ValidatePaths(Output, Output));

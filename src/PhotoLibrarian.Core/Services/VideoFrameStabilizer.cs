@@ -29,9 +29,8 @@ internal sealed class VideoFrameStabilizer
         int scale = Math.Max(1, (int)Math.Ceiling(Math.Max(width / 640.0, height / 360.0)));
         int smallWidth = width / scale, smallHeight = height / scale;
         var luma = new byte[smallWidth * smallHeight];
-        for (int y = 0; y < smallHeight; y++)
+        Parallel.For(0, smallHeight, Options(cancellationToken), y =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             for (int x = 0; x < smallWidth; x++)
             {
                 int sum = 0;
@@ -40,7 +39,7 @@ internal sealed class VideoFrameStabilizer
                         sum += frame[(y * scale + row) * width + x * scale + column];
                 luma[y * smallWidth + x] = (byte)(sum / (scale * scale));
             }
-        }
+        });
 
         var previous = _previous;
         _previous = luma;
@@ -75,18 +74,17 @@ internal sealed class VideoFrameStabilizer
         if (_autoCrop)
             (offsetX, offsetY, angle) = LimitCorrectionToCrop(width, height, _cropX, _cropY, offsetX, offsetY, angle);
         var (sin, cos) = Math.SinCos(angle);
-        var warped = new byte[frame.Length];
-        WarpPlane(frame, warped, width, height, 0, 1, cos, sin, offsetX, offsetY, cancellationToken);
-        WarpPlane(frame, warped, width / 2, height / 2, width * height, 2,
-            cos, sin, offsetX / 2, offsetY / 2, cancellationToken);
-        if (!_autoCrop) return warped;
-
         var output = new byte[frame.Length];
-        CropAndResizePlane(warped, output, width, height, 0, 1, _cropX, _cropY, width, height, cancellationToken);
-        CropAndResizePlane(warped, output, width / 2, height / 2, width * height, 2,
-            _cropX / 2, _cropY / 2, width / 2, height / 2, cancellationToken);
+        // Warp and crop/rescale are composed into one sampling pass to avoid double interpolation.
+        WarpPlane(frame, output, width, height, 0, 1, cos, sin, offsetX, offsetY,
+            _cropX, _cropY, cancellationToken);
+        WarpPlane(frame, output, width / 2, height / 2, width * height, 2,
+            cos, sin, offsetX / 2, offsetY / 2, _cropX / 2, _cropY / 2, cancellationToken);
         return output;
     }
+
+    private static ParallelOptions Options(CancellationToken cancellationToken) =>
+        new() { CancellationToken = cancellationToken };
 
     private readonly record struct Motion(double X, double Y, double Angle);
     private readonly record struct Track(double X, double Y, double Dx, double Dy);
@@ -97,20 +95,19 @@ internal sealed class VideoFrameStabilizer
         const int patch = 6;
         int radius = Math.Min(20, Math.Min(width, height) / 8);
         int margin = radius + patch + 1;
-        var tracks = new List<Track>();
-        for (int gy = 0; gy < 5; gy++)
-        for (int gx = 0; gx < 8; gx++)
+        var found = new Track?[40];
+        Parallel.For(0, found.Length, Options(cancellationToken), cell =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            int gx = cell % 8, gy = cell / 8;
             int x = margin + (width - 2 * margin) * (2 * gx + 1) / 16;
             int y = margin + (height - 2 * margin) * (2 * gy + 1) / 10;
-            if (x < margin || y < margin || x >= width - margin || y >= height - margin) continue;
+            if (x < margin || y < margin || x >= width - margin || y >= height - margin) return;
             int texture = 0;
             for (int py = -patch; py <= patch; py += 2)
             for (int px = -patch; px <= patch; px += 2)
                 texture += Math.Abs(current[(y + py) * width + x + px + 1] -
                                     current[(y + py) * width + x + px - 1]);
-            if (texture < 120) continue;
+            if (texture < 120) return;
 
             int bestX = 0, bestY = 0;
             double best = double.MaxValue;
@@ -137,13 +134,14 @@ internal sealed class VideoFrameStabilizer
                     bestY = dy;
                 }
             }
-            if (best > 25 || Math.Abs(bestX) >= radius || Math.Abs(bestY) >= radius) continue;
+            if (best > 25 || Math.Abs(bestX) >= radius || Math.Abs(bestY) >= radius) return;
             double subX = Refine(best, PatchError(current, previous, width, x, y, bestX - 1, bestY, patch),
                 PatchError(current, previous, width, x, y, bestX + 1, bestY, patch));
             double subY = Refine(best, PatchError(current, previous, width, x, y, bestX, bestY - 1, patch),
                 PatchError(current, previous, width, x, y, bestX, bestY + 1, patch));
-            tracks.Add(new Track(x - (width - 1) / 2.0, y - (height - 1) / 2.0, bestX + subX, bestY + subY));
-        }
+            found[cell] = new Track(x - (width - 1) / 2.0, y - (height - 1) / 2.0, bestX + subX, bestY + subY);
+        });
+        var tracks = found.Where(track => track.HasValue).Select(track => track!.Value).ToList();
         if (tracks.Count < 6) return null;
 
         // Robust consensus rejects independently moving subjects and ambiguous low-texture matches.
@@ -249,62 +247,49 @@ internal sealed class VideoFrameStabilizer
         return true;
     }
 
-    private static void CropAndResizePlane(byte[] input, byte[] output, int width, int height, int start,
-        int components, int cropX, int cropY, int outputWidth, int outputHeight,
+    private static void WarpPlane(byte[] input, byte[] output, int width, int height, int start,
+        int components, double cos, double sin, double dx, double dy, int cropX, int cropY,
         CancellationToken cancellationToken)
     {
-        int cropWidth = width - 2 * cropX, cropHeight = height - 2 * cropY;
-        for (int y = 0; y < outputHeight; y++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            double sourceY = cropY + (y + 0.5) * cropHeight / outputHeight - 0.5;
-            int y0 = Math.Clamp((int)Math.Floor(sourceY), cropY, cropY + cropHeight - 1);
-            int y1 = Math.Min(y0 + 1, cropY + cropHeight - 1);
-            double fy = sourceY - Math.Floor(sourceY);
-            for (int x = 0; x < outputWidth; x++)
-            {
-                double sourceX = cropX + (x + 0.5) * cropWidth / outputWidth - 0.5;
-                int x0 = Math.Clamp((int)Math.Floor(sourceX), cropX, cropX + cropWidth - 1);
-                int x1 = Math.Min(x0 + 1, cropX + cropWidth - 1);
-                double fx = sourceX - Math.Floor(sourceX);
-                int destination = start + (y * outputWidth + x) * components;
-                int topLeft = start + (y0 * width + x0) * components;
-                int topRight = start + (y0 * width + x1) * components;
-                int bottomLeft = start + (y1 * width + x0) * components;
-                int bottomRight = start + (y1 * width + x1) * components;
-                for (int c = 0; c < components; c++)
-                    output[destination + c] = (byte)Math.Clamp(Math.Round(
-                        (input[topLeft + c] * (1 - fx) + input[topRight + c] * fx) * (1 - fy) +
-                        (input[bottomLeft + c] * (1 - fx) + input[bottomRight + c] * fx) * fy), 0, 255);
-            }
-        }
-    }
-
-    private static void WarpPlane(byte[] input, byte[] output, int width, int height, int start,
-        int components, double cos, double sin, double dx, double dy, CancellationToken cancellationToken)
-    {
         double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
-        for (int y = 0; y < height; y++)
+        double scaleX = (width - 2.0 * cropX) / width, scaleY = (height - 2.0 * cropY) / height;
+        double firstX = cropX + 0.5 * scaleX - 0.5 - centerX;
+        double stepX = cos * scaleX, stepY = sin * scaleX;
+        int rowLength = width * components;
+        Parallel.For(0, height, Options(cancellationToken), y =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            double sourceX = centerX - cos * centerX - sin * (y - centerY) + dx;
-            double sourceY = centerY - sin * centerX + cos * (y - centerY) + dy;
-            for (int x = 0; x < width; x++, sourceX += cos, sourceY += sin)
+            double v = cropY + (y + 0.5) * scaleY - 0.5 - centerY;
+            double sourceX = centerX + cos * firstX - sin * v + dx;
+            double sourceY = centerY + sin * firstX + cos * v + dy;
+            int destination = start + y * rowLength;
+            for (int x = 0; x < width; x++, sourceX += stepX, sourceY += stepY, destination += components)
             {
                 int ix = (int)Math.Floor(sourceX), iy = (int)Math.Floor(sourceY);
                 double fx = sourceX - ix, fy = sourceY - iy;
-                int x0 = Mirror(ix, width), x1 = Mirror(ix + 1, width);
-                int row0 = start + Mirror(iy, height) * width * components;
-                int row1 = start + Mirror(iy + 1, height) * width * components;
-                int destination = start + (y * width + x) * components;
+                int x0, x1, row0, row1;
+                if ((uint)ix < (uint)(width - 1) && (uint)iy < (uint)(height - 1))
+                {
+                    x0 = ix * components;
+                    x1 = x0 + components;
+                    row0 = start + iy * rowLength;
+                    row1 = row0 + rowLength;
+                }
+                else
+                {
+                    x0 = Mirror(ix, width) * components;
+                    x1 = Mirror(ix + 1, width) * components;
+                    row0 = start + Mirror(iy, height) * rowLength;
+                    row1 = start + Mirror(iy + 1, height) * rowLength;
+                }
                 for (int c = 0; c < components; c++)
-                    output[destination + c] = (byte)Math.Clamp(Math.Round(
-                        (input[row0 + x0 * components + c] * (1 - fx) + input[row0 + x1 * components + c] * fx) * (1 - fy) +
-                        (input[row1 + x0 * components + c] * (1 - fx) + input[row1 + x1 * components + c] * fx) * fy), 0, 255);
+                {
+                    double top = input[row0 + x0 + c] + (input[row0 + x1 + c] - input[row0 + x0 + c]) * fx;
+                    double bottom = input[row1 + x0 + c] + (input[row1 + x1 + c] - input[row1 + x0 + c]) * fx;
+                    output[destination + c] = (byte)Math.Clamp((int)(top + (bottom - top) * fy + 0.5), 0, 255);
+                }
             }
-        }
+        });
     }
-
     private static int Mirror(int coordinate, int length)
     {
         int wrapped = ((coordinate % (2 * length)) + 2 * length) % (2 * length);

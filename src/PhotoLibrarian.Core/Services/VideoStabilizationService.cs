@@ -54,6 +54,7 @@ public sealed class VideoStabilizationService
                 if (new FileInfo(temporaryPath).Length == 0)
                     throw new IOException("Windows did not produce a video.");
                 PublishOutput(sourcePath, temporaryPath, destinationPath);
+                await WaitUntilReadableAsync(destinationPath);
             }
             catch (Exception ex) when (ex is COMException or SharpGen.Runtime.SharpGenException)
             {
@@ -66,6 +67,41 @@ public sealed class VideoStabilizationService
                 File.Delete(temporaryPath);
             }
         }, cancellationToken);
+
+    /// <summary>Returns the first "-stabilized" MP4 name whose video and sidecar do not exist yet.</summary>
+    public static string GetAvailableOutputPath(string sourcePath, string? directory = null)
+    {
+        directory ??= Path.GetDirectoryName(sourcePath)!;
+        string name = Path.GetFileNameWithoutExtension(sourcePath) + "-stabilized";
+        for (int index = 0; ; index++)
+        {
+            string candidate = Path.Combine(directory, (index == 0 ? name : $"{name} ({index})") + ".mp4");
+            if (!File.Exists(candidate) && !Directory.Exists(candidate) &&
+                !File.Exists(FaceMetadataStore.GetSidecarPathForDestinationImage(candidate)))
+                return candidate;
+        }
+    }
+
+    // The export is already published here, so cancellation no longer applies. Waiting until no
+    // writer holds the file and its container parses avoids handing playback a still-settling file.
+    private static async Task WaitUntilReadableAsync(string path)
+    {
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)) { }
+                var file = await StorageFile.GetFileFromPathAsync(path);
+                await MediaEncodingProfile.CreateFromFileAsync(file);
+                break;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException)
+            {
+                await Task.Delay(250);
+            }
+        }
+        await Task.Delay(500);
+    }
 
     internal static void ValidatePaths(string sourcePath, string destinationPath)
     {

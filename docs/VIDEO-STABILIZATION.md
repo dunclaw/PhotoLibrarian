@@ -8,8 +8,12 @@ and no runtime downloads. Everything runs locally inside PhotoLibrarian.
 Export runs in the background with percentage progress and cancellation.
 The dialog stays open until cancellation stops the export and removes its
 temporary output. A completed copy is published only after encoding succeeds;
-originals and existing output files are never overwritten. Output in a watched
-library folder appears through normal folder indexing. On success the dialog
+originals and existing output files are never overwritten. The suggested name
+is `<name>-stabilized.mp4`, or the first free `<name>-stabilized (1).mp4`,
+`(2)`, ... when that video or its metadata sidecar already exists. Output in a watched
+library folder appears through normal folder indexing. Before playback, the export
+waits until the published file can be opened and parsed, plus a short settle delay,
+so the player does not read a file that is still being finalized. On success the dialog
 closes and the copy opens immediately in the existing player, even when saved
 outside the library or before indexing finishes. The video ribbon shows video
 editing tools only; photo-only commands and image zoom controls are hidden.
@@ -29,6 +33,10 @@ original output dimensions. Before warping, the correction is limited as needed
 so every pixel in that retained area samples valid source data; this avoids
 mirrored-edge artifacts. Large shakes may therefore receive less correction.
 Turning auto-crop off retains the full frame and uses mirrored edge pixels.
+Frames are still stabilized in order, but each frame's motion search and the
+combined warp/crop/resample pass are spread across all CPU cores. On a 32-core
+test machine a 10-second 4K clip (313 frames) dropped from about 53 s to about
+5 s.
 
 A `MediaStreamSource` feeds those frames and their source timestamps/durations
 to Windows' H.264/AAC MP4 encoder. Only a few frames are held in memory, not the
