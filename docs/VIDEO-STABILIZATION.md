@@ -61,7 +61,7 @@ original for archival purposes.
 
 ## Options investigated
 
-Reviewed against upstream documentation/source on October 19, 2026:
+Reviewed against upstream documentation/source on October 22, 2026:
 
 | Option | License considerations | Decision |
 |---|---|---|
@@ -69,21 +69,36 @@ Reviewed against upstream documentation/source on October 19, 2026:
 | [Windows video stabilization effect](https://learn.microsoft.com/en-us/windows/win32/medfound/video-stabilization-mft) | Windows platform component. | Investigated with `MediaTranscoder`; on the test host it encoded successfully but did not meet the measurable shake-reduction check. Not used as a success-shaped fallback. |
 | [FFmpeg deshake](https://ffmpeg.org/ffmpeg-filters.html#deshake) | [Filter source](https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/vf_deshake.c) is LGPL-2.1-or-later; the complete executable's license depends on build options, and builds with libx264 are GPL. | Useful motion-estimation ideas, but requiring users to install a command-line tool is unacceptable. Not invoked or shipped. |
 | [vid.stab](https://github.com/georgmartius/vid.stab) | [Current upstream](https://github.com/georgmartius/vid.stab/blob/master/LICENSE) is LGPL-2.1-or-later; releases through 1.1.2 were GPL. | Strong candidate for a bundled two-pass L1-optimal camera path implementation; requires native x64/ARM64 builds and LGPL redistribution/relinking review. |
-| [OpenCV videostab](https://docs.opencv.org/4.13.0/d5/d50/group__videostab.html) | [OpenCV](https://github.com/opencv/opencv/blob/4.x/LICENSE) and [OpenCvSharp](https://github.com/shimat/opencvsharp/blob/master/LICENSE) are Apache-2.0; bundled third-party notices still need review. | The native module includes RANSAC estimation, `TwoPassStabilizer`, and L1 path smoothing. OpenCvSharp lists a [Windows x64 package](https://www.nuget.org/packages/OpenCvSharp4.Windows) and a [separate ARM64 runtime](https://www.nuget.org/packages/OpenCvSharp4.runtime.win-arm64), but its [managed helper](https://github.com/shimat/opencvsharp/blob/master/src/OpenCvSharp/Modules/videostab/CvVideoStab.cs) only exposes one-pass Gaussian filtering and materializes all input/output frames. The desired two-pass stream requires a custom native bridge and x64/ARM64 runtime builds. |
+| [OpenCV videostab](https://docs.opencv.org/4.13.0/d5/d50/group__videostab.html) | [OpenCV](https://github.com/opencv/opencv/blob/4.x/LICENSE) and [OpenCvSharp](https://github.com/shimat/opencvsharp/blob/master/LICENSE) are Apache-2.0; bundled third-party notices still need review. | The native module includes RANSAC estimation and `TwoPassStabilizer`. `LpMotionStabilizer` requires the separately enabled CLP dependency; stock builds without CLP throw instead of providing L1 smoothing. OpenCvSharp's [managed helper](https://github.com/shimat/opencvsharp/blob/master/src/OpenCvSharp/Modules/videostab/CvVideoStab.cs) only exposes one-pass Gaussian filtering and materializes all input/output frames. A custom native bridge is required for the two-pass API. |
 | [Gyroflow](https://github.com/gyroflow/gyroflow) | [GPL-3.0](https://github.com/gyroflow/gyroflow/blob/master/LICENSE) | Gyro-assisted stabilization needs compatible motion data/lens profiles and is beyond this basic feature. |
 
-The next evaluation is a **custom, bundled OpenCV bridge** to its native
-`TwoPassStabilizer` and L1 motion stabilizer, fed by a resettable
-Media-Foundation-backed frame source and streamed back to the existing encoder.
-This keeps all work in-process and avoids requiring FFmpeg or user-installed
-tools. Calling OpenCvSharp's current `CvVideoStab.Stabilize` helper directly
-is not suitable: it uses one-pass Gaussian smoothing and retains every input
-and output frame in memory. A bridge therefore means extending/rebuilding the
-native OpenCvSharp wrapper with contrib enabled for both architectures, not
-just adding a managed package reference. Before adopting it, measure package
-growth, confirm `videostab` is enabled in x64 and ARM64 binaries, audit bundled
-notices, and compare the output on real handheld footage. The Apache-2.0
-license is simpler for this MIT application than `vid.stab`'s LGPL terms.
+A native OpenCV 4.13 x64 prototype was built with the contrib `videostab`
+module and run on a local handheld clip through OpenCV's Media Foundation
+backend. At 960x540 analysis resolution, RANSAC rigid-motion estimation plus
+two-pass Gaussian path smoothing reduced measured frame-to-frame translation
+acceleration from 0.771 px/frame² to 0.220 at radius 15 and 0.180 at radius 30.
+Angular acceleration fell from 0.00114 deg/frame² to 0.000227 and 0.000191,
+respectively. These are motion-estimator metrics, not a perceptual quality
+assessment or a full-resolution encoded export.
+
+The native `TwoPassStabilizer` resets its frame source after the motion pass.
+It retains per-frame motion and correction matrices, but keeps only a bounded
+frame cache (twice the radius plus one), which supports a reduced-resolution
+analysis pass followed by a second full-resolution pass in the existing encoder
+pipeline. This avoids the all-input/all-output-frame memory behavior of the
+managed `CvVideoStab.Stabilize` helper. The tested build had `WITH_CLP=OFF`;
+calling `LpMotionStabilizer` without CLP throws, so these results use Gaussian
+smoothing rather than L1 path optimization. CLP is EPL-licensed and would add
+another native dependency and notice/relinking review.
+
+This is a feasibility result, not an app dependency or a production replacement.
+The prototype only built for x64: this host has no ARM64 MSVC compiler. The app
+currently targets x64, ARM64, and x86, so adopting a custom bridge requires
+reproducible builds and tests for all supported architectures, a bundled-license
+and notice audit, and package-size measurements. No OpenCV package or native
+binary has been added to the app. The Apache-2.0 OpenCV license is simpler for
+this MIT application than `vid.stab`'s LGPL terms, but platform and CLP
+constraints currently prevent recommending it as a drop-in production fix.
 
 The current motion estimator is implemented in this repository, not copied from
 FFmpeg, vid.stab, OpenCV or Gyroflow. PhotoLibrarian remains MIT licensed.
