@@ -103,6 +103,21 @@ public sealed class VideoStabilizationTests : IDisposable
         if (withAudio) Assert.Equal(MediaEncodingSubtypes.Aac, profile.Audio!.Subtype, ignoreCase: true);
     }
 
+    [Theory]
+    [InlineData(0u, 74_575_024u)]
+    [InlineData(96_000_000u, 96_000_000u)]
+    [InlineData(400_000_000u, 160_000_000u)]
+    public void OutputBitrateKeepsAtLeastSourceQuality(uint sourceBitrate, uint expected)
+    {
+        var video = VideoEncodingProperties.CreateH264();
+        video.Width = 3840;
+        video.Height = 2160;
+        video.FrameRate.Numerator = 30_000;
+        video.FrameRate.Denominator = 1001;
+        video.Bitrate = sourceBitrate;
+        Assert.Equal(expected, VideoStabilizationService.OutputBitrate(video));
+    }
+
     [Fact]
     public void RejectsAudioOnlyInput()
     {
@@ -373,7 +388,7 @@ public sealed class VideoStabilizationTests : IDisposable
         Assert.True(after < before * 0.3, $"Top-to-bottom wobble {before:F2} px before, {after:F2} px after.");
     }
 
-    /// <summary>Median frame-to-frame change in horizontal offset between the top and bottom thirds.</summary>
+    /// <summary>Median frame-to-frame change in rolling-shutter skew (bottom vs. top row, X).</summary>
     private static double MedianShearChange(IReadOnlyList<byte[]> frames, int width, int height, CancellationToken ct)
     {
         var changes = new List<double>();
@@ -381,14 +396,30 @@ public sealed class VideoStabilizationTests : IDisposable
         {
             var current = AlignmentImage.FromNv12(frames[i], width, height, 1, ct);
             var previous = AlignmentImage.FromNv12(frames[i - 1], width, height, 1, ct);
-            if (RigidAligner.Align(current, previous, new VideoFrameStabilizer.Motion(0, 0, 0), ct) is not { } rigid)
-                continue;
-            var top = RigidAligner.AlignRows(current, previous, rigid.Motion, 0, height / 3, ct);
-            var bottom = RigidAligner.AlignRows(current, previous, rigid.Motion, height * 2 / 3, height, ct);
-            if (top is { } t && bottom is { } b) changes.Add(Math.Abs(t.Motion.X - b.Motion.X));
+            if (RigidAligner.Align(current, previous, new VideoFrameStabilizer.Motion(0, 0, 0), ct) is { } rigid)
+                changes.Add(Math.Abs(rigid.Shear.X));
         }
         changes.Sort();
         return changes[changes.Count / 2];
+    }
+
+    [Fact]
+    public void DenseAlignerSeparatesShutterSkewFromRotation()
+    {
+        const int width = 640, height = 360;
+        const double skew = 3.0, angle = 0.004;
+        var ct = TestContext.Current.CancellationToken;
+        var reference = AlignmentImage.FromNv12(RigidFrame(width, height, 0, 0, 0), width, height, 1, ct);
+        var current = AlignmentImage.FromNv12(
+            RigidFrame(width, height, 1.5, -0.5, angle, s => (skew * s, 0)), width, height, 1, ct);
+
+        var result = RigidAligner.Align(current, reference, new VideoFrameStabilizer.Motion(0, 0, 0), ct);
+
+        Assert.NotNull(result);
+        var (motion, shear) = (result.Value.Motion, result.Value.Shear);
+        Assert.True(Math.Abs(motion.Angle - angle) < 0.0003 && Math.Abs(shear.X - skew) < 0.15 &&
+                    Math.Abs(shear.Y) < 0.15 && Math.Abs(motion.X - 1.5) < 0.1,
+            $"Measured angle {motion.Angle:F5}, skew ({shear.X:F3}, {shear.Y:F3}), X {motion.X:F3}");
     }
 
     [Theory]

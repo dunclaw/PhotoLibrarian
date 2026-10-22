@@ -129,7 +129,8 @@ internal sealed class AlignmentImage
 }
 
 /// <summary>
-/// Dense, robust Gauss-Newton alignment (Lucas-Kanade) of a rigid motion plus a brightness offset.
+/// Dense, robust Gauss-Newton alignment (Lucas-Kanade) of a rigid motion plus a brightness offset
+/// and rolling-shutter shear.
 /// Using tens of thousands of textured pixels gives hundredth-of-a-pixel precision, far better
 /// than block matching, so stabilized output does not inherit per-frame measurement jitter.
 /// </summary>
@@ -138,65 +139,56 @@ internal static class RigidAligner
     private const int MaxIterations = 20;
     private const int MinimumSamples = 400;
 
-    /// <summary>The alignment result and how much of the image agreed with it.</summary>
-    public readonly record struct Result(VideoFrameStabilizer.Motion Motion, double InlierFraction);
+    /// <summary>
+    /// The alignment result and how much of the image agreed with it. <see cref="Shear"/> is the
+    /// extra displacement of the bottom row relative to the top row (X and Y, in this image's
+    /// pixels): the distortion a rolling shutter adds when the camera moves during readout.
+    /// </summary>
+    public readonly record struct Result(VideoFrameStabilizer.Motion Motion, double InlierFraction,
+        (double X, double Y) Shear);
+
+    private const int Parameters = 6;
 
     /// <summary>
     /// Finds the motion that maps <paramref name="current"/> coordinates (centered, in this image's
-    /// pixels) into <paramref name="reference"/>: q = R(angle)·p + (X, Y). Returns null when the
-    /// alignment fails to converge or too little of the image agrees.
+    /// pixels) into <paramref name="reference"/>: q = R(angle)·p + (X, Y) + Shear·(row / height).
+    /// Fitting the row-dependent shear separately keeps rolling-shutter skew from being mistaken for
+    /// rotation. Returns null when the alignment fails to converge or too little of the image agrees.
     /// </summary>
     public static Result? Align(AlignmentImage current, AlignmentImage reference,
         VideoFrameStabilizer.Motion guess, CancellationToken cancellationToken)
     {
+        (double X, double Y) shear = default;
         if (current.Coarser is { } coarseCurrent && reference.Coarser is { } coarseReference)
         {
             var coarseGuess = guess with { X = guess.X / 2, Y = guess.Y / 2 };
-            if (AlignLevel(coarseCurrent, coarseReference, coarseGuess, new ArraySegment<int>(coarseCurrent.Samples),
-                    false, cancellationToken) is { } coarse)
+            if (AlignLevel(coarseCurrent, coarseReference, coarseGuess, default, cancellationToken) is { } coarse)
+            {
                 guess = coarse.Motion with { X = coarse.Motion.X * 2, Y = coarse.Motion.Y * 2 };
+                shear = (coarse.Shear.X * 2, coarse.Shear.Y * 2);
+            }
         }
-        return AlignLevel(current, reference, guess, new ArraySegment<int>(current.Samples), false, cancellationToken);
-    }
-
-    /// <summary>
-    /// Refines only the translation of rows [<paramref name="rowStart"/>, <paramref name="rowEnd"/>)
-    /// of <paramref name="current"/>, keeping the rotation of <paramref name="rigid"/>. Used to
-    /// measure rolling-shutter wobble, where rows captured at different times move differently.
-    /// </summary>
-    public static Result? AlignRows(AlignmentImage current, AlignmentImage reference,
-        VideoFrameStabilizer.Motion rigid, int rowStart, int rowEnd, CancellationToken cancellationToken)
-    {
-        var samples = current.Samples;
-        int first = LowerBound(samples, rowStart * current.Width);
-        int last = LowerBound(samples, rowEnd * current.Width);
-        var rows = new ArraySegment<int>(samples, first, last - first);
-        return AlignLevel(current, reference, rigid, rows, true, cancellationToken);
-    }
-
-    private static int LowerBound(int[] sorted, int value)
-    {
-        int index = Array.BinarySearch(sorted, value);
-        return index >= 0 ? index : ~index;
+        return AlignLevel(current, reference, guess, shear, cancellationToken);
     }
 
     private sealed class Accumulator
     {
-        public readonly double[] Hessian = new double[16];
-        public readonly double[] Gradient = new double[4];
+        public readonly double[] Hessian = new double[Parameters * Parameters];
+        public readonly double[] Gradient = new double[Parameters];
         public int Valid, Inliers;
     }
 
     private static Result? AlignLevel(AlignmentImage current, AlignmentImage reference,
-        VideoFrameStabilizer.Motion guess, ArraySegment<int> samples, bool fixAngle,
-        CancellationToken cancellationToken)
+        VideoFrameStabilizer.Motion guess, (double X, double Y) shearGuess, CancellationToken cancellationToken)
     {
         int width = current.Width, height = current.Height;
+        var samples = current.Samples;
         if (reference.Width != width || reference.Height != height) return null;
-        if (samples.Count < MinimumSamples) return null;
+        if (samples.Length < MinimumSamples) return null;
 
         double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
         double x = guess.X, y = guess.Y, angle = guess.Angle, offset = 0;
+        double shearX = shearGuess.X, shearY = shearGuess.Y;
         double scaleEstimate = 12;
         Accumulator? last = null;
         for (int iteration = 0; iteration < MaxIterations; iteration++)
@@ -205,16 +197,17 @@ internal static class RigidAligner
             var (sin, cos) = Math.SinCos(angle);
             double threshold = Math.Max(4, 4.685 * scaleEstimate);
             var total = new Accumulator();
-            var residuals = new float[samples.Count];
+            var residuals = new float[samples.Length];
             object gate = new();
-            Parallel.For(0, samples.Count,  new ParallelOptions { CancellationToken = cancellationToken },
+            Parallel.For(0, samples.Length, new ParallelOptions { CancellationToken = cancellationToken },
                 () => new Accumulator(),
                 (s, _, local) =>
                 {
                     int index = samples[s];
                     double px = index % width - centerX, py = index / width - centerY;
-                    double qx = cos * px - sin * py + x + centerX;
-                    double qy = sin * px + cos * py + y + centerY;
+                    double row = py / height;
+                    double qx = cos * px - sin * py + x + shearX * row + centerX;
+                    double qy = sin * px + cos * py + y + shearY * row + centerY;
                     residuals[s] = float.NaN;
                     if (qx < 1 || qy < 1 || qx >= width - 2 || qy >= height - 2) return local;
                     int ix = (int)qx, iy = (int)qy;
@@ -233,11 +226,12 @@ internal static class RigidAligner
                     double ratio = magnitude / threshold;
                     double weight = (1 - ratio * ratio) * (1 - ratio * ratio);
                     double jAngle = gx * (-sin * px - cos * py) + gy * (cos * px - sin * py);
-                    Span<double> jacobian = stackalloc double[] { gx, gy, jAngle, 1 };
-                    for (int r = 0; r < 4; r++)
+                    Span<double> jacobian = stackalloc double[] { gx, gy, jAngle, 1, gx * row, gy * row };
+                    for (int r = 0; r < Parameters; r++)
                     {
                         local.Gradient[r] += weight * jacobian[r] * error;
-                        for (int c = r; c < 4; c++) local.Hessian[r * 4 + c] += weight * jacobian[r] * jacobian[c];
+                        for (int c = r; c < Parameters; c++)
+                            local.Hessian[r * Parameters + c] += weight * jacobian[r] * jacobian[c];
                     }
                     return local;
                 },
@@ -245,8 +239,8 @@ internal static class RigidAligner
                 {
                     lock (gate)
                     {
-                        for (int k = 0; k < 16; k++) total.Hessian[k] += local.Hessian[k];
-                        for (int k = 0; k < 4; k++) total.Gradient[k] += local.Gradient[k];
+                        for (int k = 0; k < local.Hessian.Length; k++) total.Hessian[k] += local.Hessian[k];
+                        for (int k = 0; k < Parameters; k++) total.Gradient[k] += local.Gradient[k];
                         total.Valid += local.Valid;
                         total.Inliers += local.Inliers;
                     }
@@ -255,30 +249,28 @@ internal static class RigidAligner
             if (total.Inliers < MinimumSamples) return null;
             scaleEstimate = Math.Max(1, RobustScale(residuals));
 
-            for (int r = 0; r < 4; r++)
-                for (int c = 0; c < r; c++) total.Hessian[r * 4 + c] = total.Hessian[c * 4 + r];
-            if (fixAngle)
-            {
-                for (int k = 0; k < 4; k++) total.Hessian[2 * 4 + k] = total.Hessian[k * 4 + 2] = 0;
-                total.Hessian[2 * 4 + 2] = 1;
-                total.Gradient[2] = 0;
-            }
+            for (int r = 0; r < Parameters; r++)
+                for (int c = 0; c < r; c++) total.Hessian[r * Parameters + c] = total.Hessian[c * Parameters + r];
             if (Solve(total.Hessian, total.Gradient) is not { } step) return null;
             x -= step[0];
             y -= step[1];
             angle -= step[2];
             offset -= step[3];
+            shearX -= step[4];
+            shearY -= step[5];
             if (!double.IsFinite(x) || Math.Abs(angle) > 0.3 ||
-                Math.Abs(x - guess.X) > width / 8.0 || Math.Abs(y - guess.Y) > height / 8.0)
+                Math.Abs(x - guess.X) > width / 8.0 || Math.Abs(y - guess.Y) > height / 8.0 ||
+                Math.Abs(shearX) > width / 8.0 || Math.Abs(shearY) > height / 8.0)
                 return null;
             double radius = Math.Max(width, height) / 2.0;
-            if (Math.Abs(step[0]) < 0.002 && Math.Abs(step[1]) < 0.002 && Math.Abs(step[2]) * radius < 0.002)
+            if (Math.Abs(step[0]) < 0.002 && Math.Abs(step[1]) < 0.002 && Math.Abs(step[2]) * radius < 0.002 &&
+                Math.Abs(step[4]) < 0.004 && Math.Abs(step[5]) < 0.004)
                 break;
         }
         if (last is null || last.Valid == 0) return null;
-        return new Result(new VideoFrameStabilizer.Motion(x, y, angle), last.Inliers / (double)samples.Count);
+        return new Result(new VideoFrameStabilizer.Motion(x, y, angle), last.Inliers / (double)samples.Length,
+            (shearX, shearY));
     }
-
     private static double Bilinear(float[] values, int index, int width, float fx, float fy)
     {
         float top = values[index] + (values[index + 1] - values[index]) * fx;
@@ -298,35 +290,36 @@ internal static class RigidAligner
         return 1.4826 * magnitudes[magnitudes.Count / 2];
     }
 
-    /// <summary>Solves the 4x4 system with Gaussian elimination and partial pivoting.</summary>
+    /// <summary>Solves the normal equations with Gaussian elimination and partial pivoting.</summary>
     private static double[]? Solve(double[] matrix, double[] vector)
     {
+        int n = vector.Length;
         var a = (double[])matrix.Clone();
         var b = (double[])vector.Clone();
-        for (int column = 0; column < 4; column++)
+        for (int column = 0; column < n; column++)
         {
             int pivot = column;
-            for (int row = column + 1; row < 4; row++)
-                if (Math.Abs(a[row * 4 + column]) > Math.Abs(a[pivot * 4 + column])) pivot = row;
-            if (Math.Abs(a[pivot * 4 + column]) < 1e-9) return null;
+            for (int row = column + 1; row < n; row++)
+                if (Math.Abs(a[row * n + column]) > Math.Abs(a[pivot * n + column])) pivot = row;
+            if (Math.Abs(a[pivot * n + column]) < 1e-9) return null;
             if (pivot != column)
             {
-                for (int k = 0; k < 4; k++) (a[column * 4 + k], a[pivot * 4 + k]) = (a[pivot * 4 + k], a[column * 4 + k]);
+                for (int k = 0; k < n; k++) (a[column * n + k], a[pivot * n + k]) = (a[pivot * n + k], a[column * n + k]);
                 (b[column], b[pivot]) = (b[pivot], b[column]);
             }
-            for (int row = column + 1; row < 4; row++)
+            for (int row = column + 1; row < n; row++)
             {
-                double factor = a[row * 4 + column] / a[column * 4 + column];
-                for (int k = column; k < 4; k++) a[row * 4 + k] -= factor * a[column * 4 + k];
+                double factor = a[row * n + column] / a[column * n + column];
+                for (int k = column; k < n; k++) a[row * n + k] -= factor * a[column * n + k];
                 b[row] -= factor * b[column];
             }
         }
-        var result = new double[4];
-        for (int row = 3; row >= 0; row--)
+        var result = new double[n];
+        for (int row = n - 1; row >= 0; row--)
         {
             double sum = b[row];
-            for (int k = row + 1; k < 4; k++) sum -= a[row * 4 + k] * result[k];
-            result[row] = sum / a[row * 4 + row];
+            for (int k = row + 1; k < n; k++) sum -= a[row * n + k] * result[k];
+            result[row] = sum / a[row * n + row];
         }
         return result;
     }

@@ -39,7 +39,7 @@ vid.stab and OpenCV's `TwoPassStabilizer`, but implemented in this repository:
    a coarse whole-frame estimate, so fast, steady pans stay trackable (with a
    half-resolution retry for motion blur). That estimate then seeds a dense,
    coarse-to-fine Lucas-Kanade alignment on a 1280-pixel-wide image (Gauss-Newton
-   over translation, rotation and brightness,
+   over translation, rotation, brightness and rolling-shutter skew,
    with Tukey robust weights that ignore moving subjects). This refines the motion
    to a small fraction of a pixel; patch matching alone left about a pixel of
    random error per frame at 4K, which showed up as constant fine jitter. Each
@@ -63,18 +63,21 @@ vid.stab and OpenCV's `TwoPassStabilizer`, but implemented in this repository:
    the same idea as the L1-optimal camera paths used by YouTube's stabilizer.
 3. **Render.** The clip is decoded again (with audio, decoded to PCM) and each
    frame's planned correction (combined with auto-crop scaling) is applied in a
-   single resampling pass: bicubic (Catmull-Rom) for luma, so fine detail keeps
+   single resampling pass: Lanczos-3 for luma, so fine detail keeps nearly
    the same sharpness at every sub-pixel offset instead of pulsing, and bilinear
    for chroma.
 
 **Rolling shutter.** Camera sensors read rows top to bottom, so fast handheld
 shake (especially at telephoto) makes the picture wobble like jelly, which a
-whole-frame correction cannot remove. During analysis each frame is also aligned
-in 8 horizontal bands; one sensor readout time is fitted for the whole clip from
-how the bands shift as the camera speeds up and slows down. Each row is then
-shifted to where the camera was at the frame's mid-time, predicted from the
-precisely measured camera path, so clips without wobble are left unchanged. The
-row shifts are limited to 1% of the frame size, which auto-crop reserves.
+whole-frame correction cannot remove. The alignment measures each frame's skew
+(how much further the bottom row moved than the top) separately from rotation;
+treating skew as rotation made the two corrections fight. One sensor readout
+time is fitted for the whole clip from how the skew follows the camera speeding
+up and slowing down, and each row is shifted to where the camera was at the
+frame's mid-time, predicted from the precisely measured camera path. Skew the
+model misses (vibration faster than the frame rate) is measured directly and its
+fast part removed too, so clips without wobble are left unchanged. The row
+shifts are limited to 1% of the frame size, which auto-crop reserves.
 
 With auto-crop enabled, the outer 8% of each edge is cropped and rescaled to the
 original output dimensions. Corrections are limited so every pixel in that
@@ -82,8 +85,8 @@ retained area samples valid source data, which avoids mirrored-edge artifacts.
 Large shakes may therefore receive less correction.
 Turning auto-crop off retains the full frame and uses mirrored edge pixels.
 Motion analysis and the combined warp/crop/resample pass are spread across all
-CPU cores. On a 32-core test machine, a 16-second 4K clip exports in about 21 s
-and a 51-second 4K clip in about 57 s. Progress shows analysis as the first
+CPU cores. On a 32-core test machine, a 16-second 4K clip exports in about 25 s
+and a 51-second 4K clip in about 66 s. Progress shows analysis as the first
 30%.
 
 A `MediaStreamSource` feeds the rendered frames and their source timestamps/durations
@@ -99,8 +102,9 @@ or user-provided executable paths. New dependency notices are shipped in
 
 This is a basic, two-pass, translation/rotation stabilizer for handheld
 movements, not an action-camera/gyro stabilizer. With auto-crop off, mirrored
-edges can be noticeable; severe shake, large rotations, severe rolling-shutter skew, heavy motion blur and large moving foreground
-subjects may not improve. Review the copy before keeping
+edges can be noticeable; severe shake, large rotations, severe rolling-shutter skew and large moving foreground
+subjects may not improve. Motion blur recorded in the source cannot be removed:
+once the shake is gone, frames that were blurred by it stand out more. Review the copy before keeping
 it. There is no before/after preview or adjustable strength.
 
 Inputs must be decodable by Windows' installed media support; standard
@@ -109,7 +113,9 @@ formats, odd-sized decoded frames and changing-resolution streams fail with an e
 than silently exporting an unstabilized copy. This feature does not prompt
 users to install codecs or third-party tools.
 
-Output is 8-bit H.264 with a resolution/frame-rate-dependent bitrate, retaining
+Output is 8-bit H.264 at the source's bitrate or 0.3 bits per pixel, whichever is
+higher (up to 160 Mbit/s), so the encoder does not visibly soften frames between
+keyframes. It retains
 the source's even frame dimensions, nominal frame rate,
 pixel aspect ratio and rotation metadata. Audio is re-encoded to AAC at
 192 kbit/s and 48 kHz, mono or stereo. Subtitles, additional tracks, HDR fidelity,

@@ -224,9 +224,7 @@ public sealed class VideoStabilizationService
         profile.Video.FrameRate.Denominator = video.FrameRate.Denominator;
         profile.Video.PixelAspectRatio.Numerator = video.PixelAspectRatio.Numerator;
         profile.Video.PixelAspectRatio.Denominator = video.PixelAspectRatio.Denominator;
-        profile.Video.Bitrate = (uint)Math.Clamp(
-            (double)video.Width * video.Height * video.FrameRate.Numerator / video.FrameRate.Denominator * 0.2,
-            1_000_000, 80_000_000);
+        profile.Video.Bitrate = OutputBitrate(video);
         if (video.Properties.TryGetValue(VideoRotationKey, out var rotation))
             profile.Video.Properties[VideoRotationKey] = rotation;
         if (input.Audio is null)
@@ -234,5 +232,15 @@ public sealed class VideoStabilizationService
         else
             profile.Audio = AudioEncodingProperties.CreateAac(48_000, Math.Min(input.Audio.ChannelCount, 2), 192_000);
         return profile;
+    }
+
+    /// <summary>
+    /// At least the source's bitrate (and 0.3 bits per pixel): stabilized frames carry the same
+    /// detail, and starving the encoder makes sharpness pulse with its keyframe/B-frame pattern.
+    /// </summary>
+    internal static uint OutputBitrate(VideoEncodingProperties video)
+    {
+        double pixelRate = (double)video.Width * video.Height * video.FrameRate.Numerator / video.FrameRate.Denominator;
+        return (uint)Math.Clamp(Math.Max(pixelRate * 0.3, video.Bitrate), 1_000_000, 160_000_000);
     }
 }
