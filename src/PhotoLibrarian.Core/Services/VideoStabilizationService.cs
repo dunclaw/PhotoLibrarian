@@ -27,8 +27,15 @@ public sealed class VideoStabilizationService
                 var profile = CreateOutputProfile(inputProfile);
                 var properties = await source.Properties.GetVideoPropertiesAsync().AsTask(cancellationToken);
                 profile.Video.Properties[VideoRotationKey] = (uint)properties.Orientation;
+                var stabilizer = new VideoFrameStabilizer(
+                    checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height), autoCrop);
+                var corrections = AnalyzeCameraPath(sourcePath, inputProfile, properties.Duration, stabilizer,
+                    progress, cancellationToken);
+                var encodeProgress = progress is null
+                    ? null
+                    : new ScaledProgress(progress, AnalysisShare, 1 - AnalysisShare / 100);
                 using (var input = new WindowsStabilizedVideoSource(
-                           sourcePath, inputProfile, properties.Duration, cancellationToken, autoCrop))
+                           sourcePath, inputProfile, properties.Duration, stabilizer, corrections, cancellationToken))
                 using (var file = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
                 using (var output = file.AsRandomAccessStream())
                 {
@@ -41,7 +48,7 @@ public sealed class VideoStabilizationService
                             "The file may be damaged or use an unsupported video or audio format.");
                     try
                     {
-                        await prepared.TranscodeAsync().AsTask(cancellationToken, progress);
+                        await prepared.TranscodeAsync().AsTask(cancellationToken, encodeProgress);
                     }
                     catch (Exception) when (input.Failure is not null)
                     {
@@ -67,6 +74,43 @@ public sealed class VideoStabilizationService
                 File.Delete(temporaryPath);
             }
         }, cancellationToken);
+
+    /// <summary>Percentage of reported progress used by the motion analysis pass.</summary>
+    private const double AnalysisShare = 30;
+
+    /// <summary>Maps encoder progress (0-100) into the remaining share of the overall progress.</summary>
+    private sealed class ScaledProgress(IProgress<double> inner, double offset, double scale) : IProgress<double>
+    {
+        public void Report(double value) => inner.Report(offset + Math.Clamp(value, 0, 100) * scale);
+    }
+
+    /// <summary>
+    /// First pass: decodes every frame once to measure camera motion, then plans a smooth
+    /// camera path for the whole clip. Only small analysis images are kept in memory.
+    /// </summary>
+    private static VideoFrameStabilizer.Correction[] AnalyzeCameraPath(
+        string sourcePath, MediaEncodingProfile inputProfile, TimeSpan duration, VideoFrameStabilizer stabilizer,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+    {
+        var motions = new List<VideoFrameStabilizer.Motion?>();
+        using (var reader = new MediaFoundationFrameReader(sourcePath,
+                   checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height), includeAudio: false))
+        {
+            double lastReported = -1;
+            while (reader.Read(video: true, cancellationToken) is { } frame)
+            {
+                motions.Add(stabilizer.Analyze(frame.Data, cancellationToken));
+                if (progress is null || duration <= TimeSpan.Zero) continue;
+                double percent = Math.Clamp(frame.Timestamp / (double)duration.Ticks, 0, 1) * AnalysisShare;
+                if (percent - lastReported < 0.5) continue;
+                lastReported = percent;
+                progress.Report(percent);
+            }
+        }
+        var frameRate = inputProfile.Video.FrameRate;
+        double framesPerSecond = frameRate.Denominator == 0 ? 30 : frameRate.Numerator / (double)frameRate.Denominator;
+        return stabilizer.PlanCorrections(motions, framesPerSecond);
+    }
 
     /// <summary>Returns the first "-stabilized" MP4 name whose video and sidecar do not exist yet.</summary>
     public static string GetAvailableOutputPath(string sourcePath, string? directory = null)

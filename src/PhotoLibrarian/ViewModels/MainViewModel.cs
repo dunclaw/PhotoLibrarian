@@ -257,8 +257,7 @@ public partial class MainViewModel : ObservableObject
                     !System.IO.File.Exists(current.FilePath))
                     ImageViewer.CloseCommand.Execute(null);
                 await RefreshAfterIndexAsync();
-                ImageViewer.UpdateLibraryImages(
-                    ImageGrid.Images.Select(image => image.Entry).ToList());
+                ImageViewer.UpdateLibraryImages(ImageGrid.DisplayedEntries.ToList());
             }
             catch (Exception ex)
             {
@@ -281,9 +280,7 @@ public partial class MainViewModel : ObservableObject
 
         if (ImageViewer.CurrentEntry?.Id != entry.Id)
         {
-            ImageViewer.OpenImage(
-                entry,
-                ImageGrid.Images.Select(image => image.Entry).ToList());
+            ImageViewer.OpenImage(entry, ImageGrid.DisplayedEntries.ToList());
         }
 
         if (App.MainWindow is MainWindow window)
@@ -1050,7 +1047,7 @@ public partial class MainViewModel : ObservableObject
 
         await RefreshAfterIndexAsync();
 
-        var viewerEntries = ImageGrid.Images.Select(image => image.Entry).ToList();
+        var viewerEntries = ImageGrid.DisplayedEntries.ToList();
         var visibleCopy = viewerEntries.FirstOrDefault(image => image.Id == copyEntry.Id);
         if (visibleCopy is not null)
         {

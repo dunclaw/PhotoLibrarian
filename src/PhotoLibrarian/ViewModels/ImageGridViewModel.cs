@@ -1409,7 +1409,7 @@ public partial class ImageGridViewModel : ObservableObject
     {
         if (SelectedImage is not null)
         {
-            _main.ImageViewer.OpenImage(SelectedImage.Entry, Images.Select(i => i.Entry).ToList());
+            _main.ImageViewer.OpenImage(SelectedImage.Entry, DisplayedEntries.ToList());
         }
     }
 

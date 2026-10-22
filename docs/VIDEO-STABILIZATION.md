@@ -20,26 +20,46 @@ editing tools only; photo-only commands and image zoom controls are hidden.
 
 ## How it works
 
-Windows Media Foundation decodes the first video track to NV12 and the first
-audio track, if present, to PCM. PhotoLibrarian estimates horizontal/vertical
-motion and small rotations from textured patches distributed across successive
-luma frames. Robust consensus rejects independently moving foreground subjects
-and ambiguous matches; subpixel refinement avoids whole-pixel stepping.
-The accumulated rigid camera trajectory is smoothed, and both luma and chroma
-are resampled with bilinear interpolation. Insufficient reliable matches reset
-the trajectory rather than carrying a correction across a scene cut.
-With auto-crop enabled, the outer 8% of each edge is cropped and rescaled to the
-original output dimensions. Before warping, the correction is limited as needed
-so every pixel in that retained area samples valid source data; this avoids
-mirrored-edge artifacts. Large shakes may therefore receive less correction.
-Turning auto-crop off retains the full frame and uses mirrored edge pixels.
-Frames are still stabilized in order, but each frame's motion search and the
-combined warp/crop/resample pass are spread across all CPU cores. On a 32-core
-test machine a 10-second 4K clip (313 frames) dropped from about 53 s to about
-5 s.
+Stabilization is two passes over the clip, like the two-pass stabilizers in
+vid.stab and OpenCV's `TwoPassStabilizer`, but implemented in this repository:
 
-A `MediaStreamSource` feeds those frames and their source timestamps/durations
-to Windows' H.264/AAC MP4 encoder. Only a few frames are held in memory, not the
+1. **Motion analysis.** Windows Media Foundation decodes the first video track
+   to NV12. Each frame is reduced to a small (about 640-pixel-wide) luma image,
+   and PhotoLibrarian estimates horizontal/vertical motion and small rotations
+   from textured patches spread across the frame. Robust consensus rejects
+   independently moving foreground subjects and ambiguous matches; subpixel
+   refinement avoids whole-pixel stepping. The search is centered first on the
+   previous frame's motion, then on a coarse whole-frame estimate, so fast,
+   steady pans stay trackable. When motion blur defeats the patch matcher, it
+   retries at half that resolution. Only these small images are kept, never
+   full frames.
+2. **Path planning.** The per-frame motions are accumulated into the camera path
+   for the whole clip, which is then smoothed with a centered Gaussian (about
+   half a second, 0.5 × frame rate frames). Because the smoother sees frames
+   before and after each frame, intentional pans are followed instead of being
+   held back and then released in a jump. The clip ends are extended by
+   reflecting about a local straight-line fit, so a pan at the start or end is
+   preserved too. Corrections that would exceed 8% translation, 0.06 rad of
+   rotation, or (with auto-crop) the valid crop area are scaled back and
+   re-smoothed, so limits never introduce a sudden step. Dropouts of up to 0.2 s
+   are bridged by interpolating the neighboring motion; longer ones, such as
+   scene cuts or flat frames, start a new path segment.
+3. **Render.** The clip is decoded again (with audio, decoded to PCM) and each
+   frame's planned correction is applied to luma and chroma in one bilinear
+   resampling pass.
+
+With auto-crop enabled, the outer 8% of each edge is cropped and rescaled to the
+original output dimensions. Corrections are limited so every pixel in that
+retained area samples valid source data, which avoids mirrored-edge artifacts.
+Large shakes may therefore receive less correction.
+Turning auto-crop off retains the full frame and uses mirrored edge pixels.
+Motion search and the combined warp/crop/resample pass are spread across all
+CPU cores. On a 32-core test machine, 10-second 4K clips export in about 7 s,
+including the roughly 2 s analysis pass. Progress shows analysis as the first
+30%.
+
+A `MediaStreamSource` feeds the rendered frames and their source timestamps/durations
+to Windows' H.264/AAC MP4 encoder. Only a few full-size frames are held in memory, not the
 entire clip. The decoding bindings
 ([Vortice.MediaFoundation](https://github.com/amerkoleci/Vortice.Windows), MIT)
 and their managed dependencies ship automatically with the app on x64 and
@@ -49,10 +69,10 @@ or user-provided executable paths. New dependency notices are shipped in
 
 ## Limitations
 
-This is a basic, single-pass, translation/rotation stabilizer for small handheld
+This is a basic, two-pass, translation/rotation stabilizer for handheld
 movements, not an action-camera/gyro stabilizer. With auto-crop off, mirrored
-edges can be noticeable; severe shake, large rotations, rolling shutter, motion blur, large moving foreground
-subjects and intentional pans may not improve. Review the copy before keeping
+edges can be noticeable; severe shake, large rotations, rolling shutter, heavy motion blur and large moving foreground
+subjects may not improve. Review the copy before keeping
 it. There is no before/after preview or adjustable strength.
 
 Inputs must be decodable by Windows' installed media support; standard
@@ -138,7 +158,9 @@ without environment variables or external programs. They measure at least
 20% reduction in central temporal differences, check audio/silent clips,
 profile/rotation settings, path safety, original preservation, output races,
 errors and cancellation cleanup. Natural-texture coverage includes subpixel
-translation, rotation and an independently moving foreground. Workflow tests
+translation, rotation and an independently moving foreground. Planner tests
+cover a fast pan beyond the fine search window (followed without jumps),
+bridging short tracking dropouts, and preserving linear pans at clip ends. Workflow tests
 cover the separate video ribbon and immediate playback before library indexing.
 
 Library refreshes retain thumbnails for unchanged files instead of clearing all
