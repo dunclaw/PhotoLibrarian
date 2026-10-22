@@ -172,8 +172,31 @@ The follow-up needs to:
 
 ## Quality, parity, and performance acceptance gates
 
-These are proposed gates for follow-up implementations, not tests executed
-or performance guarantees in this research change.
+These are proposed gates for follow-up implementations, not performance
+guarantees. The source-resolution render-parity harness now lives in
+`src/PhotoLibrarian.Tests` and provides generated flat-noise, color-noise,
+edge, fine-texture, gradient, and known 3×3-box-blurred inputs without user
+photos or external assets.
+
+On Windows, run the pure fixture checks and device-dependent parity suite with:
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests
+```
+
+`ImageRenderParityTests` requires Win2D and a working Windows graphics device;
+device initialization errors fail the run rather than being reported as a
+skip or parity success. It compares exact BGRA8 pixels from the production
+preview draw pass and the save renderer before encoding, covering neutral,
+tone, detail, and rotation recipes; EXIF orientation; a portrait 300-DPI
+source; small/odd dimensions; alpha; and transparent PNG versus white JPEG
+rotation corners. The focused baseline currently passes all 6 tests with no
+skips, including 26 exact preview/save pixel comparisons across the six
+fixtures and geometry cases. A separate PNG save/reopen test checks encoded
+dimensions, orientation reset, exact alpha, and RGB within one BGRA8 value
+for premultiplication roundoff. The suite intentionally does not use JPEG
+equality as an encoding-parity check. Pure generated-fixture checks are in
+the separate `RenderQualityFixtureTests` class.
 
 | Area | Required evidence before enabling a feature |
 | --- | --- |

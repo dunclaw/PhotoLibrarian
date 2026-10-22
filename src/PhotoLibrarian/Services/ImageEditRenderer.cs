@@ -3,6 +3,7 @@ using Microsoft.Graphics.Canvas.Effects;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Numerics;
+using Windows.Graphics.DirectX;
 using Windows.Graphics.Imaging;
 using Windows.Security.Cryptography;
 using Windows.Storage;
@@ -40,20 +41,29 @@ public static class ImageEditRenderer
     /// <summary>
     /// Decodes an image into a Win2D bitmap with its EXIF orientation applied. Win2D's own
     /// loaders ignore orientation, which would show (and bake) sideways pixels for phone photos.
+    /// Uploading at 96 DPI keeps Win2D's DIP geometry aligned with source-pixel coordinates even
+    /// when the file carries a rounded or non-96-DPI value.
     /// </summary>
     public static async Task<CanvasBitmap> LoadOrientedAsync(ICanvasResourceCreator device, string filePath)
     {
         var file = await StorageFile.GetFileFromPathAsync(filePath);
         using var stream = await file.OpenAsync(FileAccessMode.Read);
         var decoder = await BitmapDecoder.CreateAsync(stream);
-        using var bitmap = await decoder.GetSoftwareBitmapAsync(
+        var pixelData = await decoder.GetPixelDataAsync(
             BitmapPixelFormat.Bgra8,
             BitmapAlphaMode.Premultiplied,
             new BitmapTransform(),
             ExifOrientationMode.RespectExifOrientation,
             ColorManagementMode.DoNotColorManage);
 
-        return CanvasBitmap.CreateFromSoftwareBitmap(device, bitmap);
+        return CanvasBitmap.CreateFromBytes(
+            device,
+            pixelData.DetachPixelData(),
+            checked((int)decoder.OrientedPixelWidth),
+            checked((int)decoder.OrientedPixelHeight),
+            DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            96f,
+            CanvasAlphaMode.Premultiplied);
     }
 
     /// <summary>
@@ -63,8 +73,18 @@ public static class ImageEditRenderer
     public static async Task<(uint Width, uint Height)> RenderToFileAsync(
         string filePath, EditParameters parameters)
     {
-        return await RenderToFileAsync(filePath, parameters, autoCropRotation: false);
+        return await RenderToFileAsync(
+            filePath,
+            parameters,
+            CanvasDevice.GetSharedDevice(),
+            autoCropRotation: false);
     }
+
+    internal static Task<(uint Width, uint Height)> RenderToFileAsync(
+        string filePath,
+        EditParameters parameters,
+        ICanvasResourceCreator device) =>
+        RenderToFileAsync(filePath, parameters, device, autoCropRotation: false);
 
     /// <summary>
     /// Bakes a straighten rotation and crops to the largest centered rectangle containing no
@@ -77,6 +97,7 @@ public static class ImageEditRenderer
         return await RenderToFileAsync(
             filePath,
             new EditParameters { RotationAngle = angleDegrees },
+            CanvasDevice.GetSharedDevice(),
             autoCropRotation: true);
     }
 
@@ -113,73 +134,83 @@ public static class ImageEditRenderer
     private static async Task<(uint Width, uint Height)> RenderToFileAsync(
         string filePath,
         EditParameters parameters,
+        ICanvasResourceCreator device,
         bool autoCropRotation)
+    {
+        var rendered = await RenderToPixelsAsync(device, filePath, parameters, autoCropRotation);
+        await EncodeOverFileAsync(filePath, rendered.Pixels, rendered.Width, rendered.Height);
+        return (rendered.Width, rendered.Height);
+    }
+
+    internal static async Task<RenderedPixels> RenderToPixelsAsync(
+        string filePath,
+        EditParameters parameters,
+        bool autoCropRotation = false)
+        => await RenderToPixelsAsync(
+            CanvasDevice.GetSharedDevice(),
+            filePath,
+            parameters,
+            autoCropRotation);
+
+    internal static async Task<RenderedPixels> RenderToPixelsAsync(
+        ICanvasResourceCreator device,
+        string filePath,
+        EditParameters parameters,
+        bool autoCropRotation = false)
     {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Editing not supported for {Path.GetExtension(filePath)}");
 
-        var device = CanvasDevice.GetSharedDevice();
+        using var source = await LoadOrientedAsync(device, filePath);
+        var sourceWidth = source.SizeInPixels.Width;
+        var sourceHeight = source.SizeInPixels.Height;
 
-        byte[] pixels;
+        Vector2 offset;
         uint outWidth;
         uint outHeight;
-
-        using (var source = await LoadOrientedAsync(device, filePath))
+        if (autoCropRotation)
         {
-            var sourceWidth = source.SizeInPixels.Width;
-            var sourceHeight = source.SizeInPixels.Height;
-
-            Vector2 offset;
-            if (autoCropRotation)
-            {
-                var crop = Core.Services.AutoCropGeometry.GetLargestRectangle(
-                    sourceWidth,
-                    sourceHeight,
-                    parameters.RotationAngle);
-                outWidth = (uint)Math.Max(1, Math.Floor(crop.Width));
-                outHeight = (uint)Math.Max(1, Math.Floor(crop.Height));
-                offset = new Vector2(
-                    ((float)outWidth - sourceWidth) / 2f,
-                    ((float)outHeight - sourceHeight) / 2f);
-            }
-            else
-            {
-                var extent = EditEffectGraph.ComputeOutputExtent(
-                    sourceWidth,
-                    sourceHeight,
-                    parameters.RotationAngle);
-                offset = extent.Offset;
-                outWidth = extent.Width;
-                outHeight = extent.Height;
-            }
-
-            var effect = EditEffectGraph.Build(
-                source, new Vector2(sourceWidth, sourceHeight), parameters);
-            try
-            {
-                using var target = new CanvasRenderTarget(device, outWidth, outHeight, 96f);
-                using (var session = target.CreateDrawingSession())
-                {
-                    // Rotation exposes corners that the source doesn't cover. Formats without an
-                    // alpha channel would flatten transparency to black, so fill them with white.
-                    session.Clear(AlphaExtensions.Contains(Path.GetExtension(filePath))
-                        ? Microsoft.UI.Colors.Transparent
-                        : Microsoft.UI.Colors.White);
-                    session.DrawImage(effect, offset);
-                }
-                pixels = target.GetPixelBytes();
-            }
-            finally
-            {
-                // Effects hold no unmanaged file handles; disposing the outermost one releases the
-                // D2D resources we created here (the source bitmap is owned by the using above).
-                if (!ReferenceEquals(effect, source)) (effect as IDisposable)?.Dispose();
-            }
+            var crop = Core.Services.AutoCropGeometry.GetLargestRectangle(
+                sourceWidth,
+                sourceHeight,
+                parameters.RotationAngle);
+            outWidth = (uint)Math.Max(1, Math.Floor(crop.Width));
+            outHeight = (uint)Math.Max(1, Math.Floor(crop.Height));
+            offset = new Vector2(
+                ((float)outWidth - sourceWidth) / 2f,
+                ((float)outHeight - sourceHeight) / 2f);
+        }
+        else
+        {
+            var extent = EditEffectGraph.ComputeOutputExtent(
+                sourceWidth,
+                sourceHeight,
+                parameters.RotationAngle);
+            offset = extent.Offset;
+            outWidth = extent.Width;
+            outHeight = extent.Height;
         }
 
-        await EncodeOverFileAsync(filePath, pixels, outWidth, outHeight);
-        return (outWidth, outHeight);
+        using var target = new CanvasRenderTarget(device, outWidth, outHeight, 96f);
+        using (var session = target.CreateDrawingSession())
+        {
+            // Rotation exposes corners that the source doesn't cover. Formats without an
+            // alpha channel would flatten transparency to black, so fill them with white.
+            session.Clear(AlphaExtensions.Contains(Path.GetExtension(filePath))
+                ? Microsoft.UI.Colors.Transparent
+                : Microsoft.UI.Colors.White);
+            ImageEditRenderPass.Draw(
+                session,
+                source,
+                parameters,
+                new Vector2(sourceWidth, sourceHeight),
+                Matrix3x2.CreateTranslation(offset));
+        }
+
+        return new RenderedPixels(outWidth, outHeight, target.GetPixelBytes());
     }
+
+    internal readonly record struct RenderedPixels(uint Width, uint Height, byte[] Pixels);
 
     /// <summary>
     /// Writes <paramref name="pixels"/> (BGRA8, premultiplied) over the file, transcoding from the
