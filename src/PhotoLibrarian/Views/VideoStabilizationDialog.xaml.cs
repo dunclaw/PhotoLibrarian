@@ -55,7 +55,7 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
                     if (_cancellation != cancellation || cancellation.IsCancellationRequested) return;
                     ExportProgress.Value = percent;
                     StatusText.Text = $"Stabilizing video: {percent:F0}%";
-                }), cancellation.Token);
+                }), cancellation.Token, autoCrop: AutoCropBox.IsChecked == true);
             ExportedPath = destination;
         }
         catch (OperationCanceledException)

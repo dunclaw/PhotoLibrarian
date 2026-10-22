@@ -12,7 +12,8 @@ public sealed class VideoStabilizationService
 
     public Task StabilizeAsync(
         string sourcePath, string destinationPath,
-        IProgress<double>? progress = null, CancellationToken cancellationToken = default) =>
+        IProgress<double>? progress = null, CancellationToken cancellationToken = default,
+        bool autoCrop = true) =>
         Task.Run(async () =>
         {
             ValidatePaths(sourcePath, destinationPath);
@@ -26,7 +27,8 @@ public sealed class VideoStabilizationService
                 var profile = CreateOutputProfile(inputProfile);
                 var properties = await source.Properties.GetVideoPropertiesAsync().AsTask(cancellationToken);
                 profile.Video.Properties[VideoRotationKey] = (uint)properties.Orientation;
-                using (var input = new WindowsStabilizedVideoSource(sourcePath, inputProfile, properties.Duration, cancellationToken))
+                using (var input = new WindowsStabilizedVideoSource(
+                           sourcePath, inputProfile, properties.Duration, cancellationToken, autoCrop))
                 using (var file = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
                 using (var output = file.AsRandomAccessStream())
                 {

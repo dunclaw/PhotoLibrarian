@@ -179,6 +179,31 @@ public sealed class VideoStabilizationTests : IDisposable
     }
 
     [Fact]
+    public void AutoCropLimitsCorrectionToPixelsInsideTheSourceFrame()
+    {
+        const int width = 640, height = 360;
+        int cropX = VideoFrameStabilizer.GetCropOffset(width);
+        int cropY = VideoFrameStabilizer.GetCropOffset(height);
+        const double offsetX = 50, offsetY = 28, angle = 0.06;
+
+        Assert.False(VideoFrameStabilizer.IsCropValid(width, height, cropX, cropY, offsetX, offsetY, angle));
+        var limited = VideoFrameStabilizer.LimitCorrectionToCrop(
+            width, height, cropX, cropY, offsetX, offsetY, angle);
+        Assert.InRange(limited.X, 0d, offsetX);
+        Assert.InRange(limited.Y, 0d, offsetY);
+        Assert.InRange(limited.Angle, 0d, angle);
+        Assert.True(VideoFrameStabilizer.IsCropValid(
+            width, height, cropX, cropY, limited.X, limited.Y, limited.Angle));
+        Assert.True(limited.X > 0 && limited.Y > 0 && limited.Angle > 0);
+
+        var stabilizer = new VideoFrameStabilizer(width, height, autoCrop: true);
+        byte[] frame = MotionFrame(width, height, 0, 0);
+        byte[] output = stabilizer.Process(frame, TestContext.Current.CancellationToken);
+        Assert.Equal(frame.Length, output.Length);
+        Assert.NotSame(frame, output);
+    }
+
+    [Fact]
     public void FrameStabilizerRejectsInvalidLayoutsAndHonorsCancellation()
     {
         Assert.Throws<ArgumentException>(() => new VideoFrameStabilizer(3, 4).Process(new byte[18],

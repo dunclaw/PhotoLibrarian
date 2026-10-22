@@ -22,7 +22,8 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
     public Exception? Failure { get; private set; }
 
     public WindowsStabilizedVideoSource(
-        string sourcePath, MediaEncodingProfile profile, TimeSpan duration, CancellationToken cancellationToken)
+        string sourcePath, MediaEncodingProfile profile, TimeSpan duration, CancellationToken cancellationToken,
+        bool autoCrop)
     {
         MFStartup().CheckError();
         IMFSourceReader? reader = null;
@@ -44,7 +45,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
             if (_width < 2 || _height < 2 || (_width & 1) != 0 || (_height & 1) != 0)
                 throw new NotSupportedException("This video's decoded dimensions or pixel layout are not supported.");
             UpdateVideoFormat(decoded);
-            _stabilizer = new VideoFrameStabilizer(_width, _height);
+            _stabilizer = new VideoFrameStabilizer(_width, _height, autoCrop);
             var video = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Nv12, (uint)_width, (uint)_height);
             video.FrameRate.Numerator = profile.Video.FrameRate.Numerator;
             video.FrameRate.Denominator = profile.Video.FrameRate.Denominator;

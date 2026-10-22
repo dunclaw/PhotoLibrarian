@@ -1,7 +1,8 @@
 # Video stabilization
 
 Open a video, select **Stabilize** in the top editing ribbon, choose a new MP4 filename, and
-select **Export stabilized copy**. There is no tool to find, configure or install,
+leave **Auto-crop to remove unstable frame edges** checked (the default) or turn it off,
+then select **Export stabilized copy**. There is no tool to find, configure or install,
 and no runtime downloads. Everything runs locally inside PhotoLibrarian.
 
 Export runs in the background with percentage progress and cancellation.
@@ -23,8 +24,11 @@ and ambiguous matches; subpixel refinement avoids whole-pixel stepping.
 The accumulated rigid camera trajectory is smoothed, and both luma and chroma
 are resampled with bilinear interpolation. Insufficient reliable matches reset
 the trajectory rather than carrying a correction across a scene cut.
-Edge pixels are mirrored and correction is bounded to 8% of each dimension and
-about 3.4 degrees; there are no blank borders or ever-increasing zoom.
+With auto-crop enabled, the outer 8% of each edge is cropped and rescaled to the
+original output dimensions. Before warping, the correction is limited as needed
+so every pixel in that retained area samples valid source data; this avoids
+mirrored-edge artifacts. Large shakes may therefore receive less correction.
+Turning auto-crop off retains the full frame and uses mirrored edge pixels.
 
 A `MediaStreamSource` feeds those frames and their source timestamps/durations
 to Windows' H.264/AAC MP4 encoder. Only a few frames are held in memory, not the
@@ -38,8 +42,8 @@ or user-provided executable paths. New dependency notices are shipped in
 ## Limitations
 
 This is a basic, single-pass, translation/rotation stabilizer for small handheld
-movements, not an action-camera/gyro stabilizer. Mirroring can be noticeable;
-severe shake, large rotations, rolling shutter, motion blur, large moving foreground
+movements, not an action-camera/gyro stabilizer. With auto-crop off, mirrored
+edges can be noticeable; severe shake, large rotations, rolling shutter, motion blur, large moving foreground
 subjects and intentional pans may not improve. Review the copy before keeping
 it. There is no before/after preview or adjustable strength.
 

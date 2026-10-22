@@ -11,7 +11,7 @@
     Closing="OnClosing">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="16" MinWidth="320">
-            <TextBlock Text="Reduces handheld shakes and small rotations with the built-in stabilizer. No downloads or setup are needed. Mirrored edges may be visible; severe movements, rolling shutter and motion blur cannot be repaired. The copy opens in the player when export finishes."
+            <TextBlock Text="Reduces handheld shakes and small rotations with the built-in stabilizer. No downloads or setup are needed. Auto-crop is enabled by default to keep invalid edge pixels out of view. Severe movements, rolling shutter and motion blur cannot be repaired. The copy opens in the player when export finishes."
                        TextWrapping="Wrap" />
             <ContentControl x:Name="OptionsPanel" HorizontalContentAlignment="Stretch">
                 <StackPanel Spacing="12">
@@ -19,6 +19,9 @@
                              AutomationProperties.AutomationId="StabilizationOutput" />
                     <Button Content="Choose output folder..." Click="OnChooseFolder"
                             AutomationProperties.AutomationId="StabilizationChooseFolder" />
+                    <CheckBox x:Name="AutoCropBox" Content="Auto-crop to remove unstable frame edges"
+                              IsChecked="True"
+                              AutomationProperties.AutomationId="StabilizationAutoCrop" />
                 </StackPanel>
             </ContentControl>
             <TextBlock Text="Exports an H.264/AAC MP4 locally; the original and existing files are never overwritten. Video and audio are re-encoded. Subtitles, extra tracks, HDR fidelity, specialized metadata and sidecars are not preserved."

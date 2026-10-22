@@ -55,6 +55,7 @@ public sealed class VideoWorkflowTests
     public void VideoEditingHasItsOwnRibbonAndIsNotAmongZoomControls()
     {
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         var ribbon = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml"));
         var videoTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoTools");
         var buttons = videoTools.Descendants().Where(element => element.Name.LocalName == "Button").ToList();
@@ -62,6 +63,10 @@ public sealed class VideoWorkflowTests
         Assert.Equal("OnStabilizeVideoClick", (string?)stabilize.Attribute("Click"));
         var viewer = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
         Assert.DoesNotContain(viewer.Descendants(), element => (string?)element.Attribute("Click") == "OnStabilizeVideo");
+        var dialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoStabilizationDialog.xaml"));
+        var autoCrop = Assert.Single(dialog.Descendants(presentation + "CheckBox"));
+        Assert.Equal("StabilizationAutoCrop", (string?)autoCrop.Attribute("AutomationProperties.AutomationId"));
+        Assert.Equal("True", (string?)autoCrop.Attribute("IsChecked"));
     }
 
     [Fact]
