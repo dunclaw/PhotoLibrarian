@@ -51,7 +51,7 @@ public sealed class VideoStabilizationService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (new FileInfo(temporaryPath).Length == 0)
                     throw new IOException("Windows did not produce a video.");
-                File.Move(temporaryPath, destinationPath, overwrite: false);
+                PublishOutput(sourcePath, temporaryPath, destinationPath);
             }
             catch (Exception ex) when (ex is COMException or SharpGen.Runtime.SharpGenException)
             {
@@ -76,6 +76,49 @@ public sealed class VideoStabilizationService
         if (string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(destinationPath),
                 StringComparison.OrdinalIgnoreCase) || File.Exists(destinationPath) || Directory.Exists(destinationPath))
             throw new IOException("The output already exists. Choose a new filename; files are never overwritten.");
+        if (File.Exists(FaceMetadataStore.GetSidecarPathForDestinationImage(destinationPath)))
+            throw new IOException("The output's metadata sidecar already exists. Choose a new filename; files are never overwritten.");
+    }
+
+    private static void PublishOutput(string sourcePath, string temporaryPath, string destinationPath)
+    {
+        var sourceSidecar = FaceMetadataStore.GetSidecarPathForImage(sourcePath);
+        var destinationSidecar = FaceMetadataStore.GetSidecarPathForDestinationImage(destinationPath);
+        if (File.Exists(destinationSidecar))
+            throw new IOException("The output's metadata sidecar already exists. Choose a new filename; files are never overwritten.");
+
+        if (!File.Exists(sourceSidecar))
+        {
+            File.Move(temporaryPath, destinationPath, overwrite: false);
+            return;
+        }
+
+        var temporarySidecar = Path.Combine(
+            Path.GetDirectoryName(destinationPath)!,
+            $".photolibrarian-{Guid.NewGuid():N}.xmp.tmp");
+        var sidecarPublished = false;
+        try
+        {
+            File.Copy(sourceSidecar, temporarySidecar, overwrite: false);
+            File.Move(temporarySidecar, destinationSidecar, overwrite: false);
+            sidecarPublished = true;
+            try
+            {
+                File.Move(temporaryPath, destinationPath, overwrite: false);
+            }
+            catch
+            {
+                File.Delete(destinationSidecar);
+                sidecarPublished = false;
+                throw;
+            }
+        }
+        finally
+        {
+            File.Delete(temporarySidecar);
+            if (sidecarPublished && !File.Exists(destinationPath))
+                File.Delete(destinationSidecar);
+        }
     }
 
     internal static MediaEncodingProfile CreateOutputProfile(MediaEncodingProfile input)

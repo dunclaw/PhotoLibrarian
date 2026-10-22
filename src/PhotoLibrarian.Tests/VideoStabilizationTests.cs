@@ -41,8 +41,14 @@ public sealed class VideoStabilizationTests : IDisposable
         File.WriteAllText(Output, "existing");
         await Assert.ThrowsAsync<IOException>(() => service.StabilizeAsync(Source, Output,
             cancellationToken: TestContext.Current.CancellationToken));
+        var sidecarOnlyDestination = Path.Combine(_directory, "sidecar collision.mp4");
+        var existingSidecar = Path.ChangeExtension(sidecarOnlyDestination, ".xmp");
+        File.WriteAllText(existingSidecar, "existing metadata");
+        await Assert.ThrowsAsync<IOException>(() => service.StabilizeAsync(Source, sidecarOnlyDestination,
+            cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal("original", File.ReadAllText(Source));
         Assert.Equal("existing", File.ReadAllText(Output));
+        Assert.Equal("existing metadata", File.ReadAllText(existingSidecar));
     }
 
     [Fact]
@@ -228,6 +234,33 @@ public sealed class VideoStabilizationTests : IDisposable
         Assert.Equal(sourceProperties.Orientation, outputProperties.Orientation);
         Assert.Equal(sourceProperties.Width, outputProperties.Width);
         Assert.Equal(sourceProperties.Height, outputProperties.Height);
+        AssertNoTemporaryFiles();
+    }
+
+    [Fact]
+    public async Task WindowsExportPreservesAndIndexesXmpSidecarMetadata()
+    {
+        await CreateFixtureAsync(false);
+        var dateTaken = new DateTime(2024, 4, 18, 14, 22, 10, DateTimeKind.Utc);
+        await MetadataWriterService.WriteRatingAsync(Source, 4);
+        await MetadataWriterService.WriteFlagAsync(Source, true);
+        await MetadataWriterService.WriteCaptionAsync(Source, "A tagged video");
+        await MetadataWriterService.WriteDateTakenAsync(Source, dateTaken);
+        await TagWriterService.WriteTagsToSidecarAsync(Source, ["family", "vacation"]);
+        var sourceSidecar = Path.ChangeExtension(Source, ".xmp");
+
+        await new VideoStabilizationService().StabilizeAsync(Source, Output,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var outputSidecar = Path.ChangeExtension(Output, ".xmp");
+        Assert.Equal(File.ReadAllBytes(sourceSidecar), File.ReadAllBytes(outputSidecar));
+        var metadata = new MetadataReaderService();
+        var entry = metadata.ReadMetadata(Output);
+        Assert.Equal(4, entry.Rating);
+        Assert.True(entry.IsFlagged);
+        Assert.Equal("A tagged video", entry.Caption);
+        Assert.Equal(dateTaken, entry.DateTaken);
+        Assert.Equal(["family", "vacation"], metadata.ReadTags(Output));
         AssertNoTemporaryFiles();
     }
 
