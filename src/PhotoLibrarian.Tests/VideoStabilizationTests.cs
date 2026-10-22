@@ -264,14 +264,33 @@ public sealed class VideoStabilizationTests : IDisposable
     [Fact]
     public void LockFrameFollowsDriftsLargerThanTheMarginWithoutSnapping()
     {
-        // 400 px of drift is far beyond the ~100 px correction margin at 1280 wide.
+        // 400 px of drift is far beyond the ~100 px correction margin at 1280 wide. Rotation is
+        // left out because OutputPath only sums translation.
         var motions = JitterMotions(200, driftPerFrame: 2);
-        var stabilizer = new VideoFrameStabilizer(1280, 720, new StabilizationOptions(LockFrame: true));
+        var stabilizer = new VideoFrameStabilizer(1280, 720,
+            new StabilizationOptions(LockFrame: true, CorrectRotation: false));
         var corrections = stabilizer.PlanCorrections(motions, 30);
         Assert.All(corrections, correction => Assert.InRange(Math.Abs(correction.X), 0, 1280 * 0.08 + 0.01));
         var output = OutputPath(motions, corrections);
         for (int i = 1; i < output.Length; i++)
             Assert.True(Math.Abs(output[i] - output[i - 1]) < 20, $"Output jumped at frame {i}");
+        // While following the drift the view must glide at a steady speed, not wobble with the hand.
+        double acceleration = MeanAcceleration(output);
+        Assert.True(acceleration < 0.1, $"Locked output wobbles: mean acceleration {acceleration:F3}px/frame²");
+    }
+
+    [Fact]
+    public void TautStringIsFlatInsideTheBandAndStraightOtherwise()
+    {
+        var still = Enumerable.Range(0, 100).Select(i => Math.Sin(i * 1.9) * 4).ToArray();
+        var flat = VideoFrameStabilizer.TautString(still, 5);
+        Assert.All(flat, value => Assert.Equal(flat[0], value, 9));
+
+        var drifting = Enumerable.Range(0, 300).Select(i => i * 0.8 + Math.Sin(i * 1.9) * 4).ToArray();
+        var taut = VideoFrameStabilizer.TautString(drifting, 6);
+        for (int i = 0; i < taut.Length; i++)
+            Assert.InRange(taut[i] - drifting[i], -6 - 1e-9, 6 + 1e-9);
+        Assert.True(MeanAcceleration(taut) < 0.05, $"Mean acceleration {MeanAcceleration(taut):F3}");
     }
 
     [Fact]
@@ -301,11 +320,20 @@ public sealed class VideoStabilizationTests : IDisposable
 
     private static byte[] PannedFrame(int width, int height, double offsetX, double offsetY)
     {
+        return RigidFrame(width, height, offsetX, offsetY, 0);
+    }
+
+    /// <summary>Smooth texture sampled at R(angle)·(p − center) + center + (dx, dy).</summary>
+    private static byte[] RigidFrame(int width, int height, double dx, double dy, double angle)
+    {
         var frame = new byte[width * height * 3 / 2];
+        var (sin, cos) = Math.SinCos(angle);
         for (int y = 0; y < height; y++)
         for (int x = 0; x < width; x++)
         {
-            double sx = x + offsetX, sy = y + offsetY;
+            double cx = x - width / 2.0, cy = y - height / 2.0;
+            double sx = cos * cx - sin * cy + width / 2.0 + dx;
+            double sy = sin * cx + cos * cy + height / 2.0 + dy;
             double value = 120 + 30 * Math.Sin(sx * 0.11) * Math.Cos(sy * 0.15) +
                            25 * Math.Sin(sx * 0.037 + sy * 0.061) +
                            15 * Math.Cos(sx * 0.21 - sy * 0.08);
@@ -313,6 +341,50 @@ public sealed class VideoStabilizationTests : IDisposable
         }
         Array.Fill(frame, (byte)128, width * height, width * height / 2);
         return frame;
+    }
+
+    [Theory]
+    [InlineData(0.37, -0.81, 0.0)]
+    [InlineData(-2.6, 1.45, 0.004)]
+    [InlineData(5.2, 3.9, -0.012)]
+    public void DenseAlignerMeasuresSubpixelMotionPrecisely(double dx, double dy, double angle)
+    {
+        const int width = 640, height = 360;
+        var ct = TestContext.Current.CancellationToken;
+        var reference = AlignmentImage.FromNv12(RigidFrame(width, height, 0, 0, 0), width, height, 1, ct);
+        var current = AlignmentImage.FromNv12(RigidFrame(width, height, dx, dy, angle), width, height, 1, ct);
+
+        var result = RigidAligner.Align(current, reference, new VideoFrameStabilizer.Motion(0, 0, 0), ct);
+
+        Assert.NotNull(result);
+        var motion = result.Value.Motion;
+        Assert.True(Math.Abs(motion.X - dx) < 0.05 && Math.Abs(motion.Y - dy) < 0.05 &&
+                    Math.Abs(motion.Angle - angle) < 0.0005,
+            $"Measured ({motion.X:F3}, {motion.Y:F3}, {motion.Angle:F5}), expected ({dx}, {dy}, {angle})");
+    }
+
+    [Fact]
+    public void LongJitterySequenceDoesNotAccumulateDrift()
+    {
+        // A hand-held shot of a fixed scene: the camera never really moves, so the chained
+        // camera path must come back to where it is without slowly wandering away.
+        const int width = 640, height = 360, frames = 150;
+        var ct = TestContext.Current.CancellationToken;
+        var random = new Random(77);
+        var stabilizer = new VideoFrameStabilizer(width, height, new StabilizationOptions(LockFrame: true));
+        double pathX = 0, pathY = 0, worst = 0;
+        double firstX = 0, firstY = 0;
+        for (int i = 0; i < frames; i++)
+        {
+            double dx = (random.NextDouble() - 0.5) * 6, dy = (random.NextDouble() - 0.5) * 6;
+            if (i == 0) (firstX, firstY) = (dx, dy);
+            var motion = stabilizer.Analyze(RigidFrame(width, height, dx, dy, 0), ct);
+            Assert.NotNull(motion);
+            pathX += motion.Value.X;
+            pathY += motion.Value.Y;
+            worst = Math.Max(worst, Math.Max(Math.Abs(pathX - (dx - firstX)), Math.Abs(pathY - (dy - firstY))));
+        }
+        Assert.True(worst < 0.15, $"Worst accumulated position error: {worst:F3} px");
     }
 
     private static byte[] NaturalMotionFrame(int width, int height, int index)

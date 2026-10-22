@@ -11,7 +11,7 @@ and no runtime downloads. Everything runs locally inside PhotoLibrarian.
 | Auto-crop to remove unstable frame edges | On | Crops 8% from each edge and scales back up so no invalid edge pixels are shown. |
 | Smoothness | Medium | Low (about 0.25 s), Medium (0.5 s) or High (1 s) Gaussian smoothing of the camera path. Higher is calmer but uses more of the crop margin. |
 | Correct rotation (camera roll) | On | Off corrects only horizontal and vertical shake. |
-| Lock frame | Off | Holds the view still like a tripod instead of smoothing camera moves. Best when the camera stays on one subject. The view holds while the camera stays within about 60% of the crop margin; when the camera is re-aimed further, the view follows smoothly. Smoothness is not used. |
+| Lock frame | Off | Holds the view still like a tripod instead of smoothing camera moves. Best when the camera stays on one subject. The view stays perfectly still while the camera stays within about 60% of the crop margin; when the camera drifts or is re-aimed further, the view glides at a constant speed only as far as needed, with gently rounded starts and stops. Smoothness is not used. |
 
 Export runs in the background with percentage progress and cancellation.
 The dialog stays open until cancellation stops the export and removes its
@@ -32,15 +32,20 @@ Stabilization is two passes over the clip, like the two-pass stabilizers in
 vid.stab and OpenCV's `TwoPassStabilizer`, but implemented in this repository:
 
 1. **Motion analysis.** Windows Media Foundation decodes the first video track
-   to NV12. Each frame is reduced to a small (about 640-pixel-wide) luma image,
-   and PhotoLibrarian estimates horizontal/vertical motion and small rotations
-   from textured patches spread across the frame. Robust consensus rejects
-   independently moving foreground subjects and ambiguous matches; subpixel
-   refinement avoids whole-pixel stepping. The search is centered first on the
-   previous frame's motion, then on a coarse whole-frame estimate, so fast,
-   steady pans stay trackable. When motion blur defeats the patch matcher, it
-   retries at half that resolution. Only these small images are kept, never
-   full frames.
+   to NV12. Each frame is first matched approximately: textured patches spread
+   across a small (about 640-pixel-wide) luma image are block-matched, robust
+   consensus rejects independently moving foreground subjects and ambiguous
+   matches, and the search is centered on the previous frame's motion and then on
+   a coarse whole-frame estimate, so fast, steady pans stay trackable (with a
+   half-resolution retry for motion blur). That estimate then seeds a dense,
+   coarse-to-fine Lucas-Kanade alignment on a 1280-pixel-wide image (Gauss-Newton
+   over translation, rotation and brightness,
+   with Tukey robust weights that ignore moving subjects). This refines the motion
+   to a small fraction of a pixel; patch matching alone left about a pixel of
+   random error per frame at 4K, which showed up as constant fine jitter. Each
+   frame is also registered directly against a keyframe that is kept until the
+   view changes too much, so small per-frame errors cannot accumulate into slow
+   drift. Only these small images are kept, never full frames.
 2. **Path planning.** The per-frame motions are accumulated into the camera path
    for the whole clip, which is then smoothed with a centered Gaussian (about
    half a second by default; see Smoothness). Because the smoother sees frames
@@ -52,21 +57,24 @@ vid.stab and OpenCV's `TwoPassStabilizer`, but implemented in this repository:
    re-smoothed, so limits never introduce a sudden step. Dropouts of up to 0.2 s
    are bridged by interpolating the neighboring motion; longer ones, such as
    scene cuts or flat frames, start a new path segment. With **Lock frame**, the
-   target is instead a fixed anchor that moves only when the camera leaves a
-   band inside the margin (forward and backward followers averaged so it neither
-   lags nor leads), with short smoothed transitions.
+   target is instead the shortest ("taut string") path that stays within a band
+   inside the margin: exactly constant wherever possible, otherwise straight
+   constant-velocity segments, with corners rounded by a short Gaussian. This is
+   the same idea as the L1-optimal camera paths used by YouTube's stabilizer.
 3. **Render.** The clip is decoded again (with audio, decoded to PCM) and each
-   frame's planned correction is applied to luma and chroma in one bilinear
-   resampling pass.
+   frame's planned correction (combined with auto-crop scaling) is applied in a
+   single resampling pass: bicubic (Catmull-Rom) for luma, so fine detail keeps
+   the same sharpness at every sub-pixel offset instead of pulsing, and bilinear
+   for chroma.
 
 With auto-crop enabled, the outer 8% of each edge is cropped and rescaled to the
 original output dimensions. Corrections are limited so every pixel in that
 retained area samples valid source data, which avoids mirrored-edge artifacts.
 Large shakes may therefore receive less correction.
 Turning auto-crop off retains the full frame and uses mirrored edge pixels.
-Motion search and the combined warp/crop/resample pass are spread across all
-CPU cores. On a 32-core test machine, 10-second 4K clips export in about 7 s,
-including the roughly 2 s analysis pass. Progress shows analysis as the first
+Motion analysis and the combined warp/crop/resample pass are spread across all
+CPU cores. On a 32-core test machine, a 16-second 4K clip exports in about 21 s
+and a 51-second 4K clip in about 57 s. Progress shows analysis as the first
 30%.
 
 A `MediaStreamSource` feeds the rendered frames and their source timestamps/durations
@@ -115,6 +123,12 @@ watched-folder refreshes so a failure can be correlated with other activity.
 If playback fails, the player logs the details and automatically reopens the
 video once, resuming from the failure position. A second failure shows the error
 in the status bar. Include this log when reporting a playback problem.
+
+Videos are played through an ordinary file handle that shares read, write and
+delete access, not through a `StorageFile` stream. The `StorageFile` stream holds an
+opportunistic lock; when Windows Search, antivirus or the thumbnail provider
+opened a freshly exported file, Windows broke that lock and closed the player's
+handle, and playback stopped with `0x80070323` ("the oplock is now broken").
 
 ## Options investigated
 

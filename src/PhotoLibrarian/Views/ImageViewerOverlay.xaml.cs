@@ -32,7 +32,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     private bool _isRedEyeRemoving;
     private bool _isDrawingRedEye;
     private Point _redEyeStart;
-    private Windows.Media.Core.MediaSource? _videoSource;
+    private VideoPlaybackSource? _videoSource;
     private int _playbackVersion;
     private bool _isStabilizationOpen;
     public bool IsCropping { get; private set; }
@@ -311,7 +311,6 @@ public sealed partial class ImageViewerOverlay : UserControl
         int version = _playbackVersion;
         try
         {
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
             if (version != _playbackVersion || ViewModel?.IsOpen != true ||
                 !string.Equals(ViewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase)) return;
 
@@ -321,10 +320,15 @@ public sealed partial class ImageViewerOverlay : UserControl
             DebugLog.WriteLine($"Video: opening {path} ({info.Length:N0} bytes, last written " +
                 $"{info.LastWriteTime:HH:mm:ss.fff}){(isRetry ? $", retry resuming at {resumePosition}" : "")}");
 
-            var source = Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
-            source.OpenOperationCompleted += OnVideoSourceOpenCompleted;
-            _videoSource = source;
-            VideoPlayer.Source = source;
+            var playbackSource = await Task.Run(() => VideoPlaybackSource.Open(path));
+            if (version != _playbackVersion)
+            {
+                playbackSource.Dispose();
+                return;
+            }
+            playbackSource.Source.OpenOperationCompleted += OnVideoSourceOpenCompleted;
+            _videoSource = playbackSource;
+            VideoPlayer.Source = playbackSource.Source;
             ObserveMediaPlayer(VideoPlayer.MediaPlayer);
         }
         catch (Exception ex)
@@ -337,7 +341,10 @@ public sealed partial class ImageViewerOverlay : UserControl
     /// <summary>What was opened, so a later failure can be logged against the file's state at open time.</summary>
     private sealed record PlaybackDiagnostics(
         string Path, int Version, long Length, DateTime LastWriteUtc, DateTime OpenedUtc,
-        TimeSpan ResumePosition, bool IsRetry);
+        TimeSpan ResumePosition, bool IsRetry)
+    {
+        public int FailureReported;
+    }
 
     private PlaybackDiagnostics? _playback;
     private Windows.Media.Playback.MediaPlayer? _observedPlayer;
@@ -383,6 +390,10 @@ public sealed partial class ImageViewerOverlay : UserControl
         Windows.Media.Playback.MediaPlayerFailedEventArgs args)
     {
         var playback = _playback;
+        // Detaching the old source while reopening can raise a failure for it; ignore that, and
+        // report each playback attempt's failure only once.
+        if (playback is null || !ReferenceEquals(sender.Source, _videoSource?.Source) ||
+            Interlocked.Exchange(ref playback.FailureReported, 1) != 0) return;
         var position = sender.PlaybackSession.Position;
         var details = new System.Text.StringBuilder();
         details.Append($"Video: playback FAILED {args.Error} 0x{args.ExtendedErrorCode?.HResult:X8} ");
@@ -449,7 +460,7 @@ public sealed partial class ImageViewerOverlay : UserControl
         _playback = null;
         VideoPlayer.MediaPlayer?.Pause();
         VideoPlayer.Source = null;
-        if (_videoSource is { } source) source.OpenOperationCompleted -= OnVideoSourceOpenCompleted;
+        if (_videoSource is { } source) source.Source.OpenOperationCompleted -= OnVideoSourceOpenCompleted;
         _videoSource?.Dispose();
         _videoSource = null;
     }

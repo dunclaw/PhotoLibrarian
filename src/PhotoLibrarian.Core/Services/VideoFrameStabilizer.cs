@@ -23,8 +23,12 @@ internal sealed class VideoFrameStabilizer
     private readonly bool _autoCrop;
     private readonly StabilizationOptions _options;
     private readonly int _cropX, _cropY;
+    private readonly int _alignScale;
     private byte[]? _previous;
     private (int X, int Y)? _predicted;
+    private AlignmentImage? _previousImage, _keyImage;
+    private Motion _pose, _keyPose;
+    private Motion? _lastMotion;
 
     /// <summary>Camera motion from a frame to its predecessor, in full-resolution pixels and radians.</summary>
     public readonly record struct Motion(double X, double Y, double Angle);
@@ -47,6 +51,7 @@ internal sealed class VideoFrameStabilizer
         _autoCrop = options.AutoCrop && width >= 16 && height >= 16;
         _cropX = _autoCrop ? GetCropOffset(width) : 0;
         _cropY = _autoCrop ? GetCropOffset(height) : 0;
+        _alignScale = Math.Max(1, (int)Math.Ceiling(Math.Max(width / 1280.0, height / 720.0)));
     }
 
     /// <summary>
@@ -54,11 +59,101 @@ internal sealed class VideoFrameStabilizer
     /// Returns zero motion for the first frame and null when the motion cannot be measured
     /// reliably (for example a scene cut, a flat frame or heavy blur).
     /// </summary>
+    /// <remarks>
+    /// Block matching finds the approximate motion (robust to large and fast moves), dense
+    /// alignment refines it to a small fraction of a pixel, and each frame is also registered
+    /// directly against a keyframe so measurement errors do not accumulate into slow drift.
+    /// </remarks>
     public Motion? Analyze(byte[] frame, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateFrame(frame);
+        var block = EstimateBlockMotion(frame, cancellationToken);
+        var image = AlignmentImage.FromNv12(frame, _width, _height, _alignScale, cancellationToken);
+        var previousImage = _previousImage;
+        _previousImage = image;
+        if (previousImage is null)
+        {
+            StartSegment(image);
+            return new Motion(0, 0, 0);
+        }
 
+        var local = RefineMotion(image, previousImage, block, cancellationToken);
+        if (local is not { } motion)
+        {
+            StartSegment(image);
+            _lastMotion = null;
+            return null;
+        }
+        _lastMotion = motion;
+
+        var pose = Compose(_pose, motion);
+        pose = RegisterToKeyframe(image, previousImage, pose, cancellationToken);
+        var result = Compose(Inverse(_pose), pose);
+        _pose = pose;
+        return new Motion(result.X * _alignScale, result.Y * _alignScale, result.Angle);
+    }
+
+    private void StartSegment(AlignmentImage image)
+    {
+        _pose = default;
+        _keyImage = image;
+        _keyPose = default;
+    }
+
+    /// <summary>Precise current-to-previous motion in alignment-image pixels.</summary>
+    private Motion? RefineMotion(AlignmentImage image, AlignmentImage previousImage, Motion? block,
+        CancellationToken cancellationToken)
+    {
+        var scaledBlock = block is { } b ? new Motion(b.X / _alignScale, b.Y / _alignScale, b.Angle) : (Motion?)null;
+        var guess = scaledBlock ?? _lastMotion ?? default;
+        if (RigidAligner.Align(image, previousImage, guess, cancellationToken) is { } aligned &&
+            aligned.InlierFraction >= 0.5)
+            return aligned.Motion;
+        return scaledBlock;
+    }
+
+    /// <summary>
+    /// Replaces the chained pose with a direct registration against the keyframe when that
+    /// succeeds and agrees; otherwise makes the current frame the new keyframe.
+    /// </summary>
+    private Motion RegisterToKeyframe(AlignmentImage image, AlignmentImage previousImage, Motion pose,
+        CancellationToken cancellationToken)
+    {
+        if (_keyImage is null || ReferenceEquals(_keyImage, previousImage))
+        {
+            if (_keyImage is null) (_keyImage, _keyPose) = (image, pose);
+            return pose;
+        }
+        var guess = Compose(Inverse(_keyPose), pose);
+        bool withinReach = Math.Abs(guess.X) < image.Width * 0.15 && Math.Abs(guess.Y) < image.Height * 0.15 &&
+                           Math.Abs(guess.Angle) < 0.06;
+        if (withinReach && RigidAligner.Align(image, _keyImage, guess, cancellationToken) is { } aligned &&
+            aligned.InlierFraction >= 0.55 &&
+            Math.Abs(aligned.Motion.X - guess.X) < 2 && Math.Abs(aligned.Motion.Y - guess.Y) < 2)
+            return Compose(_keyPose, aligned.Motion);
+        _keyImage = image;
+        _keyPose = pose;
+        return pose;
+    }
+
+    /// <summary>Applies <paramref name="second"/> and then <paramref name="first"/>.</summary>
+    private static Motion Compose(Motion first, Motion second)
+    {
+        var (sin, cos) = Math.SinCos(first.Angle);
+        return new Motion(first.X + cos * second.X - sin * second.Y,
+            first.Y + sin * second.X + cos * second.Y, first.Angle + second.Angle);
+    }
+
+    private static Motion Inverse(Motion motion)
+    {
+        var (sin, cos) = Math.SinCos(-motion.Angle);
+        return new Motion(-(cos * motion.X - sin * motion.Y), -(sin * motion.X + cos * motion.Y), -motion.Angle);
+    }
+
+    /// <summary>Approximate motion from patch block matching on a ~640-pixel-wide image.</summary>
+    private Motion? EstimateBlockMotion(byte[] frame, CancellationToken cancellationToken)
+    {
         int scale = Math.Max(1, (int)Math.Ceiling(Math.Max(_width / 640.0, _height / 360.0)));
         int smallWidth = _width / scale, smallHeight = _height / scale;
         var luma = Downsample(frame, _width, smallWidth, smallHeight, scale, cancellationToken);
@@ -144,7 +239,9 @@ internal sealed class VideoFrameStabilizer
         var (sin, cos) = Math.SinCos(correction.Angle);
         var output = new byte[frame.Length];
         // Warp and crop/rescale are composed into one sampling pass to avoid double interpolation.
-        WarpPlane(frame, output, _width, _height, 0, 1, cos, sin, correction.X, correction.Y,
+        // Luma uses bicubic sampling: bilinear blurs by a different amount at every sub-pixel
+        // offset, which makes fine detail visibly pulse from frame to frame.
+        WarpLumaBicubic(frame, output, _width, _height, cos, sin, correction.X, correction.Y,
             _cropX, _cropY, cancellationToken);
         WarpPlane(frame, output, _width / 2, _height / 2, _width * _height, 2,
             cos, sin, correction.X / 2, correction.Y / 2, _cropX / 2, _cropY / 2, cancellationToken);
@@ -408,13 +505,13 @@ internal sealed class VideoFrameStabilizer
         double[] smoothX, smoothY, smoothAngle;
         if (_options.LockFrame)
         {
-            // Hold the view still while the camera stays inside a band within the correction
-            // margin; when it drifts further, move the anchor only as far as needed. This locks
-            // onto a subject but still reframes after the camera is deliberately re-aimed.
+            // Hold the view perfectly still while the camera stays inside a band within the
+            // correction margin; when it drifts further, move at a constant speed only as much
+            // as needed, with gently rounded starts and stops.
             double transition = Math.Max(2, sigma / 2);
-            smoothX = LockedTarget(pathX, LockBand(_width, _cropX), transition);
-            smoothY = LockedTarget(pathY, LockBand(_height, _cropY), transition);
-            smoothAngle = LockedTarget(pathAngle, MaxAngle * 0.3, transition);
+            smoothX = GaussianSmooth(TautString(pathX, LockBand(_width, _cropX)), transition);
+            smoothY = GaussianSmooth(TautString(pathY, LockBand(_height, _cropY)), transition);
+            smoothAngle = GaussianSmooth(TautString(pathAngle, MaxAngle * 0.3), transition);
         }
         else
         {
@@ -462,29 +559,67 @@ internal sealed class VideoFrameStabilizer
     }
 
     /// <summary>
-    /// A target that stays constant while <paramref name="path"/> is within ±<paramref name="band"/>
-    /// of it. Forward and backward followers are averaged so the target neither lags nor leads.
+    /// The shortest ("taut string") path that stays within ±<paramref name="band"/> of
+    /// <paramref name="path"/>: perfectly constant wherever the camera stays within the band,
+    /// otherwise straight constant-velocity segments that bend only where they must.
     /// </summary>
-    private static double[] LockedTarget(double[] path, double band, double transitionSigma)
+    internal static double[] TautString(double[] path, double band)
     {
         int length = path.Length;
-        var forward = new double[length];
-        var backward = new double[length];
-        double anchor = path[0];
-        for (int i = 0; i < length; i++)
+        var result = new double[length];
+        if (length == 0) return result;
+
+        // Start flat for as long as possible; the first bend touches the band edge exactly.
+        double low = path[0] - band, high = path[0] + band;
+        int collapse = 1;
+        for (; collapse < length; collapse++)
         {
-            anchor = Math.Clamp(anchor, path[i] - band, path[i] + band);
-            forward[i] = anchor;
+            double nextLow = Math.Max(low, path[collapse] - band), nextHigh = Math.Min(high, path[collapse] + band);
+            if (nextLow > nextHigh) break;
+            (low, high) = (nextLow, nextHigh);
         }
-        anchor = path[length - 1];
-        for (int i = length - 1; i >= 0; i--)
+        if (collapse == length)
         {
-            anchor = Math.Clamp(anchor, path[i] - band, path[i] + band);
-            backward[i] = anchor;
+            Array.Fill(result, (low + high) / 2);
+            return result;
         }
-        var target = new double[length];
-        for (int i = 0; i < length; i++) target[i] = (forward[i] + backward[i]) / 2;
-        return GaussianSmooth(target, transitionSigma);
+
+        int origin = 0;
+        double value = path[collapse] - band > high ? high : low;
+        while (origin < length - 1)
+        {
+            double minSlope = double.NegativeInfinity, maxSlope = double.PositiveInfinity;
+            int minAt = origin, maxAt = origin, bendAt = -1;
+            double bendSlope = 0, bendValue = 0;
+            for (int t = origin + 1; t < length; t++)
+            {
+                double lowSlope = (path[t] - band - value) / (t - origin);
+                double highSlope = (path[t] + band - value) / (t - origin);
+                if (lowSlope > maxSlope)
+                {
+                    (bendAt, bendSlope, bendValue) = (maxAt, maxSlope, path[maxAt] + band);
+                    break;
+                }
+                if (highSlope < minSlope)
+                {
+                    (bendAt, bendSlope, bendValue) = (minAt, minSlope, path[minAt] - band);
+                    break;
+                }
+                if (lowSlope >= minSlope) (minSlope, minAt) = (lowSlope, t);
+                if (highSlope <= maxSlope) (maxSlope, maxAt) = (highSlope, t);
+            }
+            if (bendAt < 0)
+            {
+                // The string is free at the end of the clip: stay as flat as the band allows.
+                double slope = Math.Clamp(0, minSlope, maxSlope);
+                for (int t = origin; t < length; t++) result[t] = value + slope * (t - origin);
+                break;
+            }
+            for (int t = origin; t < bendAt; t++) result[t] = value + bendSlope * (t - origin);
+            (origin, value) = (bendAt, bendValue);
+        }
+        result[length - 1] = origin == length - 1 ? value : result[length - 1];
+        return result;
     }
 
     private static Correction GetCorrection(double pathX, double pathY, double pathAngle,
@@ -661,6 +796,57 @@ internal sealed class VideoFrameStabilizer
                 }
             }
         });
+    }
+
+    /// <summary>Catmull-Rom (bicubic) warp of the luma plane; same geometry as <see cref="WarpPlane"/>.</summary>
+    private static void WarpLumaBicubic(byte[] input, byte[] output, int width, int height,
+        double cos, double sin, double dx, double dy, int cropX, int cropY, CancellationToken cancellationToken)
+    {
+        double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
+        double scaleX = (width - 2.0 * cropX) / width, scaleY = (height - 2.0 * cropY) / height;
+        double firstX = cropX + 0.5 * scaleX - 0.5 - centerX;
+        double stepX = cos * scaleX, stepY = sin * scaleX;
+        Parallel.For(0, height, Options(cancellationToken), y =>
+        {
+            Span<int> columns = stackalloc int[4];
+            Span<int> rows = stackalloc int[4];
+            Span<double> weightsX = stackalloc double[4];
+            Span<double> weightsY = stackalloc double[4];
+            double v = cropY + (y + 0.5) * scaleY - 0.5 - centerY;
+            double sourceX = centerX + cos * firstX - sin * v + dx;
+            double sourceY = centerY + sin * firstX + cos * v + dy;
+            int destination = y * width;
+            for (int x = 0; x < width; x++, sourceX += stepX, sourceY += stepY, destination++)
+            {
+                int ix = (int)Math.Floor(sourceX), iy = (int)Math.Floor(sourceY);
+                CatmullRomWeights(sourceX - ix, weightsX);
+                CatmullRomWeights(sourceY - iy, weightsY);
+                bool inside = ix >= 1 && ix < width - 2 && iy >= 1 && iy < height - 2;
+                for (int k = 0; k < 4; k++)
+                {
+                    columns[k] = inside ? ix - 1 + k : Mirror(ix - 1 + k, width);
+                    rows[k] = (inside ? iy - 1 + k : Mirror(iy - 1 + k, height)) * width;
+                }
+                double sum = 0;
+                for (int row = 0; row < 4; row++)
+                {
+                    int offset = rows[row];
+                    double line = input[offset + columns[0]] * weightsX[0] + input[offset + columns[1]] * weightsX[1] +
+                                  input[offset + columns[2]] * weightsX[2] + input[offset + columns[3]] * weightsX[3];
+                    sum += line * weightsY[row];
+                }
+                output[destination] = (byte)Math.Clamp((int)(sum + 0.5), 0, 255);
+            }
+        });
+    }
+
+    private static void CatmullRomWeights(double t, Span<double> weights)
+    {
+        double t2 = t * t, t3 = t2 * t;
+        weights[0] = (-t3 + 2 * t2 - t) / 2;
+        weights[1] = (3 * t3 - 5 * t2 + 2) / 2;
+        weights[2] = (-3 * t3 + 4 * t2 + t) / 2;
+        weights[3] = (t3 - t2) / 2;
     }
 
     private static int Mirror(int coordinate, int length)
