@@ -86,19 +86,29 @@ It retains per-frame motion and correction matrices, but keeps only a bounded
 frame cache (twice the radius plus one), which supports a reduced-resolution
 analysis pass followed by a second full-resolution pass in the existing encoder
 pipeline. This avoids the all-input/all-output-frame memory behavior of the
-managed `CvVideoStab.Stabilize` helper. The tested build had `WITH_CLP=OFF`;
-calling `LpMotionStabilizer` without CLP throws, so these results use Gaussian
-smoothing rather than L1 path optimization. CLP is EPL-licensed and would add
-another native dependency and notice/relinking review.
+managed `CvVideoStab.Stabilize` helper. The first tested build had
+`WITH_CLP=OFF`; calling `LpMotionStabilizer` without CLP throws, so those video
+measurements use Gaussian smoothing rather than L1 path optimization. A
+separate synthetic-motion smoke test with `WITH_CLP=ON`
+successfully ran `LpMotionStabilizer` on x86. OpenCV 4.13's `opencv_videostab`
+module was also cross-built with CLP for ARM64, but the ARM64 binary could not
+be run on this x64 host. The synthetic smoke test confirms solver wiring only;
+it does not demonstrate improved stabilization on real footage.
 
 This is a feasibility result, not an app dependency or a production replacement.
-The prototype only built for x64: this host has no ARM64 MSVC compiler. The app
-currently targets x64, ARM64, and x86, so adopting a custom bridge requires
-reproducible builds and tests for all supported architectures, a bundled-license
-and notice audit, and package-size measurements. No OpenCV package or native
-binary has been added to the app. The Apache-2.0 OpenCV license is simpler for
-this MIT application than `vid.stab`'s LGPL terms, but platform and CLP
-constraints currently prevent recommending it as a drop-in production fix.
+The CLP-enabled x86 and ARM64 test builds required more than the MSVC toolsets:
+vcpkg, the `coin-or-clp` package and its transitive COIN-OR/math/build
+dependencies, OpenCV 4.13 plus `opencv_contrib`, and CMake configuration for
+each target. OpenCV's default CMake configuration initially mistook the ARM64
+target for the x64 host; the successful cross-build used a toolchain file that
+sets `CMAKE_SYSTEM_PROCESSOR=ARM64`. A production bridge still needs
+reproducible x64, ARM64 and x86 builds/tests, an audit of all bundled licenses
+and notices, and package-size measurements. CLP is EPL-2.0 licensed and brings
+native dependencies that also need to be distributed and reviewed. No OpenCV,
+CLP or native binary has been added to the app. The Apache-2.0 OpenCV license
+is simpler for this MIT application than `vid.stab`'s LGPL terms, but this
+prototype has not resolved the production integration, packaging, or quality
+concerns.
 
 The current motion estimator is implemented in this repository, not copied from
 FFmpeg, vid.stab, OpenCV or Gyroflow. PhotoLibrarian remains MIT licensed.
