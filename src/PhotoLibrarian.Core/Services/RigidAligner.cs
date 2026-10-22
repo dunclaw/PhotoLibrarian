@@ -152,10 +152,32 @@ internal static class RigidAligner
         if (current.Coarser is { } coarseCurrent && reference.Coarser is { } coarseReference)
         {
             var coarseGuess = guess with { X = guess.X / 2, Y = guess.Y / 2 };
-            if (AlignLevel(coarseCurrent, coarseReference, coarseGuess, cancellationToken) is { } coarse)
+            if (AlignLevel(coarseCurrent, coarseReference, coarseGuess, new ArraySegment<int>(coarseCurrent.Samples),
+                    false, cancellationToken) is { } coarse)
                 guess = coarse.Motion with { X = coarse.Motion.X * 2, Y = coarse.Motion.Y * 2 };
         }
-        return AlignLevel(current, reference, guess, cancellationToken);
+        return AlignLevel(current, reference, guess, new ArraySegment<int>(current.Samples), false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Refines only the translation of rows [<paramref name="rowStart"/>, <paramref name="rowEnd"/>)
+    /// of <paramref name="current"/>, keeping the rotation of <paramref name="rigid"/>. Used to
+    /// measure rolling-shutter wobble, where rows captured at different times move differently.
+    /// </summary>
+    public static Result? AlignRows(AlignmentImage current, AlignmentImage reference,
+        VideoFrameStabilizer.Motion rigid, int rowStart, int rowEnd, CancellationToken cancellationToken)
+    {
+        var samples = current.Samples;
+        int first = LowerBound(samples, rowStart * current.Width);
+        int last = LowerBound(samples, rowEnd * current.Width);
+        var rows = new ArraySegment<int>(samples, first, last - first);
+        return AlignLevel(current, reference, rigid, rows, true, cancellationToken);
+    }
+
+    private static int LowerBound(int[] sorted, int value)
+    {
+        int index = Array.BinarySearch(sorted, value);
+        return index >= 0 ? index : ~index;
     }
 
     private sealed class Accumulator
@@ -166,12 +188,12 @@ internal static class RigidAligner
     }
 
     private static Result? AlignLevel(AlignmentImage current, AlignmentImage reference,
-        VideoFrameStabilizer.Motion guess, CancellationToken cancellationToken)
+        VideoFrameStabilizer.Motion guess, ArraySegment<int> samples, bool fixAngle,
+        CancellationToken cancellationToken)
     {
         int width = current.Width, height = current.Height;
         if (reference.Width != width || reference.Height != height) return null;
-        var samples = current.Samples;
-        if (samples.Length < MinimumSamples) return null;
+        if (samples.Count < MinimumSamples) return null;
 
         double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
         double x = guess.X, y = guess.Y, angle = guess.Angle, offset = 0;
@@ -183,9 +205,9 @@ internal static class RigidAligner
             var (sin, cos) = Math.SinCos(angle);
             double threshold = Math.Max(4, 4.685 * scaleEstimate);
             var total = new Accumulator();
-            var residuals = new float[samples.Length];
+            var residuals = new float[samples.Count];
             object gate = new();
-            Parallel.For(0, samples.Length, new ParallelOptions { CancellationToken = cancellationToken },
+            Parallel.For(0, samples.Count,  new ParallelOptions { CancellationToken = cancellationToken },
                 () => new Accumulator(),
                 (s, _, local) =>
                 {
@@ -235,6 +257,12 @@ internal static class RigidAligner
 
             for (int r = 0; r < 4; r++)
                 for (int c = 0; c < r; c++) total.Hessian[r * 4 + c] = total.Hessian[c * 4 + r];
+            if (fixAngle)
+            {
+                for (int k = 0; k < 4; k++) total.Hessian[2 * 4 + k] = total.Hessian[k * 4 + 2] = 0;
+                total.Hessian[2 * 4 + 2] = 1;
+                total.Gradient[2] = 0;
+            }
             if (Solve(total.Hessian, total.Gradient) is not { } step) return null;
             x -= step[0];
             y -= step[1];
@@ -248,7 +276,7 @@ internal static class RigidAligner
                 break;
         }
         if (last is null || last.Valid == 0) return null;
-        return new Result(new VideoFrameStabilizer.Motion(x, y, angle), last.Inliers / (double)samples.Length);
+        return new Result(new VideoFrameStabilizer.Motion(x, y, angle), last.Inliers / (double)samples.Count);
     }
 
     private static double Bilinear(float[] values, int index, int width, float fx, float fy)

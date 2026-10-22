@@ -323,24 +323,72 @@ public sealed class VideoStabilizationTests : IDisposable
         return RigidFrame(width, height, offsetX, offsetY, 0);
     }
 
-    /// <summary>Smooth texture sampled at R(angle)·(p − center) + center + (dx, dy).</summary>
-    private static byte[] RigidFrame(int width, int height, double dx, double dy, double angle)
+    /// <summary>Smooth texture sampled at R(angle)·(p − center) + center + (dx, dy) + rowShift(row).</summary>
+    /// <param name="rowShift">Extra offset by row height (-0.5 top .. 0.5 bottom), e.g. rolling shutter.</param>
+    private static byte[] RigidFrame(int width, int height, double dx, double dy, double angle,
+        Func<double, (double X, double Y)>? rowShift = null)
     {
         var frame = new byte[width * height * 3 / 2];
         var (sin, cos) = Math.SinCos(angle);
         for (int y = 0; y < height; y++)
-        for (int x = 0; x < width; x++)
         {
-            double cx = x - width / 2.0, cy = y - height / 2.0;
-            double sx = cos * cx - sin * cy + width / 2.0 + dx;
-            double sy = sin * cx + cos * cy + height / 2.0 + dy;
-            double value = 120 + 30 * Math.Sin(sx * 0.11) * Math.Cos(sy * 0.15) +
-                           25 * Math.Sin(sx * 0.037 + sy * 0.061) +
-                           15 * Math.Cos(sx * 0.21 - sy * 0.08);
-            frame[y * width + x] = (byte)Math.Clamp(value, 16, 235);
+            var (shiftX, shiftY) = rowShift?.Invoke((y - height / 2.0) / height) ?? (0, 0);
+            for (int x = 0; x < width; x++)
+            {
+                double cx = x - width / 2.0, cy = y - height / 2.0;
+                double sx = cos * cx - sin * cy + width / 2.0 + dx + shiftX;
+                double sy = sin * cx + cos * cy + height / 2.0 + dy + shiftY;
+                double value = 120 + 30 * Math.Sin(sx * 0.11) * Math.Cos(sy * 0.15) +
+                               25 * Math.Sin(sx * 0.037 + sy * 0.061) +
+                               15 * Math.Cos(sx * 0.21 - sy * 0.08);
+                frame[y * width + x] = (byte)Math.Clamp(value, 16, 235);
+            }
         }
         Array.Fill(frame, (byte)128, width * height, width * height / 2);
         return frame;
+    }
+
+    [Fact]
+    public void RollingShutterWobbleIsReduced()
+    {
+        const int width = 640, height = 360, count = 60;
+        const double readout = 0.8;
+        var ct = TestContext.Current.CancellationToken;
+        // Handheld shake; each row sees the camera where it was when that row was read out.
+        static double PathX(double t) => 8 * Math.Sin(2 * Math.PI * t / 9) + 5 * Math.Sin(2 * Math.PI * t / 6 + 1);
+        static double PathY(double t) => 4 * Math.Sin(2 * Math.PI * t / 7 + 2);
+        var frames = new List<byte[]>(count);
+        for (int i = 0; i < count; i++)
+        {
+            int frame = i;
+            frames.Add(RigidFrame(width, height, PathX(frame), PathY(frame), 0,
+                s => (PathX(frame + s * readout) - PathX(frame), PathY(frame + s * readout) - PathY(frame))));
+        }
+
+        var output = VideoFrameStabilizer.StabilizeAll(frames, width, height,
+            new StabilizationOptions(CorrectRotation: false), 30, ct);
+
+        double before = MedianShearChange(frames, width, height, ct);
+        double after = MedianShearChange(output, width, height, ct);
+        Assert.True(after < before * 0.3, $"Top-to-bottom wobble {before:F2} px before, {after:F2} px after.");
+    }
+
+    /// <summary>Median frame-to-frame change in horizontal offset between the top and bottom thirds.</summary>
+    private static double MedianShearChange(IReadOnlyList<byte[]> frames, int width, int height, CancellationToken ct)
+    {
+        var changes = new List<double>();
+        for (int i = 1; i < frames.Count; i++)
+        {
+            var current = AlignmentImage.FromNv12(frames[i], width, height, 1, ct);
+            var previous = AlignmentImage.FromNv12(frames[i - 1], width, height, 1, ct);
+            if (RigidAligner.Align(current, previous, new VideoFrameStabilizer.Motion(0, 0, 0), ct) is not { } rigid)
+                continue;
+            var top = RigidAligner.AlignRows(current, previous, rigid.Motion, 0, height / 3, ct);
+            var bottom = RigidAligner.AlignRows(current, previous, rigid.Motion, height * 2 / 3, height, ct);
+            if (top is { } t && bottom is { } b) changes.Add(Math.Abs(t.Motion.X - b.Motion.X));
+        }
+        changes.Sort();
+        return changes[changes.Count / 2];
     }
 
     [Theory]

@@ -18,6 +18,12 @@ internal sealed class VideoFrameStabilizer
     private const double MaxAngle = 0.06;
     private const int SearchRadius = 20;
     private const int CoarseRadius = 16;
+    /// <summary>Horizontal bands measured for rolling-shutter wobble.</summary>
+    internal const int WobbleBands = 8;
+    /// <summary>Largest per-band disagreement (alignment pixels) treated as shutter wobble.</summary>
+    private const double MaxWobble = 8;
+    /// <summary>Largest per-row wobble correction, as a fraction of the frame size.</summary>
+    private const double MaxWobbleCorrectionRatio = 0.01;
 
     private readonly int _width, _height;
     private readonly bool _autoCrop;
@@ -31,10 +37,21 @@ internal sealed class VideoFrameStabilizer
     private Motion? _lastMotion;
 
     /// <summary>Camera motion from a frame to its predecessor, in full-resolution pixels and radians.</summary>
-    public readonly record struct Motion(double X, double Y, double Angle);
+    public readonly record struct Motion(double X, double Y, double Angle)
+    {
+        /// <summary>
+        /// How each of the <see cref="WobbleBands"/> horizontal bands moved relative to the frame as a
+        /// whole (X values, then Y): the rolling-shutter distortion change from the previous frame.
+        /// </summary>
+        public double[]? Wobble { get; init; }
+    }
 
     /// <summary>The rigid warp applied to one output frame.</summary>
-    public readonly record struct Correction(double X, double Y, double Angle);
+    public readonly record struct Correction(double X, double Y, double Angle)
+    {
+        /// <summary>Extra source offset for each horizontal band (X values, then Y), or null.</summary>
+        public double[]? Rows { get; init; }
+    }
 
     private readonly record struct Track(double X, double Y, double Dx, double Dy);
 
@@ -87,11 +104,15 @@ internal sealed class VideoFrameStabilizer
         }
         _lastMotion = motion;
 
-        var pose = Compose(_pose, motion);
-        pose = RegisterToKeyframe(image, previousImage, pose, cancellationToken);
+        var chained = Compose(_pose, motion);
+        var keyAligned = RegisterToKeyframe(image, previousImage, chained, cancellationToken);
+        var pose = keyAligned is { } k ? Compose(_keyPose, k) : chained;
+        if (keyAligned is null) (_keyImage, _keyPose) = (image, pose);
+        var wobble = MeasureWobble(image, previousImage, motion, cancellationToken);
+
         var result = Compose(Inverse(_pose), pose);
         _pose = pose;
-        return new Motion(result.X * _alignScale, result.Y * _alignScale, result.Angle);
+        return new Motion(result.X * _alignScale, result.Y * _alignScale, result.Angle) { Wobble = wobble };
     }
 
     private void StartSegment(AlignmentImage image)
@@ -100,6 +121,89 @@ internal sealed class VideoFrameStabilizer
         _keyImage = image;
         _keyPose = default;
     }
+
+    /// <summary>
+    /// How much each horizontal band of <paramref name="image"/> is displaced relative to its rigid
+    /// alignment with <paramref name="reference"/>, in full-resolution pixels (X values, then Y).
+    /// </summary>
+    /// <remarks>
+    /// The band measurements are fitted with a quadratic down the frame: shutter wobble varies
+    /// smoothly with row (the sensor is read out in a few tens of milliseconds), and the fit keeps
+    /// noise from weakly textured bands out of clips that have no wobble at all.
+    /// </remarks>
+    private double[] MeasureWobble(AlignmentImage image, AlignmentImage reference, Motion rigid,
+        CancellationToken cancellationToken)
+    {
+        var bands = new RigidAligner.Result?[WobbleBands];
+        Parallel.For(0, WobbleBands, Options(cancellationToken), band =>
+        {
+            int rowStart = band * image.Height / WobbleBands, rowEnd = (band + 1) * image.Height / WobbleBands;
+            bands[band] = RigidAligner.AlignRows(image, reference, rigid, rowStart, rowEnd, cancellationToken);
+        });
+
+        var positions = new List<double>(WobbleBands);
+        var valuesX = new List<double>(WobbleBands);
+        var valuesY = new List<double>(WobbleBands);
+        for (int band = 0; band < WobbleBands; band++)
+        {
+            if (bands[band] is not { InlierFraction: >= 0.5 } rows) continue;
+            double x = rows.Motion.X - rigid.X, y = rows.Motion.Y - rigid.Y;
+            // Larger disagreements are moving subjects or failed matches, not shutter wobble.
+            if (Math.Abs(x) > MaxWobble || Math.Abs(y) > MaxWobble) continue;
+            positions.Add(BandPosition(band));
+            valuesX.Add(x);
+            valuesY.Add(y);
+        }
+        var offsets = new double[WobbleBands * 2];
+        if (positions.Count < WobbleBands / 2) return offsets;
+
+        var fitX = FitQuadratic(positions, valuesX);
+        var fitY = FitQuadratic(positions, valuesY);
+        for (int band = 0; band < WobbleBands; band++)
+        {
+            offsets[band] = EvaluateQuadratic(fitX, BandPosition(band));
+            offsets[WobbleBands + band] = EvaluateQuadratic(fitY, BandPosition(band));
+        }
+        // Only the shape matters here: the rigid motion already accounts for the average shift.
+        double meanX = offsets.Take(WobbleBands).Average(), meanY = offsets.Skip(WobbleBands).Average();
+        for (int band = 0; band < WobbleBands; band++)
+        {
+            offsets[band] = (offsets[band] - meanX) * _alignScale;
+            offsets[WobbleBands + band] = (offsets[WobbleBands + band] - meanY) * _alignScale;
+        }
+        return offsets;
+    }
+
+    /// <summary>Band center on a -1 (top) to 1 (bottom) scale.</summary>
+    private static double BandPosition(int band) => (band + 0.5) * 2 / WobbleBands - 1;
+
+    private static double EvaluateQuadratic((double A, double B, double C) fit, double t) =>
+        fit.A + fit.B * t + fit.C * t * t;
+
+    /// <summary>Least-squares fit of a + b·t + c·t².</summary>
+    private static (double A, double B, double C) FitQuadratic(List<double> t, List<double> values)
+    {
+        double s0 = t.Count, s1 = 0, s2 = 0, s3 = 0, s4 = 0, v0 = 0, v1 = 0, v2 = 0;
+        for (int i = 0; i < t.Count; i++)
+        {
+            double t2 = t[i] * t[i];
+            s1 += t[i];
+            s2 += t2;
+            s3 += t2 * t[i];
+            s4 += t2 * t2;
+            v0 += values[i];
+            v1 += values[i] * t[i];
+            v2 += values[i] * t2;
+        }
+        // Cramer's rule on the 3x3 normal equations.
+        double determinant = s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
+        if (Math.Abs(determinant) < 1e-9) return (values.Average(), 0, 0);
+        double a = (v0 * (s2 * s4 - s3 * s3) - s1 * (v1 * s4 - s3 * v2) + s2 * (v1 * s3 - s2 * v2)) / determinant;
+        double b = (s0 * (v1 * s4 - s3 * v2) - v0 * (s1 * s4 - s3 * s2) + s2 * (s1 * v2 - v1 * s2)) / determinant;
+        double c = (s0 * (s2 * v2 - v1 * s3) - s1 * (s1 * v2 - v1 * s2) + v0 * (s1 * s3 - s2 * s2)) / determinant;
+        return (a, b, c);
+    }
+
 
     /// <summary>Precise current-to-previous motion in alignment-image pixels.</summary>
     private Motion? RefineMotion(AlignmentImage image, AlignmentImage previousImage, Motion? block,
@@ -114,27 +218,24 @@ internal sealed class VideoFrameStabilizer
     }
 
     /// <summary>
-    /// Replaces the chained pose with a direct registration against the keyframe when that
-    /// succeeds and agrees; otherwise makes the current frame the new keyframe.
+    /// Registers the frame directly against the keyframe and returns that keyframe-relative motion
+    /// when it succeeds and agrees with the chained estimate; null means the current frame should
+    /// become the new keyframe.
     /// </summary>
-    private Motion RegisterToKeyframe(AlignmentImage image, AlignmentImage previousImage, Motion pose,
+    private Motion? RegisterToKeyframe(AlignmentImage image, AlignmentImage previousImage, Motion chainedPose,
         CancellationToken cancellationToken)
     {
-        if (_keyImage is null || ReferenceEquals(_keyImage, previousImage))
-        {
-            if (_keyImage is null) (_keyImage, _keyPose) = (image, pose);
-            return pose;
-        }
-        var guess = Compose(Inverse(_keyPose), pose);
+        if (_keyImage is null) return null;
+        var guess = Compose(Inverse(_keyPose), chainedPose);
+        // The frame was just aligned with its predecessor; repeating that would change nothing.
+        if (ReferenceEquals(_keyImage, previousImage)) return guess;
         bool withinReach = Math.Abs(guess.X) < image.Width * 0.15 && Math.Abs(guess.Y) < image.Height * 0.15 &&
                            Math.Abs(guess.Angle) < 0.06;
         if (withinReach && RigidAligner.Align(image, _keyImage, guess, cancellationToken) is { } aligned &&
             aligned.InlierFraction >= 0.55 &&
             Math.Abs(aligned.Motion.X - guess.X) < 2 && Math.Abs(aligned.Motion.Y - guess.Y) < 2)
-            return Compose(_keyPose, aligned.Motion);
-        _keyImage = image;
-        _keyPose = pose;
-        return pose;
+            return aligned.Motion;
+        return null;
     }
 
     /// <summary>Applies <paramref name="second"/> and then <paramref name="first"/>.</summary>
@@ -226,7 +327,96 @@ internal sealed class VideoFrameStabilizer
             PlanSegment(filled, start, i, sigma, corrections);
             start = i;
         }
+
+        var rowShifts = PlanRowShifts(motions);
+        for (int i = 0; i < count; i++)
+            corrections[i] = corrections[i] with { Rows = rowShifts[i] };
         return corrections;
+    }
+
+    private double WobbleSlackX => _width * MaxWobbleCorrectionRatio;
+    private double WobbleSlackY => _height * MaxWobbleCorrectionRatio;
+
+    /// <summary>
+    /// Plans per-band source offsets that undo rolling-shutter distortion. Each sensor row is read
+    /// slightly later than the one above, so a row at height s (-0.5 top .. 0.5 bottom) shows the
+    /// camera at time t + s·r, where r is the readout time as a fraction of the frame interval.
+    /// The precisely measured camera path then predicts every row's displacement, so only r is
+    /// estimated from the noisier per-band measurements (one least-squares fit for the clip).
+    /// </summary>
+    private double[]?[] PlanRowShifts(IReadOnlyList<Motion?> motions)
+    {
+        int count = motions.Count;
+        var shifts = new double[]?[count];
+        var velocity = new (double X, double Y)?[count];
+        var acceleration = new (double X, double Y)[count];
+        for (int i = 0; i < count; i++)
+        {
+            var before = i > 0 ? motions[i] : null;
+            var after = i + 1 < count ? motions[i + 1] : null;
+            if (before is { } b && after is { } a)
+            {
+                velocity[i] = ((b.X + a.X) / 2, (b.Y + a.Y) / 2);
+                acceleration[i] = (a.X - b.X, a.Y - b.Y);
+            }
+            else if ((before ?? after) is { } only)
+            {
+                velocity[i] = (only.X, only.Y);
+            }
+        }
+
+        double readout = EstimateReadout(motions, velocity);
+        if (readout <= 0) return shifts;
+        for (int i = 0; i < count; i++)
+        {
+            if (velocity[i] is not { } v) continue;
+            var rows = new double[WobbleBands * 2];
+            bool any = false;
+            for (int band = 0; band < WobbleBands; band++)
+            {
+                double delay = BandPosition(band) / 2 * readout;
+                double shiftX = -(delay * v.X + delay * delay / 2 * acceleration[i].X);
+                double shiftY = -(delay * v.Y + delay * delay / 2 * acceleration[i].Y);
+                rows[band] = Math.Clamp(shiftX, -WobbleSlackX, WobbleSlackX);
+                rows[WobbleBands + band] = Math.Clamp(shiftY, -WobbleSlackY, WobbleSlackY);
+                any |= Math.Abs(shiftX) >= 0.01 || Math.Abs(shiftY) >= 0.01;
+            }
+            if (any) shifts[i] = rows;
+        }
+        return shifts;
+    }
+
+    /// <summary>
+    /// Least-squares readout time (fraction of a frame interval, 0 to 1). Between consecutive
+    /// frames a band at height s moves s·r·(change in velocity) relative to the frame as a whole.
+    /// </summary>
+    private static double EstimateReadout(IReadOnlyList<Motion?> motions, (double X, double Y)?[] velocity)
+    {
+        double numerator = 0, denominator = 0;
+        for (int i = 1; i < motions.Count; i++)
+        {
+            if (motions[i]?.Wobble is not { } wobble || velocity[i] is not { } v || velocity[i - 1] is not { } p)
+                continue;
+            double changeX = v.X - p.X, changeY = v.Y - p.Y;
+            for (int band = 0; band < WobbleBands; band++)
+            {
+                double s = BandPosition(band) / 2;
+                numerator += s * (wobble[band] * changeX + wobble[WobbleBands + band] * changeY);
+                denominator += s * s * (changeX * changeX + changeY * changeY);
+            }
+        }
+        return denominator > 0 ? Math.Clamp(numerator / denominator, 0, 1) : 0;
+    }
+
+    /// <summary>Interpolated (or extrapolated) wobble offset for a full-resolution source row.</summary>
+    private static (double X, double Y) RowShift(double[]? rows, double row, int height)
+    {
+        if (rows is null) return (0, 0);
+        double band = Math.Clamp(row * WobbleBands / height - 0.5, -0.5, WobbleBands - 0.5);
+        int lower = Math.Clamp((int)Math.Floor(band), 0, WobbleBands - 2);
+        double t = band - lower;
+        return (rows[lower] + (rows[lower + 1] - rows[lower]) * t,
+            rows[WobbleBands + lower] + (rows[WobbleBands + lower + 1] - rows[WobbleBands + lower]) * t);
     }
 
     /// <summary>Warps a frame by a planned correction (and auto-crops when enabled).</summary>
@@ -242,9 +432,9 @@ internal sealed class VideoFrameStabilizer
         // Luma uses bicubic sampling: bilinear blurs by a different amount at every sub-pixel
         // offset, which makes fine detail visibly pulse from frame to frame.
         WarpLumaBicubic(frame, output, _width, _height, cos, sin, correction.X, correction.Y,
-            _cropX, _cropY, cancellationToken);
+            _cropX, _cropY, correction.Rows, cancellationToken);
         WarpPlane(frame, output, _width / 2, _height / 2, _width * _height, 2,
-            cos, sin, correction.X / 2, correction.Y / 2, _cropX / 2, _cropY / 2, cancellationToken);
+            cos, sin, correction.X / 2, correction.Y / 2, _cropX / 2, _cropY / 2, correction.Rows, cancellationToken);
         return output;
     }
 
@@ -640,8 +830,10 @@ internal sealed class VideoFrameStabilizer
             factor = Math.Min(factor, _height * MaxTranslationRatio / Math.Abs(correction.Y));
         if (Math.Abs(correction.Angle) > MaxAngle)
             factor = Math.Min(factor, MaxAngle / Math.Abs(correction.Angle));
+        // Keep part of the crop margin free for the per-row wobble correction.
         if (_autoCrop)
-            factor = Math.Min(factor, CropLimitFactor(_width, _height, _cropX, _cropY,
+            factor = Math.Min(factor, CropLimitFactor(_width, _height,
+                Math.Max(0, _cropX - (int)Math.Ceiling(WobbleSlackX)), Math.Max(0, _cropY - (int)Math.Ceiling(WobbleSlackY)),
                 correction.X * factor, correction.Y * factor, correction.Angle * factor) * factor);
         return factor;
     }
@@ -755,7 +947,7 @@ internal sealed class VideoFrameStabilizer
     }
 
     private static void WarpPlane(byte[] input, byte[] output, int width, int height, int start,
-        int components, double cos, double sin, double dx, double dy, int cropX, int cropY,
+        int components, double cos, double sin, double dx, double dy, int cropX, int cropY, double[]? rowShifts,
         CancellationToken cancellationToken)
     {
         double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
@@ -766,8 +958,10 @@ internal sealed class VideoFrameStabilizer
         Parallel.For(0, height, Options(cancellationToken), y =>
         {
             double v = cropY + (y + 0.5) * scaleY - 0.5 - centerY;
-            double sourceX = centerX + cos * firstX - sin * v + dx;
-            double sourceY = centerY + sin * firstX + cos * v + dy;
+            // Chroma is subsampled 2x, so look the shift up by luma row and halve it.
+            var (shiftX, shiftY) = RowShift(rowShifts, (centerY + v + dy) * 2, height * 2);
+            double sourceX = centerX + cos * firstX - sin * v + dx + shiftX / 2;
+            double sourceY = centerY + sin * firstX + cos * v + dy + shiftY / 2;
             int destination = start + y * rowLength;
             for (int x = 0; x < width; x++, sourceX += stepX, sourceY += stepY, destination += components)
             {
@@ -800,7 +994,8 @@ internal sealed class VideoFrameStabilizer
 
     /// <summary>Catmull-Rom (bicubic) warp of the luma plane; same geometry as <see cref="WarpPlane"/>.</summary>
     private static void WarpLumaBicubic(byte[] input, byte[] output, int width, int height,
-        double cos, double sin, double dx, double dy, int cropX, int cropY, CancellationToken cancellationToken)
+        double cos, double sin, double dx, double dy, int cropX, int cropY, double[]? rowShifts,
+        CancellationToken cancellationToken)
     {
         double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
         double scaleX = (width - 2.0 * cropX) / width, scaleY = (height - 2.0 * cropY) / height;
@@ -813,8 +1008,9 @@ internal sealed class VideoFrameStabilizer
             Span<double> weightsX = stackalloc double[4];
             Span<double> weightsY = stackalloc double[4];
             double v = cropY + (y + 0.5) * scaleY - 0.5 - centerY;
-            double sourceX = centerX + cos * firstX - sin * v + dx;
-            double sourceY = centerY + sin * firstX + cos * v + dy;
+            var (shiftX, shiftY) = RowShift(rowShifts, centerY + v + dy, height);
+            double sourceX = centerX + cos * firstX - sin * v + dx + shiftX;
+            double sourceY = centerY + sin * firstX + cos * v + dy + shiftY;
             int destination = y * width;
             for (int x = 0; x < width; x++, sourceX += stepX, sourceY += stepY, destination++)
             {
