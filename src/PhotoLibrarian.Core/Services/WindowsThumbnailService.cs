@@ -14,25 +14,31 @@ public static class WindowsThumbnailService
     /// Gets thumbnail as encoded bytes (PNG/BMP from cache). Much faster than pixel decode.
     /// Use this for BitmapImage.SetSourceAsync() which can decode the stream directly.
     /// </summary>
-    public static async Task<byte[]?> GetThumbnailStreamAsync(string filePath, int size)
+    public static async Task<byte[]?> GetThumbnailStreamAsync(
+        string filePath, int size, CancellationToken cancellationToken = default)
     {
         try
         {
-            var file = await StorageFile.GetFileFromPathAsync(filePath);
+            cancellationToken.ThrowIfCancellationRequested();
+            var file = await StorageFile.GetFileFromPathAsync(filePath).AsTask(cancellationToken);
             
             // Request cached thumbnail - UseCurrentScale avoids DPI scaling overhead
             using var thumb = await file.GetThumbnailAsync(
                 ThumbnailMode.SingleItem,
                 (uint)size,
-                ThumbnailOptions.UseCurrentScale);
+                ThumbnailOptions.UseCurrentScale).AsTask(cancellationToken);
             
             if (thumb == null || thumb.Size == 0)
                 return null;
             
             // Return the encoded stream bytes (PNG/BMP from cache)
             var bytes = new byte[thumb.Size];
-            await thumb.AsStreamForRead().ReadAsync(bytes, 0, bytes.Length);
+            await thumb.AsStreamForRead().ReadExactlyAsync(bytes, cancellationToken);
             return bytes;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

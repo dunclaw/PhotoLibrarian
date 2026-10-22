@@ -9,6 +9,7 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
 {
     private readonly string _sourcePath;
     private CancellationTokenSource? _cancellation;
+    public string? ExportedPath { get; private set; }
 
     public VideoStabilizationDialog(string sourcePath)
     {
@@ -55,10 +56,7 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
                     ExportProgress.Value = percent;
                     StatusText.Text = $"Stabilizing video: {percent:F0}%";
                 }), cancellation.Token);
-            StatusText.Text = "";
-            ResultBar.Severity = InfoBarSeverity.Success;
-            ResultBar.Message = $"Saved stabilized copy: {destination}";
-            ResultBar.IsOpen = true;
+            ExportedPath = destination;
         }
         catch (OperationCanceledException)
         {
@@ -77,6 +75,7 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
             CloseButtonText = "Close";
             ExportProgress.Visibility = Visibility.Collapsed;
         }
+        if (ExportedPath is not null) Hide();
     }
 
     private void OnClosing(ContentDialog sender, ContentDialogClosingEventArgs args)

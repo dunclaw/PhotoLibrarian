@@ -32,6 +32,9 @@ public sealed partial class ImageViewerOverlay : UserControl
     private bool _isRedEyeRemoving;
     private bool _isDrawingRedEye;
     private Point _redEyeStart;
+    private Windows.Media.Core.MediaSource? _videoSource;
+    private int _playbackVersion;
+    private bool _isStabilizationOpen;
     public bool IsCropping { get; private set; }
     public bool IsStraightening { get; private set; }
     public bool IsRedEyeRemoving => _isRedEyeRemoving;
@@ -281,14 +284,16 @@ public sealed partial class ImageViewerOverlay : UserControl
                     }
                     break;
                 case nameof(ImageViewerViewModel.IsVideo):
-                    StabilizeVideoButton.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
+                    ZoomOutButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomFitButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomInButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     VideoPlayer.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
                     if (!ViewModel.IsVideo) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.VideoPath):
                     if (ViewModel.VideoPath is not null)
-                        PlayVideo(ViewModel.VideoPath);
+                        _ = PlayVideoAsync(ViewModel.VideoPath);
                     break;
                 case nameof(ImageViewerViewModel.Title):
                     TitleText.Text = ViewModel.Title;
@@ -300,33 +305,61 @@ public sealed partial class ImageViewerOverlay : UserControl
         });
     }
 
-    private async void PlayVideo(string path)
+    private async Task PlayVideoAsync(string path)
     {
+        StopVideo();
+        int version = _playbackVersion;
         try
         {
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            if (version != _playbackVersion || ViewModel?.IsOpen != true ||
+                !string.Equals(ViewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase)) return;
             var source = Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
+            _videoSource = source;
             VideoPlayer.Source = source;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not open video {path}: {ex}");
+            if (App.ViewModel is { } main) main.StatusText = $"Could not open video: {ex.Message}";
+        }
     }
 
     public void PauseVideo() => VideoPlayer.MediaPlayer?.Pause();
 
-    private async void OnStabilizeVideo(object sender, RoutedEventArgs e)
+    public async Task StabilizeVideoAsync()
     {
-        if (ViewModel?.CurrentEntry is not { MediaType: MediaType.Video } entry) return;
-        PauseVideo();
-        var dialog = new VideoStabilizationDialog(entry.FilePath) { XamlRoot = XamlRoot };
-        await dialog.ShowAsync();
+        if (_isStabilizationOpen || ViewModel?.CurrentEntry is not { MediaType: MediaType.Video } entry) return;
+        _isStabilizationOpen = true;
+        try
+        {
+            PauseVideo();
+            var dialog = new VideoStabilizationDialog(entry.FilePath) { XamlRoot = XamlRoot };
+            await dialog.ShowAsync();
+            if (dialog.ExportedPath is { } exportedPath)
+            {
+                ViewModel.OpenExportedVideo(exportedPath);
+                App.ViewModel!.StatusText = $"Opened stabilized copy: {exportedPath}";
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not open video stabilization: {ex}");
+            if (App.ViewModel is { } main) main.StatusText = $"Could not open video stabilization: {ex.Message}";
+        }
+        finally
+        {
+            _isStabilizationOpen = false;
+        }
     }
 
     private void StopVideo()
     {
-        if (VideoPlayer.Source is not null)
-        {
-            VideoPlayer.Source = null;
-        }
+        _playbackVersion++;
+        VideoPlayer.MediaPlayer?.Pause();
+        VideoPlayer.Source = null;
+        _videoSource?.Dispose();
+        _videoSource = null;
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => ViewModel?.CloseCommand.Execute(null);

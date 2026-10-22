@@ -28,5 +28,8 @@
     <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml"
           Link="TestAssets\ImageViewerOverlay.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml"
+          Link="TestAssets\TopRibbon.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

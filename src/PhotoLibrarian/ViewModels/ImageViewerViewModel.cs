@@ -34,7 +34,7 @@ public partial class ImageViewerViewModel : ObservableObject
     public partial string? VideoPath { get; set; }
 
     /// <summary>
-    /// The currently-viewed image entry, or null if the viewer is closed or showing a video.
+    /// The currently-viewed media entry, or null if the viewer is closed.
     /// Used by the ribbon/crop overlay to know which file to act on.
     /// </summary>
     public ImageEntry? CurrentEntry =>
@@ -73,6 +73,24 @@ public partial class ImageViewerViewModel : ObservableObject
         CurrentImage = null;
         RaiseCurrentEntryChanged();
         _ = LoadCurrentImageAsync();
+    }
+
+    public void OpenExportedVideo(string path)
+    {
+        var entries = _allImages.ToList();
+        var entry = entries.FirstOrDefault(image =>
+            string.Equals(image.FilePath, path, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            entry = new ImageEntry
+            {
+                FilePath = path,
+                FileName = System.IO.Path.GetFileName(path),
+                MediaType = MediaType.Video
+            };
+            entries.Insert(Math.Min(_currentIndex + 1, entries.Count), entry);
+        }
+        OpenImage(entry, entries);
     }
 
     public void UpdateLibraryImages(List<ImageEntry> images)

@@ -199,6 +199,7 @@ public sealed partial class MainWindow : Window
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
+        TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
@@ -273,14 +274,14 @@ public sealed partial class MainWindow : Window
                 if (!_isClosing)
                 {
                     TopRibbon.SetContextLabel(ViewModel.ImageViewer.Title ?? "");
-                    TopRibbon.SetMakeCopyEnabled(!ViewModel.ImageViewer.IsVideo);
+                    TopRibbon.SetVideoMode(ViewModel.ImageViewer.IsVideo);
                 }
             });
         if (e.PropertyName == nameof(ImageViewerViewModel.IsVideo))
             DispatcherQueue.TryEnqueue(() =>
             {
                 if (!_isClosing)
-                    TopRibbon.SetMakeCopyEnabled(!ViewModel.ImageViewer.IsVideo);
+                    TopRibbon.SetVideoMode(ViewModel.ImageViewer.IsVideo);
             });
     }
 

@@ -85,11 +85,6 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                <Button x:Name="StabilizeVideoButton"
-                        AutomationProperties.AutomationId="ViewerStabilizeVideo"
-                        Content="Stabilize video..."
-                        Visibility="Collapsed"
-                        Click="OnStabilizeVideo" />
                 <Button x:Name="ZoomOutButton"
                         AutomationProperties.AutomationId="ViewerZoomOut"
                         AutomationProperties.Name="Zoom out"

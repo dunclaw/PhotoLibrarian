@@ -1,11 +1,10 @@
 namespace PhotoLibrarian.Core.Services;
 
-/// <summary>Translation-only motion estimation and trajectory smoothing for NV12 frames.</summary>
+/// <summary>Robust local motion tracking and rigid camera-path smoothing for NV12 frames.</summary>
 internal sealed class VideoFrameStabilizer(int width, int height)
 {
     private byte[]? _previous;
-    private byte[]? _previousFrame;
-    private double _pathX, _pathY, _smoothX, _smoothY;
+    private double _pathX, _pathY, _pathAngle, _smoothX, _smoothY, _smoothAngle;
 
     public byte[] Process(byte[] frame, CancellationToken cancellationToken)
     {
@@ -14,10 +13,12 @@ internal sealed class VideoFrameStabilizer(int width, int height)
             frame.Length != checked(width * height * 3 / 2))
             throw new ArgumentException("The decoder must supply an even-sized NV12 frame.");
 
-        int scale = Math.Max(1, (int)Math.Ceiling(Math.Max(width / 320.0, height / 240.0)));
+        int scale = Math.Max(1, (int)Math.Ceiling(Math.Max(width / 640.0, height / 360.0)));
         int smallWidth = width / scale, smallHeight = height / scale;
         var luma = new byte[smallWidth * smallHeight];
         for (int y = 0; y < smallHeight; y++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int x = 0; x < smallWidth; x++)
             {
                 int sum = 0;
@@ -26,88 +27,179 @@ internal sealed class VideoFrameStabilizer(int width, int height)
                         sum += frame[(y * scale + row) * width + x * scale + column];
                 luma[y * smallWidth + x] = (byte)(sum / (scale * scale));
             }
-
-        if (_previous is null || _previousFrame is null)
-        {
-            _previous = luma;
-            _previousFrame = frame;
-            return frame;
         }
 
-        int radius = Math.Min(12, Math.Min(smallWidth, smallHeight) / 8);
-        var (dx, dy, error) = Match(luma, _previous, smallWidth, smallHeight,
-            -radius, radius, -radius, radius, radius, 4, cancellationToken);
-        dx *= scale;
-        dy *= scale;
-        if (scale > 1 && error <= 35)
-        {
-            (dx, dy, error) = Match(frame, _previousFrame, width, height,
-                dx - scale + 1, dx + scale - 1, dy - scale + 1, dy + scale - 1,
-                (radius + 1) * scale, scale * 4, cancellationToken);
-        }
+        var previous = _previous;
         _previous = luma;
-        _previousFrame = frame;
-        if (error > 35)
+        if (previous is null) return frame;
+
+        var motion = EstimateMotion(luma, previous, smallWidth, smallHeight, cancellationToken);
+        if (motion is null)
         {
-            _pathX = _pathY = _smoothX = _smoothY = 0;
+            _pathX = _pathY = _pathAngle = _smoothX = _smoothY = _smoothAngle = 0;
             return frame;
         }
-        _pathX += dx;
-        _pathY += dy;
-        _smoothX += (_pathX - _smoothX) * 0.12;
-        _smoothY += (_pathY - _smoothY) * 0.12;
-        // Chroma is subsampled 2x2: keep both planes aligned, with a bounded correction.
-        int offsetX = (int)Math.Round(Math.Clamp(_smoothX - _pathX, -width * 0.05, width * 0.05) / 2) * 2;
-        int offsetY = (int)Math.Round(Math.Clamp(_smoothY - _pathY, -height * 0.05, height * 0.05) / 2) * 2;
+
+        // Compose current-to-previous motion with the accumulated camera pose.
+        var (sinPath, cosPath) = Math.SinCos(_pathAngle);
+        _pathX += (cosPath * motion.Value.X - sinPath * motion.Value.Y) * scale;
+        _pathY += (sinPath * motion.Value.X + cosPath * motion.Value.Y) * scale;
+        _pathAngle += motion.Value.Angle;
+        _smoothX += (_pathX - _smoothX) * 0.08;
+        _smoothY += (_pathY - _smoothY) * 0.08;
+        _smoothAngle += (_pathAngle - _smoothAngle) * 0.08;
+        (sinPath, cosPath) = Math.SinCos(_pathAngle);
+        double deltaX = _smoothX - _pathX, deltaY = _smoothY - _pathY;
+        double offsetX = Math.Clamp(cosPath * deltaX + sinPath * deltaY, -width * 0.08, width * 0.08);
+        double offsetY = Math.Clamp(-sinPath * deltaX + cosPath * deltaY, -height * 0.08, height * 0.08);
+        double angle = Math.Clamp(_smoothAngle - _pathAngle, -0.06, 0.06);
+        var (sin, cos) = Math.SinCos(angle);
         var output = new byte[frame.Length];
-        for (int y = 0; y < height; y++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            int row = Mirror(y + offsetY, height) * width;
-            for (int x = 0; x < width; x++)
-                output[y * width + x] = frame[row + Mirror(x + offsetX, width)];
-        }
-        int chromaStart = width * height;
-        for (int y = 0; y < height / 2; y++)
-            for (int x = 0; x < width / 2; x++)
-            {
-                int source = chromaStart + Mirror(y + offsetY / 2, height / 2) * width +
-                    Mirror(x + offsetX / 2, width / 2) * 2;
-                int destination = chromaStart + y * width + x * 2;
-                output[destination] = frame[source];
-                output[destination + 1] = frame[source + 1];
-            }
+        WarpPlane(frame, output, width, height, 0, 1, cos, sin, offsetX, offsetY, cancellationToken);
+        WarpPlane(frame, output, width / 2, height / 2, width * height, 2,
+            cos, sin, offsetX / 2, offsetY / 2, cancellationToken);
         return output;
     }
 
-    private static (int X, int Y, double Error) Match(
-        byte[] current, byte[] previous, int width, int height,
-        int minX, int maxX, int minY, int maxY, int margin, int step, CancellationToken cancellationToken)
+    private readonly record struct Motion(double X, double Y, double Angle);
+    private readonly record struct Track(double X, double Y, double Dx, double Dy);
+
+    private static Motion? EstimateMotion(byte[] current, byte[] previous, int width, int height,
+        CancellationToken cancellationToken)
     {
-        long best = long.MaxValue;
-        int bestX = 0, bestY = 0, count = 0;
-        for (int dy = minY; dy <= maxY; dy++)
+        const int patch = 6;
+        int radius = Math.Min(20, Math.Min(width, height) / 8);
+        int margin = radius + patch + 1;
+        var tracks = new List<Track>();
+        for (int gy = 0; gy < 5; gy++)
+        for (int gx = 0; gx < 8; gx++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            for (int dx = minX; dx <= maxX; dx++)
+            int x = margin + (width - 2 * margin) * (2 * gx + 1) / 16;
+            int y = margin + (height - 2 * margin) * (2 * gy + 1) / 10;
+            if (x < margin || y < margin || x >= width - margin || y >= height - margin) continue;
+            int texture = 0;
+            for (int py = -patch; py <= patch; py += 2)
+            for (int px = -patch; px <= patch; px += 2)
+                texture += Math.Abs(current[(y + py) * width + x + px + 1] -
+                                    current[(y + py) * width + x + px - 1]);
+            if (texture < 120) continue;
+
+            int bestX = 0, bestY = 0;
+            double best = double.MaxValue;
+            for (int dy = -radius; dy <= radius; dy += 2)
+            for (int dx = -radius; dx <= radius; dx += 2)
             {
-                long error = 0;
-                count = 0;
-                for (int y = margin; y < height - margin; y += step)
-                    for (int x = margin; x < width - margin; x += step)
-                    {
-                        error += Math.Abs(current[y * width + x] - previous[(y + dy) * width + x + dx]);
-                        count++;
-                    }
-                if (error < best || (error == best && Math.Abs(dx) + Math.Abs(dy) < Math.Abs(bestX) + Math.Abs(bestY)))
+                double error = PatchError(current, previous, width, x, y, dx, dy, patch);
+                if (error < best)
                 {
                     best = error;
                     bestX = dx;
                     bestY = dy;
                 }
             }
+            int coarseX = bestX, coarseY = bestY;
+            for (int dy = coarseY - 1; dy <= coarseY + 1; dy++)
+            for (int dx = coarseX - 1; dx <= coarseX + 1; dx++)
+            {
+                double error = PatchError(current, previous, width, x, y, dx, dy, patch);
+                if (error < best)
+                {
+                    best = error;
+                    bestX = dx;
+                    bestY = dy;
+                }
+            }
+            if (best > 25 || Math.Abs(bestX) >= radius || Math.Abs(bestY) >= radius) continue;
+            double subX = Refine(best, PatchError(current, previous, width, x, y, bestX - 1, bestY, patch),
+                PatchError(current, previous, width, x, y, bestX + 1, bestY, patch));
+            double subY = Refine(best, PatchError(current, previous, width, x, y, bestX, bestY - 1, patch),
+                PatchError(current, previous, width, x, y, bestX, bestY + 1, patch));
+            tracks.Add(new Track(x - (width - 1) / 2.0, y - (height - 1) / 2.0, bestX + subX, bestY + subY));
         }
-        return (bestX, bestY, count == 0 ? 0 : best / (double)count);
+        if (tracks.Count < 6) return null;
+
+        // Robust consensus rejects independently moving subjects and ambiguous low-texture matches.
+        Motion bestMotion = default;
+        int bestCount = 0;
+        foreach (var a in tracks)
+        foreach (var b in tracks)
+        {
+            double x = b.X - a.X, y = b.Y - a.Y;
+            double distance = x * x + y * y;
+            if (distance < 400) continue;
+            double angle = (x * (b.Dy - a.Dy) - y * (b.Dx - a.Dx)) / distance;
+            if (Math.Abs(angle) > 0.08) continue;
+            var model = new Motion(a.Dx + angle * a.Y, a.Dy - angle * a.X, angle);
+            int count = tracks.Count(track => Residual(track, model) < 1.5);
+            if (count > bestCount)
+            {
+                bestCount = count;
+                bestMotion = model;
+            }
+        }
+        if (bestCount < Math.Max(6, tracks.Count / 2)) return null;
+        var inliers = tracks.Where(track => Residual(track, bestMotion) < 1.5).ToList();
+        double meanX = inliers.Average(t => t.X), meanY = inliers.Average(t => t.Y);
+        double meanDx = inliers.Average(t => t.Dx), meanDy = inliers.Average(t => t.Dy);
+        double numerator = 0, denominator = 0;
+        foreach (var track in inliers)
+        {
+            double x = track.X - meanX, y = track.Y - meanY;
+            numerator += x * (track.Dy - meanDy) - y * (track.Dx - meanDx);
+            denominator += x * x + y * y;
+        }
+        double fittedAngle = denominator > 0 ? numerator / denominator : 0;
+        return new Motion(meanDx + fittedAngle * meanY, meanDy - fittedAngle * meanX, fittedAngle);
+    }
+
+    private static double Residual(Track track, Motion model) =>
+        Math.Sqrt(Math.Pow(track.Dx - model.X + model.Angle * track.Y, 2) +
+                  Math.Pow(track.Dy - model.Y - model.Angle * track.X, 2));
+
+    private static double Refine(double center, double left, double right)
+    {
+        double curvature = left + right - 2 * center;
+        return curvature > 0 ? Math.Clamp((left - right) / (2 * curvature), -0.5, 0.5) : 0;
+    }
+
+    private static double PatchError(byte[] current, byte[] previous, int width,
+        int x, int y, int dx, int dy, int patch)
+    {
+        int error = 0, count = 0;
+        for (int py = -patch; py <= patch; py += 2)
+        for (int px = -patch; px <= patch; px += 2)
+        {
+            error += Math.Abs(current[(y + py) * width + x + px] -
+                              previous[(y + py + dy) * width + x + px + dx]);
+            count++;
+        }
+        return error / (double)count;
+    }
+
+    private static void WarpPlane(byte[] input, byte[] output, int width, int height, int start,
+        int components, double cos, double sin, double dx, double dy, CancellationToken cancellationToken)
+    {
+        double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
+        for (int y = 0; y < height; y++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            double sourceX = centerX - cos * centerX - sin * (y - centerY) + dx;
+            double sourceY = centerY - sin * centerX + cos * (y - centerY) + dy;
+            for (int x = 0; x < width; x++, sourceX += cos, sourceY += sin)
+            {
+                int ix = (int)Math.Floor(sourceX), iy = (int)Math.Floor(sourceY);
+                double fx = sourceX - ix, fy = sourceY - iy;
+                int x0 = Mirror(ix, width), x1 = Mirror(ix + 1, width);
+                int row0 = start + Mirror(iy, height) * width * components;
+                int row1 = start + Mirror(iy + 1, height) * width * components;
+                int destination = start + (y * width + x) * components;
+                for (int c = 0; c < components; c++)
+                    output[destination + c] = (byte)Math.Clamp(Math.Round(
+                        (input[row0 + x0 * components + c] * (1 - fx) + input[row0 + x1 * components + c] * fx) * (1 - fy) +
+                        (input[row1 + x0 * components + c] * (1 - fx) + input[row1 + x1 * components + c] * fx) * fy), 0, 255);
+            }
+        }
     }
 
     private static int Mirror(int coordinate, int length)

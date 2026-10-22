@@ -11,7 +11,7 @@
     Closing="OnClosing">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="16" MinWidth="320">
-            <TextBlock Text="Reduces small handheld shakes with the built-in stabilizer. No downloads or setup are needed. Mirrored edges may be visible; large movements, rotation, rolling shutter and motion blur cannot be repaired."
+            <TextBlock Text="Reduces handheld shakes and small rotations with the built-in stabilizer. No downloads or setup are needed. Mirrored edges may be visible; severe movements, rolling shutter and motion blur cannot be repaired. The copy opens in the player when export finishes."
                        TextWrapping="Wrap" />
             <ContentControl x:Name="OptionsPanel" HorizontalContentAlignment="Stretch">
                 <StackPanel Spacing="12">

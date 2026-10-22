@@ -113,6 +113,55 @@ public sealed class VideoStabilizationTests : IDisposable
     }
 
     [Fact]
+    public void StabilizesSubpixelTranslationAndRotationDespiteMovingForeground()
+    {
+        const int width = 640, height = 360;
+        var stabilizer = new VideoFrameStabilizer(width, height);
+        byte[]? previousInput = null, previousOutput = null;
+        long before = 0, after = 0;
+        for (int i = 0; i < 45; i++)
+        {
+            var frame = NaturalMotionFrame(width, height, i);
+            var output = stabilizer.Process(frame, TestContext.Current.CancellationToken);
+            if (previousInput is not null && previousOutput is not null)
+                for (int y = 40; y < height - 40; y += 2)
+                for (int x = 40; x < width - 40; x += 2)
+                {
+                    if (x > 190 && x < 450 && y > 110 && y < 270) continue;
+                    int index = y * width + x;
+                    before += Math.Abs(frame[index] - previousInput[index]);
+                    after += Math.Abs(output[index] - previousOutput[index]);
+                }
+            previousInput = frame;
+            previousOutput = output;
+        }
+        Assert.True(after < before * 0.6, $"Natural texture/rotation motion ratio: {after / (double)before:F3}");
+    }
+
+    private static byte[] NaturalMotionFrame(int width, int height, int index)
+    {
+        var frame = new byte[width * height * 3 / 2];
+        double angle = Math.Sin(index * 2.1) * 0.018;
+        double dx = Math.Sin(index * 1.7) * 4.7, dy = Math.Cos(index * 2.3) * 3.3;
+        var (sin, cos) = Math.SinCos(angle);
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            double sx = cos * (x - width / 2.0) - sin * (y - height / 2.0) + width / 2.0 + dx;
+            double sy = sin * (x - width / 2.0) + cos * (y - height / 2.0) + height / 2.0 + dy;
+            double value = 110 + 27 * Math.Sin(sx * 0.12) * Math.Cos(sy * 0.17) +
+                           24 * Math.Sin(sx * 0.041 + sy * 0.071) +
+                           17 * Math.Cos(sx * 0.23 - sy * 0.09) +
+                           13 * Math.Sin(sx * 0.39 + sy * 0.31);
+            if (x > 220 + index % 20 * 2 && x < 400 + index % 20 * 2 && y > 140 && y < 240)
+                value = 80 + 50 * Math.Sin(x * 0.3 + index) * Math.Cos(y * 0.2);
+            frame[y * width + x] = (byte)Math.Clamp(value, 16, 235);
+        }
+        Array.Fill(frame, (byte)128, width * height, width * height / 2);
+        return frame;
+    }
+
+    [Fact]
     public void FrameStabilizerResetsAtSceneCutsAndPreservesFlatFrames()
     {
         var stabilizer = new VideoFrameStabilizer(640, 480);

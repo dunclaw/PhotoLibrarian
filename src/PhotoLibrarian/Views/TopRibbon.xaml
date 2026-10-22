@@ -104,6 +104,20 @@
                 </Button>
             </StackPanel>
 
+            <StackPanel x:Name="VideoTools" Orientation="Horizontal" VerticalAlignment="Center"
+                        Visibility="Collapsed">
+                <Button Click="OnStabilizeVideoClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonStabilizeVideo"
+                        AutomationProperties.Name="Stabilize video"
+                        ToolTipService.ToolTip="Export a stabilized copy of this video">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE714;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Stabilize" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
             <!-- ===== Crop sub-mode (replaces ViewerTools when crop is active) ===== -->
             <StackPanel x:Name="CropTools" Orientation="Horizontal" VerticalAlignment="Center"
                         Visibility="Collapsed">
