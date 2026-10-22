@@ -64,9 +64,14 @@ public sealed class VideoWorkflowTests
         var viewer = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
         Assert.DoesNotContain(viewer.Descendants(), element => (string?)element.Attribute("Click") == "OnStabilizeVideo");
         var dialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoStabilizationDialog.xaml"));
-        var autoCrop = Assert.Single(dialog.Descendants(presentation + "CheckBox"));
-        Assert.Equal("StabilizationAutoCrop", (string?)autoCrop.Attribute("AutomationProperties.AutomationId"));
-        Assert.Equal("True", (string?)autoCrop.Attribute("IsChecked"));
+        var checkBoxes = dialog.Descendants(presentation + "CheckBox")
+            .ToDictionary(element => (string?)element.Attribute("AutomationProperties.AutomationId") ?? "");
+        Assert.Equal("True", (string?)checkBoxes["StabilizationAutoCrop"].Attribute("IsChecked"));
+        Assert.Equal("True", (string?)checkBoxes["StabilizationRotation"].Attribute("IsChecked"));
+        Assert.Null(checkBoxes["StabilizationLockFrame"].Attribute("IsChecked"));
+        var smoothness = Assert.Single(dialog.Descendants(presentation + "ComboBox"));
+        Assert.Equal("StabilizationSmoothness", (string?)smoothness.Attribute("AutomationProperties.AutomationId"));
+        Assert.Equal("1", (string?)smoothness.Attribute("SelectedIndex"));
     }
 
     [Fact]

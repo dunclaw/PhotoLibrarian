@@ -21,6 +21,7 @@ internal sealed class VideoFrameStabilizer
 
     private readonly int _width, _height;
     private readonly bool _autoCrop;
+    private readonly StabilizationOptions _options;
     private readonly int _cropX, _cropY;
     private byte[]? _previous;
     private (int X, int Y)? _predicted;
@@ -34,10 +35,16 @@ internal sealed class VideoFrameStabilizer
     private readonly record struct Track(double X, double Y, double Dx, double Dy);
 
     public VideoFrameStabilizer(int width, int height, bool autoCrop = false)
+        : this(width, height, new StabilizationOptions(AutoCrop: autoCrop))
+    {
+    }
+
+    public VideoFrameStabilizer(int width, int height, StabilizationOptions options)
     {
         _width = width;
         _height = height;
-        _autoCrop = autoCrop && width >= 16 && height >= 16;
+        _options = options;
+        _autoCrop = options.AutoCrop && width >= 16 && height >= 16;
         _cropX = _autoCrop ? GetCropOffset(width) : 0;
         _cropY = _autoCrop ? GetCropOffset(height) : 0;
     }
@@ -114,7 +121,8 @@ internal sealed class VideoFrameStabilizer
 
         double fps = double.IsFinite(framesPerSecond) && framesPerSecond > 0 ? framesPerSecond : 30;
         var filled = BridgeShortGaps(motions, Math.Max(2, (int)Math.Round(fps * 0.2)));
-        double sigma = Math.Clamp(fps * 0.5, 3, 60);
+        double smoothingSeconds = _options.LockFrame ? 0.5 : _options.SmoothingSeconds;
+        double sigma = Math.Clamp(fps * smoothingSeconds, 2, 120);
 
         int start = 0;
         for (int i = 1; i <= count; i++)
@@ -145,9 +153,14 @@ internal sealed class VideoFrameStabilizer
 
     /// <summary>Runs all three stages over in-memory frames (used for small clips and tests).</summary>
     internal static List<byte[]> StabilizeAll(IReadOnlyList<byte[]> frames, int width, int height,
-        bool autoCrop, double framesPerSecond, CancellationToken cancellationToken)
+        bool autoCrop, double framesPerSecond, CancellationToken cancellationToken) =>
+        StabilizeAll(frames, width, height, new StabilizationOptions(AutoCrop: autoCrop), framesPerSecond,
+            cancellationToken);
+
+    internal static List<byte[]> StabilizeAll(IReadOnlyList<byte[]> frames, int width, int height,
+        StabilizationOptions options, double framesPerSecond, CancellationToken cancellationToken)
     {
-        var stabilizer = new VideoFrameStabilizer(width, height, autoCrop);
+        var stabilizer = new VideoFrameStabilizer(width, height, options);
         var motions = new List<Motion?>(frames.Count);
         foreach (var frame in frames)
             motions.Add(stabilizer.Analyze(frame, cancellationToken));
@@ -381,6 +394,7 @@ internal sealed class VideoFrameStabilizer
         var pathX = new double[length];
         var pathY = new double[length];
         var pathAngle = new double[length];
+        bool correctRotation = _options.CorrectRotation;
         for (int i = 1; i < length; i++)
         {
             var motion = motions[start + i]!.Value;
@@ -388,12 +402,26 @@ internal sealed class VideoFrameStabilizer
             var (sin, cos) = Math.SinCos(pathAngle[i - 1]);
             pathX[i] = pathX[i - 1] + cos * motion.X - sin * motion.Y;
             pathY[i] = pathY[i - 1] + sin * motion.X + cos * motion.Y;
-            pathAngle[i] = pathAngle[i - 1] + motion.Angle;
+            pathAngle[i] = pathAngle[i - 1] + (correctRotation ? motion.Angle : 0);
         }
 
-        var smoothX = GaussianSmooth(pathX, sigma);
-        var smoothY = GaussianSmooth(pathY, sigma);
-        var smoothAngle = GaussianSmooth(pathAngle, sigma);
+        double[] smoothX, smoothY, smoothAngle;
+        if (_options.LockFrame)
+        {
+            // Hold the view still while the camera stays inside a band within the correction
+            // margin; when it drifts further, move the anchor only as far as needed. This locks
+            // onto a subject but still reframes after the camera is deliberately re-aimed.
+            double transition = Math.Max(2, sigma / 2);
+            smoothX = LockedTarget(pathX, LockBand(_width, _cropX), transition);
+            smoothY = LockedTarget(pathY, LockBand(_height, _cropY), transition);
+            smoothAngle = LockedTarget(pathAngle, MaxAngle * 0.3, transition);
+        }
+        else
+        {
+            smoothX = GaussianSmooth(pathX, sigma);
+            smoothY = GaussianSmooth(pathY, sigma);
+            smoothAngle = GaussianSmooth(pathAngle, sigma);
+        }
 
         // Pull the smooth path toward the raw path wherever the correction would exceed the crop
         // budget, then re-smooth so the limited path stays smooth instead of clipping abruptly.
@@ -423,6 +451,40 @@ internal sealed class VideoFrameStabilizer
             corrections[start + i] = new Correction(correction.X * factor, correction.Y * factor,
                 correction.Angle * factor);
         }
+    }
+
+    /// <summary>How far the camera may drift from a locked anchor before the anchor follows.</summary>
+    private double LockBand(int length, int cropOffset)
+    {
+        double margin = _autoCrop ? cropOffset : length * MaxTranslationRatio;
+        // Leave part of the margin for rotation and for the smoothed transitions.
+        return margin * 0.6;
+    }
+
+    /// <summary>
+    /// A target that stays constant while <paramref name="path"/> is within ±<paramref name="band"/>
+    /// of it. Forward and backward followers are averaged so the target neither lags nor leads.
+    /// </summary>
+    private static double[] LockedTarget(double[] path, double band, double transitionSigma)
+    {
+        int length = path.Length;
+        var forward = new double[length];
+        var backward = new double[length];
+        double anchor = path[0];
+        for (int i = 0; i < length; i++)
+        {
+            anchor = Math.Clamp(anchor, path[i] - band, path[i] + band);
+            forward[i] = anchor;
+        }
+        anchor = path[length - 1];
+        for (int i = length - 1; i >= 0; i--)
+        {
+            anchor = Math.Clamp(anchor, path[i] - band, path[i] + band);
+            backward[i] = anchor;
+        }
+        var target = new double[length];
+        for (int i = 0; i < length; i++) target[i] = (forward[i] + backward[i]) / 2;
+        return GaussianSmooth(target, transitionSigma);
     }
 
     private static Correction GetCorrection(double pathX, double pathY, double pathAngle,

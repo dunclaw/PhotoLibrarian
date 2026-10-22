@@ -1,9 +1,17 @@
 # Video stabilization
 
-Open a video, select **Stabilize** in the top editing ribbon, choose a new MP4 filename, and
-leave **Auto-crop to remove unstable frame edges** checked (the default) or turn it off,
-then select **Export stabilized copy**. There is no tool to find, configure or install,
+Open a video, select **Stabilize** in the top editing ribbon, choose a new MP4 filename and
+settings, then select **Export stabilized copy**. There is no tool to find, configure or install,
 and no runtime downloads. Everything runs locally inside PhotoLibrarian.
+
+## Settings
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| Auto-crop to remove unstable frame edges | On | Crops 8% from each edge and scales back up so no invalid edge pixels are shown. |
+| Smoothness | Medium | Low (about 0.25 s), Medium (0.5 s) or High (1 s) Gaussian smoothing of the camera path. Higher is calmer but uses more of the crop margin. |
+| Correct rotation (camera roll) | On | Off corrects only horizontal and vertical shake. |
+| Lock frame | Off | Holds the view still like a tripod instead of smoothing camera moves. Best when the camera stays on one subject. The view holds while the camera stays within about 60% of the crop margin; when the camera is re-aimed further, the view follows smoothly. Smoothness is not used. |
 
 Export runs in the background with percentage progress and cancellation.
 The dialog stays open until cancellation stops the export and removes its
@@ -35,7 +43,7 @@ vid.stab and OpenCV's `TwoPassStabilizer`, but implemented in this repository:
    full frames.
 2. **Path planning.** The per-frame motions are accumulated into the camera path
    for the whole clip, which is then smoothed with a centered Gaussian (about
-   half a second, 0.5 × frame rate frames). Because the smoother sees frames
+   half a second by default; see Smoothness). Because the smoother sees frames
    before and after each frame, intentional pans are followed instead of being
    held back and then released in a jump. The clip ends are extended by
    reflecting about a local straight-line fit, so a pan at the start or end is
@@ -43,7 +51,10 @@ vid.stab and OpenCV's `TwoPassStabilizer`, but implemented in this repository:
    rotation, or (with auto-crop) the valid crop area are scaled back and
    re-smoothed, so limits never introduce a sudden step. Dropouts of up to 0.2 s
    are bridged by interpolating the neighboring motion; longer ones, such as
-   scene cuts or flat frames, start a new path segment.
+   scene cuts or flat frames, start a new path segment. With **Lock frame**, the
+   target is instead a fixed anchor that moves only when the camera leaves a
+   band inside the margin (forward and backward followers averaged so it neither
+   lags nor leads), with short smoothed transitions.
 3. **Render.** The clip is decoded again (with audio, decoded to PCM) and each
    frame's planned correction is applied to luma and chroma in one bilinear
    resampling pass.
@@ -90,6 +101,20 @@ The source XMP sidecar is copied to the export, preserving PhotoLibrarian rating
 flags, captions, capture dates, tags and other XMP properties. The copy is
 re-indexed using those sidecar values when it is added to a library. Keep the
 original for archival purposes.
+
+## Diagnostics log
+
+PhotoLibrarian writes a diagnostic log to
+`%LOCALAPPDATA%\PhotoLibrarian\Logs\PhotoLibrarian.log` (rolled over to
+`PhotoLibrarian.previous.log` at 5 MB). Logging runs on a background thread so
+it never blocks the UI. Stabilization records its settings, analysis time and
+finished file size. The player records every open (file size and last-write time),
+open, playback-state and failure events (error, HRESULT, position, and whether the
+file changed since it was opened), along with video thumbnail requests and
+watched-folder refreshes so a failure can be correlated with other activity.
+If playback fails, the player logs the details and automatically reopens the
+video once, resuming from the failure position. A second failure shows the error
+in the status bar. Include this log when reporting a playback problem.
 
 ## Options investigated
 

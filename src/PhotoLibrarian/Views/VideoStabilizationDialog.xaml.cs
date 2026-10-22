@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Core.Services;
@@ -53,7 +54,7 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
                     if (_cancellation != cancellation || cancellation.IsCancellationRequested) return;
                     ExportProgress.Value = percent;
                     StatusText.Text = $"Stabilizing video: {percent:F0}%";
-                }), cancellation.Token, autoCrop: AutoCropBox.IsChecked == true);
+                }), cancellation.Token, GetOptions());
             ExportedPath = destination;
         }
         catch (OperationCanceledException)
@@ -74,6 +75,23 @@ public sealed partial class VideoStabilizationDialog : ContentDialog
             ExportProgress.Visibility = Visibility.Collapsed;
         }
         if (ExportedPath is not null) Hide();
+    }
+
+    private StabilizationOptions GetOptions() => new(
+        AutoCrop: AutoCropBox.IsChecked == true,
+        Smoothness: SmoothnessBox.SelectedIndex switch
+        {
+            0 => StabilizationSmoothness.Low,
+            2 => StabilizationSmoothness.High,
+            _ => StabilizationSmoothness.Medium,
+        },
+        CorrectRotation: RotationBox.IsChecked == true,
+        LockFrame: LockFrameBox.IsChecked == true);
+
+    private void OnLockFrameChanged(object sender, RoutedEventArgs e)
+    {
+        // Smoothness only shapes the moving camera path; a locked frame has none.
+        SmoothnessBox.IsEnabled = LockFrameBox.IsChecked != true;
     }
 
     private void OnClosing(ContentDialog sender, ContentDialogClosingEventArgs args)

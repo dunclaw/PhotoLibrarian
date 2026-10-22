@@ -215,6 +215,90 @@ public sealed class VideoStabilizationTests : IDisposable
             Assert.Equal(ramp[i], smooth[i], 6);
     }
 
+    /// <summary>Hand-held jitter around a slow drift, as current-to-previous motions.</summary>
+    private static List<VideoFrameStabilizer.Motion?> JitterMotions(int count, double driftPerFrame = 0)
+    {
+        var motions = new List<VideoFrameStabilizer.Motion?> { new(0, 0, 0) };
+        double Position(int i) => i * driftPerFrame + Math.Sin(i * 1.7) * 6 + Math.Sin(i * 0.31) * 9;
+        double Roll(int i) => Math.Sin(i * 1.3) * 0.01;
+        for (int i = 1; i < count; i++)
+            motions.Add(new(Position(i) - Position(i - 1), (Position(i) - Position(i - 1)) / 2, Roll(i) - Roll(i - 1)));
+        return motions;
+    }
+
+    /// <summary>Stabilized output positions: camera path plus correction.</summary>
+    private static double[] OutputPath(IReadOnlyList<VideoFrameStabilizer.Motion?> motions,
+        VideoFrameStabilizer.Correction[] corrections)
+    {
+        var result = new double[motions.Count];
+        double path = 0;
+        for (int i = 0; i < motions.Count; i++)
+        {
+            if (i > 0) path += motions[i]!.Value.X;
+            result[i] = path + corrections[i].X;
+        }
+        return result;
+    }
+
+    private static double MeanAcceleration(double[] values)
+    {
+        double total = 0;
+        for (int i = 1; i < values.Length - 1; i++)
+            total += Math.Abs(values[i + 1] - 2 * values[i] + values[i - 1]);
+        return total / (values.Length - 2);
+    }
+
+    [Fact]
+    public void LockFrameHoldsTheViewStillWithinTheCorrectionMargin()
+    {
+        var motions = JitterMotions(150);
+        var stabilizer = new VideoFrameStabilizer(1280, 720, new StabilizationOptions(LockFrame: true));
+        var output = OutputPath(motions, stabilizer.PlanCorrections(motions, 30));
+        Assert.True(output.Max() - output.Min() < 0.5, $"Locked output still moves {output.Max() - output.Min():F2}px");
+
+        var smooth = new VideoFrameStabilizer(1280, 720, StabilizationOptions.Default);
+        var smoothOutput = OutputPath(motions, smooth.PlanCorrections(motions, 30));
+        Assert.True(smoothOutput.Max() - smoothOutput.Min() > 2, "Smooth mode should still follow slow motion");
+    }
+
+    [Fact]
+    public void LockFrameFollowsDriftsLargerThanTheMarginWithoutSnapping()
+    {
+        // 400 px of drift is far beyond the ~100 px correction margin at 1280 wide.
+        var motions = JitterMotions(200, driftPerFrame: 2);
+        var stabilizer = new VideoFrameStabilizer(1280, 720, new StabilizationOptions(LockFrame: true));
+        var corrections = stabilizer.PlanCorrections(motions, 30);
+        Assert.All(corrections, correction => Assert.InRange(Math.Abs(correction.X), 0, 1280 * 0.08 + 0.01));
+        var output = OutputPath(motions, corrections);
+        for (int i = 1; i < output.Length; i++)
+            Assert.True(Math.Abs(output[i] - output[i - 1]) < 20, $"Output jumped at frame {i}");
+    }
+
+    [Fact]
+    public void RotationCorrectionCanBeDisabled()
+    {
+        var motions = JitterMotions(90);
+        var withRotation = new VideoFrameStabilizer(1280, 720, StabilizationOptions.Default)
+            .PlanCorrections(motions, 30);
+        var withoutRotation = new VideoFrameStabilizer(1280, 720, new StabilizationOptions(CorrectRotation: false))
+            .PlanCorrections(motions, 30);
+        Assert.Contains(withRotation, correction => Math.Abs(correction.Angle) > 1e-4);
+        Assert.All(withoutRotation, correction => Assert.Equal(0, correction.Angle));
+    }
+
+    [Fact]
+    public void HigherSmoothnessProducesSmootherCameraPath()
+    {
+        var motions = JitterMotions(240, driftPerFrame: 1);
+        double Acceleration(StabilizationSmoothness smoothness) => MeanAcceleration(OutputPath(motions,
+            new VideoFrameStabilizer(1920, 1080, new StabilizationOptions(Smoothness: smoothness))
+                .PlanCorrections(motions, 30)));
+        double low = Acceleration(StabilizationSmoothness.Low);
+        double medium = Acceleration(StabilizationSmoothness.Medium);
+        double high = Acceleration(StabilizationSmoothness.High);
+        Assert.True(low > medium && medium > high, $"Acceleration low {low:F3}, medium {medium:F3}, high {high:F3}");
+    }
+
     private static byte[] PannedFrame(int width, int height, double offsetX, double offsetY)
     {
         var frame = new byte[width * height * 3 / 2];

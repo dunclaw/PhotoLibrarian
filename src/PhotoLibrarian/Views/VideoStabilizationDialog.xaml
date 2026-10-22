@@ -22,9 +22,24 @@
                     <CheckBox x:Name="AutoCropBox" Content="Auto-crop to remove unstable frame edges"
                               IsChecked="True"
                               AutomationProperties.AutomationId="StabilizationAutoCrop" />
+                    <ComboBox x:Name="SmoothnessBox" Header="Smoothness" SelectedIndex="1" MinWidth="200"
+                              AutomationProperties.AutomationId="StabilizationSmoothness">
+                        <ComboBoxItem Content="Low - follows camera moves closely" />
+                        <ComboBoxItem Content="Medium" />
+                        <ComboBoxItem Content="High - very gradual camera moves" />
+                    </ComboBox>
+                    <CheckBox x:Name="RotationBox" Content="Correct rotation (camera roll)"
+                              IsChecked="True"
+                              AutomationProperties.AutomationId="StabilizationRotation" />
+                    <CheckBox x:Name="LockFrameBox" Content="Lock frame (hold the view still like a tripod)"
+                              Checked="OnLockFrameChanged" Unchecked="OnLockFrameChanged"
+                              AutomationProperties.AutomationId="StabilizationLockFrame" />
+                    <TextBlock Text="Lock frame works best when the camera stays pointed at one subject. Larger drifts are followed gradually."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
             </ContentControl>
-            <TextBlock Text="Exports an H.264/AAC MP4 locally; the original and existing files are never overwritten. Video and audio are re-encoded. Subtitles, extra tracks, HDR fidelity, specialized metadata and sidecars are not preserved."
+            <TextBlock Text="Exports an H.264/AAC MP4 locally; the original and existing files are never overwritten. Video and audio are re-encoded. Ratings, tags and other PhotoLibrarian metadata are copied to the new file. Subtitles, extra tracks, HDR fidelity and camera-specific embedded metadata are not preserved."
                        TextWrapping="Wrap" />
             <ProgressBar x:Name="ExportProgress" Minimum="0" Maximum="100" Visibility="Collapsed"
                          AutomationProperties.Name="Stabilizing video" />

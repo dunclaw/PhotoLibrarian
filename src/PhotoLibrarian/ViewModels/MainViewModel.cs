@@ -253,6 +253,7 @@ public partial class MainViewModel : ObservableObject
             if (_isShuttingDown) return;
             try
             {
+                DebugLog.WriteLine("Library: refreshing after watched-folder change");
                 if (ImageViewer.CurrentEntry is { } current &&
                     !System.IO.File.Exists(current.FilePath))
                     ImageViewer.CloseCommand.Execute(null);
@@ -1106,5 +1107,7 @@ public partial class MainViewModel : ObservableObject
         Settings.AutoTaggingSettingsChanged -= OnAutoTaggingSettingsChanged;
         _faceResources.Dispose();
         _scanner.Dispose();
+        DebugLog.WriteLine("MainViewModel: Cleanup complete");
+        Core.Diagnostics.DebugLog.Flush(TimeSpan.FromSeconds(1));
     }
 }

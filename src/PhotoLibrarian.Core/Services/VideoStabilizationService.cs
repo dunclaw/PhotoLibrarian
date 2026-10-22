@@ -1,4 +1,6 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices;
+using PhotoLibrarian.Core.Diagnostics;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
 using Windows.Storage;
@@ -13,11 +15,14 @@ public sealed class VideoStabilizationService
     public Task StabilizeAsync(
         string sourcePath, string destinationPath,
         IProgress<double>? progress = null, CancellationToken cancellationToken = default,
-        bool autoCrop = true) =>
+        StabilizationOptions? options = null) =>
         Task.Run(async () =>
         {
             ValidatePaths(sourcePath, destinationPath);
             cancellationToken.ThrowIfCancellationRequested();
+            options ??= StabilizationOptions.Default;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            DebugLog.WriteLine($"Stabilize: {sourcePath} -> {destinationPath} with {options}");
             string temporaryPath = Path.Combine(Path.GetDirectoryName(destinationPath)!,
                 $".photolibrarian-{Guid.NewGuid():N}.tmp");
             try
@@ -28,9 +33,10 @@ public sealed class VideoStabilizationService
                 var properties = await source.Properties.GetVideoPropertiesAsync().AsTask(cancellationToken);
                 profile.Video.Properties[VideoRotationKey] = (uint)properties.Orientation;
                 var stabilizer = new VideoFrameStabilizer(
-                    checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height), autoCrop);
+                    checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height), options);
                 var corrections = AnalyzeCameraPath(sourcePath, inputProfile, properties.Duration, stabilizer,
                     progress, cancellationToken);
+                DebugLog.WriteLine($"Stabilize: analyzed {corrections.Length} frames in {stopwatch.Elapsed.TotalSeconds:F1}s");
                 var encodeProgress = progress is null
                     ? null
                     : new ScaledProgress(progress, AnalysisShare, 1 - AnalysisShare / 100);
@@ -62,6 +68,8 @@ public sealed class VideoStabilizationService
                     throw new IOException("Windows did not produce a video.");
                 PublishOutput(sourcePath, temporaryPath, destinationPath);
                 await WaitUntilReadableAsync(destinationPath);
+                DebugLog.WriteLine($"Stabilize: finished {destinationPath} ({new FileInfo(destinationPath).Length:N0} bytes) " +
+                    $"in {stopwatch.Elapsed.TotalSeconds:F1}s");
             }
             catch (Exception ex) when (ex is COMException or SharpGen.Runtime.SharpGenException)
             {

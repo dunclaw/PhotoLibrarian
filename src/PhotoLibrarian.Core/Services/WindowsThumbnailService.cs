@@ -17,6 +17,8 @@ public static class WindowsThumbnailService
     public static async Task<byte[]?> GetThumbnailStreamAsync(
         string filePath, int size, CancellationToken cancellationToken = default)
     {
+        bool isVideo = FolderScannerService.IsVideoFile(filePath);
+        var stopwatch = isVideo ? System.Diagnostics.Stopwatch.StartNew() : null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -34,6 +36,9 @@ public static class WindowsThumbnailService
             // Return the encoded stream bytes (PNG/BMP from cache)
             var bytes = new byte[thumb.Size];
             await thumb.AsStreamForRead().ReadExactlyAsync(bytes, cancellationToken);
+            if (stopwatch is not null)
+                Diagnostics.DebugLog.WriteLine(
+                    $"Video thumbnail {System.IO.Path.GetFileName(filePath)} ({size}px) in {stopwatch.ElapsedMilliseconds} ms");
             return bytes;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -42,7 +47,7 @@ public static class WindowsThumbnailService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"WindowsThumbnailService.GetThumbnailStreamAsync failed for {System.IO.Path.GetFileName(filePath)}: {ex.Message}");
+            Diagnostics.DebugLog.WriteLine($"WindowsThumbnailService.GetThumbnailStreamAsync failed for {System.IO.Path.GetFileName(filePath)}: {ex.Message}");
             return null;
         }
     }
