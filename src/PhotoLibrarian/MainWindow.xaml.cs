@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
@@ -161,6 +162,10 @@ public sealed partial class MainWindow : Window
             new PointerEventHandler(OnUserPointerActivity),
             true);
         AppRoot.AddHandler(
+            UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnUserPointerPressed),
+            true);
+        AppRoot.AddHandler(
             UIElement.PointerWheelChangedEvent,
             new PointerEventHandler(OnUserPointerActivity),
             true);
@@ -214,6 +219,15 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.StraightenCancelRequested += OnRibbonCancelStraightenClicked;
         ViewerOverlay.RedEyeSelectionCompleted += OnRedEyeSelectionCompleted;
         ViewerOverlay.ManualFaceTaggingExited += (_, _) => ViewModel.OnManualFaceTaggingExited();
+
+        // The grid sits underneath the full viewer; if it takes focus (double-click or a
+        // selection sync), hand focus back so arrow keys navigate photos.
+        ImageGridPanel.GotFocus += (_, _) =>
+        {
+            if (ViewModel.ImageViewer.IsOpen)
+                DispatcherQueue.TryEnqueue(() => ViewerOverlay.FocusViewer());
+        };
+        AppRoot.PreviewKeyDown += OnAppRootPreviewKeyDown;
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;
@@ -303,6 +317,49 @@ public sealed partial class MainWindow : Window
         object sender,
         PointerRoutedEventArgs e) =>
         ViewModel.NotifyUserActivity();
+
+    private void OnUserPointerPressed(
+        object sender,
+        PointerRoutedEventArgs e) =>
+        ViewerOverlay.StopFocusGuard();
+
+    /// <summary>
+    /// While the full viewer is open, route its shortcuts to it even if keyboard focus is
+    /// still on the (hidden) grid, so navigation works immediately after opening.
+    /// </summary>
+    private void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (!ViewModel.ImageViewer.IsOpen
+            || ViewModel.Settings.IsOpen
+            || ViewModel.PeopleReview.IsOpen
+            || EditorOverlay.Visibility == Visibility.Visible
+            || ViewerOverlay.HasFocusWithin())
+            return;
+
+        var focused = Content?.XamlRoot is { } root
+            ? FocusManager.GetFocusedElement(root) as DependencyObject
+            : null;
+        if (focused is TextBox or PasswordBox or AutoSuggestBox or ComboBox or Slider
+            || IsWithin(focused, FolderNavPanel)
+            || IsWithin(focused, MetadataDetailPanel)
+            || IsWithin(focused, TopRibbon))
+            return;
+
+        if (ViewerOverlay.HandleViewerKey(e.Key))
+        {
+            e.Handled = true;
+            ViewerOverlay.FocusViewer();
+        }
+    }
+
+    private static bool IsWithin(DependencyObject? element, DependencyObject ancestor)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor)) return true;
+        }
+        return false;
+    }
 
     private void OnUserKeyActivity(
         object sender,

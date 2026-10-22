@@ -74,6 +74,9 @@ public partial class ImageEditorViewModel : ObservableObject
     [ObservableProperty]
     public partial double Sharpness { get; set; }
 
+    [ObservableProperty]
+    public partial double NoiseReduction { get; set; }
+
     // Levels
     [ObservableProperty]
     public partial double BlackPoint { get; set; }
@@ -180,6 +183,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Tint = Tint,
         Clarity = Clarity,
         Sharpness = Sharpness,
+        NoiseReduction = NoiseReduction,
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
@@ -253,6 +257,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Tint = p.Tint;
         Clarity = p.Clarity;
         Sharpness = p.Sharpness;
+        NoiseReduction = p.NoiseReduction;
         BlackPoint = p.BlackPoint;
         WhitePoint = p.WhitePoint;
         Midtones = p.Midtones;
@@ -270,6 +275,7 @@ public partial class ImageEditorViewModel : ObservableObject
     partial void OnTintChanged(double value) => OnParameterChanged("Tint");
     partial void OnClarityChanged(double value) => OnParameterChanged("Clarity");
     partial void OnSharpnessChanged(double value) => OnParameterChanged("Sharpness");
+    partial void OnNoiseReductionChanged(double value) => OnParameterChanged("Noise reduction");
     partial void OnBlackPointChanged(double value) => OnParameterChanged("Black point");
     partial void OnWhitePointChanged(double value) => OnParameterChanged("White point");
     partial void OnMidtonesChanged(double value) => OnParameterChanged("Midtones");
@@ -368,7 +374,8 @@ public partial class ImageEditorViewModel : ObservableObject
         a.Brightness == b.Brightness && a.Contrast == b.Contrast && a.Exposure == b.Exposure &&
         a.Highlights == b.Highlights && a.Shadows == b.Shadows && a.Saturation == b.Saturation &&
         a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
-        a.Sharpness == b.Sharpness && a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
+        a.Sharpness == b.Sharpness && a.NoiseReduction == b.NoiseReduction &&
+        a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
         a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle;
 }
 

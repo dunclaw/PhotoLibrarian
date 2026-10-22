@@ -248,6 +248,89 @@ public sealed partial class ImageViewerOverlay : UserControl
         RootGrid.AddHandler(UIElement.PointerWheelChangedEvent,
             new PointerEventHandler(OnPointerWheelChanged), true);
         DebugLog.WriteLine("ImageViewerOverlay: Wheel handler attached to RootGrid");
+
+        // handledEventsToo: the zoom/pan controller marks image presses as handled.
+        RootGrid.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnRootPointerPressed), true);
+    }
+
+    private static readonly TimeSpan FocusGuardInterval = TimeSpan.FromMilliseconds(50);
+    private const int FocusGuardTicks = 20;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _focusGuardTimer;
+    private int _focusGuardTicksRemaining;
+
+    /// <summary>
+    /// Moves keyboard focus into the viewer. Focus requested in the tick the overlay becomes
+    /// visible can fail before layout, and the grid underneath can take focus back while it
+    /// syncs its selection, so keep reclaiming focus for a short period after opening.
+    /// </summary>
+    public void FocusViewer()
+    {
+        TryFocusViewer();
+        _focusGuardTicksRemaining = FocusGuardTicks;
+        if (_focusGuardTimer is null)
+        {
+            _focusGuardTimer = DispatcherQueue.CreateTimer();
+            _focusGuardTimer.Interval = FocusGuardInterval;
+            _focusGuardTimer.IsRepeating = true;
+            _focusGuardTimer.Tick += OnFocusGuardTick;
+        }
+        _focusGuardTimer.Start();
+    }
+
+    /// <summary>Stops reclaiming focus, e.g. once the user deliberately clicks elsewhere.</summary>
+    public void StopFocusGuard() => _focusGuardTimer?.Stop();
+
+    private void OnFocusGuardTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    {
+        if (--_focusGuardTicksRemaining <= 0 || ViewModel?.IsOpen != true)
+        {
+            sender.Stop();
+            return;
+        }
+        TryFocusViewer();
+    }
+
+    private void TryFocusViewer()
+    {
+        if (ViewModel?.IsOpen != true || Visibility != Visibility.Visible) return;
+        if (HasFocusWithin()) return;
+        Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>True when focus is inside the viewer itself (including its controls).</summary>
+    public bool HasFocusWithin()
+    {
+        if (XamlRoot is null) return false;
+        return FocusManager.GetFocusedElement(XamlRoot) is DependencyObject focused
+            && IsWithinViewer(focused);
+    }
+
+    private bool IsWithinViewer(DependencyObject element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, this)) return true;
+        }
+        return false;
+    }
+
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsInteractiveControl(e.OriginalSource as DependencyObject)) return;
+        Focus(FocusState.Pointer);
+    }
+
+    private bool IsInteractiveControl(DependencyObject? element)
+    {
+        for (var current = element;
+             current is not null && !ReferenceEquals(current, this);
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is Control { IsTabStop: true, IsEnabled: true })
+                return true;
+        }
+        return false;
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -260,7 +343,7 @@ public sealed partial class ImageViewerOverlay : UserControl
             {
                 case nameof(ImageViewerViewModel.IsOpen):
                     Visibility = ViewModel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
-                    if (ViewModel.IsOpen) Focus(FocusState.Programmatic);
+                    if (ViewModel.IsOpen) FocusViewer();
                     if (!ViewModel.IsOpen) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
@@ -589,77 +672,89 @@ public sealed partial class ImageViewerOverlay : UserControl
         // Kept for backwards compatibility, but not used with new zoom controller
     }
 
-    private async void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (ViewModel is null) return;
+        if (HandleViewerKey(e.Key)) e.Handled = true;
+    }
+
+    /// <summary>
+    /// Handles a viewer keyboard shortcut. Returns true when the key was consumed. Exposed so the
+    /// window can route keys here when focus is not (yet) inside the viewer.
+    /// </summary>
+    public bool HandleViewerKey(Windows.System.VirtualKey key)
+    {
+        if (ViewModel is null) return false;
 
         if (IsCropping)
         {
             // Swallow viewer navigation while cropping so arrow keys don't silently
             // discard the in-progress crop by moving to another photo.
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 CropCancelRequested?.Invoke(this, EventArgs.Empty);
-            else if (e.Key == Windows.System.VirtualKey.Enter)
+            else if (key == Windows.System.VirtualKey.Enter)
                 CropApplyRequested?.Invoke(this, EventArgs.Empty);
-            e.Handled = true;
-            return;
+            return true;
         }
 
         if (IsStraightening)
         {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 StraightenCancelRequested?.Invoke(this, EventArgs.Empty);
-            else if (e.Key == Windows.System.VirtualKey.Enter)
+            else if (key == Windows.System.VirtualKey.Enter)
                 StraightenApplyRequested?.Invoke(this, EventArgs.Empty);
-            e.Handled = true;
-            return;
+            return true;
         }
 
         if (IsRedEyeRemoving)
         {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 ExitRedEyeMode();
-            e.Handled = true;
-            return;
+            return true;
         }
 
         if (_isManualFaceTagging)
         {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 ExitManualFaceTagging();
-            e.Handled = true;
-            return;
+            return true;
         }
 
-        switch (e.Key)
+        switch (key)
         {
             case Windows.System.VirtualKey.Escape:
                 ViewModel.CloseCommand.Execute(null);
-                e.Handled = true;
-                break;
+                return true;
             case Windows.System.VirtualKey.Right:
-                await ViewModel.NextImageCommand.ExecuteAsync(null);
-                e.Handled = true;
-                break;
+                RunKeyCommand(() => ViewModel.NextImageCommand.ExecuteAsync(null));
+                return true;
             case Windows.System.VirtualKey.Left:
-                await ViewModel.PreviousImageCommand.ExecuteAsync(null);
-                e.Handled = true;
-                break;
+                RunKeyCommand(() => ViewModel.PreviousImageCommand.ExecuteAsync(null));
+                return true;
             case Windows.System.VirtualKey.Add:
                 ViewModel.ZoomInCommand.Execute(null);
-                e.Handled = true;
-                break;
+                return true;
             case Windows.System.VirtualKey.Subtract:
                 ViewModel.ZoomOutCommand.Execute(null);
-                e.Handled = true;
-                break;
+                return true;
             case Windows.System.VirtualKey.F:
-                await ToggleFlagAsync();
-                e.Handled = true;
-                break;
+                RunKeyCommand(ToggleFlagAsync);
+                return true;
+            default:
+                return false;
         }
     }
 
+    private static async void RunKeyCommand(Func<Task> command)
+    {
+        try
+        {
+            await command();
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"ImageViewerOverlay: keyboard command failed: {ex}");
+        }
+    }
     /// <summary>Toggles the flag on the image currently shown in the viewer (F shortcut).</summary>
     private async Task ToggleFlagAsync()
     {

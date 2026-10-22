@@ -124,6 +124,7 @@
         <!-- Image viewer with zoom/pan -->
         <ScrollViewer x:Name="ImageScrollViewer"
                       Grid.Row="1"
+                      IsTabStop="False"
                       HorizontalScrollMode="Disabled"
                       VerticalScrollMode="Disabled"
                       HorizontalScrollBarVisibility="Auto"

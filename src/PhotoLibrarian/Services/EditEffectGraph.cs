@@ -12,7 +12,7 @@ namespace PhotoLibrarian.Services;
 /// render that bakes the adjustments into the file on save, so what the user sees
 /// is what gets written to disk.
 ///
-/// Effect chain: Source → Exposure → Brightness/Contrast → Saturation →
+/// Effect chain: Source → Noise Reduction → Exposure → Brightness/Contrast → Saturation →
 /// Temperature/Tint → Highlights/Shadows → Levels → Sharpness → Rotation → Output
 /// </summary>
 public static class EditEffectGraph
@@ -24,7 +24,7 @@ public static class EditEffectGraph
     /// </summary>
     public static ICanvasImage Build(ICanvasImage source, Vector2 sourceSize, EditParameters p)
     {
-        ICanvasImage current = source;
+        ICanvasImage current = NoiseReductionEffect.Create(source, sourceSize, p.NoiseReduction);
 
         // 1. Exposure (simulated via brightness/gamma)
         if (p.Exposure != 0)

@@ -149,6 +149,7 @@ public partial class MainViewModel : ObservableObject
         _recognitionPipeline.Progress += OnRecognitionProgress;
         Settings.AutoTaggingSettingsChanged += OnAutoTaggingSettingsChanged;
         ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
+        ImageGrid.ResultsChanged += OnGridResultsChanged;
         ImageEditor.EditsApplied += OnEditsApplied;
         ImageEditor.Reverted += OnEditsReverted;
     }
@@ -187,9 +188,18 @@ public partial class MainViewModel : ObservableObject
     private void OnViewerEntryChanged(ImageEntry? entry)
     {
         if (entry is not null)
+        {
+            ImageGrid.SelectViewerEntry(entry);
             MetadataPanel.ShowMetadata(entry);
+        }
         else
             ImageGrid.RefreshMetadataFromSelection();
+    }
+
+    private void OnGridResultsChanged(object? sender, EventArgs e)
+    {
+        if (ImageViewer.IsOpen)
+            ImageViewer.UpdateLibraryImages(ImageGrid.GetViewerImages());
     }
 
     public async Task InitializeAsync()
@@ -258,7 +268,6 @@ public partial class MainViewModel : ObservableObject
                     !System.IO.File.Exists(current.FilePath))
                     ImageViewer.CloseCommand.Execute(null);
                 await RefreshAfterIndexAsync();
-                ImageViewer.UpdateLibraryImages(ImageGrid.DisplayedEntries.ToList());
             }
             catch (Exception ex)
             {
@@ -281,7 +290,9 @@ public partial class MainViewModel : ObservableObject
 
         if (ImageViewer.CurrentEntry?.Id != entry.Id)
         {
-            ImageViewer.OpenImage(entry, ImageGrid.DisplayedEntries.ToList());
+            ImageViewer.OpenImage(
+                entry,
+                ImageGrid.GetViewerImages());
         }
 
         if (App.MainWindow is MainWindow window)
@@ -1048,7 +1059,7 @@ public partial class MainViewModel : ObservableObject
 
         await RefreshAfterIndexAsync();
 
-        var viewerEntries = ImageGrid.DisplayedEntries.ToList();
+        var viewerEntries = ImageGrid.GetViewerImages();
         var visibleCopy = viewerEntries.FirstOrDefault(image => image.Id == copyEntry.Id);
         if (visibleCopy is not null)
         {

@@ -75,6 +75,7 @@ public sealed partial class ImageGridView : UserControl
         UpdateSortByCombo();
         UpdateSortOrderIcon();
         ViewModel.ResultsChanged += OnResultsChanged;
+        ViewModel.SelectionRestoreRequested += OnSelectionRestoreRequested;
         InitializeRefinementControls(ViewModel.Refinement);
         await RefreshPeopleAsync();
         UpdateActiveFilterChips();
@@ -129,13 +130,24 @@ public sealed partial class ImageGridView : UserControl
 
     private void OnResultsChanged(object? sender, EventArgs e)
     {
+        RestoreGridSelection(scrollIntoView: false);
+    }
+
+    private void OnSelectionRestoreRequested(object? sender, EventArgs e)
+    {
+        RestoreGridSelection(scrollIntoView: true);
+    }
+
+    private void RestoreGridSelection(bool scrollIntoView)
+    {
         if (ViewModel is null) return;
 
         DispatcherQueue.TryEnqueue(() =>
         {
             PhotoGrid.RestoreSelection(
                 ViewModel.SelectedImages,
-                ViewModel.SelectedImage);
+                ViewModel.SelectedImage,
+                scrollIntoView);
         });
     }
 

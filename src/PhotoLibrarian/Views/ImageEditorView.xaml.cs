@@ -506,7 +506,7 @@ public sealed partial class ImageEditorView : UserControl
         [
             ExposureSlider, BrightnessSlider, ContrastSlider, HighlightsSlider, ShadowsSlider,
             SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, SharpnessSlider,
-            BlackPointSlider, WhitePointSlider, MidtonesSlider, RotationSlider
+            NoiseReductionSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider, RotationSlider
         ];
         foreach (var slider in sliders)
         {
@@ -518,6 +518,7 @@ public sealed partial class ImageEditorView : UserControl
                 {
                     "BlackPoint" => "Black point",
                     "WhitePoint" => "White point",
+                    "NoiseReduction" => "Noise reduction",
                     var label => label
                 });
             }), true);
@@ -560,6 +561,7 @@ public sealed partial class ImageEditorView : UserControl
         ViewModel.Tint = TintSlider.Value;
         ViewModel.Clarity = ClaritySlider.Value;
         ViewModel.Sharpness = SharpnessSlider.Value;
+        ViewModel.NoiseReduction = NoiseReductionSlider.Value;
         ViewModel.BlackPoint = BlackPointSlider.Value;
         ViewModel.WhitePoint = WhitePointSlider.Value;
         ViewModel.Midtones = MidtonesSlider.Value;
@@ -662,6 +664,7 @@ public sealed partial class ImageEditorView : UserControl
         TintSlider.Value = ViewModel.Tint;
         ClaritySlider.Value = ViewModel.Clarity;
         SharpnessSlider.Value = ViewModel.Sharpness;
+        NoiseReductionSlider.Value = ViewModel.NoiseReduction;
         BlackPointSlider.Value = ViewModel.BlackPoint;
         WhitePointSlider.Value = ViewModel.WhitePoint;
         MidtonesSlider.Value = ViewModel.Midtones;
