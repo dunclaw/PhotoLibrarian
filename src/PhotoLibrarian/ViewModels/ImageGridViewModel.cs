@@ -192,6 +192,7 @@ public partial class ImageGridViewModel : ObservableObject
                 // Expected when cancelling
             }
         }
+        if (ct.IsCancellationRequested) return;
         
         // Clear the queue
         lock (_queueLock)
@@ -215,15 +216,9 @@ public partial class ImageGridViewModel : ObservableObject
             : null;
         if (ct.IsCancellationRequested) return;
         
-        // Clear old images and dispose thumbnails to free memory
-        foreach (var img in Images)
-        {
-            if (img.Thumbnail is not null)
-            {
-                // Clear the source to allow GC to collect the bitmap data
-                img.Thumbnail = null;
-            }
-        }
+        // Watcher refreshes after exports must not discard already-decoded, unchanged previews.
+        var previousImages = Images.GroupBy(image => image.Entry.FilePath, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         Images.Clear();
         
         // Hint to GC to collect disposed bitmaps
@@ -376,7 +371,12 @@ public partial class ImageGridViewModel : ObservableObject
             if (ct.IsCancellationRequested) return;
         }
         foreach (var image in displayedImages)
-            Images.Add(new ImageThumbnailViewModel(image, ct) { Index = Images.Count });
+        {
+            previousImages.TryGetValue(image.FilePath, out var previous);
+            var thumbnail = ImageThumbnailViewModel.CreateForRefresh(image, previous, ct);
+            thumbnail.Index = Images.Count;
+            Images.Add(thumbnail);
+        }
         
         if (skipCount > 2)
             DebugLog.WriteLine($"  ... and {skipCount - 2} more skipped");
@@ -424,6 +424,7 @@ public partial class ImageGridViewModel : ObservableObject
                     }
                     return result;
                 }, ct);
+                if (ct.IsCancellationRequested) return;
                 
                 if (missingFiles.Count > 0)
                 {
@@ -468,6 +469,8 @@ public partial class ImageGridViewModel : ObservableObject
             }
         }
         
+        if (ct.IsCancellationRequested) return;
+
         // Load thumbnails in batches (sequential, but fast with Windows cache)
         DebugLog.WriteLine($"LoadImagesAsync: Starting thumbnail loading for {Images.Count} items");
         
@@ -478,8 +481,11 @@ public partial class ImageGridViewModel : ObservableObject
             _queuedItems.Clear();
             foreach (var vm in Images)
             {
-                _loadQueue.Enqueue(vm);
-                _queuedItems.Add(vm);
+                if (vm.Thumbnail is null)
+                {
+                    _loadQueue.Enqueue(vm);
+                    _queuedItems.Add(vm);
+                }
             }
         }
         
@@ -539,6 +545,7 @@ public partial class ImageGridViewModel : ObservableObject
             
             DebugLog.WriteLine($"[VIEWPORT] Reordered queue: {visibleCount} visible, {nonVisibleCount} non-visible");
         }
+        StartBackgroundLoadingIfNeeded();
     }
     
     /// <summary>
@@ -625,10 +632,13 @@ public partial class ImageGridViewModel : ObservableObject
     
     private async Task LoadSingleThumbnailAsync(ImageThumbnailViewModel vm, CancellationToken ct)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var loadToken = timeout.Token;
         try
         {
             DebugLog.WriteLine($"[LOAD] Loading thumbnail for {vm.Entry.FileName}");
-            await s_thumbnailLoadSemaphore.WaitAsync(ct);
+            await s_thumbnailLoadSemaphore.WaitAsync(loadToken);
             try
             {
                 // Check if we're shutting down
@@ -639,7 +649,8 @@ public partial class ImageGridViewModel : ObservableObject
                 }
                 
                 // Load thumbnail stream on background thread
-                var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180, loadToken)
+                    .WaitAsync(loadToken);
                 DebugLog.WriteLine($"[LOAD] Got {streamBytes?.Length ?? 0} bytes for {vm.Entry.FileName}");
                 
                 if (streamBytes != null && !ct.IsCancellationRequested)
@@ -648,16 +659,15 @@ public partial class ImageGridViewModel : ObservableObject
                     if (App.MainWindow?.DispatcherQueue == null)
                     {
                         DebugLog.WriteLine($"[LOAD] No dispatcher queue for {vm.Entry.FileName}");
-                        vm.IsLoading = false;
                         return;
                     }
                     
-                    var tcs = new TaskCompletionSource<bool>();
-                    App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    bool queued = App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
                     {
                         try
                         {
-                            if (!ct.IsCancellationRequested)
+                            if (!loadToken.IsCancellationRequested)
                             {
                                 DebugLog.WriteLine($"[LOAD] Creating BitmapImage for {vm.Entry.FileName}");
                                 // Create BitmapImage on UI thread
@@ -669,23 +679,23 @@ public partial class ImageGridViewModel : ObservableObject
                                 
                                 DebugLog.WriteLine($"[LOAD] Setting Thumbnail directly for {vm.Entry.FileName}");
                                 // Apply directly - no buffer/flush needed with custom virtualization
-                                vm.Thumbnail = bitmapImage;
-                                vm.IsLoading = false;
+                                if (!loadToken.IsCancellationRequested)
+                                {
+                                    vm.Thumbnail = bitmapImage;
+                                    vm.IsLoading = false;
+                                }
                             }
-                            tcs.SetResult(true);
+                            tcs.TrySetResult(true);
                         }
                         catch (Exception ex)
                         {
                             DebugLog.WriteLine($"[ERROR] Failed to load thumbnail: {ex.Message}");
-                            vm.IsLoading = false;
-                            tcs.SetResult(false);
+                            tcs.TrySetResult(false);
                         }
                     });
-                    await tcs.Task;
-                }
-                else
-                {
-                    vm.IsLoading = false;
+                    if (!queued)
+                        throw new InvalidOperationException("The UI dispatcher could not queue a thumbnail update.");
+                    await tcs.Task.WaitAsync(loadToken);
                 }
             }
             finally
@@ -695,13 +705,21 @@ public partial class ImageGridViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            // Expected when switching folders or shutting down
-            vm.IsLoading = false;
+            if (!ct.IsCancellationRequested)
+                DebugLog.WriteLine($"[ERROR] Thumbnail loading timed out for {vm.FileName}");
         }
         catch (Exception ex)
         {
             DebugLog.WriteLine($"[ERROR] Failed to load thumbnail for {vm.FileName}: {ex.Message}");
-            vm.IsLoading = false;
+        }
+        finally
+        {
+            // Observable WinUI-bound state must also finish on the UI thread on cancellation/timeout.
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher?.HasThreadAccess == true)
+                vm.IsLoading = false;
+            else if (dispatcher?.TryEnqueue(() => vm.IsLoading = false) != true)
+                DebugLog.WriteLine($"[LOAD] Could not finish thumbnail state for {vm.FileName}: UI dispatcher unavailable.");
         }
     }
 
@@ -1505,6 +1523,23 @@ public partial class ImageThumbnailViewModel : ObservableObject
 
         IsLoading = true; // This initial set is OK (happens before binding)
     }
+
+    internal static ImageThumbnailViewModel CreateForRefresh(
+        ImageEntry entry, ImageThumbnailViewModel? previous, CancellationToken cancellationToken = default)
+    {
+        var result = new ImageThumbnailViewModel(entry, cancellationToken);
+        if (previous is not null && CanReuseThumbnail(previous.Entry, entry))
+        {
+            result.Thumbnail = previous.Thumbnail;
+            result.IsLoading = result.Thumbnail is null;
+        }
+        return result;
+    }
+
+    internal static bool CanReuseThumbnail(ImageEntry previous, ImageEntry current) =>
+        string.Equals(previous.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase) &&
+        previous.DateModified == current.DateModified && previous.FileSize == current.FileSize &&
+        previous.MediaType == current.MediaType;
 
     /// <summary>
     /// Raises change notifications for the flag-derived properties after <see cref="Entry"/>'s

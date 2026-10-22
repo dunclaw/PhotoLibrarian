@@ -59,6 +59,19 @@ public sealed class MetadataReaderService
                 entry.Caption = xmp.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value;
             if (string.IsNullOrWhiteSpace(entry.Title))
                 entry.Title = xmp.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value;
+            const string xapNs = "http://ns.adobe.com/xap/1.0/";
+            if (!entry.Rating.HasValue && xmp.DoesPropertyExist(xapNs, "xmp:Rating"))
+                entry.Rating = Math.Clamp(xmp.GetPropertyInteger(xapNs, "xmp:Rating"), 0, 5);
+
+            if (!entry.DateTaken.HasValue)
+            {
+                const string exifNs = "http://ns.adobe.com/exif/1.0/";
+                var date = xmp.GetPropertyString(exifNs, "exif:DateTimeOriginal")
+                    ?? xmp.GetPropertyString(xapNs, "xmp:CreateDate");
+                if (DateTime.TryParse(date, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var dateTaken))
+                    entry.DateTaken = dateTaken;
+            }
         }
         catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
         {
@@ -175,19 +188,25 @@ public sealed class MetadataReaderService
         {
             var directories = ImageMetadataReader.ReadMetadata(filePath);
             var xmp = directories.OfType<XmpDirectory>().FirstOrDefault();
-            if (xmp?.XmpMeta is null) return tags;
-
-            const string dcNs = "http://purl.org/dc/elements/1.1/";
-            int count = xmp.XmpMeta.CountArrayItems(dcNs, "dc:subject");
-            for (int i = 1; i <= count; i++)
+            if (xmp?.XmpMeta is not null)
             {
-                var tag = xmp.XmpMeta.GetArrayItem(dcNs, "dc:subject", i)?.Value;
-                if (!string.IsNullOrWhiteSpace(tag))
-                    tags.Add(tag);
+                const string dcNs = "http://purl.org/dc/elements/1.1/";
+                int count = xmp.XmpMeta.CountArrayItems(dcNs, "dc:subject");
+                for (int i = 1; i <= count; i++)
+                {
+                    var tag = xmp.XmpMeta.GetArrayItem(dcNs, "dc:subject", i)?.Value;
+                    if (!string.IsNullOrWhiteSpace(tag))
+                        tags.Add(tag);
+                }
             }
         }
         catch { /* File may not have XMP */ }
 
+        foreach (var tag in TagWriterService.ReadTagsFromSidecar(filePath))
+        {
+            if (!tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+                tags.Add(tag);
+        }
         return tags;
     }
 

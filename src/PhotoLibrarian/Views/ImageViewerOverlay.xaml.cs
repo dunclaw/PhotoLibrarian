@@ -32,6 +32,9 @@ public sealed partial class ImageViewerOverlay : UserControl
     private bool _isRedEyeRemoving;
     private bool _isDrawingRedEye;
     private Point _redEyeStart;
+    private VideoPlaybackSource? _videoSource;
+    private int _playbackVersion;
+    private bool _isStabilizationOpen;
     public bool IsCropping { get; private set; }
     public bool IsStraightening { get; private set; }
     public bool IsRedEyeRemoving => _isRedEyeRemoving;
@@ -364,13 +367,16 @@ public sealed partial class ImageViewerOverlay : UserControl
                     }
                     break;
                 case nameof(ImageViewerViewModel.IsVideo):
+                    ZoomOutButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomFitButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomInButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     VideoPlayer.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
                     if (!ViewModel.IsVideo) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.VideoPath):
                     if (ViewModel.VideoPath is not null)
-                        PlayVideo(ViewModel.VideoPath);
+                        _ = PlayVideoAsync(ViewModel.VideoPath);
                     break;
                 case nameof(ImageViewerViewModel.Title):
                     TitleText.Text = ViewModel.Title;
@@ -382,25 +388,164 @@ public sealed partial class ImageViewerOverlay : UserControl
         });
     }
 
-    private async void PlayVideo(string path)
+    private async Task PlayVideoAsync(string path, TimeSpan resumePosition = default, bool isRetry = false)
     {
+        StopVideo();
+        int version = _playbackVersion;
         try
         {
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-            var source = Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
-            VideoPlayer.Source = source;
+            if (version != _playbackVersion || ViewModel?.IsOpen != true ||
+                !string.Equals(ViewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase)) return;
+
+            var info = new System.IO.FileInfo(path);
+            _playback = new PlaybackDiagnostics(path, version, info.Length, info.LastWriteTimeUtc,
+                DateTime.UtcNow, resumePosition, isRetry);
+            DebugLog.WriteLine($"Video: opening {path} ({info.Length:N0} bytes, last written " +
+                $"{info.LastWriteTime:HH:mm:ss.fff}){(isRetry ? $", retry resuming at {resumePosition}" : "")}");
+
+            var playbackSource = await Task.Run(() => VideoPlaybackSource.Open(path));
+            if (version != _playbackVersion)
+            {
+                playbackSource.Dispose();
+                return;
+            }
+            playbackSource.Source.OpenOperationCompleted += OnVideoSourceOpenCompleted;
+            _videoSource = playbackSource;
+            VideoPlayer.Source = playbackSource.Source;
+            ObserveMediaPlayer(VideoPlayer.MediaPlayer);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not open video {path}: {ex}");
+            if (App.ViewModel is { } main) main.StatusText = $"Could not open video: {ex.Message}";
+        }
+    }
+
+    /// <summary>What was opened, so a later failure can be logged against the file's state at open time.</summary>
+    private sealed record PlaybackDiagnostics(
+        string Path, int Version, long Length, DateTime LastWriteUtc, DateTime OpenedUtc,
+        TimeSpan ResumePosition, bool IsRetry)
+    {
+        public int FailureReported;
+    }
+
+    private PlaybackDiagnostics? _playback;
+    private Windows.Media.Playback.MediaPlayer? _observedPlayer;
+
+    private void ObserveMediaPlayer(Windows.Media.Playback.MediaPlayer? player)
+    {
+        if (player is null || ReferenceEquals(player, _observedPlayer)) return;
+        if (_observedPlayer is { } previous)
+        {
+            previous.MediaOpened -= OnMediaOpened;
+            previous.MediaFailed -= OnMediaFailed;
+            previous.PlaybackSession.PlaybackStateChanged -= OnPlaybackStateChanged;
+        }
+        _observedPlayer = player;
+        player.MediaOpened += OnMediaOpened;
+        player.MediaFailed += OnMediaFailed;
+        player.PlaybackSession.PlaybackStateChanged += OnPlaybackStateChanged;
+    }
+
+    private void OnVideoSourceOpenCompleted(Windows.Media.Core.MediaSource sender,
+        Windows.Media.Core.MediaSourceOpenOperationCompletedEventArgs args)
+    {
+        if (args.Error is { } error)
+            DebugLog.WriteLine($"Video: source open failed 0x{error.ExtendedError?.HResult:X8} {error.ExtendedError?.Message}");
+    }
+
+    private void OnMediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
+    {
+        var playback = _playback;
+        var session = sender.PlaybackSession;
+        DebugLog.WriteLine($"Video: opened {System.IO.Path.GetFileName(playback?.Path)} " +
+            $"{session.NaturalVideoWidth}x{session.NaturalVideoHeight}, duration {session.NaturalDuration}");
+        if (playback is { ResumePosition: var resume } && resume > TimeSpan.Zero && resume < session.NaturalDuration)
+            session.Position = resume;
+    }
+
+    private void OnPlaybackStateChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
+    {
+        DebugLog.WriteLine($"Video: {sender.PlaybackState} at {sender.Position}");
+    }
+
+    private void OnMediaFailed(Windows.Media.Playback.MediaPlayer sender,
+        Windows.Media.Playback.MediaPlayerFailedEventArgs args)
+    {
+        var playback = _playback;
+        // Detaching the old source while reopening can raise a failure for it; ignore that, and
+        // report each playback attempt's failure only once.
+        if (playback is null || !ReferenceEquals(sender.Source, _videoSource?.Source) ||
+            Interlocked.Exchange(ref playback.FailureReported, 1) != 0) return;
+        var position = sender.PlaybackSession.Position;
+        var details = new System.Text.StringBuilder();
+        details.Append($"Video: playback FAILED {args.Error} 0x{args.ExtendedErrorCode?.HResult:X8} ");
+        details.Append($"\"{args.ErrorMessage}\" {args.ExtendedErrorCode?.Message} at {position}");
+        if (playback is not null)
+        {
+            var info = new System.IO.FileInfo(playback.Path);
+            details.Append($"; {(DateTime.UtcNow - playback.OpenedUtc).TotalSeconds:F1}s after open");
+            details.Append(info.Exists
+                ? $"; file now {info.Length:N0} bytes (was {playback.Length:N0}), last written " +
+                  $"{info.LastWriteTime:HH:mm:ss.fff} (changed: {info.LastWriteTimeUtc != playback.LastWriteUtc})"
+                : "; file no longer exists");
+        }
+        DebugLog.WriteLine(details.ToString());
+
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (playback is null || playback.Version != _playbackVersion) return;
+            if (playback.IsRetry || !System.IO.File.Exists(playback.Path))
+            {
+                if (App.ViewModel is { } main)
+                    main.StatusText = $"Could not play video: {args.ErrorMessage} (0x{args.ExtendedErrorCode?.HResult:X8})";
+                return;
+            }
+            // A reopen has always succeeded when this happens, so retry once from where it stopped.
+            await Task.Delay(500);
+            if (playback.Version != _playbackVersion) return;
+            DebugLog.WriteLine($"Video: reopening {playback.Path} after playback failure");
+            await PlayVideoAsync(playback.Path, position, isRetry: true);
+        });
     }
 
     public void PauseVideo() => VideoPlayer.MediaPlayer?.Pause();
 
+    public async Task StabilizeVideoAsync()
+    {
+        if (_isStabilizationOpen || ViewModel?.CurrentEntry is not { MediaType: MediaType.Video } entry) return;
+        _isStabilizationOpen = true;
+        try
+        {
+            PauseVideo();
+            var dialog = new VideoStabilizationDialog(entry.FilePath) { XamlRoot = XamlRoot };
+            await dialog.ShowAsync();
+            if (dialog.ExportedPath is { } exportedPath)
+            {
+                ViewModel.OpenExportedVideo(exportedPath);
+                App.ViewModel!.StatusText = $"Opened stabilized copy: {exportedPath}";
+            }
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not open video stabilization: {ex}");
+            if (App.ViewModel is { } main) main.StatusText = $"Could not open video stabilization: {ex.Message}";
+        }
+        finally
+        {
+            _isStabilizationOpen = false;
+        }
+    }
+
     private void StopVideo()
     {
-        if (VideoPlayer.Source is not null)
-        {
-            VideoPlayer.Source = null;
-        }
+        _playbackVersion++;
+        _playback = null;
+        VideoPlayer.MediaPlayer?.Pause();
+        VideoPlayer.Source = null;
+        if (_videoSource is { } source) source.Source.OpenOperationCompleted -= OnVideoSourceOpenCompleted;
+        _videoSource?.Dispose();
+        _videoSource = null;
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => ViewModel?.CloseCommand.Execute(null);

@@ -15,6 +15,7 @@
     <!-- Image Metadata -->
     <PackageVersion Include="MetadataExtractor" Version="2.9.3" />
     <PackageVersion Include="XmpCore" Version="6.1.10.1" />
+    <PackageVersion Include="Vortice.MediaFoundation" Version="3.8.3" />
     <!-- SQLite -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <!-- ML / ONNX -->

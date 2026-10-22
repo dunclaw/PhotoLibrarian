@@ -12,6 +12,7 @@ public partial class ImageViewerViewModel : ObservableObject
     private List<ImageEntry> _allImages = [];
     private int _currentIndex;
     private int _loadVersion;
+    private string? _pendingExportPath;
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
@@ -80,21 +81,49 @@ public partial class ImageViewerViewModel : ObservableObject
         _ = LoadCurrentImageAsync();
     }
 
+    public void OpenExportedVideo(string path)
+    {
+        var entries = _allImages.ToList();
+        var entry = entries.FirstOrDefault(image =>
+            string.Equals(image.FilePath, path, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            entry = new ImageEntry
+            {
+                FilePath = path,
+                FileName = System.IO.Path.GetFileName(path),
+                MediaType = MediaType.Video
+            };
+            entries.Insert(Math.Min(_currentIndex + 1, entries.Count), entry);
+        }
+        OpenImage(entry, entries);
+        _pendingExportPath = path;
+    }
+
     public void UpdateLibraryImages(List<ImageEntry> images)
     {
         var current = CurrentEntry;
         if (current is null) return;
 
         _allImages = images.ToList();
-        if (_allImages.Count == 0)
+        _currentIndex = images.FindIndex(image =>
+            string.Equals(image.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase));
+        bool isPendingExport = string.Equals(current.FilePath, _pendingExportPath, StringComparison.OrdinalIgnoreCase);
+        if (_currentIndex >= 0 && isPendingExport)
+            _pendingExportPath = null;
+
+        if (_currentIndex < 0 && isPendingExport)
+        {
+            // A just-exported copy stays open until the library index catches up with it.
+            _currentIndex = _allImages.Count;
+            _allImages.Add(current);
+        }
+        else if (_allImages.Count == 0)
         {
             Close();
             return;
         }
-
-        _currentIndex = images.FindIndex(image =>
-            string.Equals(image.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase));
-        if (_currentIndex < 0)
+        else if (_currentIndex < 0)
         {
             _currentIndex = 0;
             CurrentImage = null;
@@ -109,6 +138,7 @@ public partial class ImageViewerViewModel : ObservableObject
     private void Close()
     {
         _loadVersion++;
+        _pendingExportPath = null;
         IsOpen = false;
         CurrentImage = null;
         VideoPath = null;

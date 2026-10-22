@@ -1,0 +1,246 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+using System.Runtime.InteropServices;
+using PhotoLibrarian.Core.Diagnostics;
+using Windows.Media.MediaProperties;
+using Windows.Media.Transcoding;
+using Windows.Storage;
+
+namespace PhotoLibrarian.Core.Services;
+
+/// <summary>Exports a stabilized copy in-process using Windows video decoding and encoding.</summary>
+public sealed class VideoStabilizationService
+{
+    private static readonly Guid VideoRotationKey = new("C380465D-2271-428C-9B83-ECEA3B4A85C1");
+
+    public Task StabilizeAsync(
+        string sourcePath, string destinationPath,
+        IProgress<double>? progress = null, CancellationToken cancellationToken = default,
+        StabilizationOptions? options = null) =>
+        Task.Run(async () =>
+        {
+            ValidatePaths(sourcePath, destinationPath);
+            cancellationToken.ThrowIfCancellationRequested();
+            options ??= StabilizationOptions.Default;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            DebugLog.WriteLine($"Stabilize: {sourcePath} -> {destinationPath} with {options}");
+            string temporaryPath = Path.Combine(Path.GetDirectoryName(destinationPath)!,
+                $".photolibrarian-{Guid.NewGuid():N}.tmp");
+            try
+            {
+                var source = await StorageFile.GetFileFromPathAsync(sourcePath).AsTask(cancellationToken);
+                var inputProfile = await MediaEncodingProfile.CreateFromFileAsync(source).AsTask(cancellationToken);
+                var profile = CreateOutputProfile(inputProfile);
+                var properties = await source.Properties.GetVideoPropertiesAsync().AsTask(cancellationToken);
+                profile.Video.Properties[VideoRotationKey] = (uint)properties.Orientation;
+                var stabilizer = new VideoFrameStabilizer(
+                    checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height), options);
+                var corrections = AnalyzeCameraPath(sourcePath, inputProfile, properties.Duration, stabilizer,
+                    progress, cancellationToken);
+                DebugLog.WriteLine($"Stabilize: analyzed {corrections.Length} frames in {stopwatch.Elapsed.TotalSeconds:F1}s");
+                var encodeProgress = progress is null
+                    ? null
+                    : new ScaledProgress(progress, AnalysisShare, 1 - AnalysisShare / 100);
+                using (var input = new WindowsStabilizedVideoSource(
+                           sourcePath, inputProfile, properties.Duration, stabilizer, corrections, cancellationToken))
+                using (var file = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+                using (var output = file.AsRandomAccessStream())
+                {
+                    var transcoder = new MediaTranscoder { AlwaysReencode = true, HardwareAccelerationEnabled = false };
+                    var prepared = await transcoder.PrepareMediaStreamSourceTranscodeAsync(input.StreamSource, output, profile)
+                        .AsTask(cancellationToken);
+                    if (!prepared.CanTranscode)
+                        throw new InvalidOperationException(
+                            $"Windows cannot stabilize this video ({prepared.FailureReason}). " +
+                            "The file may be damaged or use an unsupported video or audio format.");
+                    try
+                    {
+                        await prepared.TranscodeAsync().AsTask(cancellationToken, encodeProgress);
+                    }
+                    catch (Exception) when (input.Failure is not null)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        throw new InvalidOperationException("Could not decode or stabilize this video.", input.Failure);
+                    }
+                    await output.FlushAsync().AsTask(cancellationToken);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (new FileInfo(temporaryPath).Length == 0)
+                    throw new IOException("Windows did not produce a video.");
+                PublishOutput(sourcePath, temporaryPath, destinationPath);
+                await WaitUntilReadableAsync(destinationPath);
+                DebugLog.WriteLine($"Stabilize: finished {destinationPath} ({new FileInfo(destinationPath).Length:N0} bytes) " +
+                    $"in {stopwatch.Elapsed.TotalSeconds:F1}s");
+            }
+            catch (Exception ex) when (ex is COMException or SharpGen.Runtime.SharpGenException)
+            {
+                throw new InvalidOperationException(
+                    $"Windows could not stabilize this video (0x{ex.HResult:X8}). " +
+                    "The file may be damaged or its media format is not supported on this system.", ex);
+            }
+            finally
+            {
+                File.Delete(temporaryPath);
+            }
+        }, cancellationToken);
+
+    /// <summary>Percentage of reported progress used by the motion analysis pass.</summary>
+    private const double AnalysisShare = 30;
+
+    /// <summary>Maps encoder progress (0-100) into the remaining share of the overall progress.</summary>
+    private sealed class ScaledProgress(IProgress<double> inner, double offset, double scale) : IProgress<double>
+    {
+        public void Report(double value) => inner.Report(offset + Math.Clamp(value, 0, 100) * scale);
+    }
+
+    /// <summary>
+    /// First pass: decodes every frame once to measure camera motion, then plans a smooth
+    /// camera path for the whole clip. Only small analysis images are kept in memory.
+    /// </summary>
+    private static VideoFrameStabilizer.Correction[] AnalyzeCameraPath(
+        string sourcePath, MediaEncodingProfile inputProfile, TimeSpan duration, VideoFrameStabilizer stabilizer,
+        IProgress<double>? progress, CancellationToken cancellationToken)
+    {
+        var motions = new List<VideoFrameStabilizer.Motion?>();
+        using (var reader = new MediaFoundationFrameReader(sourcePath,
+                   checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height), includeAudio: false))
+        {
+            double lastReported = -1;
+            while (reader.Read(video: true, cancellationToken) is { } frame)
+            {
+                motions.Add(stabilizer.Analyze(frame.Data, cancellationToken));
+                if (progress is null || duration <= TimeSpan.Zero) continue;
+                double percent = Math.Clamp(frame.Timestamp / (double)duration.Ticks, 0, 1) * AnalysisShare;
+                if (percent - lastReported < 0.5) continue;
+                lastReported = percent;
+                progress.Report(percent);
+            }
+        }
+        var frameRate = inputProfile.Video.FrameRate;
+        double framesPerSecond = frameRate.Denominator == 0 ? 30 : frameRate.Numerator / (double)frameRate.Denominator;
+        return stabilizer.PlanCorrections(motions, framesPerSecond);
+    }
+
+    /// <summary>Returns the first "-stabilized" MP4 name whose video and sidecar do not exist yet.</summary>
+    public static string GetAvailableOutputPath(string sourcePath, string? directory = null)
+    {
+        directory ??= Path.GetDirectoryName(sourcePath)!;
+        string name = Path.GetFileNameWithoutExtension(sourcePath) + "-stabilized";
+        for (int index = 0; ; index++)
+        {
+            string candidate = Path.Combine(directory, (index == 0 ? name : $"{name} ({index})") + ".mp4");
+            if (!File.Exists(candidate) && !Directory.Exists(candidate) &&
+                !File.Exists(FaceMetadataStore.GetSidecarPathForDestinationImage(candidate)))
+                return candidate;
+        }
+    }
+
+    // The export is already published here, so cancellation no longer applies. Waiting until no
+    // writer holds the file and its container parses avoids handing playback a still-settling file.
+    private static async Task WaitUntilReadableAsync(string path)
+    {
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)) { }
+                var file = await StorageFile.GetFileFromPathAsync(path);
+                await MediaEncodingProfile.CreateFromFileAsync(file);
+                break;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException)
+            {
+                await Task.Delay(250);
+            }
+        }
+        await Task.Delay(500);
+    }
+
+    internal static void ValidatePaths(string sourcePath, string destinationPath)
+    {
+        if (!Path.IsPathFullyQualified(sourcePath) || !File.Exists(sourcePath))
+            throw new ArgumentException("The source video no longer exists.");
+        if (!Path.IsPathFullyQualified(destinationPath) ||
+            !Directory.Exists(Path.GetDirectoryName(destinationPath)) ||
+            !string.Equals(Path.GetExtension(destinationPath), ".mp4", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Choose an MP4 filename in an existing output folder.");
+        if (string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(destinationPath),
+                StringComparison.OrdinalIgnoreCase) || File.Exists(destinationPath) || Directory.Exists(destinationPath))
+            throw new IOException("The output already exists. Choose a new filename; files are never overwritten.");
+        if (File.Exists(FaceMetadataStore.GetSidecarPathForDestinationImage(destinationPath)))
+            throw new IOException("The output's metadata sidecar already exists. Choose a new filename; files are never overwritten.");
+    }
+
+    private static void PublishOutput(string sourcePath, string temporaryPath, string destinationPath)
+    {
+        var sourceSidecar = FaceMetadataStore.GetSidecarPathForImage(sourcePath);
+        var destinationSidecar = FaceMetadataStore.GetSidecarPathForDestinationImage(destinationPath);
+        if (File.Exists(destinationSidecar))
+            throw new IOException("The output's metadata sidecar already exists. Choose a new filename; files are never overwritten.");
+
+        if (!File.Exists(sourceSidecar))
+        {
+            File.Move(temporaryPath, destinationPath, overwrite: false);
+            return;
+        }
+
+        var temporarySidecar = Path.Combine(
+            Path.GetDirectoryName(destinationPath)!,
+            $".photolibrarian-{Guid.NewGuid():N}.xmp.tmp");
+        var sidecarPublished = false;
+        try
+        {
+            File.Copy(sourceSidecar, temporarySidecar, overwrite: false);
+            File.Move(temporarySidecar, destinationSidecar, overwrite: false);
+            sidecarPublished = true;
+            try
+            {
+                File.Move(temporaryPath, destinationPath, overwrite: false);
+            }
+            catch
+            {
+                File.Delete(destinationSidecar);
+                sidecarPublished = false;
+                throw;
+            }
+        }
+        finally
+        {
+            File.Delete(temporarySidecar);
+            if (sidecarPublished && !File.Exists(destinationPath))
+                File.Delete(destinationSidecar);
+        }
+    }
+
+    internal static MediaEncodingProfile CreateOutputProfile(MediaEncodingProfile input)
+    {
+        if (input.Video is not { Width: > 0, Height: > 0 } video ||
+            video.FrameRate.Numerator == 0 || video.FrameRate.Denominator == 0)
+            throw new ArgumentException("The selected file does not contain a supported video track.");
+
+        var profile = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.Auto);
+        profile.Video.Width = (video.Width + 1) & ~1u;
+        profile.Video.Height = (video.Height + 1) & ~1u;
+        profile.Video.FrameRate.Numerator = video.FrameRate.Numerator;
+        profile.Video.FrameRate.Denominator = video.FrameRate.Denominator;
+        profile.Video.PixelAspectRatio.Numerator = video.PixelAspectRatio.Numerator;
+        profile.Video.PixelAspectRatio.Denominator = video.PixelAspectRatio.Denominator;
+        profile.Video.Bitrate = OutputBitrate(video);
+        if (video.Properties.TryGetValue(VideoRotationKey, out var rotation))
+            profile.Video.Properties[VideoRotationKey] = rotation;
+        if (input.Audio is null)
+            profile.Audio = null;
+        else
+            profile.Audio = AudioEncodingProperties.CreateAac(48_000, Math.Min(input.Audio.ChannelCount, 2), 192_000);
+        return profile;
+    }
+
+    /// <summary>
+    /// At least the source's bitrate (and 0.3 bits per pixel): stabilized frames carry the same
+    /// detail, and starving the encoder makes sharpness pulse with its keyframe/B-frame pattern.
+    /// </summary>
+    internal static uint OutputBitrate(VideoEncodingProperties video)
+    {
+        double pixelRate = (double)video.Width * video.Height * video.FrameRate.Numerator / video.FrameRate.Denominator;
+        return (uint)Math.Clamp(Math.Max(pixelRate * 0.3, video.Bitrate), 1_000_000, 160_000_000);
+    }
+}

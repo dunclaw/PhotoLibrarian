@@ -39,6 +39,11 @@ public partial class App : Application
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var dataDir = Path.Combine(appData, "PhotoLibrarian");
         Directory.CreateDirectory(dataDir);
+        Core.Diagnostics.DebugLog.EnableFileLogging(Path.Combine(dataDir, "Logs"));
+        Diagnostics.DebugLog.WriteLine(
+            $"PhotoLibrarian starting: {typeof(App).Assembly.GetName().Version}, " +
+            $"{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
+            $"{Environment.OSVersion.VersionString}");
         var dbPath = Path.Combine(dataDir, "cache.db");
 
         // Create services

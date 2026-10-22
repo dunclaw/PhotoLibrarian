@@ -13,6 +13,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? RedEyeClicked;
     public event EventHandler? CloseViewerClicked;
     public event EventHandler? SlideshowClicked;
+    public event EventHandler? StabilizeVideoClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
     public event EventHandler? ApplyStraightenClicked;
@@ -34,7 +35,15 @@ public sealed partial class TopRibbon : UserControl
         ContextSubLabel.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    public void SetMakeCopyEnabled(bool enabled) => MakeCopyButton.IsEnabled = enabled;
+    public void SetVideoMode(bool isVideo)
+    {
+        ViewerTools.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
+        VideoTools.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        CropTools.Visibility = Visibility.Collapsed;
+        StraightenTools.Visibility = Visibility.Collapsed;
+        CloseViewerButton.Visibility = Visibility.Visible;
+        SetContextSubLabel(null);
+    }
 
     /// <summary>Switch the ribbon into crop sub-mode (replaces standard viewer tools with Apply/Cancel/Aspect).</summary>
     public void EnterCropMode()
@@ -93,6 +102,8 @@ public sealed partial class TopRibbon : UserControl
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
     private void OnCloseViewerClick(object sender, RoutedEventArgs e) => CloseViewerClicked?.Invoke(this, EventArgs.Empty);
     private void OnSlideshowClick(object sender, RoutedEventArgs e) => SlideshowClicked?.Invoke(this, EventArgs.Empty);
+    private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
+        StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnCancelCropClick(object sender, RoutedEventArgs e) => CancelCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyStraightenClick(object sender, RoutedEventArgs e) =>

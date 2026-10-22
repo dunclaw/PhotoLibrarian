@@ -1,0 +1,51 @@
+<ContentDialog
+    x:Class="PhotoLibrarian.Views.VideoStabilizationDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    AutomationProperties.AutomationId="VideoStabilizationDialog"
+    Title="Stabilize video"
+    PrimaryButtonText="Export stabilized copy"
+    CloseButtonText="Close"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnExportClick"
+    Closing="OnClosing">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16" MinWidth="320">
+            <TextBlock Text="Reduces handheld shakes and small rotations with the built-in stabilizer. No downloads or setup are needed. Auto-crop is enabled by default to keep invalid edge pixels out of view. Severe movements, rolling shutter and motion blur cannot be repaired. The copy opens in the player when export finishes."
+                       TextWrapping="Wrap" />
+            <ContentControl x:Name="OptionsPanel" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="12">
+                    <TextBox x:Name="OutputBox" Header="New MP4 file"
+                             AutomationProperties.AutomationId="StabilizationOutput" />
+                    <Button Content="Choose output folder..." Click="OnChooseFolder"
+                            AutomationProperties.AutomationId="StabilizationChooseFolder" />
+                    <CheckBox x:Name="AutoCropBox" Content="Auto-crop to remove unstable frame edges"
+                              IsChecked="True"
+                              AutomationProperties.AutomationId="StabilizationAutoCrop" />
+                    <ComboBox x:Name="SmoothnessBox" Header="Smoothness" SelectedIndex="1" MinWidth="200"
+                              AutomationProperties.AutomationId="StabilizationSmoothness">
+                        <ComboBoxItem Content="Low - follows camera moves closely" />
+                        <ComboBoxItem Content="Medium" />
+                        <ComboBoxItem Content="High - very gradual camera moves" />
+                    </ComboBox>
+                    <CheckBox x:Name="RotationBox" Content="Correct rotation (camera roll)"
+                              IsChecked="True"
+                              AutomationProperties.AutomationId="StabilizationRotation" />
+                    <CheckBox x:Name="LockFrameBox" Content="Lock frame (hold the view still like a tripod)"
+                              Checked="OnLockFrameChanged" Unchecked="OnLockFrameChanged"
+                              AutomationProperties.AutomationId="StabilizationLockFrame" />
+                    <TextBlock Text="Lock frame works best when the camera stays pointed at one subject. Larger drifts are followed gradually."
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </ContentControl>
+            <TextBlock Text="Exports an H.264/AAC MP4 locally; the original and existing files are never overwritten. Video and audio are re-encoded. Ratings, tags and other PhotoLibrarian metadata are copied to the new file. Subtitles, extra tracks, HDR fidelity and camera-specific embedded metadata are not preserved."
+                       TextWrapping="Wrap" />
+            <ProgressBar x:Name="ExportProgress" Minimum="0" Maximum="100" Visibility="Collapsed"
+                         AutomationProperties.Name="Stabilizing video" />
+            <TextBlock x:Name="StatusText" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" />
+            <InfoBar x:Name="ResultBar" IsClosable="False" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>
