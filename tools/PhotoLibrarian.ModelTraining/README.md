@@ -1608,6 +1608,94 @@ another ad-hoc tuning run is not a substitute.
 | Calibration score arrays | `fd7ecce98c17f1b8ee9ef9457bd7471975cb071ce1f30ce4f4947514f37bac24` |
 | Published aggregate CSV | `7b5eeccf92fb35c4e481db33d4b8aac0d6d58409c445c9b7e709850a6ff6c301` |
 
+#### Reserved-test feasibility audit: no predictions
+
+`audit_reserved_test.py` checks the existing reserve against the fixed
+author-first export/calibration/run and actual reserved groups. It verifies
+the original test manifest and each test image's bytes/decoded dHash, then
+checks identities/authors/MD5/near hashes against new training and all
+accepted new development/calibration reservations. **Zero overlap violations**
+were found across **1,425 photos / 1,292 approximate groups**. It does not
+create a runtime session, infer scores, fit thresholds or consume the test.
+
+Only **16 of 42 head labels**, including **nine of 17 enabled labels**,
+have at least ten known positives and negatives and five groups per state.
+These counts describe evidence, not a statistical-power guarantee. The nine
+enabled labels are animal, flower, tree, grass, leaves, car, table, food and
+person. Dog has 76 positives / three negatives, bird 55 / two, horse 14 /
+zero, rocks 37 / zero and snow 15 / zero. All 42 rows, including disabled
+and unsupported labels, are in `author-reserved-test-coverage-v1.csv`.
+Unknowns remain unknown.
+
+The reserve is disjoint from this model's photo training/development and
+threshold fitting, but its earlier selection cannot broadly verify this
+head. A one-time evaluation could measure fixed-policy performance on known
+entries only, with every head label reported and sparse evidence explicit.
+It cannot establish 17-label production precision, exhaustive recall or
+representative household quality. Do not prune labels, change thresholds
+or tune the model based on this support audit. Test-support labels have now
+been inspected for feasibility; **predictions/outcomes remain unaccessed**.
+The audit alone does not authorize consumption; the user subsequently
+approved the limited evaluation below.
+
+```powershell
+& $evalPython tools\PhotoLibrarian.ModelTraining\audit_reserved_test.py `
+  --evaluation "$root\expanded-evaluation-protocol-v1" `
+  --run "$root\run-authors-first-v1" `
+  --reservation "$root\author-reservation-v1\reservation.json" `
+  --download "$root\download-authors-first-v1\download-manifest.jsonl" `
+  --bundle "$root\export-authors-first-v1" `
+  --calibration "$root\author-calibration-results-v1\calibration.json" `
+  --calibration-protocol "$root\author-calibration-protocol-v1\protocol.json" `
+  --output "$root\author-reserved-test-audit-v1"
+```
+
+The external audit JSON SHA-256 is
+`45927627c8df4f2dddad935aef13f937c8795f1ace78989149881b04d4cb0ef3`.
+The original test manifest remains
+`7c4716b77deeb791c8ee078c30d88c16e6405e27f34ef5214312b1c02ac03a01`.
+No original protocol, model or threshold artifact is modified.
+
+#### User-approved one-time test protocol
+
+After seeing the evidence limitations, the user explicitly chose
+**"Run the limited one-time evaluation (Recommended)"**. This is permission
+to spend the existing reserve, not to tune on it or claim production quality.
+`audit_reserved_test.py --bind-test` repeats the identity/separation checks
+and copies the original test manifest byte-for-byte into a new test-only
+protocol. It binds the unchanged 42-label model, original calibration
+protocol and exact full-fit threshold artifact. No threshold is refit, no
+label is pruned and no earlier protocol is rewritten. The test runner still
+accepts original same-protocol evaluation; a separate test binding additionally
+requires the exact original calibration artifact hash and unchanged policy.
+
+**Frozen before test inference:**
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Test-only protocol | `27e0ae50f372b4db81adb6785a50aa9e051b6de63080f8a80bed91ab23d38cc3` |
+| Original test manifest, unchanged | `7c4716b77deeb791c8ee078c30d88c16e6405e27f34ef5214312b1c02ac03a01` |
+| Fixed model | `b6b0afbcd00c92e020d56ba644b15a7d79ca71ec6c142dffefe042c49969f92f` |
+| Original calibration-only thresholds | `4dc4ba39e0b208f1cb9bc2feab7e2a44f5001bd97a50e1d8124cda1888f50aa9` |
+
+Primary reporting is known-entry precision/recall for the fixed calibrated
+policy, with fixed 0.5 as a secondary baseline. Report **all 42 head labels**,
+including disabled labels' false negatives, sparse known states/groups,
+TP/FP/FN, unknown emissions and descriptive intervals. No supported-label-only
+leaderboard, comparison against different cohorts, production approval,
+post-test policy changes or reuse as untouched testing is permitted.
+The nine-label support observation is disclosed, not a new selected head.
+
+```powershell
+# Repeat the feasibility command above with:
+# --bind-test --output "$root\author-final-test-protocol-v1"
+& $evalPython tools\PhotoLibrarian.ModelTraining\calibrate_pilot.py test `
+  --evaluation "$root\author-final-test-protocol-v1" `
+  --bundle "$root\export-authors-first-v1" `
+  --calibration "$root\author-calibration-results-v1\calibration.json" `
+  --output "$root\author-final-test-results-v1"
+```
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1685,9 +1773,9 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **86 distinct tests** were exercised across the
+train a model. Locally, all **89 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (11
-training/export-test skips). The base Python run has 49 optional skips.
+training/export-test skips). The base Python run has 52 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.

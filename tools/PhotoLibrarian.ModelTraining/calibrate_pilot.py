@@ -138,6 +138,21 @@ def score_rows(session, rows: list[dict], labels: list[str]) -> tuple[np.ndarray
     return np.asarray(scores), np.asarray(targets)
 
 
+def validate_test_calibration(calibration: dict, protocol: dict, protocol_sha: str,
+                              calibration_sha: str, bundle: dict) -> None:
+    binding_fields = {"calibrationProtocolSha256", "frozenCalibrationSha256"}
+    bound = binding_fields & protocol.keys()
+    if bound and (bound != binding_fields
+                  or protocol["frozenCalibrationSha256"] != calibration_sha):
+        raise ValueError("Frozen test calibration binding changed")
+    expected_protocol = protocol["calibrationProtocolSha256"] if bound else protocol_sha
+    if (calibration["protocolSha256"] != expected_protocol
+            or calibration["modelSha256"] != bundle["modelSha256"]
+            or calibration["labels"] != bundle["labels"] or calibration["operation"] != "fit"
+            or calibration["thresholdPolicy"] != protocol["calibrationPolicy"]):
+        raise ValueError("Thresholds do not match the frozen calibration protocol")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=["fit", "test"])
@@ -158,6 +173,8 @@ def main() -> None:
     protocol = json.loads(protocol_path.read_text())
     if protocol["modelSha256"] != bundle["modelSha256"] or protocol["labels"] != bundle["labels"]:
         raise ValueError("Frozen protocol/model mismatch")
+    if args.operation == "fit" and "calibrationProtocolSha256" in protocol:
+        raise ValueError("Bound test-only protocol cannot refit calibration")
     split = "calibration" if args.operation == "fit" else "test"
     manifest = args.evaluation / f"{split}.jsonl"
     if file_hash(manifest) != protocol["manifests"][split]:
@@ -168,10 +185,8 @@ def main() -> None:
     calibration = None
     if args.operation == "test":
         calibration = json.loads(args.calibration.read_text())
-        if (calibration["protocolSha256"] != file_hash(protocol_path)
-                or calibration["modelSha256"] != bundle["modelSha256"]
-                or calibration["labels"] != bundle["labels"] or calibration["operation"] != "fit"):
-            raise ValueError("Thresholds do not match the frozen calibration protocol")
+        validate_test_calibration(calibration, protocol, file_hash(protocol_path),
+                                  file_hash(args.calibration), bundle)
     options = ort.SessionOptions()
     options.intra_op_num_threads = 4
     session = ort.InferenceSession(str(model), sess_options=options, providers=["CPUExecutionProvider"])
@@ -198,7 +213,7 @@ def main() -> None:
         "calibrated": summarize(scores, targets, bundle["labels"], thresholds),
         "limitations": protocol["limitations"] + [
             "Wilson intervals are descriptive binomial calculations; correlated/grouped labels violate independence.",
-            "Calibration resubstitution is optimistic; only test output evaluates the frozen fitted thresholds.",
+            "Calibration resubstitution is optimistic; test output evaluates frozen thresholds on known entries only.",
             "Recall denominator includes positives of disabled labels; missing labels are never negatives.",
         ],
     }
