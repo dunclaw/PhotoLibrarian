@@ -1756,6 +1756,78 @@ the new binding/results; do not rewrite the earlier "unscored" records.
 | Test score arrays | `31090a444e4e5328d2c19e35b952c750249f58764503b625872758ab66e519d6` |
 | Published all-label results CSV | `90b9c965a1027dfcff5a8c16931ac1b3e144adac1e010c5929f7e89616dd4f7f` |
 
+#### Author-first candidate: actual CPU/DirectML diagnostics
+
+The unchanged 42-label FP32 export was measured on all **156 existing private
+regression photos**, not either consumed test. `benchmark_pilot.py` was reused
+unchanged in separate CPU-then-DirectML processes, with four intra-op threads
+and five warmups. ORT DirectML 1.23.0 / Python 3.12.0, Ryzen 9 9950X3D,
+Windows 11; video inventory reports RTX 5080 driver 32.0.16.1088 and integrated
+AMD graphics driver 32.0.21042.62. **DirectML device index 0** was explicitly
+requested; inventory alone does not identify which adapter that index selects.
+Do not attribute these measurements to a particular GPU without adapter proof.
+
+| Host/Python measurement | CPU | DirectML device 0 |
+| --- | ---: | ---: |
+| Session creation, ms | 33.97 | 579.90 |
+| First inference, ms | 2.72 | 3.25 |
+| Warm inference p50 / p95, ms | 2.84 / 3.71 | 1.04 / 1.28 |
+| Decode/preprocess p50 / p95, ms | 34.46 / 192.51 | 31.72 / 184.53 |
+| Decode/preprocess/inference p50 / p95, ms | 37.21 / 195.39 | 32.87 / 185.56 |
+| Sampled host-process peak RSS, MiB | 550.46 | 771.95 |
+| Host-process RSS delta, MiB | 495.49 | 716.95 |
+
+DirectML profiling shows **one fused DirectML partition, zero CPU nodes**;
+the separate strict session with CPU execution fallback disabled succeeds.
+The CPU graph profiles 188 CPU nodes. Fused partitions are not comparable
+operator counts. Python runtime retry fallback is disabled in both runs.
+
+`compare_provider_scores.py` verifies model/ordered-label/score identities
+and requires identical ordered image identities, preprocessing and threads.
+All **6,552 CPU/DirectML scores** agree within **1.491e-6** (fixed tolerance
+1e-4), with **zero flips at 0.5 and zero at the 17 unchanged calibrated
+thresholds**. Disabled labels remain disabled; no threshold fitting, private
+judgment changes or test-score access occurs. Synthetic tests check that a
+small score error can still cause a calibrated decision flip and must not be
+hidden by the numeric tolerance.
+
+**Interpretation:** this candidate retains compact, working DirectML
+execution, but decode/preprocessing dominates and GPU session setup is
+substantially slower. These are one sequential local diagnostic per provider,
+not controlled repeated speedup estimates or Release-application measurements.
+File cache, power/host load and adapter choice are not controlled. Host RSS
+includes Python, decoding and provider allocations; it is not isolated model
+memory or GPU VRAM. No application changes or production approval follow from
+these measurements. The next integration gate remains a reviewed, legally
+cleared model and actual application measurements, not another tuning run on
+either consumed test.
+
+```powershell
+& $evalPython tools\PhotoLibrarian.ModelTraining\benchmark_pilot.py `
+  --bundle "$root\export-authors-first-v1" --images D:\Temp\Pictures\Diverse `
+  --provider cpu --threads 4 --limit 156 `
+  --output "$root\benchmark-authors-first-cpu-v1"
+& $evalPython tools\PhotoLibrarian.ModelTraining\benchmark_pilot.py `
+  --bundle "$root\export-authors-first-v1" --images D:\Temp\Pictures\Diverse `
+  --provider directml --device-id 0 --threads 4 --limit 156 `
+  --output "$root\benchmark-authors-first-directml-v1"
+& $evalPython tools\PhotoLibrarian.ModelTraining\compare_provider_scores.py `
+  --cpu "$root\benchmark-authors-first-cpu-v1" `
+  --directml "$root\benchmark-authors-first-directml-v1" `
+  --bundle "$root\export-authors-first-v1" `
+  --calibration "$root\author-calibration-results-v1\calibration.json" `
+  --output "$root\benchmark-authors-first-parity-v1"
+```
+
+Privacy-safe aggregate measurements: `author-provider-results-v1.csv`.
+Photo-level reports, profiles and arrays remain external:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| CPU report | `1637450087c55ddb871c7c87f3964a47476afce7f0de45372a8a7a97d197c33f` |
+| DirectML report | `3a6da5414a069a564c8f889aad9fe7c53469a6b5903486a24ceff20cde74881e` |
+| Provider parity report | `54723b8158b42f4c517543208107ea59f969a78f7e102f62f87179cd25875194` |
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1833,9 +1905,9 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **89 distinct tests** were exercised across the
+train a model. Locally, all **92 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (11
-training/export-test skips). The base Python run has 52 optional skips.
+training/export-test skips). The base Python run has 55 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.
