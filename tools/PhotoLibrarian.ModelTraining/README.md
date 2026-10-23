@@ -501,17 +501,7 @@ cross-runtime parity. Resolved environment versions and source-code hashes are
 recorded, not just the dependency manifest.
 
 ```powershell
-$root = 'D:\Temp\PhotoLibrarian-OpenImages'
-& $python tools\PhotoLibrarian.ModelTraining\train_pilot.py `
-  --train "$root\download-train-balanced-v1\download-manifest.jsonl" `
-  --additional-train "$root\download-train-expansion-v1\download-manifest.jsonl" `
-  --validation "$root\download-authors-first-v1\download-manifest.jsonl" `
-  --exclude-images "$root\download-evaluation-v1\download-manifest.jsonl" `
-  --exclude-images "$root\download-expanded-evaluation-v1\download-manifest.jsonl" `
-  --author-reservation "$root\author-reservation-v1\reservation.json" `
-  --regression-images D:\Temp\Pictures\Diverse `
-  --output "$root\run-authors-first-scratch-v1" `
-  --research-only --device cuda --initialization random --scratch-epochs 20
+See the frozen author-first scratch and initialization-comparison commands below.
 ```
 
 This is **local exploratory research**, not product-weight/license approval.
@@ -547,12 +537,51 @@ unsupported/abstaining, not secretly negative. Positive-only activity/ambiguous
 mappings are excluded until their visual semantics/negative evidence are
 resolved. Unsupported concepts are listed in the audit.
 
+### Frozen author-first comparison
+
+The current scratch run uses the previously frozen author-first public training
+and development cohorts, the same 42-label evidence-gated head and the original
+seed-66 protocol. The reservation's calibration labels are used only for
+predeclared support gating; calibration scores/thresholds are not refit. The two
+previously consumed test manifests are checked only to exclude overlapping
+identities/authors/bytes/near-matches from training. Neither consumed test
+cohort is scored. Development was already exposed and is used for model
+selection, not an independent quality estimate.
+
+For a side-by-side initialization diagnostic, the committed protocol below
+keeps all inputs, label order, seed and validation cohort fixed. New training
+defaults to random initialization; a separate, explicit ImageNet run is used
+only as a research comparison. Neither run produces a shipping candidate.
+
+```powershell
+$root = 'D:\Temp\PhotoLibrarian-OpenImages'
+$common = @(
+  '--train', "$root\download-train-balanced-v1\download-manifest.jsonl",
+  '--additional-train', "$root\download-train-expansion-v1\download-manifest.jsonl",
+  '--validation', "$root\download-authors-first-v1\download-manifest.jsonl",
+  '--exclude-images', "$root\download-evaluation-v1\download-manifest.jsonl",
+  '--exclude-images', "$root\download-expanded-evaluation-v1\download-manifest.jsonl",
+  '--author-reservation', "$root\author-reservation-v1\reservation.json",
+  '--regression-images', 'D:\Temp\Pictures\Diverse',
+  '--research-only', '--device', 'cuda', '--seed', '66',
+  '--minimum-train', '50', '--minimum-validation', '10',
+  '--batch-size', '64', '--workers', '2', '--loss-balance', 'none'
+)
+& $python tools\PhotoLibrarian.ModelTraining\train_pilot.py @common `
+  --output "$root\run-authors-first-scratch-repro-v1" `
+  --initialization random --scratch-epochs 20
+& $python tools\PhotoLibrarian.ModelTraining\train_pilot.py @common `
+  --output "$root\run-authors-first-imagenet-comparison-v1" `
+  --initialization imagenet1k-v2 --weights-cache "$root\weights-cache" `
+  --head-epochs 3 --finetune-epochs 2
+```
+
 The current default creates a randomly initialized MobileNetV3-Large and trains
 the complete network and BatchNorm running statistics for 20 epochs with AdamW
 (learning rate 0.001, weight decay 0.0001) and cosine decay to 0.00001.
-Legacy ImageNet initialization remains opt-in solely to reproduce archived
-experiments; it verifies the pinned checkpoint hash and is not used by the
-current protocol. Both paths replace the final classifier with independent
+ImageNet initialization remains opt-in and is used only by the separate
+research-comparison command above; it verifies the pinned checkpoint hash.
+Both paths replace the final classifier with independent
 logits. Loss is unweighted BCE **only on known entries**; unknown -1 entries
 have no loss or gradient, all-unknown examples are excluded, and all-unknown
 batches perform no optimizer update.
@@ -566,10 +595,10 @@ object.
 `baseline.json`, `history.json`, `best-validation.json` and
 `validation-scores.npz` retain actual development loss and known-entry metrics.
 Threshold 0.5 is **uncalibrated**, and undefined precision is null, not perfect.
-The best checkpoint is chosen by masked development loss, never private
-regression scores or an untouched test. `completion.json` is written only after
-both stages finish and fingerprints the checkpoint and selected validation
-score arrays.
+The best checkpoint is chosen by masked development loss across both the
+initialized model and all training epochs, never private regression scores or
+an untouched test. `completion.json` is written only after training finishes
+and fingerprints the checkpoint and selected validation score arrays.
 
 ```powershell
 & $python tools\PhotoLibrarian.ModelTraining\export_pilot.py `

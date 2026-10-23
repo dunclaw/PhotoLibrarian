@@ -1,7 +1,8 @@
 """Scratch-initialized, partial-label MobileNetV3 research training. Never a shipping approval.
 
-Requires requirements-training.txt. No pretrained checkpoint is downloaded or
-loaded. Model/results stay in a new external output folder.
+Requires requirements-training.txt. Random initialization is the default;
+ImageNet weights are loaded only when explicitly requested for research.
+Model/results stay in a new external output folder.
 """
 
 from __future__ import annotations
@@ -205,9 +206,9 @@ def main() -> None:
     parser.add_argument("--mapping", type=Path, default=Path(__file__).with_name("open-images-mapping.csv"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--initialization", choices=["random", "imagenet1k-v2"], default="random",
-                        help="ImageNet initialization is only for reproducing archived research runs")
+                        help="ImageNet initialization is an explicit research-only comparison")
     parser.add_argument("--weights-cache", type=Path,
-                        help="External checkpoint cache, required only for explicit legacy ImageNet reproduction")
+                        help="External checkpoint cache, required for explicit ImageNet initialization")
     parser.add_argument("--research-only", action="store_true", required=True,
                         help="Acknowledge local research only; no product/redistribution clearance")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
@@ -329,7 +330,17 @@ def main() -> None:
     baseline_loss, baseline_scores, baseline_targets = evaluate(model, val_loader, device)
     write_json(args.output / "baseline.json", {"loss": baseline_loss,
                **metrics(baseline_scores, baseline_targets, labels)})
-    best = float("inf")
+    best = baseline_loss
+    torch.save({"state_dict": {key: value.detach().cpu() for key, value in model.state_dict().items()},
+                "labels": labels, "config": config, "stage": "baseline", "epoch": 0},
+               args.output / "best.pt")
+    np.savez_compressed(args.output / "validation-scores.npz",
+                        scores=baseline_scores, targets=baseline_targets)
+    write_json(args.output / "best-validation.json", {
+        "stage": "baseline", "epoch": 0, "learningRate": None, "trainLoss": None,
+        "validationLoss": baseline_loss, "updates": 0, "elapsedSeconds": 0,
+        **metrics(baseline_scores, baseline_targets, labels),
+    })
     start = time.perf_counter()
     if args.initialization == "random":
         stages = [("scratch", args.scratch_epochs, 0.001)]
