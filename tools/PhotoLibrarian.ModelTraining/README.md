@@ -1160,6 +1160,79 @@ frozen 1,000-photo fit/check diagnostic as a secondary coverage check without
 tuning its policy. Do not access the consumed evaluation outcomes or private
 judgments, change production defaults, or infer licensing clearance.
 
+#### Completed expansion result
+
+Protocol/training/comparison source was committed in `3e9a437` before fitting.
+All 10,000 additional selected public photos downloaded and hash-verified.
+Combined auditing accepted **14,541 training / 2,593 development images**,
+with **14,404 / 2,526 supervised images for a 68-label head**. Every original
+44 label remains eligible; 24 additional labels now pass the unchanged gates:
+`duck`, `goat`, `deer`, `insect`, `butterfly`, `grass`, `leaves`, `mushroom`,
+`ocean`, `bridge`, `fountain`, `truck`, `helicopter`, `wheelchair`, `bed`,
+`kitchen`, `bathroom`, `television`, `bread`, `cake`, `pizza`, `hat`, `shoes`,
+`sign`. The remaining 32 proposed concepts still abstain.
+
+The 4,000 reserved download references were checked only for overlap.
+The audit excluded 293 training near matches to those references; other
+quarantines were 3,021 unknown rotations, 197 hierarchy conflicts, 31 private
+near matches, 2,240 development-author overlaps and 84 development near
+matches. These screens are approximate, not certification of event independence.
+Applying the new reference exclusion also changes which original training
+photos survive; this and the larger head are coupled with added data.
+
+All five epochs completed in 293.45 seconds excluding audit/baseline.
+The same unweighted development selection rule chose head epoch three:
+losses 0.59956, 0.58478, **0.57782**, 0.59901, 0.60116.
+The full original development cohort is byte-for-byte unchanged in the
+recorded manifests. Because the head expanded, compare the **same 2,390
+supervised photos / 44 common labels / 5,450 known entries**, not different
+own-head losses:
+
+| Common-label development metric | Original | Expanded |
+| --- | ---: | ---: |
+| Unweighted BCE from scores | 0.59450 | 0.58106 |
+| Macro AP | 0.7855 | 0.7936 |
+| Precision at unchanged 0.5 | 69.34% | 68.22% |
+| Recall at unchanged 0.5 | 85.51% | 87.33% |
+| TP / FP / FN | 2,673 / 1,182 / 453 | 2,730 / 1,272 / 396 |
+
+The new head adds genuine supported breadth and modest common-label ranking
+improvement, but **does not solve precision**. The frozen 1,000-photo shared
+diagnostic has macro AP 0.80594 to 0.80645; its unchanged precision policy
+still enables four labels. Development check precision/recall falls from
+89.94% / 27.54% to **86.98% / 26.63%** (147 TP / 22 FP / 405 FN).
+Do not promote this candidate as a better automatic-tagging default.
+Own-head development metrics (68 labels, 6,526 known entries) are reported
+separately in [`expansion-results-v1.csv`](expansion-results-v1.csv), not
+used to exaggerate gains against the narrower baseline.
+
+The 68-label FP32 export is **17,147,684 bytes**, SHA-256
+`a0b790c4431c2ab5dffeb49c639a3ab5ef511935b305c3d2bc7681eec7ef5d70`;
+checkpoint SHA-256
+`70c7efd84aa58d09be3bf27ab9e875d72bbb4013eb338a1fddac29152556b372`.
+All **171,768** supervised development scores pass FP32 parity (max error
+0.000003219, zero 0.5 flips); the synthetic/16-photo check passes at
+0.000013114 maximum error. No INT8 or DirectML claim is made for this head.
+
+```powershell
+& $python tools\PhotoLibrarian.ModelTraining\export_pilot.py `
+  --run "$root\run-expanded-pilot-v1" --output "$root\export-expanded-pilot-v1" --samples 16
+& $evalPython tools\PhotoLibrarian.ModelTraining\compare_training.py `
+  --experiment expansion --baseline "$root\run-balanced-pilot-v2" `
+  --candidate "$root\run-expanded-pilot-v1" `
+  --candidate-bundle "$root\export-expanded-pilot-v1" `
+  --comparison "$root\matched-development-v2" `
+  --baseline-scores "$root\matched-development-scores-v1" `
+  --output "$root\expanded-comparison-v1"
+```
+
+The report retains all common/own-head per-label evidence, admitted/dropped
+labels, fitted thresholds and identities locally. Next work needs broader
+independent calibration evidence and targeted review of public annotation
+semantics/negative sampling, rather than assuming more images alone will
+clear a precision gate. The consumed evaluation outcomes were not opened;
+no new independent-test, licensing or shipping claim follows.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1237,9 +1310,9 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **72 distinct tests** were exercised across the
+train a model. Locally, all **76 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (11
-training/export-test skips). The base Python run has 39 optional skips.
+training/export-test skips). The base Python run has 43 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.
