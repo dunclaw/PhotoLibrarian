@@ -13,16 +13,17 @@ HAS_EXPORT = HAS_TORCH and importlib.util.find_spec("onnxruntime") is not None a
 @unittest.skipUnless(HAS_PIL, "Optional research tests require requirements-training.txt (Pillow)")
 class PilotDataTests(unittest.TestCase):
     @unittest.skipUnless(HAS_TORCH, "Optional model initialization test requires PyTorch")
-    def test_model_initialization_never_loads_an_external_checkpoint(self):
+    def test_random_initialization_is_an_explicit_no_checkpoint_option(self):
         from unittest.mock import patch
         from torch import nn
-        from train_pilot import initialize_model
+        from train_pilot import DEFAULT_INITIALIZATION, initialize_model
 
         class Model(nn.Module):
             def __init__(self):
                 super().__init__()
                 self.classifier = nn.Sequential(nn.Linear(3, 1000))
 
+        self.assertEqual("imagenet1k-v2", DEFAULT_INITIALIZATION)
         with patch("train_pilot.mobilenet_v3_large", return_value=Model()) as builder, \
                 patch("torch.load", side_effect=AssertionError("training must not load a checkpoint")) as loader:
             model, provenance = initialize_model(["cat", "dog"], "random")

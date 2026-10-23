@@ -4,8 +4,9 @@ This is the **research pilot for #66**, including measured 44-, 68- and
 author-first 42-label models,
 not a shipping profile or completion of that issue. Training/export tools are
 separate from the application; RAM++/TinyCLIP profiles, existing approvals and
-photo metadata are unchanged. Local exploratory artifacts are not licensed or
-quality-approved shipping bundles.
+photo metadata are unchanged. Local exploratory artifacts are not quality-
+approved shipping bundles; redistribution of ImageNet-derived assets is not
+cleared.
 
 **Latest status:** the user-approved one-time author-first test is complete.
 Fixed calibrated known-entry precision/recall is **92.71% / 49.70%** on 1,425
@@ -14,14 +15,13 @@ untouched-test claims. Earlier "unscored" statements below record the protocol
 chronology before this evaluation. See the final-test results and limitations;
 this is not a production approval or exhaustive emitted-tag precision claim.
 
-**Current trainer:** new runs initialize MobileNetV3-Large from random weights;
-the default does not download or load ImageNet checkpoints. Full-network
-training, including BatchNorm running statistics, uses the fixed 20-epoch
-scratch recipe below. Historical ImageNet-initialized results remain research
-history only and are not evidence for a scratch-trained model. The author-first
-development cohort is previously exposed and is used only for model selection;
-both calibration and test cohorts are consumed and must not be rescored or used
-to tune this candidate.
+**Current trainer:** new runs initialize MobileNetV3-Large from the pinned
+ImageNet1K V2 checkpoint by default, downloading it to an external cache and
+verifying its full SHA-256 before loading. Random initialization remains
+available for an explicit scratch comparison. The author-first development
+cohort is previously exposed and is used only for model selection; both
+calibration and test cohorts are consumed and must not be rescored or used to
+tune this candidate.
 
 The maintainer approved the pilot vocabulary and chose **public Open Images
 training data**. A personally labeled collection or hand-written JSONL inventory
@@ -406,7 +406,7 @@ Retain original Open Images test data as test (a separate source identifier can
 be used with `--test-source`), not training; Open Images' original split does not
 alone establish independence from pretrained weights or other libraries.
 
-## Historical ImageNet-initialized research and license review
+## ImageNet initialization and source notes
 
 Source review: 2026-10-23, including the official ImageNet agreement,
 Open Images V7 license notice, TorchVision pretrained-model disclaimer and
@@ -417,9 +417,10 @@ Earlier research used the official TorchVision MobileNetV3-Large V2 checkpoint
 (`mobilenet_v3_large-5c1a4163.pth`, SHA-256
 `5c1a416349c4cf298f2a6a5e2600ed0ee55e604713578f5e74e6bc8bcaef7997`,
 22,132,113 bytes), verified in full **before** weights-only deserialization.
-**Release disposition: no research-derived model is cleared for product use,
-hosting or redistribution. This is a conservative project gate, not a legal
-opinion that every such use is prohibited.** ImageNet's [official about page][imagenet-about] says ImageNet does not own the
+The project owner accepts ImageNet initialization for this project's local
+training and use. That decision does not grant rights to redistribute the
+checkpoint or derived model to others. ImageNet's [official about page][imagenet-about]
+says ImageNet does not own the
 images' copyrights and provides access for non-commercial research and
 education; its [access agreement][imagenet-agreement] limits use of the
 database to those purposes, disclaims warranties, and binds an employed
@@ -434,8 +435,9 @@ MobileNetV3 V2 [upstream weight entry and source][mobilenet-source] identify
 the checkpoint and metrics but do **not** declare a separate weight license.
 The TorchVision repository's BSD-3-Clause license covers its code; it is not
 evidence by itself that this ImageNet-derived checkpoint or a fine-tune is
-cleared for product distribution. Any change requires documented rights review
-for the intended use/distribution, not an inference from the code license.
+cleared for redistribution. The project owner accepts the checkpoint for this
+project's local use; do not infer broader rights from that decision or the code
+license.
 
 Open Images V7's [official license notice][oi-facts] says Google annotations
 are CC BY 4.0 and that images are *listed* as CC BY 2.0, but explicitly
@@ -548,10 +550,11 @@ identities/authors/bytes/near-matches from training. Neither consumed test
 cohort is scored. Development was already exposed and is used for model
 selection, not an independent quality estimate.
 
-For a side-by-side initialization diagnostic, the committed protocol below
-keeps all inputs, label order, seed and validation cohort fixed. New training
-defaults to random initialization; a separate, explicit ImageNet run is used
-only as a research comparison. Neither run produces a shipping candidate.
+For the initialization diagnostic, the committed protocol below keeps inputs,
+label order, seed and validation cohort fixed. New training now defaults to
+ImageNet initialization; random initialization remains available as an explicit
+scratch comparison. The results are development-only and do not establish
+production quality.
 
 ```powershell
 $root = 'D:\Temp\PhotoLibrarian-OpenImages'
@@ -576,19 +579,19 @@ $common = @(
   --head-epochs 3 --finetune-epochs 2
 ```
 
-The current default creates a randomly initialized MobileNetV3-Large and trains
-the complete network and BatchNorm running statistics for 20 epochs with AdamW
-(learning rate 0.001, weight decay 0.0001) and cosine decay to 0.00001.
-ImageNet initialization remains opt-in and is used only by the separate
-research-comparison command above; it verifies the pinned checkpoint hash.
-Both paths replace the final classifier with independent
-logits. Loss is unweighted BCE **only on known entries**; unknown -1 entries
+The default replaces the final classifier on a MobileNetV3-Large initialized
+from the pinned ImageNet1K V2 weights, then trains the head for three epochs
+and fine-tunes the network for two. The explicit random path trains the complete
+network and BatchNorm running statistics for 20 epochs with AdamW (learning rate
+0.001, weight decay 0.0001) and cosine decay to 0.00001. ImageNet weights are
+hash-verified before loading. Both paths use independent logits. Loss is
+unweighted BCE **only on known entries**; unknown -1 entries
 have no loss or gradient, all-unknown examples are excluded, and all-unknown
 batches perform no optimizer update.
 
 Inputs use the complete rotated RGB image resized directly to 224x224 with PIL
-bilinear interpolation. Scratch training uses channel mean/std `[0.5, 0.5, 0.5]`;
-historical ImageNet runs use the documented ImageNet statistics. Horizontal
+bilinear interpolation. ImageNet initialization uses its documented channel
+mean/std; random initialization uses `[0.5, 0.5, 0.5]`. Horizontal
 flips are the sole augmentation. This deliberately differs from an upstream
 center-crop recipe so cropping cannot silently remove an annotated positive
 object.

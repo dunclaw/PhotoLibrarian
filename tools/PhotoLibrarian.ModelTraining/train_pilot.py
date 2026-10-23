@@ -1,7 +1,7 @@
-"""Scratch-initialized, partial-label MobileNetV3 research training. Never a shipping approval.
+"""ImageNet-initialized partial-label MobileNetV3 training; not a quality approval.
 
-Requires requirements-training.txt. Random initialization is the default;
-ImageNet weights are loaded only when explicitly requested for research.
+Requires requirements-training.txt. Pinned ImageNet initialization is the
+default; random initialization remains available for explicit comparison.
 Model/results stay in a new external output folder.
 """
 
@@ -36,6 +36,7 @@ SCRATCH_MEAN = [0.5, 0.5, 0.5]
 SCRATCH_STD = [0.5, 0.5, 0.5]
 WEIGHTS = MobileNet_V3_Large_Weights.IMAGENET1K_V2
 WEIGHTS_SHA256 = "5c1a416349c4cf298f2a6a5e2600ed0ee55e604713578f5e74e6bc8bcaef7997"
+DEFAULT_INITIALIZATION = "imagenet1k-v2"
 
 
 def image_tensor(row: dict, mean: list[float] = IMAGENET_MEAN,
@@ -180,7 +181,7 @@ def initialize_model(labels: list[str], initialization: str,
     provenance = {"method": initialization, "pretrainedCheckpoint": None}
     if initialization == "imagenet1k-v2":
         if weight_file is None or not weight_file.is_file() or file_hash(weight_file) != WEIGHTS_SHA256:
-            raise ValueError("Explicit legacy ImageNet initialization needs the reviewed full checkpoint hash")
+            raise ValueError("ImageNet initialization needs the pinned full checkpoint hash")
         model.load_state_dict(torch.load(weight_file, map_location="cpu", weights_only=True), strict=True)
         provenance["pretrainedCheckpoint"] = {
             "url": WEIGHTS.url, "enum": str(WEIGHTS), "sha256": file_hash(weight_file),
@@ -205,12 +206,14 @@ def main() -> None:
     parser.add_argument("--vocabulary", type=Path, default=Path(__file__).with_name("pilot-vocabulary.csv"))
     parser.add_argument("--mapping", type=Path, default=Path(__file__).with_name("open-images-mapping.csv"))
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--initialization", choices=["random", "imagenet1k-v2"], default="random",
-                        help="ImageNet initialization is an explicit research-only comparison")
+    parser.add_argument("--initialization", choices=["random", "imagenet1k-v2"],
+                        default=DEFAULT_INITIALIZATION,
+                        help="Pinned ImageNet initialization is the default; random is an explicit scratch comparison")
     parser.add_argument("--weights-cache", type=Path,
-                        help="External checkpoint cache, required for explicit ImageNet initialization")
+                        default=Path.home() / ".cache" / "photolibrarian" / "weights",
+                        help="External checkpoint cache (default: ~/.cache/photolibrarian/weights)")
     parser.add_argument("--research-only", action="store_true", required=True,
-                        help="Acknowledge local research only; no product/redistribution clearance")
+                        help="Acknowledge experimental quality status; no redistribution clearance")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--scratch-epochs", type=int, default=20,
                         help="Full-network epochs from random initialization")
@@ -229,8 +232,6 @@ def main() -> None:
     if (min(args.scratch_epochs, args.batch_size) < 1
             or not 0 <= args.workers <= 8):
         parser.error("Epochs and batch size must be positive; workers 0..8")
-    if args.initialization == "imagenet1k-v2" and args.weights_cache is None:
-        parser.error("--weights-cache required for explicit legacy ImageNet reproduction")
     if args.output.exists():
         parser.error("--output must be new; previous research runs are immutable")
     repository = Path(__file__).resolve().parents[2]
