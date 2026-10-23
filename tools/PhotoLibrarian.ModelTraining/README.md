@@ -1104,6 +1104,62 @@ per-label evidence. It does not read the consumed test or calibration files.
 The next experiment should address public-data coverage and state/semantic
 sampling rather than repeat tuning of this weight cap.
 
+### Bounded public training expansion
+
+The next experiment adds at most **10,000 original-train** Open Images photos
+using a fresh fixed seed, 300 candidates per source MID/state and the existing
+provenance-first rare-state-balanced cap. Exclude **all** previous training,
+development and reserved evaluation selection IDs, author-profile URLs and
+original MD5 before sampling. These exclusions require identities/provenance,
+not test predictions or outcomes. The selected expansion is not automatically
+accepted training data; retain source labels, unknown masks and licensing.
+
+```powershell
+$root = 'D:\Training\OpenImages'
+python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations "$root\metadata\oidv7-train-annotations-human-imagelabels.csv" `
+  --metadata "$root\metadata\train-images-boxable-with-rotation.csv" `
+  --classes "$root\metadata\oidv7-class-descriptions.csv" `
+  --split train --per-state 300 --max-images 10000 --eligible-first --balanced `
+  --seed open-images-expansion-v1 `
+  --exclude-selection "$root\selection-train-balanced-v1\selection.jsonl" `
+  --exclude-selection "$root\selection-validation-balanced-v1\selection.jsonl" `
+  --exclude-selection "$root\selection-evaluation-v1\selection.jsonl" `
+  --output "$root\selection-train-expansion-v1"
+python tools\PhotoLibrarian.ModelTraining\download_open_images.py `
+  --selection "$root\selection-train-expansion-v1\selection.jsonl" `
+  --output "$root\download-train-expansion-v1" --limit 10000 --workers 8
+& $python tools\PhotoLibrarian.ModelTraining\train_pilot.py `
+  --train "$root\download-train-balanced-v1\download-manifest.jsonl" `
+  --additional-train "$root\download-train-expansion-v1\download-manifest.jsonl" `
+  --validation "$root\download-validation-balanced-v1\download-manifest.jsonl" `
+  --exclude-images "$root\download-evaluation-v1\download-manifest.jsonl" `
+  --regression-images D:\Temp\Pictures\Diverse `
+  --output "$root\run-expanded-pilot-v1" --weights-cache "$root\weights-cache" `
+  --research-only --device cuda --head-epochs 3 --finetune-epochs 2
+```
+
+`--additional-train` verifies each manifest inside its own download root before
+combining, rejects duplicate source IDs and sorts the union deterministically.
+The full original-training and added cohorts are audited together. Reserved
+`--exclude-images` original-validation downloads are verified/decoded **only
+for exclusion**: source IDs, bytes, MD5, author and dHash distance <=6. They
+never provide training loss, model selection, thresholds or comparison
+outcomes. This covers edited/near copies that selection metadata cannot catch.
+Each exclusion is counted explicitly. The existing private-image overlap
+check remains local/read-only.
+
+Predeclare the same unweighted five-epoch seed-66 recipe, unchanged original
+development manifest, mapping and eligibility gates. Expanded training may
+admit additional labels, but no validation evidence gate is relaxed. Compare
+baseline/candidate on the **identical common-label supervised development
+photos**; show own-head coverage separately rather than claim that differently
+sized heads have directly comparable loss. Added examples plus a changed head
+are a coupled experiment, not a clean architecture ablation. Use the already
+frozen 1,000-photo fit/check diagnostic as a secondary coverage check without
+tuning its policy. Do not access the consumed evaluation outcomes or private
+judgments, change production defaults, or infer licensing clearance.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit

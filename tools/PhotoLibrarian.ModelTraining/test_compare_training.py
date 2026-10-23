@@ -101,6 +101,56 @@ class TrainingComparisonTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Invalid development"):
                 development_summary(scores, bad, ["cat"])
 
+    def test_expansion_requires_original_inputs_unweighted_recipe_and_exclusion_provenance(self):
+        from compare_training import check_control
+        fields = ["architecture", "initialization", "seed", "precision", "preprocessing",
+                  "headEpochs", "finetuneEpochs", "headLearningRate", "finetuneLearningRate",
+                  "batchSize", "workers", "batchNorm", "versions", "device", "gpu"]
+        baseline = {**dict.fromkeys(fields, "same"), "labels": ["cat"], "dataFingerprint": "old",
+                    "inputFiles": {"train": {"sha256": "train"}, "validation": {"sha256": "val"}}}
+        candidate = {**baseline, "labels": ["cat", "dog"], "dataFingerprint": "new",
+                     "loss": {"balance": "none"},
+                     "inputFiles": {**baseline["inputFiles"], "additionalTrain0": {"sha256": "extra"},
+                                    "excludedImages0": {"sha256": "reserved"}}}
+        check_control(baseline, candidate, "expansion")
+        for key in ["additionalTrain0", "excludedImages0"]:
+            changed = copy.deepcopy(candidate)
+            del changed["inputFiles"][key]
+            with self.assertRaisesRegex(ValueError, "Expansion must"):
+                check_control(baseline, changed, "expansion")
+        changed = copy.deepcopy(candidate)
+        changed["inputFiles"]["validation"] = {"sha256": "different"}
+        with self.assertRaisesRegex(ValueError, "Expansion must"):
+            check_control(baseline, changed, "expansion")
+        changed = copy.deepcopy(candidate)
+        changed["seed"] = "different"
+        with self.assertRaisesRegex(ValueError, "Controlled experiment"):
+            check_control(baseline, changed, "expansion")
+
+    def test_common_label_alignment_handles_expanded_head_and_additional_supervised_rows(self):
+        import numpy as np
+        from compare_training import align_development
+        rows = [{"sourceId": "a", "labels": {"cat": "positive"}},
+                {"sourceId": "b", "labels": {"dog": "negative"}},
+                {"sourceId": "c", "labels": {"cat": "negative", "dog": "positive"}}]
+        a = {"labels": ["cat"]}
+        b = {"labels": ["dog", "cat"]}
+        base_scores, base_targets = np.array([[0.8], [0.1]]), np.array([[1], [0]])
+        new_scores = np.array([[0.3, 0.7], [0.2, 0.3], [0.8, 0.4]])
+        new_targets = np.array([[-1, 1], [0, -1], [1, 0]])
+        labels, first, second, targets = align_development(
+            a, b, rows, rows, base_scores, base_targets, new_scores, new_targets)
+        self.assertEqual(["cat"], labels)
+        np.testing.assert_array_equal(first, base_scores)
+        np.testing.assert_array_equal(second, [[0.7], [0.4]])
+        np.testing.assert_array_equal(targets, base_targets)
+        with self.assertRaisesRegex(ValueError, "exactly unchanged"):
+            align_development(a, b, rows, list(reversed(rows)), base_scores, base_targets,
+                              new_scores, new_targets)
+        with self.assertRaisesRegex(ValueError, "common targets differ"):
+            align_development(a, b, rows, rows, base_scores, base_targets, new_scores,
+                              np.array([[-1, 0], [0, -1], [1, 0]]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -167,6 +167,10 @@ def write_json(path: Path, data: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--train", type=Path, required=True)
+    parser.add_argument("--additional-train", type=Path, action="append", default=[],
+                        help="Additional original-train downloads; independently hash/decoder checked")
+    parser.add_argument("--exclude-images", type=Path, action="append", default=[],
+                        help="Reserved original-validation downloads used only for training leakage exclusion")
     parser.add_argument("--validation", type=Path, required=True)
     parser.add_argument("--regression-images", type=Path)
     parser.add_argument("--vocabulary", type=Path, default=Path(__file__).with_name("pilot-vocabulary.csv"))
@@ -205,7 +209,7 @@ def main() -> None:
     torch.backends.cuda.matmul.allow_tf32 = False
     train, validation, labels, audit = build_audit(
         args.train, args.validation, args.vocabulary, args.mapping, args.regression_images,
-        args.minimum_train, args.minimum_validation)
+        args.minimum_train, args.minimum_validation, args.additional_train, args.exclude_images)
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / "data-audit.json", audit)
     for name, rows in [("train", train), ("validation", validation)]:
@@ -260,7 +264,9 @@ def main() -> None:
             "torch", "torchvision", "numpy", "Pillow", "onnx", "onnxruntime"]},
         "inputFiles": {name: {"sha256": file_hash(path)} for name, path in [
             ("train", args.train), ("validation", args.validation), ("vocabulary", args.vocabulary),
-            ("mapping", args.mapping)]},
+            ("mapping", args.mapping)] + [
+                (f"additionalTrain{i}", path) for i, path in enumerate(args.additional_train)] + [
+                (f"excludedImages{i}", path) for i, path in enumerate(args.exclude_images)]},
         "preprocessing": {"size": [224, 224], "resize": "full-image PIL bilinear",
                           "orientation": "Open Images Rotation degrees CCW, EXIF not additionally applied",
                           "mean": MEAN, "std": STD, "augmentation": "horizontal flip p=0.5 only"},

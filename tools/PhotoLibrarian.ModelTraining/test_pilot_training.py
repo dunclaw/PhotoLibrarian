@@ -12,6 +12,51 @@ HAS_EXPORT = HAS_TORCH and importlib.util.find_spec("onnxruntime") is not None a
 
 @unittest.skipUnless(HAS_PIL, "Optional research tests require requirements-training.txt (Pillow)")
 class PilotDataTests(unittest.TestCase):
+    def test_additional_training_manifests_are_audited_and_duplicate_ids_fail(self):
+        import csv
+        from unittest.mock import patch
+        from pilot_data import build_audit
+        train, validation = self.base()
+        extra = [self.row("extra", dhash=0)]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mapping.csv"
+            with path.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=["label", "negativePolicy"])
+                writer.writeheader()
+                writer.writerows(self.mappings)
+            with patch("pilot_data.vocabulary", return_value=(self.concepts, None)):
+                with patch("pilot_data.load_downloads", side_effect=[train.copy(), extra, validation]):
+                    accepted, _, labels, report = build_audit(
+                        Path("train"), Path("validation"), Path("vocab"), path, None, 1, 1,
+                        [Path("extra")])
+                    self.assertEqual(["extra", "t1", "t2"], [row["sourceId"] for row in accepted])
+                    self.assertEqual(["animal", "cat"], labels)
+                    self.assertEqual(0, report["referenceImagesChecked"])
+                with patch("pilot_data.load_downloads", side_effect=[train.copy(), [train[0]]]):
+                    with self.assertRaisesRegex(ValueError, "Duplicate source IDs"):
+                        build_audit(Path("train"), Path("validation"), Path("vocab"), path, None,
+                                    1, 1, [Path("extra")])
+
+    def test_reserved_reference_exclusion_uses_identity_author_and_near_hash_not_labels(self):
+        from pilot_data import exclude_training_references
+        reference = self.row("r", labels={"not-a-training-label": "never-used"}, dhash=0)
+        reference["provenance"]["AuthorProfileURL"] = "reserved-author"
+        reference["provenance"]["OriginalMD5"] = "reserved-md5"
+        rows = [
+            self.row("r", dhash=(1 << 64) - 1),
+            self.row("same-bytes", sha="r", dhash=(1 << 64) - 1),
+            self.row("same-author", author="reserved-author", dhash=(1 << 64) - 1),
+            self.row("same-md5", dhash=(1 << 64) - 1),
+            self.row("near", dhash=1),
+            self.row("accepted", dhash=(1 << 64) - 1),
+        ]
+        rows[3]["provenance"]["OriginalMD5"] = "reserved-md5"
+        accepted, quarantine = exclude_training_references(rows, [reference])
+        self.assertEqual(["accepted"], [row["sourceId"] for row in accepted])
+        self.assertEqual(4, sum(row["reason"] == "reserved-reference-identity-or-author" for row in quarantine))
+        self.assertEqual("reserved-reference-near-hash", quarantine[-1]["reason"])
+        self.assertEqual(rows, exclude_training_references(rows, [])[0])
+
     def setUp(self):
         from pilot_data import audit_and_gate
         self.audit = audit_and_gate

@@ -191,10 +191,21 @@ def audit_and_gate(train: list[dict], validation: list[dict], concepts: list[dic
 
 
 def build_audit(train_manifest: Path, validation_manifest: Path, vocab: Path, mapping_path: Path,
-                regression: Path | None, minimum_train: int, minimum_validation: int):
+                regression: Path | None, minimum_train: int, minimum_validation: int,
+                additional_train: list[Path] | None = None,
+                exclude_images: list[Path] | None = None):
     import csv
     train = load_downloads(train_manifest, "train")
+    for manifest in additional_train or []:
+        train.extend(load_downloads(manifest, "train"))
+    if len({row["sourceId"] for row in train}) != len(train):
+        raise ValueError("Duplicate source IDs across training manifests")
+    train.sort(key=lambda row: row["sourceId"])
     validation = load_downloads(validation_manifest, "validation")
+    references = []
+    for manifest in exclude_images or []:
+        references.extend(load_downloads(manifest, "validation"))
+    train, reference_quarantine = exclude_training_references(train, references)
     concepts, _ = vocabulary(vocab)
     with mapping_path.open(encoding="utf-8", newline="") as stream:
         mappings = list(csv.DictReader(stream))
@@ -209,5 +220,30 @@ def build_audit(train_manifest: Path, validation_manifest: Path, vocab: Path, ma
         for path in photos:
             with Image.open(path) as image:
                 regression_hashes.append(difference_hash(ImageOps.exif_transpose(image)))
-    return audit_and_gate(train, validation, concepts, mappings, regression_hashes, 6,
-                          minimum_train, minimum_validation)
+    train, validation, labels, audit = audit_and_gate(
+        train, validation, concepts, mappings, regression_hashes, 6, minimum_train, minimum_validation)
+    audit["referenceImagesChecked"] = len(references)
+    audit["quarantine"].extend(reference_quarantine)
+    audit["quarantineCounts"] = dict(Counter(row["reason"] for row in audit["quarantine"]))
+    return train, validation, labels, audit
+
+
+def exclude_training_references(train: list[dict], references: list[dict]) -> tuple[list[dict], list[dict]]:
+    identities = {row["sourceId"] for row in references}
+    hashes = {row["sha256"] for row in references}
+    authors = {row["provenance"].get("AuthorProfileURL") for row in references} - {"", "nan", None}
+    md5 = {row["provenance"].get("OriginalMD5") for row in references} - {"", "nan", None}
+    perceptual = [row["dhash"] for row in references if "dhash" in row]
+    accepted, quarantine = [], []
+    for row in train:
+        if (row["sourceId"] in identities or row["sha256"] in hashes
+                or row["provenance"].get("AuthorProfileURL") in authors
+                or row["provenance"].get("OriginalMD5") in md5):
+            reason = "reserved-reference-identity-or-author"
+        elif "dhash" in row and near_hash(row["dhash"], perceptual, 6):
+            reason = "reserved-reference-near-hash"
+        else:
+            accepted.append(row)
+            continue
+        quarantine.append({"id": row["sourceId"], "reason": reason})
+    return accepted, quarantine
