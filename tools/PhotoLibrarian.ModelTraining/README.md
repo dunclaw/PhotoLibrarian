@@ -1365,6 +1365,89 @@ images as negative. Any later training/policy changes require fresh
 calibration and an independently justified untouched test; do not reuse this
 fit as a blind quality claim.
 
+### Full-source calibration availability audit
+
+`audit_calibration_coverage.py` scans **all** pinned original-validation
+human annotation rows for the 100 mapped concepts, with **no candidate cap,
+image downloads or model inference**. It reuses exact MID transfer semantics,
+provenance/rotation eligibility and hierarchy conflict screening. It reports
+cumulative tiers: eligible source, disjoint from both selected training
+cohorts, additionally disjoint from selected development, then additionally
+unused by both earlier evaluation selections. Exclusion selections contribute
+IDs, author-profile URLs and original MD5 only, never predictions/outcomes.
+Counts use whole selected cohorts conservatively, even photos later rejected.
+
+```powershell
+python tools\PhotoLibrarian.ModelTraining\audit_calibration_coverage.py `
+  --annotations "$root\metadata\oidv7-val-annotations-human-imagelabels.csv" `
+  --metadata "$root\metadata\validation-images-with-rotation.csv" `
+  --classes "$root\metadata\oidv7-class-descriptions.csv" `
+  --training-selection "$root\selection-train-balanced-v1\selection.jsonl" `
+  --training-selection "$root\selection-train-expansion-v1\selection.jsonl" `
+  --development-selection "$root\selection-validation-balanced-v1\selection.jsonl" `
+  --reserved-selection "$root\selection-evaluation-v1\selection.jsonl" `
+  --reserved-selection "$root\selection-expanded-evaluation-v1\selection.jsonl" `
+  --output "$root\calibration-source-audit-v1"
+```
+
+The complete scan finds 36,217 annotated source images with mapped MIDs;
+31,480 remain metadata-eligible after 4,552 unsupported/unknown rotations,
+157 without transferable labels and 28 hierarchy conflicts. None lacks
+metadata. Of these, 16,922 are blocked at the selected-training
+identity/author tier, a further 3,315 at development, and 9,375 at the
+earlier-evaluation tier, leaving **1,868 unused metadata candidates**.
+Those totals are images, not sums over label pairs.
+
+For the **fixed 68-label head**:
+
+| Cumulative metadata tier | Images | Labels with >=10 known positives AND negatives | Labels with >=40 positives AND >=20 negatives |
+| --- | ---: | ---: | ---: |
+| Eligible full source | 31,480 | 68 | 58 |
+| Selected-training disjoint | 14,558 | 61 | 41 |
+| Additionally development disjoint | 11,243 | 45 | 31 |
+| Additionally earlier-evaluation disjoint | 1,868 | 6 | 4 |
+
+The last column is only an illustrative **necessary count budget** for two
+cohorts, not proof that author-disjoint groups can satisfy precision evidence.
+Even the full eligible source cannot provide that count budget for all 68
+labels. After all current exclusions, 59 head labels have **zero remaining
+positives** and 62 have **zero remaining negatives**. Only `flower`, `tree`,
+`building`, `car`, `food`, `person` retain ten of each; these are already
+calibrated concepts, not a route to recover the 24 new labels by simply
+increasing the selection cap.
+
+For example, `cat` has 305 / 60 eligible positive/negative images, 156 / 31
+after training exclusions, but zero unused after all exclusions. `ocean`
+has 584 / **11** eligible states, 315 / **7** training-disjoint, and zero
+unused. This separates original source scarcity from evidence consumed by
+the current cohort/author allocation. It does not suggest dropping author
+exclusions or treating unannotated photos as negatives.
+
+[`calibration-source-coverage-v1.csv`](calibration-source-coverage-v1.csv)
+publishes all 100 concepts' cumulative image counts, distinct nonempty
+author-profile counts and missing-author counts. The local JSON retains
+source and exclusion hashes; SHA-256:
+`d031b1b819778444b2bfac0f854d1176c2cf3b639c33003fcbc20cb62a48c78c`.
+The source hashes match the pinned annotation/metadata catalog. No photo IDs,
+author URLs or model scores are in the committed aggregate.
+
+These are **upper bounds before decoder, byte and perceptual-duplicate
+auditing**, not ready-to-use data counts. Distinct author URLs do not certify
+independent events; metadata eligibility does not clear individual rights.
+Do not weaken current exclusions based on these numbers. The new 1,425-photo
+reserve stays unscored.
+
+**Next actionable research design:** freeze a narrower, evidence-supported
+vocabulary and jointly reserve public calibration/test author groups **before**
+selecting any future training cohort; then exclude those authors/identities
+from the original-train source and retrain from the reviewed initialization.
+Count both states/groups per split before downloads and preserve the current
+reserve. This is a new protocol/model version, not a retroactive relabeling
+of current development data as unseen. A model trained only against the
+remaining current calibration pool cannot establish broad reliable coverage.
+Labels with inherently insufficient source evidence need an independently
+licensed annotated source or explicit deferral, not invented negatives.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1442,7 +1525,7 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **78 distinct tests** were exercised across the
+train a model. Locally, all **82 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (11
 training/export-test skips). The base Python run has 45 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
