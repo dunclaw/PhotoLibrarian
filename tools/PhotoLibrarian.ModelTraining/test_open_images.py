@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from fetch_open_images import fetch
 from download_open_images import download, read_selection
-from select_open_images import balanced_ids, mapping, select, target_states, verified_rows
+from select_open_images import balanced_ids, mapping, prior_identities, select, target_states, verified_rows
 
 
 class Response(io.BytesIO):
@@ -242,6 +242,34 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual({"0", "98", "99"}, set(chosen))
         self.assertEqual(chosen, balanced_ids(dict(reversed(list(rows.items()))), 3, int))
         self.assertEqual(100, len(balanced_ids(rows, 1000, int)))
+
+    def test_prior_selection_excludes_ids_authors_and_md5_before_refilling_reservoir(self):
+        ids = [f"{index:016x}" for index in range(4)]
+        self.labels([(image, "/m/ocean", "1", "verification") for image in ids])
+        rows = self.provenance(ids)
+        for row in rows:
+            row["AuthorProfileURL"] = ""
+        rows[1]["AuthorProfileURL"] = "old-author"
+        rows[2]["OriginalMD5"] = "old-md5"
+        self.write_csv(self.metadata, list(rows[0]), rows)
+        excluded = {"ids": {ids[0]}, "authors": {"old-author"}, "md5": {"old-md5"}}
+        for eligible_first in [False, True]:
+            selected, report = select(self.annotations, self.metadata, self.mappings, "train", 10, 4, "seed",
+                                      eligible_first=eligible_first, excluded=excluded)
+            self.assertEqual([ids[3]], [row["sourceId"] for row in selected])
+            self.assertEqual({"ids": 1, "authors": 1, "md5": 1}, report["priorExcludedIdentityCounts"])
+
+    def test_prior_manifest_ignores_missing_metadata_not_real_identity(self):
+        path = self.root / "prior.jsonl"
+        row = {"sourceId": "0000000000000001",
+               "provenance": {"AuthorProfileURL": "nan", "OriginalMD5": ""}}
+        path.write_text(json.dumps(row) + "\n")
+        self.assertEqual({"ids": {row["sourceId"]}, "authors": set(), "md5": set()},
+                         prior_identities([path]))
+        row["sourceId"] = "invalid"
+        path.write_text(json.dumps(row) + "\n")
+        with self.assertRaisesRegex(ValueError, "Invalid prior"):
+            prior_identities([path])
 
     def test_eligible_first_refills_reservoir_after_provenance_filter(self):
         ids = [f"{index:016x}" for index in range(30)]

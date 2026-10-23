@@ -628,6 +628,95 @@ evaluation, **not wholesale relabeling of the maintainer's collection**.
 
 ## Remaining validation and release gates
 
+### Frozen additional public evaluation protocol
+
+Use a **separate** evaluation environment: `onnxruntime-directml` and
+`onnxruntime` share a Python module and must not be installed over each other.
+The DirectML wheel also exposes the CPU provider, so both provider measurements
+use the same ORT **1.23.0** build (no 1.23.2 DirectML wheel exists for this
+interpreter). Evaluation preprocessing uses only Pillow/numpy; a bit-exact
+test against the training implementation protects the input contract.
+
+```powershell
+py -3.12 -m venv D:\Training\OpenImages\venv-evaluation
+$evalPython = 'D:\Training\OpenImages\venv-evaluation\Scripts\python.exe'
+& $evalPython -m pip install -r tools\PhotoLibrarian.ModelTraining\requirements-evaluation.txt
+```
+
+The next evaluation uses 4,000 additional Open Images original-validation
+images, selected with seed `open-images-independent-evaluation-v1` and
+`--exclude-selection` for **both** prior 10,000-training / 3,000-development
+selections. Source IDs, original MD5 and author-profile URLs are excluded
+before sampling, so changing the seed cannot accidentally reuse pilot authors.
+`prepare_evaluation.py` additionally removes approximate near matches to all
+accepted training/development images and the 156 private regression photos.
+It quarantines missing orientation/hierarchy conflicts and unions author,
+original-MD5, byte-hash and dHash-neighbor constraints **transitively** before
+assigning components 50:50 by deterministic hash. No score is used to split.
+
+The frozen cohort has **1,745 calibration images / 1,535 approximate groups**
+and **1,659 test images / 1,457 approximate groups**. Quarantine counts: 513
+unknown source rotations, 74 prior-development near-matches, four hierarchy
+conflicts and five private-regression near-matches. This is fresh relative to
+the fitted pilot, not a guarantee of independence from ImageNet pretraining or
+of manually verified event groups.
+
+The **provisional research policy**, fixed before test scoring, targets 90%
+known-entry calibration precision, requires at least 20 accepted known
+entries, descriptive 95% Wilson lower bound >=75%, ten known positives and
+ten known negatives, and five distinct approximate groups for each state.
+Fit per-tag thresholds to maximize known true positives, then accepted count,
+then threshold; disable unsupported labels rather than use a global fallback.
+The binomial interval is descriptive, **not** a guarantee under group/selection
+dependence. These choices are not production acceptance criteria. Nine labels
+qualify on calibration: animal, dog, bird, flower, tree, car, table, food, person.
+The remaining 35 model labels abstain.
+
+Two test comparisons are fixed in advance: the uncalibrated 0.5 baseline and
+the **unchanged calibration-only thresholds**. No model, mapping, policy or
+threshold is fitted on test or private regression judgments.
+
+| Frozen artifact, before first test inference | SHA-256 |
+| --- | --- |
+| `evaluation-protocol-v1\protocol.json` | `22582fa22eb92243d5f88a193646e9bab2752f26456ef76def76cfc3accf59fa` |
+| `calibration-public-v1\calibration.json` | `f6801502ac6700e1389a50bca5ec22f347a8914e024e1d34adb056b5698085e4` |
+
+The files and image manifests remain outside git. Reproduce with new external
+directories; `fit` never reads the test manifest or test photos:
+
+```powershell
+& $python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations D:\Training\OpenImages\metadata\oidv7-val-annotations-human-imagelabels.csv `
+  --metadata D:\Training\OpenImages\metadata\validation-images-with-rotation.csv `
+  --classes D:\Training\OpenImages\metadata\oidv7-class-descriptions.csv `
+  --split validation --per-state 100 --max-images 4000 --eligible-first --balanced `
+  --seed open-images-independent-evaluation-v1 `
+  --exclude-selection D:\Training\OpenImages\selection-train-balanced-v1\selection.jsonl `
+  --exclude-selection D:\Training\OpenImages\selection-validation-balanced-v1\selection.jsonl `
+  --output D:\Training\OpenImages\selection-evaluation-v1
+& $python tools\PhotoLibrarian.ModelTraining\download_open_images.py `
+  --selection D:\Training\OpenImages\selection-evaluation-v1\selection.jsonl `
+  --output D:\Training\OpenImages\download-evaluation-v1 --limit 4000 --workers 8
+& $evalPython tools\PhotoLibrarian.ModelTraining\prepare_evaluation.py `
+  --download D:\Training\OpenImages\download-evaluation-v1\download-manifest.jsonl `
+  --prior-run D:\Training\OpenImages\run-balanced-pilot-v2 `
+  --bundle D:\Training\OpenImages\export-balanced-pilot-v2 `
+  --regression-images D:\Temp\Pictures\Diverse `
+  --output D:\Training\OpenImages\evaluation-protocol-v1
+& $evalPython tools\PhotoLibrarian.ModelTraining\calibrate_pilot.py fit `
+  --evaluation D:\Training\OpenImages\evaluation-protocol-v1 `
+  --bundle D:\Training\OpenImages\export-balanced-pilot-v2 `
+  --output D:\Training\OpenImages\calibration-public-v1
+# Freeze/review calibration.json before this first test run. Do not retune on test.
+& $evalPython tools\PhotoLibrarian.ModelTraining\calibrate_pilot.py test `
+  --evaluation D:\Training\OpenImages\evaluation-protocol-v1 `
+  --bundle D:\Training\OpenImages\export-balanced-pilot-v2 `
+  --calibration D:\Training\OpenImages\calibration-public-v1\calibration.json `
+  --output D:\Training\OpenImages\test-public-v1
+```
+
+### Outstanding production gates
+
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
    verified Open Images subsets and cross-source duplicates. Consented private
    data remains optional. Collect independent positive

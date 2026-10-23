@@ -99,6 +99,28 @@ def eligible_provenance(row: dict) -> bool:
             and url.scheme in {"http", "https"} and bool(url.netloc))
 
 
+def prior_identities(paths: list[Path]) -> dict[str, set[str]]:
+    result = {"ids": set(), "authors": set(), "md5": set()}
+    for path in paths:
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                row = json.loads(line)
+                if not IMAGE_ID.fullmatch(row["sourceId"]):
+                    raise ValueError("Invalid prior selection ID")
+                result["ids"].add(row["sourceId"])
+                for field, key in [("AuthorProfileURL", "authors"), ("OriginalMD5", "md5")]:
+                    value = row["provenance"].get(field, "")
+                    if value.strip().lower() not in {"", "nan", "none"}:
+                        result[key].add(value)
+    return result
+
+
+def excluded_provenance(row: dict, excluded: dict[str, set[str]]) -> bool:
+    return (row["ImageID"] in excluded["ids"]
+            or row.get("AuthorProfileURL") in excluded["authors"]
+            or row.get("OriginalMD5") in excluded["md5"])
+
+
 def balanced_ids(eligible: dict[str, dict], limit: int, rank) -> list[str]:
     buckets: dict[tuple[str, str], list[str]] = {}
     for image in sorted(eligible, key=lambda x: (rank(x), x), reverse=True):
@@ -127,7 +149,8 @@ def balanced_ids(eligible: dict[str, dict], limit: int, rank) -> list[str]:
 
 def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
            per_state: int, max_images: int, seed: str, *,
-           eligible_first: bool = False, balanced: bool = False) -> tuple[list[dict], dict]:
+           eligible_first: bool = False, balanced: bool = False,
+           excluded: dict[str, set[str]] | None = None) -> tuple[list[dict], dict]:
     if per_state < 1 or max_images < 1 or split not in {"train", "validation"}:
         raise ValueError("Positive limits and original train/validation split are required")
     mids = {mid for row in mappings for mid in row["midList"]}
@@ -137,9 +160,10 @@ def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
     heaps: dict[tuple[str, int], list] = {}
     members: dict[tuple[str, int], set] = {}
     eligible_ids = None
+    excluded = excluded or {"ids": set(), "authors": set(), "md5": set()}
     if eligible_first:
         eligible_ids = {row["ImageID"] for row in provenance_rows(metadata, split)
-                        if eligible_provenance(row)}
+                        if eligible_provenance(row) and not excluded_provenance(row, excluded)}
 
     def rank(image: str) -> int:
         return int(hashlib.sha256(f"{seed}:{split}:{image}".encode()).hexdigest(), 16)
@@ -183,6 +207,9 @@ def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
         if image in found:
             raise ValueError(f"Duplicate metadata for {image}")
         found.add(image)
+        if excluded_provenance(row, excluded):
+            rejection["priorSelectionIdentityOrAuthor"] += 1
+            continue
         if row["License"] not in LICENSES:
             rejection["licenseNotAllowlisted"] += 1
             continue
@@ -223,6 +250,7 @@ def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
         "schemaVersion": 1, "originalSplit": split, "seed": seed,
         "perMidStateCandidateCap": per_state, "maxImages": max_images,
         "eligibleFirst": eligible_first, "balanced": balanced,
+        "priorExcludedIdentityCounts": {key: len(values) for key, values in excluded.items()},
         "candidateImages": len(candidates), "selectedImages": len(selected),
         "rejected": dict(sorted(rejection.items())), "coverage": coverage,
         "trainingReady": False, "productionApproved": False,
@@ -257,6 +285,8 @@ def main() -> None:
     parser.add_argument("--balanced", action="store_true",
                         help="Round-robin rare target/state buckets instead of global rank truncation")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--exclude-selection", type=Path, action="append", default=[],
+                        help="Prior public JSONL selection; exclude IDs, authors and original MD5 before sampling")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("--output must be new; do not overwrite a frozen selection")
@@ -264,7 +294,8 @@ def main() -> None:
     mappings = mapping(args.mapping, args.classes, concepts)
     records, report = select(args.annotations, args.metadata, mappings, args.split,
                              args.per_state, args.max_images, args.seed,
-                             eligible_first=args.eligible_first, balanced=args.balanced)
+                             eligible_first=args.eligible_first, balanced=args.balanced,
+                             excluded=prior_identities(args.exclude_selection))
     if not records:
         raise ValueError("No eligible images; inspect source coverage and provenance")
     report["inputs"] = {
@@ -273,6 +304,7 @@ def main() -> None:
                            ("classes", args.classes), ("mapping", args.mapping),
                            ("vocabulary", args.vocabulary)]
     }
+    report["excludedSelectionSha256"] = [file_hash(path) for path in args.exclude_selection]
     args.output.mkdir(parents=True, exist_ok=False)
     with (args.output / "selection.jsonl").open("w", encoding="utf-8", newline="\n") as stream:
         for record in records:
