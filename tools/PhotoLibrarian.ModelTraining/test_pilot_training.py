@@ -12,6 +12,34 @@ HAS_EXPORT = HAS_TORCH and importlib.util.find_spec("onnxruntime") is not None a
 
 @unittest.skipUnless(HAS_PIL, "Optional research tests require requirements-training.txt (Pillow)")
 class PilotDataTests(unittest.TestCase):
+    @unittest.skipUnless(HAS_TORCH, "Optional model initialization test requires PyTorch")
+    def test_model_initialization_never_loads_an_external_checkpoint(self):
+        from unittest.mock import patch
+        from torch import nn
+        from train_pilot import initialize_model
+
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.classifier = nn.Sequential(nn.Linear(3, 1000))
+
+        with patch("train_pilot.mobilenet_v3_large", return_value=Model()) as builder, \
+                patch("torch.load", side_effect=AssertionError("training must not load a checkpoint")) as loader:
+            model, provenance = initialize_model(["cat", "dog"], "random")
+        builder.assert_called_once_with(weights=None)
+        loader.assert_not_called()
+        self.assertEqual(2, model.classifier[-1].out_features)
+        self.assertEqual({"method": "random", "pretrainedCheckpoint": None}, provenance)
+        self.assertTrue(all(parameter.requires_grad for parameter in model.parameters()))
+
+    @unittest.skipUnless(HAS_TORCH, "Optional model initialization test requires PyTorch")
+    def test_initialization_requires_supported_mode_and_unique_ordered_labels(self):
+        from train_pilot import initialize_model
+        for labels, mode in [([], "random"), (["cat", "cat"], "random"),
+                             (["cat"], "unknown"), (["cat"], "imagenet1k-v2")]:
+            with self.subTest(labels=labels, mode=mode), self.assertRaises(ValueError):
+                initialize_model(labels, mode)
+
     def test_author_reservation_requires_disjoint_unique_known_members_and_groups(self):
         from pilot_data import reservation_members
         import copy

@@ -14,6 +14,15 @@ untouched-test claims. Earlier "unscored" statements below record the protocol
 chronology before this evaluation. See the final-test results and limitations;
 this is not a production approval or exhaustive emitted-tag precision claim.
 
+**Current trainer:** new runs initialize MobileNetV3-Large from random weights;
+the default does not download or load ImageNet checkpoints. Full-network
+training, including BatchNorm running statistics, uses the fixed 20-epoch
+scratch recipe below. Historical ImageNet-initialized results remain research
+history only and are not evidence for a scratch-trained model. The author-first
+development cohort is previously exposed and is used only for model selection;
+both calibration and test cohorts are consumed and must not be rescored or used
+to tune this candidate.
+
 The maintainer approved the pilot vocabulary and chose **public Open Images
 training data**. A personally labeled collection or hand-written JSONL inventory
 is **not a prerequisite**. Use the public-data workflow below; the local audit
@@ -397,23 +406,28 @@ Retain original Open Images test data as test (a separate source identifier can
 be used with `--test-source`), not training; Open Images' original split does not
 alone establish independence from pretrained weights or other libraries.
 
-## Initial model decision and license inventory
+## Historical ImageNet-initialized research and license review
 
 Source review: 2026-10-23, including the official ImageNet agreement,
 Open Images V7 license notice, TorchVision pretrained-model disclaimer and
 MobileNetV3 weight metadata/source. URLs and terms can change; each actual
 training run must pin package versions, source commits, checkpoint
 URLs/revisions and full SHA-256.
-Research initialization uses the official TorchVision MobileNetV3-Large V2
-checkpoint (`mobilenet_v3_large-5c1a4163.pth`, SHA-256
+Earlier research used the official TorchVision MobileNetV3-Large V2 checkpoint
+(`mobilenet_v3_large-5c1a4163.pth`, SHA-256
 `5c1a416349c4cf298f2a6a5e2600ed0ee55e604713578f5e74e6bc8bcaef7997`,
 22,132,113 bytes), verified in full **before** weights-only deserialization.
 **Release disposition: no research-derived model is cleared for product use,
 hosting or redistribution. This is a conservative project gate, not a legal
-opinion that every such use is prohibited.** ImageNet's [official access
-agreement][imagenet-agreement] says the database is for non-commercial research
-and education, disclaims warranties, and binds an employed researcher's
-for-profit employer as well. TorchVision's current [pretrained-model
+opinion that every such use is prohibited.** ImageNet's [official about page][imagenet-about] says ImageNet does not own the
+images' copyrights and provides access for non-commercial research and
+education; its [access agreement][imagenet-agreement] limits use of the
+database to those purposes, disclaims warranties, and binds an employed
+researcher's for-profit employer as well. That is not a blanket CC BY 3.0
+license for ImageNet images. A CC BY grant permits commercial reuse only for
+the material the identified licensor actually licensed; an attribution or
+taxonomy license alone does not establish rights to all underlying photographs
+or TorchVision checkpoints. TorchVision's current [pretrained-model
 documentation][tv-models] explicitly warns that models may have dataset-derived
 terms and instructs users to determine permission for their use case. The
 MobileNetV3 V2 [upstream weight entry and source][mobilenet-source] identify
@@ -487,13 +501,17 @@ cross-runtime parity. Resolved environment versions and source-code hashes are
 recorded, not just the dependency manifest.
 
 ```powershell
+$root = 'D:\Temp\PhotoLibrarian-OpenImages'
 & $python tools\PhotoLibrarian.ModelTraining\train_pilot.py `
-  --train D:\Training\OpenImages\download-train-balanced-v1\download-manifest.jsonl `
-  --validation D:\Training\OpenImages\download-validation-balanced-v1\download-manifest.jsonl `
+  --train "$root\download-train-balanced-v1\download-manifest.jsonl" `
+  --additional-train "$root\download-train-expansion-v1\download-manifest.jsonl" `
+  --validation "$root\download-authors-first-v1\download-manifest.jsonl" `
+  --exclude-images "$root\download-evaluation-v1\download-manifest.jsonl" `
+  --exclude-images "$root\download-expanded-evaluation-v1\download-manifest.jsonl" `
+  --author-reservation "$root\author-reservation-v1\reservation.json" `
   --regression-images D:\Temp\Pictures\Diverse `
-  --output D:\Training\OpenImages\run-balanced-pilot-v1 `
-  --weights-cache D:\Training\OpenImages\weights-cache `
-  --research-only --device cuda --head-epochs 3 --finetune-epochs 2
+  --output "$root\run-authors-first-scratch-v1" `
+  --research-only --device cuda --initialization random --scratch-epochs 20
 ```
 
 This is **local exploratory research**, not product-weight/license approval.
@@ -529,18 +547,22 @@ unsupported/abstaining, not secretly negative. Positive-only activity/ambiguous
 mappings are excluded until their visual semantics/negative evidence are
 resolved. Unsupported concepts are listed in the audit.
 
-Training replaces only the final ImageNet classifier with independent logits.
-Stage one freezes the encoder and hidden classifier and trains the new head
-with AdamW at 0.001; stage two unfreezes parameters at 0.0001. BatchNorm running
-statistics stay fixed in both stages. Loss is unweighted BCE **only on known
-entries**; unknown -1 entries have no loss or gradient, all-unknown examples
-are excluded, and all-unknown batches perform no optimizer update. This is a
-documented baseline; class weighting is not presumed beneficial.
+The current default creates a randomly initialized MobileNetV3-Large and trains
+the complete network and BatchNorm running statistics for 20 epochs with AdamW
+(learning rate 0.001, weight decay 0.0001) and cosine decay to 0.00001.
+Legacy ImageNet initialization remains opt-in solely to reproduce archived
+experiments; it verifies the pinned checkpoint hash and is not used by the
+current protocol. Both paths replace the final classifier with independent
+logits. Loss is unweighted BCE **only on known entries**; unknown -1 entries
+have no loss or gradient, all-unknown examples are excluded, and all-unknown
+batches perform no optimizer update.
 
 Inputs use the complete rotated RGB image resized directly to 224x224 with PIL
-bilinear interpolation, normalized with ImageNet mean/std. This deliberately
-differs from the upstream center-crop recipe so cropping cannot silently remove
-an annotated positive object. Horizontal flips are the sole augmentation.
+bilinear interpolation. Scratch training uses channel mean/std `[0.5, 0.5, 0.5]`;
+historical ImageNet runs use the documented ImageNet statistics. Horizontal
+flips are the sole augmentation. This deliberately differs from an upstream
+center-crop recipe so cropping cannot silently remove an annotated positive
+object.
 `baseline.json`, `history.json`, `best-validation.json` and
 `validation-scores.npz` retain actual development loss and known-entry metrics.
 Threshold 0.5 is **uncalibrated**, and undefined precision is null, not perfect.
@@ -1054,7 +1076,7 @@ so weighted and unweighted losses are not confused.
   --regression-images D:\Temp\Pictures\Diverse `
   --output D:\Training\OpenImages\run-state-balanced-v1 `
   --weights-cache D:\Training\OpenImages\weights-cache `
-  --research-only --device cuda --head-epochs 3 --finetune-epochs 2 `
+  --research-only --device cuda --initialization imagenet1k-v2 --head-epochs 3 --finetune-epochs 2 `
   --loss-balance known-state
 ```
 
@@ -1176,7 +1198,7 @@ python tools\PhotoLibrarian.ModelTraining\download_open_images.py `
   --exclude-images "$root\download-evaluation-v1\download-manifest.jsonl" `
   --regression-images D:\Temp\Pictures\Diverse `
   --output "$root\run-expanded-pilot-v1" --weights-cache "$root\weights-cache" `
-  --research-only --device cuda --head-epochs 3 --finetune-epochs 2
+  --research-only --device cuda --initialization imagenet1k-v2 --head-epochs 3 --finetune-epochs 2
 ```
 
 `--additional-train` verifies each manifest inside its own download root before
@@ -1536,7 +1558,7 @@ python tools\PhotoLibrarian.ModelTraining\download_open_images.py `
   --exclude-images "$root\download-expanded-evaluation-v1\download-manifest.jsonl" `
   --regression-images D:\Temp\Pictures\Diverse `
   --output "$root\run-authors-first-v1" --weights-cache "$root\weights-cache" `
-  --research-only --device cuda --head-epochs 3 --finetune-epochs 2
+  --research-only --device cuda --initialization imagenet1k-v2 --head-epochs 3 --finetune-epochs 2
 ```
 
 All 6,000 downloaded reservation references, not just accepted calibration
@@ -1998,9 +2020,9 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **95 distinct tests** were exercised across the
-training environment (one provider-test skip) and evaluation environment (11
-training/export-test skips). The base Python run has 58 optional skips.
+train a model. Locally, all **97 distinct tests** were exercised across the
+training environment (one provider-test skip) and evaluation environment (13
+training/export-test skips). The base Python run has 60 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.
@@ -2022,6 +2044,7 @@ These are development results, not final-test quality or production acceptance.
 [mobilenet-source]: https://github.com/pytorch/vision/blob/main/torchvision/models/mobilenetv3.py
 [efficientnet]: https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.efficientnet_b0.html
 [tv-models]: https://docs.pytorch.org/vision/stable/models.html
+[imagenet-about]: https://image-net.org/about.php
 [imagenet-agreement]: https://image-net.org/accessagreement.php
 [cc-by-20]: https://creativecommons.org/licenses/by/2.0/
 [cc-by-40]: https://creativecommons.org/licenses/by/4.0/

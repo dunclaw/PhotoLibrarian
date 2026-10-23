@@ -180,7 +180,7 @@ def audit_and_gate(train: list[dict], validation: list[dict], concepts: list[dic
         "limitations": [
             "Difference-hash screening is approximate; does not certify event/near-duplicate independence.",
             "Author-held-out validation is not an untouched final test or population-representative sample.",
-            "Metadata licenses do not establish current image rights or pretrained-weight redistribution rights.",
+            "Dataset metadata does not establish all image or derived-model rights for redistribution.",
             "Only all-policy mappings with known positives and negatives are eligible; others abstain.",
             "Partial-label metrics assess known entries, not exhaustive recall.",
         ],

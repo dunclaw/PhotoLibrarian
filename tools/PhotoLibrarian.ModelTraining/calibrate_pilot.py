@@ -127,13 +127,15 @@ def calibration_cross_validation(scores: np.ndarray, targets: np.ndarray, labels
             ]}
 
 
-def score_rows(session, rows: list[dict], labels: list[str]) -> tuple[np.ndarray, np.ndarray]:
+def score_rows(session, rows: list[dict], labels: list[str],
+               mean: list[float], std: list[float]) -> tuple[np.ndarray, np.ndarray]:
     scores, targets = [], []
     for row in rows:
         path = Path(row["path"])
         if file_hash(path) != row["sha256"]:
             raise ValueError("Frozen evaluation image changed")
-        scores.append(infer(session, prepare_tensor(path, row["provenance"]["Rotation"]), len(labels)))
+        scores.append(infer(session, prepare_tensor(
+            path, row["provenance"]["Rotation"], mean, std), len(labels)))
         targets.append([{"positive": 1, "negative": 0}.get(row["labels"].get(label), -1) for label in labels])
     return np.asarray(scores), np.asarray(targets)
 
@@ -192,7 +194,8 @@ def main() -> None:
     session = ort.InferenceSession(str(model), sess_options=options, providers=["CPUExecutionProvider"])
     session.disable_fallback()
     validate_session(session, bundle["labels"])
-    scores, targets = score_rows(session, rows, bundle["labels"])
+    scores, targets = score_rows(
+        session, rows, bundle["labels"], bundle["preprocessing"]["mean"], bundle["preprocessing"]["std"])
     if args.operation == "fit":
         fitted = [choose_threshold(scores[:, i], targets[:, i], [row["evaluationGroup"] for row in rows],
                                    protocol["calibrationPolicy"]) for i in range(len(bundle["labels"]))]

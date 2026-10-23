@@ -114,7 +114,8 @@ def score_model(model_id: str, asset: dict, rows: list[dict], shared: list[str])
         native_labels = ram_labels(metadata)
         input_name, output_name = "img", "targets"
     else:
-        native_labels = json.loads(metadata.read_text())["labels"]
+        pilot_metadata = json.loads(metadata.read_text())
+        native_labels = pilot_metadata["labels"]
         input_name, output_name = "image", "scores"
     if any(label not in native_labels for label in shared):
         raise ValueError("Model lacks frozen shared labels")
@@ -142,7 +143,9 @@ def score_model(model_id: str, asset: dict, rows: list[dict], shared: list[str])
             raise ValueError("Comparison input bytes changed")
         verified = time.perf_counter()
         if model_id == "pilot":
-            tensor = prepare_tensor(path, row["provenance"]["Rotation"])
+            tensor = prepare_tensor(
+                path, row["provenance"]["Rotation"], pilot_metadata["preprocessing"]["mean"],
+                pilot_metadata["preprocessing"]["std"])
         else:
             image = oriented_image(path, row["provenance"]["Rotation"])
             if bundle:

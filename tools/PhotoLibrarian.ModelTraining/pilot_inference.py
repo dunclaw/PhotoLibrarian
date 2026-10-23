@@ -12,7 +12,8 @@ from PIL import Image, ImageOps
 from prepare_dataset import file_hash, unique_object
 
 
-def prepare_tensor(path: Path, rotation: str | None = None) -> np.ndarray:
+def prepare_tensor(path: Path, rotation: str | None = None,
+                   mean: list[float] | None = None, std: list[float] | None = None) -> np.ndarray:
     with Image.open(path) as image:
         image.load()
         if rotation is None:
@@ -26,8 +27,12 @@ def prepare_tensor(path: Path, rotation: str | None = None) -> np.ndarray:
                 image = image.rotate(angle, expand=True)
         image = image.convert("RGB").resize((224, 224), Image.Resampling.BILINEAR)
         pixels = np.asarray(image, dtype=np.float32).transpose(2, 0, 1) / np.float32(255)
-    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
-    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
+    mean = np.asarray(mean or [0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.asarray(std or [0.229, 0.224, 0.225], dtype=np.float32)
+    if (mean.shape != (3,) or std.shape != (3,) or not np.isfinite(mean).all()
+            or not np.isfinite(std).all() or (std <= 0).any()):
+        raise ValueError("Image normalization requires three finite means and positive standard deviations")
+    mean, std = mean[:, None, None], std[:, None, None]
     return np.ascontiguousarray(((pixels - mean) / std)[None])
 
 
@@ -45,6 +50,12 @@ def load_bundle(bundle: Path) -> tuple[Path, dict]:
             or report["output"]["shape"] != [1, len(labels)]
             or report["output"]["name"] != "scores" or report["output"]["dtype"] != "float32"):
         raise ValueError("Unsupported pilot input/output contract")
+    preprocessing = report["preprocessing"]
+    mean, std = preprocessing.get("mean"), preprocessing.get("std")
+    if (not isinstance(mean, list) or not isinstance(std, list) or len(mean) != 3 or len(std) != 3
+            or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in mean + std)
+            or any(value <= 0 for value in std)):
+        raise ValueError("Export does not declare valid image normalization")
     return model, report
 
 

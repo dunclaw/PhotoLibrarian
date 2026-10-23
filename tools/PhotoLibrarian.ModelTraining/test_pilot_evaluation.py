@@ -174,6 +174,12 @@ class PreprocessingParityTests(unittest.TestCase):
             for rotation in ["0", "90", "180", "270"]:
                 expected = image_tensor({"path": str(path), "provenance": {"Rotation": rotation}})
                 np.testing.assert_array_equal(expected.numpy()[None], prepare_tensor(path, rotation))
+                scratch = image_tensor({"path": str(path), "provenance": {"Rotation": rotation}},
+                                       [0.5] * 3, [0.5] * 3)
+                np.testing.assert_array_equal(
+                    scratch.numpy()[None], prepare_tensor(path, rotation, [0.5] * 3, [0.5] * 3))
+            with self.assertRaisesRegex(ValueError, "normalization"):
+                prepare_tensor(path, "0", [0.5, 0.5], [0.5, 0.5])
 
 
 @unittest.skipUnless(HAS_BENCH, "Optional provider tests require evaluation environment")

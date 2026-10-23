@@ -17,14 +17,16 @@ from torch import nn
 from torchvision.models import mobilenet_v3_large
 
 from prepare_dataset import file_hash
-from train_pilot import image_tensor, metrics, write_json
+from train_pilot import IMAGENET_MEAN, IMAGENET_STD, image_tensor, metrics, write_json
 
 
 class TrainingCalibration(CalibrationDataReader):
-    def __init__(self, rows: list[dict], limit: int):
+    def __init__(self, rows: list[dict], limit: int, mean: list[float] = IMAGENET_MEAN,
+                 std: list[float] = IMAGENET_STD):
         if limit < 1 or not rows or any(row["originalSplit"] != "train" for row in rows):
             raise ValueError("INT8 calibration requires original training examples only")
         self.rows = rows[:limit]
+        self.mean, self.std = mean, std
         self.iterator = iter(self.rows)
 
     def get_next(self):
@@ -33,10 +35,12 @@ class TrainingCalibration(CalibrationDataReader):
             return None
         if file_hash(Path(row["path"])) != row["sha256"]:
             raise ValueError("Quantization calibration image changed")
-        return {"image": image_tensor(row).unsqueeze(0).numpy()}
+        return {"image": image_tensor(row, self.mean, self.std).unsqueeze(0).numpy()}
 
 
-def development_scores(session, rows: list[dict], labels: list[str]) -> tuple[np.ndarray, np.ndarray]:
+def development_scores(session, rows: list[dict], labels: list[str],
+                        mean: list[float] = IMAGENET_MEAN,
+                        std: list[float] = IMAGENET_STD) -> tuple[np.ndarray, np.ndarray]:
     scores = []
     targets = []
     for row in rows:
@@ -44,7 +48,7 @@ def development_scores(session, rows: list[dict], labels: list[str]) -> tuple[np
             continue
         if file_hash(Path(row["path"])) != row["sha256"]:
             raise ValueError("Development image changed after training")
-        actual = session.run(["scores"], {"image": image_tensor(row).unsqueeze(0).numpy()})[0]
+        actual = session.run(["scores"], {"image": image_tensor(row, mean, std).unsqueeze(0).numpy()})[0]
         if actual.shape != (1, len(labels)) or not np.isfinite(actual).all():
             raise ValueError("Invalid development output contract")
         scores.append(actual[0])
@@ -85,6 +89,8 @@ def main() -> None:
         raise ValueError("Run is incomplete or checkpoint identity changed")
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     labels = checkpoint["labels"]
+    mean = checkpoint["config"]["preprocessing"]["mean"]
+    std = checkpoint["config"]["preprocessing"]["std"]
     model = mobilenet_v3_large(weights=None)
     model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, len(labels))
     model.load_state_dict(checkpoint["state_dict"], strict=True)
@@ -109,7 +115,7 @@ def main() -> None:
     for row in rows[:args.samples]:
         if file_hash(Path(row["path"])) != row["sha256"]:
             raise ValueError("Parity input image changed after training")
-        tensors.append(image_tensor(row).unsqueeze(0))
+        tensors.append(image_tensor(row, mean, std).unsqueeze(0))
     maximum = 0.0
     flips = 0
     for tensor in tensors:
@@ -150,7 +156,7 @@ def main() -> None:
         "directMLMeasured": False, "int8Exported": False, "redistributionCleared": False,
         "limitations": checkpoint["config"]["limitations"],
     }
-    development, targets = development_scores(session, rows, labels)
+    development, targets = development_scores(session, rows, labels, mean, std)
     reference_path = args.run / "validation-scores.npz"
     if file_hash(reference_path) != completion["validationScoresSha256"]:
         raise ValueError("Selected PyTorch development scores changed")
@@ -166,7 +172,7 @@ def main() -> None:
     np.savez_compressed(args.output / "fp32-development-scores.npz", scores=development, targets=targets)
     if args.int8:
         train_rows = [json.loads(line) for line in (args.run / "train-cohort.jsonl").read_text().splitlines()]
-        reader = TrainingCalibration(train_rows, args.calibration_samples)
+        reader = TrainingCalibration(train_rows, args.calibration_samples, mean, std)
         preprocessed = args.output / "quantization-preprocessed.onnx"
         quantized = args.output / "compact-pilot-int8.onnx"
         quant_pre_process(str(model_path), str(preprocessed))
@@ -196,7 +202,7 @@ def main() -> None:
             "qualityApproved": False,
             "warning": "Diagnostic subset only. Needs full development comparison and independent recalibration.",
         }
-        quant_development, quant_targets = development_scores(quant_session, rows, labels)
+        quant_development, quant_targets = development_scores(quant_session, rows, labels, mean, std)
         if not np.array_equal(targets, quant_targets):
             raise ValueError("FP32/INT8 development targets differ")
         known = targets >= 0

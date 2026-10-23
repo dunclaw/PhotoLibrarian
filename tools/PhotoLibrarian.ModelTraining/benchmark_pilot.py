@@ -105,7 +105,8 @@ def main() -> None:
             raise RuntimeError("Requested provider failed initialization; refusing a fallback-only run")
         load_ms = (time.perf_counter() - start) * 1000
         validate_session(session, bundle["labels"])
-        first = prepare_tensor(images[0])
+        mean, std = bundle["preprocessing"]["mean"], bundle["preprocessing"]["std"]
+        first = prepare_tensor(images[0], mean=mean, std=std)
         warmup_ms = []
         for _ in range(5):
             start = time.perf_counter()
@@ -115,7 +116,7 @@ def main() -> None:
         for path in images:
             identity = {"image": path.relative_to(args.images).as_posix(), "sha256": file_hash(path)}
             start = time.perf_counter()
-            tensor = prepare_tensor(path)
+            tensor = prepare_tensor(path, mean=mean, std=std)
             prepared = time.perf_counter()
             score = infer(session, tensor, len(bundle["labels"]))
             completed = time.perf_counter()
@@ -169,7 +170,8 @@ def main() -> None:
         "nodePlacement": nodes, "strictNoCpuFallback": strict, "intraOpThreads": args.threads,
         "warmups": 5, "images": records, "imageCount": len(records), "loadMs": load_ms,
         "firstInferenceMs": warmup_ms[0], "warmupInferenceMs": warmup_ms,
-        "preprocessing": "PIL EXIF transpose, RGB, full-image bilinear 224; ImageNet normalization",
+        "preprocessing": {"orientation": "PIL EXIF transpose", "color": "RGB",
+                          "resize": "full-image bilinear 224", "mean": mean, "std": std},
         "timingMs": {name: {"p50": float(np.percentile(values, 50)),
                            "p95": float(np.percentile(values, 95))}
                      for name, values in [("decodePreprocess", preprocess), ("inference", inference),
