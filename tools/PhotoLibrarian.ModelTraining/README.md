@@ -7,6 +7,13 @@ separate from the application; RAM++/TinyCLIP profiles, existing approvals and
 photo metadata are unchanged. Local exploratory artifacts are not licensed or
 quality-approved shipping bundles.
 
+**Latest status:** the user-approved one-time author-first test is complete.
+Fixed calibrated known-entry precision/recall is **92.71% / 49.70%** on 1,425
+photos. The reserve is now **consumed**, not available for further tuning or
+untouched-test claims. Earlier "unscored" statements below record the protocol
+chronology before this evaluation. See the final-test results and limitations;
+this is not a production approval or exhaustive emitted-tag precision claim.
+
 The maintainer approved the pilot vocabulary and chose **public Open Images
 training data**. A personally labeled collection or hand-written JSONL inventory
 is **not a prerequisite**. Use the public-data workflow below; the local audit
@@ -1695,6 +1702,59 @@ The nine-label support observation is disclosed, not a new selected head.
   --calibration "$root\author-calibration-results-v1\calibration.json" `
   --output "$root\author-final-test-results-v1"
 ```
+
+#### One-time test results: promising known-entry precision, limited coverage
+
+Protocol, exact model/calibration/test hashes and executed source were
+committed in **`309be14` before the first test inference**. The fixed
+17-threshold policy was applied once; no threshold refitting or label pruning
+occurred. All 42 head labels are reported in
+`author-final-test-results-v1.csv`. Saved score arrays were independently
+re-summarized and aggregate counts reconciled without rerunning inference.
+
+| 1,425 photos; 2,816 known entries | Fixed 0.5 | Frozen calibrated policy |
+| --- | ---: | ---: |
+| TP / FP / FN | 1,487 / 592 / 201 | 839 / 66 / 849 |
+| Known-entry precision | 71.52% | **92.71%** |
+| Recall including disabled-label positives | 88.09% | **49.70%** |
+| Emitted tags | 22,265 | 3,354 |
+| Unknown-state emitted tags, not counted as FP | 20,186 | 2,449 |
+| Photos receiving any tag | 1,425 | 1,287 |
+
+The frozen calibrated policy has 526 fewer known false positives than fixed
+0.5, at the cost of 648 fewer true positives. Its descriptive binomial
+precision Wilson interval is 90.83%-94.23%; correlated/grouped labels mean
+this is **not** a cluster-aware confidence guarantee. This is an independent
+known-entry check of the frozen policy, not a matched comparison with older
+heads evaluated on different photos.
+
+**Do not interpret 92.71% as precision for all 3,354 emitted tags.** Only
+905 emissions have a known source state; 2,449 remain unreviewed/unknown.
+Only nine of 17 enabled labels had the predeclared descriptive state/group
+support. Apparent 100% precision for horse, rocks and snow has zero known
+negative examples; dog and bird have only three and two. Even among better
+supported labels, grass is 12 TP / four FP (75%), food 87 / 14 (86.14%),
+tree 73 / nine (89.02%) and car 103 / 13 (88.79%). Do not remove or retune
+these labels after seeing the test. Disabled labels' positives remain in
+the recall denominator.
+
+**Decision:** retain as a promising research candidate, not a shipping
+default. Aggregate known-entry precision clears the provisional 90% target
+on this sample, but label-specific reliability, coverage, unknown emissions,
+population representativeness, pretraining overlap and redistribution rights
+remain unresolved. Actual Release-application performance and useful-tag
+human evidence are also outstanding. No new personal relabeling was needed.
+
+The **1,425-photo reserve is now consumed** and must never be reused as
+untouched evidence for a changed model/policy. The original earlier consumed
+test was not revisited. Preserve both raw protocol/calibration artifacts and
+the new binding/results; do not rewrite the earlier "unscored" records.
+
+| Measured artifact | SHA-256 |
+| --- | --- |
+| Test result JSON | `240343450132a50111f0716bc806694e63f24d0be8f28b4f8881fe8a0480d0ae` |
+| Test score arrays | `31090a444e4e5328d2c19e35b952c750249f58764503b625872758ab66e519d6` |
+| Published all-label results CSV | `90b9c965a1027dfcff5a8c16931ac1b3e144adac1e010c5929f7e89616dd4f7f` |
 
 ### Outstanding production gates
 
