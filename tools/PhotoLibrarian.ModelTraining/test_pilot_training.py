@@ -12,6 +12,42 @@ HAS_EXPORT = HAS_TORCH and importlib.util.find_spec("onnxruntime") is not None a
 
 @unittest.skipUnless(HAS_PIL, "Optional research tests require requirements-training.txt (Pillow)")
 class PilotDataTests(unittest.TestCase):
+    def test_author_reservation_requires_disjoint_unique_known_members_and_groups(self):
+        from pilot_data import reservation_members
+        import copy
+        rows = [{"sourceId": "dev"}, {"sourceId": "cal"}]
+        plan = {"splits": {"development": [{"sourceId": "dev", "group": "d"}],
+                           "calibration": [{"sourceId": "cal", "group": "c"}]}}
+        self.assertEqual(({"dev"}, {"cal": "c"}), reservation_members(plan, rows))
+        for key, value in [("sourceId", "dev"), ("group", "d")]:
+            changed = copy.deepcopy(plan)
+            changed["splits"]["calibration"][0][key] = value
+            with self.assertRaisesRegex(ValueError, "splits overlap"):
+                reservation_members(changed, rows)
+        changed = copy.deepcopy(plan)
+        changed["splits"]["calibration"].append(changed["splits"]["calibration"][0])
+        with self.assertRaisesRegex(ValueError, "duplicate author"):
+            reservation_members(changed, rows)
+        with self.assertRaisesRegex(ValueError, "reservation members"):
+            reservation_members(plan, rows[:1])
+
+    def test_reserved_calibration_head_gate_uses_known_states_and_distinct_groups(self):
+        from pilot_data import gate_reserved_calibration
+        rows = [{"labels": {"cat": "positive", "dog": "positive"}, "reservationGroup": f"p-{i}"}
+                for i in range(20)]
+        rows += [{"labels": {"cat": "negative"}, "reservationGroup": f"n-{i}"} for i in range(10)]
+        rows += [{"labels": {}, "reservationGroup": "unknown"} for _ in range(100)]
+        policy = {"minimumPositive": 20, "minimumNegative": 10, "minimumGroupsPerState": 5}
+        labels, report = gate_reserved_calibration(["cat", "dog"], rows, policy)
+        self.assertEqual(["cat"], labels)
+        self.assertEqual((20, 10), (report[0]["positive"], report[0]["negative"]))
+        self.assertEqual(0, report[1]["negative"])
+        for row in rows:
+            row["reservationGroup"] = "one"
+        self.assertEqual([], gate_reserved_calibration(["cat"], rows, policy)[0])
+        with self.assertRaisesRegex(ValueError, "Unexpected reserved"):
+            gate_reserved_calibration(["cat"], rows, {**policy, "minimumPositive": 1})
+
     def test_additional_training_manifests_are_audited_and_duplicate_ids_fail(self):
         import csv
         from unittest.mock import patch

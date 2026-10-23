@@ -193,7 +193,7 @@ def audit_and_gate(train: list[dict], validation: list[dict], concepts: list[dic
 def build_audit(train_manifest: Path, validation_manifest: Path, vocab: Path, mapping_path: Path,
                 regression: Path | None, minimum_train: int, minimum_validation: int,
                 additional_train: list[Path] | None = None,
-                exclude_images: list[Path] | None = None):
+                exclude_images: list[Path] | None = None, reservation: Path | None = None):
     import csv
     train = load_downloads(train_manifest, "train")
     for manifest in additional_train or []:
@@ -203,6 +203,19 @@ def build_audit(train_manifest: Path, validation_manifest: Path, vocab: Path, ma
     train.sort(key=lambda row: row["sourceId"])
     validation = load_downloads(validation_manifest, "validation")
     references = []
+    calibration = []
+    reservation_data = None
+    if reservation is not None:
+        reservation_data = json.loads(reservation.read_text())
+        if (reservation_data["downloadSha256"] != file_hash(validation_manifest)
+                or reservation_data["vocabularySha256"] != file_hash(vocab)
+                or reservation_data["mappingSha256"] != file_hash(mapping_path)):
+            raise ValueError("Author reservation inputs changed")
+        development_ids, calibration_groups = reservation_members(reservation_data, validation)
+        references.extend(validation)
+        calibration = [{**row, "reservationGroup": calibration_groups[row["sourceId"]]}
+                       for row in validation if row["sourceId"] in calibration_groups]
+        validation = [row for row in validation if row["sourceId"] in development_ids]
     for manifest in exclude_images or []:
         references.extend(load_downloads(manifest, "validation"))
     train, reference_quarantine = exclude_training_references(train, references)
@@ -222,10 +235,60 @@ def build_audit(train_manifest: Path, validation_manifest: Path, vocab: Path, ma
                 regression_hashes.append(difference_hash(ImageOps.exif_transpose(image)))
     train, validation, labels, audit = audit_and_gate(
         train, validation, concepts, mappings, regression_hashes, 6, minimum_train, minimum_validation)
+    if reservation_data is not None:
+        labels, calibration_coverage = gate_reserved_calibration(
+            labels, calibration, reservation_data["calibrationEvidence"])
+        if not labels:
+            raise ValueError("No labels meet reserved calibration evidence gates")
+        audit["calibrationCoverage"] = calibration_coverage
+        audit["calibrationImages"] = len(calibration)
+        audit["reservationSha256"] = file_hash(reservation)
+        audit["labels"] = labels
+        for row in audit["coverage"]:
+            row["enabled"] = row["label"] in labels
+        audit["datasetFingerprint"] = fingerprint({
+            "train": [[r["sourceId"], r["sha256"], r["labels"]] for r in train],
+            "validation": [[r["sourceId"], r["sha256"], r["labels"]] for r in validation],
+            "labels": labels})
     audit["referenceImagesChecked"] = len(references)
     audit["quarantine"].extend(reference_quarantine)
     audit["quarantineCounts"] = dict(Counter(row["reason"] for row in audit["quarantine"]))
     return train, validation, labels, audit
+
+
+def reservation_members(reservation: dict, rows: list[dict]) -> tuple[set[str], dict[str, str]]:
+    splits = reservation["splits"]
+    if set(splits) != {"development", "calibration"}:
+        raise ValueError("Only development and calibration reservations supported")
+    identities, groups = {}, {}
+    available = {row["sourceId"] for row in rows}
+    for name, members in splits.items():
+        ids = [row["sourceId"] for row in members]
+        group_ids = [row["group"] for row in members]
+        if (not ids or len(set(ids)) != len(ids) or not set(ids) <= available
+                or any(not isinstance(group, str) or not group for group in group_ids)):
+            raise ValueError("Invalid or duplicate author reservation members")
+        identities[name], groups[name] = set(ids), set(group_ids)
+    if identities["development"] & identities["calibration"] or groups["development"] & groups["calibration"]:
+        raise ValueError("Author reservation splits overlap")
+    return identities["development"], {row["sourceId"]: row["group"] for row in splits["calibration"]}
+
+
+def gate_reserved_calibration(labels: list[str], rows: list[dict], policy: dict) -> tuple[list[str], list[dict]]:
+    if policy != {"minimumPositive": 20, "minimumNegative": 10, "minimumGroupsPerState": 5}:
+        raise ValueError("Unexpected reserved calibration evidence policy")
+    coverage = []
+    for label in labels:
+        states = {}
+        for state in ["positive", "negative"]:
+            known = [row for row in rows if row["labels"].get(label) == state]
+            states[state] = len(known)
+            states[f"{state}Groups"] = len({row["reservationGroup"] for row in known})
+        enabled = (states["positive"] >= policy["minimumPositive"]
+                   and states["negative"] >= policy["minimumNegative"]
+                   and min(states["positiveGroups"], states["negativeGroups"]) >= policy["minimumGroupsPerState"])
+        coverage.append({"label": label, **states, "enabled": enabled})
+    return [row["label"] for row in coverage if row["enabled"]], coverage
 
 
 def exclude_training_references(train: list[dict], references: list[dict]) -> tuple[list[dict], list[dict]]:

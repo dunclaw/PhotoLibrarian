@@ -171,6 +171,8 @@ def main() -> None:
                         help="Additional original-train downloads; independently hash/decoder checked")
     parser.add_argument("--exclude-images", type=Path, action="append", default=[],
                         help="Reserved original-validation downloads used only for training leakage exclusion")
+    parser.add_argument("--author-reservation", type=Path,
+                        help="Frozen development/calibration group plan; exclude all reservation photos from train")
     parser.add_argument("--validation", type=Path, required=True)
     parser.add_argument("--regression-images", type=Path)
     parser.add_argument("--vocabulary", type=Path, default=Path(__file__).with_name("pilot-vocabulary.csv"))
@@ -209,7 +211,8 @@ def main() -> None:
     torch.backends.cuda.matmul.allow_tf32 = False
     train, validation, labels, audit = build_audit(
         args.train, args.validation, args.vocabulary, args.mapping, args.regression_images,
-        args.minimum_train, args.minimum_validation, args.additional_train, args.exclude_images)
+        args.minimum_train, args.minimum_validation, args.additional_train, args.exclude_images,
+        args.author_reservation)
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / "data-audit.json", audit)
     for name, rows in [("train", train), ("validation", validation)]:
@@ -266,7 +269,8 @@ def main() -> None:
             ("train", args.train), ("validation", args.validation), ("vocabulary", args.vocabulary),
             ("mapping", args.mapping)] + [
                 (f"additionalTrain{i}", path) for i, path in enumerate(args.additional_train)] + [
-                (f"excludedImages{i}", path) for i, path in enumerate(args.exclude_images)]},
+                (f"excludedImages{i}", path) for i, path in enumerate(args.exclude_images)] + (
+                [("authorReservation", args.author_reservation)] if args.author_reservation is not None else [])},
         "preprocessing": {"size": [224, 224], "resize": "full-image PIL bilinear",
                           "orientation": "Open Images Rotation degrees CCW, EXIF not additionally applied",
                           "mean": MEAN, "std": STD, "augmentation": "horizontal flip p=0.5 only"},

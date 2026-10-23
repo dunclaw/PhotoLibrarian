@@ -1448,6 +1448,75 @@ remaining current calibration pool cannot establish broad reliable coverage.
 Labels with inherently insufficient source evidence need an independently
 licensed annotated source or explicit deferral, not invented negatives.
 
+### User-approved author-first model version
+
+The maintainer chose **reserve evaluation authors first, then retrain an
+evidence-supported, potentially narrower vocabulary**. This is a new research
+model version, not a continued fine-tune of photo-trained checkpoints.
+Both earlier evaluation selections (including the current unscored reserve)
+are excluded before selecting 6,000 original-validation candidates with seed
+`open-images-authors-first-v1`, 100 candidates per MID/state, and the existing
+provenance-first balanced cap. Previous training/development authors are
+allowed into this **new** reservation; all such authors are then excluded
+from new training. Prior analyst/model exposure exists, so neither new
+development nor calibration is advertised as a fresh blind test.
+
+`prepare_author_reservation.py` verifies/decodes all candidates, excludes both
+prior evaluation downloads' identities/authors/near hashes plus private
+near matches, and groups author/identity/dHash constraints transitively.
+The frozen plan reserves **2,525 development / 2,519 calibration photos**
+before training. Its SHA-256 is
+`aa3ff2b531b26660f8a135b1dd1c7889c8ad14bb7277ebd2bc99844c20226809`.
+The existing 1,425-photo reserve is unchanged and unscored.
+
+```powershell
+python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations "$root\metadata\oidv7-val-annotations-human-imagelabels.csv" `
+  --metadata "$root\metadata\validation-images-with-rotation.csv" `
+  --classes "$root\metadata\oidv7-class-descriptions.csv" `
+  --split validation --per-state 100 --max-images 6000 --eligible-first --balanced `
+  --seed open-images-authors-first-v1 `
+  --exclude-selection "$root\selection-evaluation-v1\selection.jsonl" `
+  --exclude-selection "$root\selection-expanded-evaluation-v1\selection.jsonl" `
+  --output "$root\selection-authors-first-v1"
+python tools\PhotoLibrarian.ModelTraining\download_open_images.py `
+  --selection "$root\selection-authors-first-v1\selection.jsonl" `
+  --output "$root\download-authors-first-v1" --limit 6000 --workers 8
+& $evalPython tools\PhotoLibrarian.ModelTraining\prepare_author_reservation.py `
+  --download "$root\download-authors-first-v1\download-manifest.jsonl" `
+  --exclude-download "$root\download-evaluation-v1\download-manifest.jsonl" `
+  --exclude-download "$root\download-expanded-evaluation-v1\download-manifest.jsonl" `
+  --regression-images D:\Temp\Pictures\Diverse --output "$root\author-reservation-v1"
+& $python tools\PhotoLibrarian.ModelTraining\train_pilot.py `
+  --train "$root\download-train-balanced-v1\download-manifest.jsonl" `
+  --additional-train "$root\download-train-expansion-v1\download-manifest.jsonl" `
+  --validation "$root\download-authors-first-v1\download-manifest.jsonl" `
+  --author-reservation "$root\author-reservation-v1\reservation.json" `
+  --exclude-images "$root\download-evaluation-v1\download-manifest.jsonl" `
+  --exclude-images "$root\download-expanded-evaluation-v1\download-manifest.jsonl" `
+  --regression-images D:\Temp\Pictures\Diverse `
+  --output "$root\run-authors-first-v1" --weights-cache "$root\weights-cache" `
+  --research-only --device cuda --head-epochs 3 --finetune-epochs 2
+```
+
+All 6,000 downloaded reservation references, not just accepted calibration
+photos, exclude identities, authors, bytes, MD5 and near hashes from training.
+New development uses only the frozen development IDs. Original train-only
+sources, original initialization, seed 66, unweighted five-epoch recipe,
+preprocessing and original train/development evidence gates are unchanged.
+An additional **pre-training head gate** requires 20 known calibration
+positives, ten negatives and five approximate groups per state. Calibration
+states determine evidence-supported vocabulary **before** model fitting,
+never the selected checkpoint or loss. Missing states remain unknown.
+Reserve membership and input hashes are verified before the run begins.
+
+The new development cohort differs, so its losses/precision must not be
+presented as a paired win against earlier models' old-cohort metrics.
+After verified FP32 export, fit the unchanged research precision policy and
+the same predeclared calibration-only five-fold diagnostic. Do not tune
+label gates, model, schedule or fold seed after observing those outcomes;
+keep the existing final reserve unscored.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
