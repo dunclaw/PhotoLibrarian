@@ -1828,6 +1828,67 @@ Photo-level reports, profiles and arrays remain external:
 | DirectML report | `3a6da5414a069a564c8f889aad9fe7c53469a6b5903486a24ceff20cde74881e` |
 | Provider parity report | `54723b8158b42f4c517543208107ea59f969a78f7e102f62f87179cd25875194` |
 
+#### Author-first candidate against existing manual judgments
+
+No new photo labeling, training, inference or test access was required.
+`evaluate_regression.py --calibration` reuses the already saved candidate
+CPU/DirectML regression scores and the **unchanged public-calibration
+thresholds**. The original no-calibration 0.5 path remains unchanged.
+The optional path verifies model, ordered labels and valid thresholds;
+disabled labels emit nothing, and missing judgments remain unknown.
+
+The existing 156-photo review contains 2,472 completed judgments. Exact
+canonical-label intersection with this 42-label head provides **174 reviewed
+pairs across 19 labels**: 133 correct and 41 incorrect. No aliases or ancestors
+inherit judgments. This pool differs from the original 44-label head's
+181-pair/21-label pool; cross-head totals are not a matched improvement claim.
+
+| Same 174 previously reviewed pairs | Fixed 0.5 | Frozen calibrated policy |
+| --- | ---: | ---: |
+| TP / FP / FN | 113 / 22 / 20 | 57 / 6 / 76 |
+| Reviewed-pair precision | 83.70% | 90.48% |
+| Reviewed-positive recall, including disabled labels | 84.96% | 42.86% |
+| All emitted photo/tag pairs | 2,192 | 379 |
+| Emitted pairs with an explicit judgment | 135 | 63 |
+| Emitted pairs without a judgment | 2,057 | 316 |
+
+On this fixed pool, calibration avoids 16 reviewed-incorrect tags but also
+loses 56 reviewed-correct tags. Of 156 photos, 143 receive at least one
+calibrated tag; 53 have at least one explicitly reviewed-correct calibrated
+tag. The other photos/tags are **not** inferred incorrect or useless.
+All 42 head labels, including labels with no exact reviewed evidence, are
+listed in `author-regression-results-v1.csv`.
+
+**Interpretation:** the public precision policy also trades coverage for
+fewer reviewed mistakes on the maintainer's previously exposed photos.
+This is not independent generalization, exhaustive precision, a useful-tag
+score or a new blinded human study. Prior model outputs selected review
+candidates; most new emissions have no judgment, and semantically overlapping
+parent/child tags are not deduplicated as distinct useful tags. The review
+artifact has names but no historical photo hashes, so historical byte identity
+cannot be certified. Historical model outputs retain their old top-K,
+vocabulary and thresholds and are not a controlled leaderboard.
+Neither thresholds nor labels were adjusted after seeing these results.
+Both consumed test cohorts remain unchanged and unused here.
+
+```powershell
+& $evalPython tools\PhotoLibrarian.ModelTraining\evaluate_regression.py `
+  --benchmark "$root\benchmark-authors-first-cpu-v1" `
+  --compare-provider "$root\benchmark-authors-first-directml-v1" `
+  --review D:\Temp\DiverseLabeling\Diverse-General-ReviewComplete-V2-20260917\review-items.json `
+  --calibration "$root\author-calibration-results-v1\calibration.json" `
+  --output "$root\regression-authors-first-v1"
+```
+
+Photo-level artifacts stay external. The source review checksum was verified
+unchanged after analysis:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Existing completed review | `2cd6353c566aea09e48516256d05ef10eaba630b722b1b04442985f18e72205d` |
+| Regression result JSON | `a12021d47708056e15b70dd5f64cc892a6c60bd317fd2566b2190fe84119c52a` |
+| Published all-label aggregate CSV | `262f40322c1b01b16fafc2635f357caa46fc2610e441206bdc1efb542c182327` |
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1905,9 +1966,9 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **92 distinct tests** were exercised across the
+train a model. Locally, all **95 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (11
-training/export-test skips). The base Python run has 55 optional skips.
+training/export-test skips). The base Python run has 58 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.

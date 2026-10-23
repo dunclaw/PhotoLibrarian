@@ -95,6 +95,19 @@ def compare_providers(reference: dict, scores: np.ndarray, other: dict, other_sc
             "entries": int(scores.size)}
 
 
+def calibrated_emissions(report: dict, scores: np.ndarray, calibration: dict) -> set:
+    labels = report["labels"]
+    thresholds = calibration["thresholds"]
+    if (calibration["operation"] != "fit" or calibration["modelSha256"] != report["modelSha256"]
+            or calibration["labels"] != labels or len(thresholds) != len(labels)
+            or any(t is not None and (isinstance(t, bool) or not isinstance(t, (int, float))
+                                      or not np.isfinite(t) or not 0 <= t <= 1) for t in thresholds)):
+        raise ValueError("Frozen calibration/model/ordered thresholds mismatch")
+    return {(row["image"], label) for i, row in enumerate(report["images"])
+            for j, (label, threshold) in enumerate(zip(labels, thresholds, strict=True))
+            if threshold is not None and scores[i, j] >= threshold}
+
+
 def baseline_emissions(review: dict, labels: list[str]) -> dict[str, set]:
     items = {item["id"]: item for item in review["items"]}
     result = {}
@@ -120,6 +133,7 @@ def main() -> None:
     parser.add_argument("--benchmark", type=Path, required=True)
     parser.add_argument("--compare-provider", type=Path)
     parser.add_argument("--review", type=Path, required=True, help="Existing review-items.json; never rewritten")
+    parser.add_argument("--calibration", type=Path, help="Optional frozen public-calibration thresholds; never refit")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists() or args.output.resolve().is_relative_to(Path(__file__).resolve().parents[2]):
@@ -156,11 +170,28 @@ def main() -> None:
     if args.compare_provider:
         other, other_scores = load_scores(args.compare_provider)
         result["providerParity"] = compare_providers(report, scores, other, other_scores)
+    if args.calibration:
+        calibration = json.loads(args.calibration.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+        calibrated = calibrated_emissions(report, scores, calibration)
+        result["calibrationSha256"] = file_hash(args.calibration)
+        result["calibratedPilot"] = {
+            **summarize(decisions, calibrated, labels),
+            "enabledLabels": sum(t is not None for t in calibration["thresholds"]),
+            "photosWithAnyTag": len({image for image, _ in calibrated}),
+            "photosWithReviewedCorrectTag": len({image for image, label in calibrated
+                                                if decisions.get((image, label)) is True}),
+            "purpose": "unchanged public-calibration policy on previously exposed regression photos",
+        }
+        result["limitations"].append(
+            "Reviewed-correct tags are not blinded useful-tag ratings; parent/child labels may overlap semantically.")
     args.output.mkdir(parents=True, exist_ok=False)
     write_json(args.output / "regression.json", result)
     print(json.dumps({"coverage": coverage, "pilot": {key: value for key, value in result["pilot"].items()
                                                     if key != "perLabel"},
                       "providerParity": result.get("providerParity")}, indent=2))
+    if "calibratedPilot" in result:
+        print(json.dumps({"calibratedPilot": {key: value for key, value in result["calibratedPilot"].items()
+                                              if key != "perLabel"}}, indent=2))
 
 
 if __name__ == "__main__":
