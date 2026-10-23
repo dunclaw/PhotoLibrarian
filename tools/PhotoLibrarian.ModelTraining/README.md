@@ -834,6 +834,159 @@ current 156 files, but the review artifact has no historical byte hashes, so
 unchanged content since the original review cannot be certified. This remains
 development regression evidence, not a new final test.
 
+### Matched existing-model development diagnostic
+
+`prepare_comparison.py` freezes a capped **1,000-photo subset of the original
+pilot development validation**, ranked by a fixed seed without using model
+scores. It verifies the audited run fingerprint and installed asset identities.
+Exact canonical label intersection yields **40 shared labels** across the
+pilot, installed RAM++ and TinyCLIP; `rocks`, `sofa`, `clouds` and
+`musical instrument` are excluded from this shared pool. No synonyms,
+hierarchical positives or ambiguous negatives are invented. Native vocabulary
+breadth and shared-label results are separate quantities.
+
+RAM++ and TinyCLIP are read **in place** from the application model cache;
+no production file or approval is rewritten. SigLIP 2 uses the existing
+`ModelBench\prepare_zero_shot.py` pinned-source workflow in a separate
+preparation environment. The installed TinyCLIP **3,632-label ordered
+vocabulary** is also used for SigLIP 2, with each model's existing prompt
+template. This preparation downloads public model/configuration/tokenizer
+assets, never sends photos to a model service, and verifies source identities.
+The installed RAM++ graph exposes only a binary mask, not the newer
+exporter's continuous probabilities; its embedded upstream decisions are
+preserved rather than pretending a 0/1 mask is calibrated confidence.
+
+`compare_pilot.py` then runs the **same photo bytes and authoritative source
+rotation**, with model-native preprocessing: pilot bilinear 224/ImageNet,
+RAM++ bilinear 384/ImageNet, TinyCLIP bicubic shortest-edge/center-crop with
+CLIP normalization, and SigLIP 2 bilinear 224/minus-one-to-one. Every model
+uses CPU ORT, four intra-op threads and three untimed warmups. Full native
+scores are computed before selecting shared columns; no top-K truncation
+or suppression of unreviewed predictions influences known-entry metrics.
+TinyCLIP returns cosine, not probability; SigLIP 2 uses its learned sigmoid
+scale and bias. Native provisional cutoffs are preserved.
+
+For a second, precision-oriented diagnostic, union author/identity/dHash
+constraints before dividing these development photos into **525 fit / 475
+check** images. Apply the same previously documented research policy using
+fit entries only, then score unchanged per-label thresholds on check.
+Unsupported labels abstain. RAM++ cannot participate in this continuous
+threshold fitting because its installed graph exposes only binary targets.
+Both partitions were already development data for selecting the pilot
+checkpoint: **this is not an independent test, a deployment ranking or a
+second use of the consumed research test**. Public-data overlap with any
+model's pretraining is unknown.
+
+```powershell
+$assets = Join-Path $env:LOCALAPPDATA 'PhotoLibrarian\Models\AutoTagging'
+& $evalPython tools\PhotoLibrarian.ModelTraining\prepare_comparison.py `
+  --run D:\Training\OpenImages\run-balanced-pilot-v2 `
+  --bundle D:\Training\OpenImages\export-balanced-pilot-v2 `
+  --ram-model "$assets\ram-plus.swin-large-14m\ram_plus_swin_large_14m.onnx" `
+  --ram-labels "$assets\ram-plus.swin-large-14m\ram_plus_swin_large_14m_labels.txt" `
+  --tinyclip "$assets\tinyclip.vit-40m-32.int8\tinyclip.json" `
+  --output D:\Training\OpenImages\matched-development-v2 --limit 1000
+py -3.12 -m venv D:\Training\OpenImages\venv-comparison-prepare
+$preparePython = 'D:\Training\OpenImages\venv-comparison-prepare\Scripts\python.exe'
+& $preparePython -m pip install -r tools\PhotoLibrarian.ModelBench\requirements-prepare.txt
+& $preparePython tools\PhotoLibrarian.ModelBench\prepare_zero_shot.py `
+  --output D:\Training\OpenImages\comparison-siglip2-v1 --models siglip2 `
+  --vocabulary D:\Training\OpenImages\matched-development-v2\zero-shot-vocabulary.json `
+  --precision int8 --threads 4
+$env:OPENBLAS_NUM_THREADS = '4'
+$env:OMP_NUM_THREADS = '4'
+& $evalPython tools\PhotoLibrarian.ModelTraining\compare_pilot.py score `
+  --comparison D:\Training\OpenImages\matched-development-v2 `
+  --siglip2 D:\Training\OpenImages\comparison-siglip2-v1\siglip2.json `
+  --output D:\Training\OpenImages\matched-development-scores-v1
+& $evalPython tools\PhotoLibrarian.ModelTraining\compare_pilot.py report `
+  --comparison D:\Training\OpenImages\matched-development-v2 `
+  --scores D:\Training\OpenImages\matched-development-scores-v1 `
+  --output D:\Training\OpenImages\matched-development-report-v2
+```
+
+#### Measured matched development results
+
+All four runs completed on the same **1,000 photos / 1,998 known entries**
+(1,124 positive, 874 negative). The aggregate
+[`comparison-results-v1.csv`](comparison-results-v1.csv) records model and
+metadata bytes separately, counts, ranking and rounded timing. Detailed local
+`comparison.json` retains per-label counts/AP, fitted thresholds, unknown
+emissions and provenance. Inference/preparation source commit `18a9c1d`
+exactly matches both source hashes recorded by the actual completed runs;
+the subsequent report-only extension adds ranking and uncertainty without
+rerunning or changing inference.
+
+| Model and unchanged native cutoff | Precision | Recall | Macro AP, 40 shared labels | ONNX bytes | CPU inference p50 / p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Compact FP32 pilot, sigmoid 0.5 | 67.87% | 86.83% | 0.806 | 17,024,708 | 1.78 / 2.36 ms |
+| RAM++, embedded binary decisions | 87.52% | 59.88% | 0.766 | 1,863,487,162 | 770.09 / 808.15 ms |
+| TinyCLIP INT8, cosine 0.25 | 78.24% | 18.24% | 0.753 | 40,622,561 | 3.54 / 4.14 ms |
+| SigLIP 2 INT8, sigmoid 0.1 | 88.89% | 0.71% | 0.789 | 94,553,333 | 16.50 / 17.98 ms |
+
+These are **different operating points, not a quality leaderboard**.
+SigLIP 2's provisional 0.1 cutoff accepts only nine known entries (8 TP,
+1 FP); shared-score median is about 0.000026 and the 99th percentile 0.0038.
+Its respectable threshold-independent ranking shows why near-zero native
+recall must not be called a general failure of its visual representation.
+Neither this diagnostic nor the upstream preparation checks isolate INT8
+degradation against FP32. AP groups equal-score thresholds, so RAM++ binary
+ties cannot receive an optimistic arbitrary ordering; binary-only AP still
+cannot measure the unavailable continuous ranking.
+
+The pilot trades more false positives for recall: 976 TP / 462 FP / 148 FN,
+versus RAM++ 673 / 96 / 451. Weak pilot discrimination includes `beach`
+(12 TP / 13 FP, AP 0.575) and `house` (20 TP / 17 FP, AP 0.634).
+The dominant known false-positive counts are `person` (138), `building`
+(43), `tree` (37) and `food` (27). These partial-label findings prioritize
+public-data sampling/annotation-semantic review, not new wholesale private
+labeling or final-test-driven threshold changes.
+
+Approximate-group bootstrap (950 groups, 1,000 seeded resamples) gives
+descriptive native precision intervals of 65.51-70.42% for the pilot and
+85.00-89.96% for RAM++; SigLIP 2's nine accepted known entries give the much
+wider 63.64-100%. These intervals do not remove development selection,
+pretraining overlap, incomplete annotation or imperfect event grouping bias.
+AP likewise depends on the known-entry sampling/prevalence; it is not
+exhaustive vocabulary recall.
+
+Applying the **same** precision-oriented policy to the 525 fit photos and
+leaving thresholds unchanged on the 475 check photos yields:
+
+| Model | Enabled labels | Check TP / FP / FN | Check precision | Check recall, including disabled-label positives |
+| --- | ---: | ---: | ---: | ---: |
+| Compact pilot | 4 | 152 / 17 / 400 | 89.94% | 27.54% |
+| TinyCLIP | 1 | 19 / 8 / 533 | 70.37% | 3.44% |
+| SigLIP 2 | 2 | 40 / 7 / 512 | 85.11% | 7.25% |
+
+RAM++ is deliberately omitted from threshold fitting. Sparse evidence disables
+most labels; **none of these policies is a broad shipping default**. The
+check pool has 950 known entries / 552 positives and is reused development,
+not another independent held-out result.
+
+The same Ryzen 9 9950X3D host used ORT DirectML 1.23.0's **CPU provider**,
+four ORT/BLAS threads, sequential model runs and three warmups. Median / p95
+decode-preprocess-infer-postprocess times were 7.48 / 10.48 ms (pilot),
+10.57 / 13.42 ms (TinyCLIP), 23.08 / 26.43 ms (SigLIP 2) and
+779.35 / 818.80 ms (RAM++). File hashing is outside these timed stages;
+application scheduling, UI and metadata work are absent. This is not
+comparable to historical RAM++ timing with different environments.
+
+Native whole-vocabulary emission totals are 12,705 / 11,659 / 32,904 / 459
+for pilot / RAM++ / TinyCLIP / SigLIP 2, with vocabularies of
+44 / 4,585 / 3,632 / 3,632. They are **not measured correct/useful tags**.
+TinyCLIP/SigLIP metadata containing text embeddings adds 58,298,021 /
+87,959,822 bytes respectively; ONNX size alone understates their asset budget.
+No whole-photo human rating or exhaustive precision claim follows from this
+comparison.
+
+The next model-development experiment is bounded public-data expansion and
+training-only imbalance/semantic diagnosis, using development evidence to
+choose changes. Broader calibration evidence and a **new untouched test**
+are required before another generalization claim; do not reopen the consumed
+research test. Licensing clearance and actual application benchmarks remain
+separate release gates.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -911,9 +1064,12 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **60 distinct tests** were exercised across the
+train a model. Locally, all **66 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (nine
-training/export-test skips). The base Python run has 27 optional skips.
+training/export-test skips). The base Python run has 33 optional skips.
+Comparison tests cover legacy RAM label integrity, frozen model/photo
+identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
+deterministic grouped uncertainty.
 
 Exports also score every supervised development image with FP32 and, when
 requested, INT8. Reports retain known-entry metrics and quantized decision flips

@@ -20,6 +20,54 @@ from prepare_comparison import ram_labels, zero_bundle
 from prepare_dataset import file_hash
 
 
+def average_precision(scores: np.ndarray, targets: np.ndarray) -> float | None:
+    """Threshold-grouped AP over known entries; ties must not depend on input order."""
+    known = targets >= 0
+    scores, targets = scores[known], targets[known]
+    positives = int((targets == 1).sum())
+    if not positives or not (targets == 0).any():
+        return None
+    order = np.argsort(-scores, kind="stable")
+    scores, targets = scores[order], targets[order]
+    cumulative = np.cumsum(targets == 1)
+    ends = np.r_[np.flatnonzero(np.diff(scores) != 0), len(scores) - 1]
+    tp = cumulative[ends]
+    increments = np.diff(np.r_[0, tp]) / positives
+    return float(np.sum(increments * tp / (ends + 1)))
+
+
+def rank_diagnostic(scores: np.ndarray, targets: np.ndarray, labels: list[str]) -> dict:
+    rows = [{"label": label, "averagePrecision": average_precision(scores[:, i], targets[:, i])}
+            for i, label in enumerate(labels)]
+    defined = [row["averagePrecision"] for row in rows if row["averagePrecision"] is not None]
+    return {"macroAveragePrecisionKnownEntries": float(np.mean(defined)) if defined else None,
+            "definedLabels": len(defined), "perLabel": rows,
+            "scope": "exploratory development ranking only; partial-label selection changes AP/prevalence"}
+
+
+def grouped_uncertainty(scores: np.ndarray, targets: np.ndarray, groups: list[str], cutoff: float) -> dict:
+    identities = sorted(set(groups))
+    indices = {group: i for i, group in enumerate(identities)}
+    counts = np.zeros((len(identities), 3), dtype=np.int64)
+    for i, group in enumerate(groups):
+        known, actual, predicted = targets[i] >= 0, targets[i] == 1, scores[i] >= cutoff
+        counts[indices[group]] += [int((predicted & actual).sum()),
+                                   int((predicted & known & ~actual).sum()),
+                                   int((~predicted & actual).sum())]
+    rng = np.random.default_rng(66)
+    precision, recall = [], []
+    for _ in range(1000):
+        tp, fp, fn = counts[rng.integers(0, len(identities), len(identities))].sum(axis=0)
+        if tp + fp:
+            precision.append(float(tp / (tp + fp)))
+        if tp + fn:
+            recall.append(float(tp / (tp + fn)))
+    return {"approximateGroups": len(identities), "resamples": 1000, "seed": 66,
+            "precisionPercentile95": np.percentile(precision, [2.5, 97.5]).tolist() if precision else None,
+            "recallPercentile95": np.percentile(recall, [2.5, 97.5]).tolist() if recall else None,
+            "scope": "descriptive group bootstrap, not protection against annotation/pretraining/selection bias"}
+
+
 def zero_tensor(image: Image.Image, bundle: dict) -> np.ndarray:
     size = bundle["inputSize"]
     interpolation = {"linear": Image.Resampling.BILINEAR, "cubic": Image.Resampling.BICUBIC}[bundle["interpolation"]]
@@ -216,6 +264,9 @@ def main() -> None:
             scores, targets, shared, [model["nativeCutoff"]] * len(shared)),
             "nativeCutoffSharedDevelopmentCheck": summarize(
                 scores[check], targets[check], shared, [model["nativeCutoff"]] * len(shared))}
+        result["rankingSharedAllDevelopment"] = rank_diagnostic(scores, targets, shared)
+        result["nativeCutoffGroupedUncertainty"] = grouped_uncertainty(
+            scores, targets, [row["comparisonGroup"] for row in rows], model["nativeCutoff"])
         if model_id == "ram-plus":
             result["precisionPolicyFit"] = {"supported": False,
                                             "reason": "Installed graph exposes binary targets only."}
