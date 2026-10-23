@@ -59,6 +59,11 @@ ARM64/
 # ONNX models (large files)
 *.onnx
 
+# Local training checkpoints and score tensors
+*.pt
+*.pth
+*.npz
+
 # Python model preparation and calibration
 __pycache__/
 *.py[cod]

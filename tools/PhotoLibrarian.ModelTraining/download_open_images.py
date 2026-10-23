@@ -69,16 +69,20 @@ def download(row: dict, output: Path) -> dict:
             sha256 = hashlib.sha256()
             received = 0
             first = last = b""
+            end_marker_seen = False
             with pending.open("xb") as stream:
                 for block in iter(lambda: response.read(1024 * 1024), b""):
                     received += len(block)
                     if received > size:
                         raise ValueError(f"Image exceeded declared size: {url}")
                     first = (first + block)[:2]
+                    end_marker_seen |= b"\xff\xd9" in last + block
                     last = (last + block)[-2:]
                     stream.write(block)
                     sha256.update(block)
-            if received != size or first != b"\xff\xd8" or last != b"\xff\xd9":
+            # Valid MPO/JPEG files may have extra frames or bytes after the
+            # first image's EOI. Full decode remains a separate training gate.
+            if received != size or first != b"\xff\xd8" or not end_marker_seen:
                 raise ValueError(f"Incomplete/non-JPEG image: {url}")
             receipt = {"url": url, "bytes": size, "sha256": sha256.hexdigest(),
                        "etag": response.headers.get("ETag")}

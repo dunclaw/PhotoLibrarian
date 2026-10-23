@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from fetch_open_images import fetch
 from download_open_images import download, read_selection
-from select_open_images import mapping, select, target_states, verified_rows
+from select_open_images import balanced_ids, mapping, select, target_states, verified_rows
 
 
 class Response(io.BytesIO):
@@ -117,6 +117,12 @@ class DownloadTests(unittest.TestCase):
 
         content = b"\xff\xd8data\xff\xd9"
         with patch("download_open_images.urllib.request.urlopen", return_value=SmallReads(content)):
+            result = download(self.row, self.root)
+        self.assertEqual(len(content), result["download"]["bytes"])
+
+    def test_jpeg_frame_can_have_trailing_mpo_data(self):
+        content = b"\xff\xd8first-frame\xff\xd9trailing-mpo-data"
+        with patch("download_open_images.urllib.request.urlopen", return_value=Response(content)):
             result = download(self.row, self.root)
         self.assertEqual(len(content), result["download"]["bytes"])
 
@@ -227,6 +233,34 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(5, report["rejected"]["globalCap"])
         changed, _ = select(self.annotations, self.metadata, self.mappings, "train", 10, 5, "new-seed")
         self.assertNotEqual(first, changed)
+
+    def test_balanced_cap_retains_rare_target_and_state_evidence(self):
+        rows = {str(i): {"labels": {"common": "positive"}} for i in range(100)}
+        rows["98"]["labels"]["rare"] = "positive"
+        rows["99"]["labels"]["rare"] = "negative"
+        chosen = balanced_ids(rows, 3, int)
+        self.assertEqual({"0", "98", "99"}, set(chosen))
+        self.assertEqual(chosen, balanced_ids(dict(reversed(list(rows.items()))), 3, int))
+        self.assertEqual(100, len(balanced_ids(rows, 1000, int)))
+
+    def test_eligible_first_refills_reservoir_after_provenance_filter(self):
+        ids = [f"{index:016x}" for index in range(30)]
+        self.labels([(image, "/m/ocean", "1", "verification") for image in ids])
+        rows = self.provenance(ids)
+        # Only the highest hash-ranked ID is eligible; a size-one prefilter
+        # reservoir would otherwise discard it.
+        import hashlib
+        keep = max(ids, key=lambda image: int(hashlib.sha256(f"seed:train:{image}".encode()).hexdigest(), 16))
+        for row in rows:
+            if row["ImageID"] != keep:
+                row["License"] = "not-allowlisted"
+        self.write_csv(self.metadata, list(rows[0]), rows)
+        selected, report = select(self.annotations, self.metadata, self.mappings, "train", 1, 3, "seed",
+                                  eligible_first=True, balanced=True)
+        self.assertEqual([keep], [row["sourceId"] for row in selected])
+        self.assertTrue(report["eligibleFirst"])
+        self.assertTrue(report["balanced"])
+        self.assertEqual(30, report["coverage"][0]["sourcePositiveAnnotationRows"])
 
     def test_rights_attribution_missing_metadata_and_split_gates(self):
         ids = [f"{index:016x}" for index in range(4)]

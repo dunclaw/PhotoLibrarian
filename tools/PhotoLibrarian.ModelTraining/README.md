@@ -1,9 +1,10 @@
 # Compact home-photo tagger: research foundation
 
 This is the **data-readiness stage of #66**, not a trained model, shipping
-profile, or completion of that issue. No training run, ONNX export, or scored
-custom-model comparison is claimed. The application, RAM++/TinyCLIP profiles,
-existing approvals, and photo metadata are unchanged.
+profile, or completion of that issue. Research training/export tools are
+separate from the application; RAM++/TinyCLIP profiles, existing approvals and
+photo metadata are unchanged. Local exploratory artifacts are not licensed or
+quality-approved shipping bundles.
 
 The maintainer approved the pilot vocabulary and chose **public Open Images
 training data**. A personally labeled collection or hand-written JSONL inventory
@@ -267,6 +268,51 @@ produce errors, never placeholder photos or a success manifest. A complete
 The selection, sidecars and manifest all retain licensing and unresolved review
 status; downloading does not confer rights or approve a shipping model.
 
+### Expand rare concepts without losing them to the global cap
+
+The initial rank-truncated selections below are reproducible historical
+measurements, not the preferred training cohort. Add **both** `--eligible-first`
+and `--balanced` for an expanded cohort. The first pass loads eligible metadata
+IDs into memory (roughly 1.7M short IDs for training), so unlicensed or
+metadata-unavailable images cannot consume per-MID sampling slots. The final
+cap round-robins target/state buckets, rarest first, instead of dropping rare
+concepts through a single global rank cutoff. Source annotation-row counts
+remain over all verified source rows, not just provenance-eligible rows.
+
+Use new output names and retain the original seed:
+
+```powershell
+python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations "$metadata\oidv7-train-annotations-human-imagelabels.csv" `
+  --metadata "$metadata\train-images-boxable-with-rotation.csv" `
+  --classes "$metadata\oidv7-class-descriptions.csv" `
+  --split train --per-state 200 --max-images 10000 --eligible-first --balanced `
+  --output D:\Training\OpenImages\selection-train-balanced-v1
+
+python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations "$metadata\oidv7-val-annotations-human-imagelabels.csv" `
+  --metadata "$metadata\validation-images-with-rotation.csv" `
+  --classes "$metadata\oidv7-class-descriptions.csv" `
+  --split validation --per-state 60 --max-images 3000 --eligible-first --balanced `
+  --output D:\Training\OpenImages\selection-validation-balanced-v1
+```
+
+These runs select 10,000 training and 3,000 development-validation IDs.
+**94 concepts** have at least 50 training positives and ten validation positives
+(up from 32 in the first capped cohorts). `gardening` has no eligible validation
+positive and `picnic` has eight. Requiring known negatives as well, **69
+all-policy concepts** have at least 50 training positives/negatives and ten
+validation positives/negatives *before* decode, overlap and orientation
+exclusions. These are image counts, not certified independent event counts.
+Positive-only mappings are intentionally ineligible for the first supervised
+head rather than training a classifier without negative evidence.
+
+Download these explicit selections with `--limit 10000` and `--limit 3000`,
+respectively, into new directories. JPEG framing permits extra MPO frames or
+trailing data after the first EOI marker; full research decoding uses the first
+frame. The downloader still checks byte count, SOI and EOI presence, and the
+training gate fully decodes each file before accepting it.
+
 ### Observed initial coverage (2026-10-22)
 
 Using the pinned files, default seed and the train/validation commands above:
@@ -345,9 +391,19 @@ alone establish independence from pretrained weights or other libraries.
 
 ## Initial model decision and license inventory
 
-Source review: 2026-10-19. URLs can change; the actual training run must pin
+Source review: 2026-10-19, with ImageNet terms checked again 2026-10-22.
+URLs can change; the actual training run must pin
 package versions, source commits, checkpoint URLs/revisions and full SHA-256.
-This stage downloads no weights and approves none for redistribution.
+Research initialization uses the official TorchVision MobileNetV3-Large V2
+checkpoint (`mobilenet_v3_large-5c1a4163.pth`, SHA-256
+`5c1a416349c4cf298f2a6a5e2600ed0ee55e604713578f5e74e6bc8bcaef7997`,
+22,132,113 bytes), verified in full **before** weights-only deserialization.
+No weights are approved for redistribution. ImageNet's [database access
+agreement](https://image-net.org/accessagreement.php) limits database use to
+non-commercial research/education; it is not a separate license granting
+shipping rights to TorchVision's derived weights. TorchVision itself warns that
+weight/dataset terms require independent review. Local research here does not
+establish product/redistribution clearance for the initialization or fine-tune.
 
 | Component | Evidence and proposal | License / release condition |
 | --- | --- | --- |
@@ -361,11 +417,125 @@ This stage downloads no weights and approves none for redistribution.
 Upstream checkpoint size/parameter counts are **not** measurements of our
 multi-label ONNX. Prefer MobileNetV3's lower published compute as a starting
 hypothesis, not proof of CPU/DirectML speed or quality. Initial export targets
-remain 15-30 MB FP32 or 5-15 MB INT8; none has been achieved or measured here.
+remain 15-30 MB FP32 or roughly 5-15 MB INT8; measure each actual pilot head.
 Neither ImageNet top-1 accuracy nor an upstream classifier is a home-photo
 multi-label quality result.
 
-## Training/export and evaluation gates still to implement
+## Local research training and export
+
+`requirements-training.txt` pins a separate **Python 3.12** research environment.
+The public-data preparation scripts remain dependency-free. Use an external
+virtual environment; the application does not acquire Python or these packages.
+CPU is supported. For a compatible CUDA 12.8 GPU, preinstall the matching
+official GPU wheels before the remaining requirements:
+
+```powershell
+py -3.12 -m venv D:\Training\OpenImages\venv-training
+$python = 'D:\Training\OpenImages\venv-training\Scripts\python.exe'
+& $python -m pip install torch==2.9.1 torchvision==0.24.1 `
+  --index-url https://download.pytorch.org/whl/cu128
+& $python -m pip install -r tools\PhotoLibrarian.ModelTraining\requirements-training.txt
+```
+
+For CPU only, omit the GPU preinstallation and install the requirements.
+The exact resolved versions including CUDA suffix, device, seed, optimizer,
+preprocessing, manifests and initialization identities are recorded in `run.json`.
+Deterministic Torch algorithms are required; explicitly requested CUDA must be
+available or the run fails rather than falling back silently.
+
+```powershell
+& $python tools\PhotoLibrarian.ModelTraining\train_pilot.py `
+  --train D:\Training\OpenImages\download-train-balanced-v1\download-manifest.jsonl `
+  --validation D:\Training\OpenImages\download-validation-balanced-v1\download-manifest.jsonl `
+  --regression-images D:\Temp\Pictures\Diverse `
+  --output D:\Training\OpenImages\run-balanced-pilot-v1 `
+  --weights-cache D:\Training\OpenImages\weights-cache `
+  --research-only --device cuda --head-epochs 3 --finetune-epochs 2
+```
+
+This is **local exploratory research**, not product-weight/license approval.
+It never uploads data or publishes weights. Output/checkpoint caches must be
+outside the checkout. Each new run needs a new directory; there is no implicit
+resume that changes the frozen data/head or overwrites previous evidence.
+
+Before training, `pilot_data.py` verifies every downloaded byte hash and fully
+decodes accepted images. It uses Open Images' recorded counterclockwise rotation
+as authoritative, without applying EXIF a second time; unknown rotations are
+explicitly quarantined, not guessed. Hierarchy-conflicting source annotations
+are quarantined with their public image IDs and contradictory label pairs.
+The private regression folder is optional and read-only: only perceptual hashes
+and the aggregate photo count are used; private images/filenames do not enter
+the exported research card or supervised training.
+
+Training drops source-ID/original-MD5/byte duplicates across validation,
+validation authors by exact author-profile URL, and approximate near matches
+(64-bit grayscale difference hash, Hamming distance <=6). Train/validation
+near matches to the supplied private regression set are also excluded, as are
+duplicate bytes within each cohort. `data-audit.json` records every quarantine
+reason and the post-filter per-tag counts. A difference hash can miss edits and
+can overexclude visually simple unrelated images; this conservative screen
+**does not certify event independence**. No rows receive a fabricated
+`groupReviewComplete=true`.
+
+The ordered head admits only `negativePolicy=all` concepts with at least
+**50 known positives and 50 known negatives in training**, and at least
+**ten of each in development validation**, after exclusions. These are
+provisional pilot evidence gates over images, not statistically justified
+minimum independent events. The other approved vocabulary concepts remain
+unsupported/abstaining, not secretly negative. Positive-only activity/ambiguous
+mappings are excluded until their visual semantics/negative evidence are
+resolved. Unsupported concepts are listed in the audit.
+
+Training replaces only the final ImageNet classifier with independent logits.
+Stage one freezes the encoder and hidden classifier and trains the new head
+with AdamW at 0.001; stage two unfreezes parameters at 0.0001. BatchNorm running
+statistics stay fixed in both stages. Loss is unweighted BCE **only on known
+entries**; unknown -1 entries have no loss or gradient, all-unknown examples
+are excluded, and all-unknown batches perform no optimizer update. This is a
+documented baseline; class weighting is not presumed beneficial.
+
+Inputs use the complete rotated RGB image resized directly to 224x224 with PIL
+bilinear interpolation, normalized with ImageNet mean/std. This deliberately
+differs from the upstream center-crop recipe so cropping cannot silently remove
+an annotated positive object. Horizontal flips are the sole augmentation.
+`baseline.json`, `history.json`, `best-validation.json` and
+`validation-scores.npz` retain actual development loss and known-entry metrics.
+Threshold 0.5 is **uncalibrated**, and undefined precision is null, not perfect.
+The best checkpoint is chosen by masked development loss, never private
+regression scores or an untouched test. `completion.json` is written only after
+both stages finish and fingerprints the checkpoint.
+
+```powershell
+& $python tools\PhotoLibrarian.ModelTraining\export_pilot.py `
+  --run D:\Training\OpenImages\run-balanced-pilot-v1 `
+  --output D:\Training\OpenImages\export-balanced-pilot-v1 --samples 16 --int8
+```
+
+Export loads a matching completed checkpoint with weights-only deserialization.
+FP32 ONNX has fixed `image` float32 `[1,3,224,224]` input and `scores` float32
+`[1,labelCount]` independent sigmoid output. ONNX checker and actual CPU
+inference are required; parity uses three synthetic tensors plus up to 16
+development photos, predeclared maximum absolute error <=0.0001 and zero 0.5
+decision flips. The pinned legacy TorchScript exporter is explicitly selected
+(`dynamo=False`), so this small fixed graph does not need extra exporter
+packages; its deprecation warning is not hidden.
+
+Optional INT8 uses static QDQ with per-channel signed weights and unsigned
+activations, calibrated on at most 128 **original training** images, never
+validation/private/test. It records score errors and threshold flips against
+FP32 on the same parity inputs, without claiming those errors are acceptable
+for production. It needs full development quality comparison and independently
+calibrated thresholds. The preprocessed ONNX is an intermediate diagnostic,
+not an additional runtime dependency.
+
+`export-report.json` records runtime bytes/hashes, score contract, preprocessing,
+FP32 parity, optional INT8 diagnostics, ORT CPU load time and a warm 30-iteration
+single-tensor inference p50/p95 diagnostic. It explicitly excludes decode and
+preprocessing and does not stand in for app end-to-end latency, working memory,
+DirectML fallback verification or a quality benchmark. No runtime profile is
+automatically created or approved.
+
+## Remaining validation and release gates
 
 1. Review the pilot with diverse users; map and audit private data, verified Open
    Images subsets and cross-source duplicates. Collect independent positive
@@ -373,7 +543,7 @@ multi-label quality result.
    least 50 positive training groups per concept, with separately reviewed
    calibration/test coverage; it is not a scientifically established minimum.
    Drop unsupported labels deliberately and version the vocabulary.
-2. Clear pretrained-weight/image/annotation terms before a training run. Pin the
+2. Clear pretrained-weight/image/annotation terms before product training or redistribution. Pin the
    full environment and checkpoint SHA-256. Log device, seeds, augmentations,
    optimizer, schedules and manifest/vocabulary identities. Replace the ImageNet
    classifier with an ordered multi-label head; use independent sigmoid scores,
@@ -390,7 +560,7 @@ multi-label quality result.
    evidence must be agreed before opening the test. Allow disabled labels and
    zero tags/abstention. Thresholds without sufficient reviewed evidence must
    not become production defaults.
-5. Export FP32 ONNX with fixed float32 NCHW input and ordered independent scores.
+5. Validate the research FP32/INT8 ONNX with fixed float32 NCHW input and ordered independent scores.
    Record actual preprocessing including EXIF orientation, color conversion,
    resize/crop/interpolation/normalization. Check finite outputs, all per-tag
    score errors and threshold-decision flips against PyTorch on synthetic and
@@ -433,6 +603,17 @@ invalid inputs and unchanged source contents/modification times. Public-data
 tests mock all network access and cover duplicate checksum headers, source
 pinning, truncated/corrupt payloads, exact cache reuse, union/narrow-label
 semantics, machine-label exclusion, license/attribution gates and selection caps.
+Optional research tests additionally check decode/rotation and overlap
+quarantine, positive/negative label gates, masked gradients, all-unknown batches,
+partial-label metrics, training-only INT8 calibration and export input/output
+integrity. Run the same command with the isolated training environment's Python
+to execute these tests. The dependency-free CI job explicitly skips tests whose
+Pillow/PyTorch/ONNX dependencies are absent; it does not train a model.
+
+Exports also score every supervised development image with FP32 and, when
+requested, INT8. Reports retain known-entry metrics and quantized decision flips
+at the uncalibrated 0.5 cutoff, with local score arrays for follow-up analysis.
+These are development results, not final-test quality or production acceptance.
 
 [oi-download]: https://storage.googleapis.com/openimages/web/download_v7.html
 [oi-facts]: https://storage.googleapis.com/openimages/web/factsfigures_v7.html#licenses

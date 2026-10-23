@@ -332,11 +332,12 @@ fingerprint, and conflicting merged judgments still require review.
 ## Compare tagging models
 
 For the separate purpose-trained compact-model workstream, see the
-[research vocabulary and Open Images preparation](tools/PhotoLibrarian.ModelTraining/README.md).
-It includes pinned metadata acquisition, partial-label-aware coverage reports
-and capped public-image downloads, plus an optional local dataset audit. This
-is data-preparation groundwork, not a trained model or a change to the shipping
-profiles.
+[compact-model research pipeline](tools/PhotoLibrarian.ModelTraining/README.md).
+It includes pinned Open Images acquisition, partial-label-aware balanced
+selection, overlap/label audits, staged MobileNetV3 training and verified
+FP32/INT8 ONNX export. Training and exports are local research only, with
+unresolved pretrained-weight rights and no production approval. No model
+weights are included and the shipping profiles are unchanged.
 
 `PhotoLibrarian.ModelBench` evaluates the discussed EfficientNet, YOLOv8
 classification/detection, YOLOv10 detection, JoyTag, and RAM++ ONNX models

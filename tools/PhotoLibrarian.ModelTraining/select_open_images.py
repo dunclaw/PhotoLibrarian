@@ -81,8 +81,53 @@ def target_states(source: dict[str, int], mappings: list[dict]) -> dict[str, str
     return labels
 
 
+def provenance_rows(path: Path, split: str):
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        required = {"ImageID", "Subset", "License", "Author", "OriginalLandingURL", "OriginalMD5"}
+        if not required <= set(reader.fieldnames or []):
+            raise ValueError("Expected original image provenance metadata columns")
+        for row in reader:
+            if not IMAGE_ID.fullmatch(row["ImageID"]) or row["Subset"] != split:
+                raise ValueError("Metadata source ID/split mismatch")
+            yield row
+
+
+def eligible_provenance(row: dict) -> bool:
+    url = urlparse(row["OriginalLandingURL"])
+    return (row["License"] in LICENSES and bool(row["Author"].strip())
+            and url.scheme in {"http", "https"} and bool(url.netloc))
+
+
+def balanced_ids(eligible: dict[str, dict], limit: int, rank) -> list[str]:
+    buckets: dict[tuple[str, str], list[str]] = {}
+    for image in sorted(eligible, key=lambda x: (rank(x), x), reverse=True):
+        for label, state in eligible[image]["labels"].items():
+            buckets.setdefault((label, state), []).append(image)
+    order = sorted(buckets, key=lambda key: (len(buckets[key]), key))
+    selected = []
+    seen = set()
+    while len(selected) < limit:
+        added = False
+        for key in order:
+            bucket = buckets[key]
+            while bucket and bucket[-1] in seen:
+                bucket.pop()
+            if bucket:
+                image = bucket.pop()
+                seen.add(image)
+                selected.append(image)
+                added = True
+                if len(selected) == limit:
+                    break
+        if not added:
+            break
+    return selected
+
+
 def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
-           per_state: int, max_images: int, seed: str) -> tuple[list[dict], dict]:
+           per_state: int, max_images: int, seed: str, *,
+           eligible_first: bool = False, balanced: bool = False) -> tuple[list[dict], dict]:
     if per_state < 1 or max_images < 1 or split not in {"train", "validation"}:
         raise ValueError("Positive limits and original train/validation split are required")
     mids = {mid for row in mappings for mid in row["midList"]}
@@ -91,6 +136,10 @@ def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
     counts: Counter = Counter()
     heaps: dict[tuple[str, int], list] = {}
     members: dict[tuple[str, int], set] = {}
+    eligible_ids = None
+    if eligible_first:
+        eligible_ids = {row["ImageID"] for row in provenance_rows(metadata, split)
+                        if eligible_provenance(row)}
 
     def rank(image: str) -> int:
         return int(hashlib.sha256(f"{seed}:{split}:{image}".encode()).hexdigest(), 16)
@@ -98,6 +147,8 @@ def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
     for image, mid, state in verified_rows(annotations, mids):
         key = mid, state
         counts[key] += 1
+        if eligible_ids is not None and image not in eligible_ids:
+            continue
         if state == 0 and mid not in negative_mids:
             continue
         heap = heaps.setdefault(key, [])
@@ -125,39 +176,35 @@ def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
     eligible: dict[str, dict] = {}
     rejection: Counter = Counter()
     found = set()
-    with metadata.open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream)
-        required = {"ImageID", "Subset", "License", "Author", "OriginalLandingURL", "OriginalMD5"}
-        if not required <= set(reader.fieldnames or []):
-            raise ValueError("Expected original image provenance metadata columns")
-        for row in reader:
-            image = row["ImageID"]
-            if image not in candidates:
-                continue
-            if image in found:
-                raise ValueError(f"Duplicate metadata for {image}")
-            found.add(image)
-            if row["Subset"] != split:
-                raise ValueError(f"Metadata source split mismatch for {image}")
-            if row["License"] not in LICENSES:
-                rejection["licenseNotAllowlisted"] += 1
-                continue
-            if not row["Author"].strip() or urlparse(row["OriginalLandingURL"]).scheme not in {"http", "https"}:
-                rejection["missingAttribution"] += 1
-                continue
-            labels = target_states(states[image], mappings)
-            if not labels:
-                rejection["noTransferableKnownLabels"] += 1
-                continue
-            eligible[image] = {
-                "id": f"open-images-v7:{image}", "sourceId": image, "originalSplit": split,
-                "labels": labels, "sourceLabels": dict(sorted(states[image].items())),
-                "provenance": {key: row[key] for key in sorted(required | {
-                    "Rotation", "OriginalURL", "OriginalSize", "AuthorProfileURL", "Title"})
-                               if key in row},
-                "licenseVerifiedAtSource": False, "groupReviewComplete": False,
-            }
-    selected = [eligible[image] for image in sorted(eligible, key=lambda x: (rank(x), x))[:max_images]]
+    for row in provenance_rows(metadata, split):
+        image = row["ImageID"]
+        if image not in candidates:
+            continue
+        if image in found:
+            raise ValueError(f"Duplicate metadata for {image}")
+        found.add(image)
+        if row["License"] not in LICENSES:
+            rejection["licenseNotAllowlisted"] += 1
+            continue
+        if not eligible_provenance(row):
+            rejection["missingAttribution"] += 1
+            continue
+        labels = target_states(states[image], mappings)
+        if not labels:
+            rejection["noTransferableKnownLabels"] += 1
+            continue
+        eligible[image] = {
+            "id": f"open-images-v7:{image}", "sourceId": image, "originalSplit": split,
+            "labels": labels, "sourceLabels": dict(sorted(states[image].items())),
+            "provenance": {key: row[key] for key in sorted({
+                "ImageID", "Subset", "License", "Author", "OriginalLandingURL", "OriginalMD5",
+                "Rotation", "OriginalURL", "OriginalSize", "AuthorProfileURL", "Title"})
+                           if key in row},
+            "licenseVerifiedAtSource": False, "groupReviewComplete": False,
+        }
+    chosen = (balanced_ids(eligible, max_images, rank) if balanced
+              else sorted(eligible, key=lambda x: (rank(x), x))[:max_images])
+    selected = [eligible[image] for image in chosen]
     selected.sort(key=lambda row: row["sourceId"])
     rejection["metadataUnavailable"] = len(candidates - found)
     rejection["globalCap"] = max(0, len(eligible) - max_images)
@@ -175,12 +222,15 @@ def select(annotations: Path, metadata: Path, mappings: list[dict], split: str,
     report = {
         "schemaVersion": 1, "originalSplit": split, "seed": seed,
         "perMidStateCandidateCap": per_state, "maxImages": max_images,
+        "eligibleFirst": eligible_first, "balanced": balanced,
         "candidateImages": len(candidates), "selectedImages": len(selected),
         "rejected": dict(sorted(rejection.items())), "coverage": coverage,
         "trainingReady": False, "productionApproved": False,
         "warnings": [
             "Source counts are annotation rows, not deduplicated independent examples.",
-            "Candidate sampling precedes metadata filtering; missing metadata can reduce coverage.",
+            ("Candidate sampling uses metadata-eligible IDs only; eligible ID set is held in memory."
+             if eligible_first else
+             "Candidate sampling precedes metadata filtering; missing metadata can reduce coverage."),
             "Train metadata covers the boxable subset, not all V7 image-level examples.",
             "License metadata is a filter, not verification of current original-image rights.",
             "Near-duplicates/events and cross-split overlap still require checks before training.",
@@ -202,6 +252,10 @@ def main() -> None:
     parser.add_argument("--per-state", type=int, default=100)
     parser.add_argument("--max-images", type=int, default=5000)
     parser.add_argument("--seed", default="open-images-pilot-v1")
+    parser.add_argument("--eligible-first", action="store_true",
+                        help="Filter provenance before sampling; holds eligible source IDs in memory")
+    parser.add_argument("--balanced", action="store_true",
+                        help="Round-robin rare target/state buckets instead of global rank truncation")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists():
@@ -209,7 +263,8 @@ def main() -> None:
     concepts, _ = vocabulary(args.vocabulary)
     mappings = mapping(args.mapping, args.classes, concepts)
     records, report = select(args.annotations, args.metadata, mappings, args.split,
-                             args.per_state, args.max_images, args.seed)
+                             args.per_state, args.max_images, args.seed,
+                             eligible_first=args.eligible_first, balanced=args.balanced)
     if not records:
         raise ValueError("No eligible images; inspect source coverage and provenance")
     report["inputs"] = {
