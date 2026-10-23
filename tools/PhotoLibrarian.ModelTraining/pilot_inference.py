@@ -27,8 +27,8 @@ def prepare_tensor(path: Path, rotation: str | None = None,
                 image = image.rotate(angle, expand=True)
         image = image.convert("RGB").resize((224, 224), Image.Resampling.BILINEAR)
         pixels = np.asarray(image, dtype=np.float32).transpose(2, 0, 1) / np.float32(255)
-    mean = np.asarray(mean or [0.485, 0.456, 0.406], dtype=np.float32)
-    std = np.asarray(std or [0.229, 0.224, 0.225], dtype=np.float32)
+    mean = np.asarray([0.485, 0.456, 0.406] if mean is None else mean, dtype=np.float32)
+    std = np.asarray([0.229, 0.224, 0.225] if std is None else std, dtype=np.float32)
     if (mean.shape != (3,) or std.shape != (3,) or not np.isfinite(mean).all()
             or not np.isfinite(std).all() or (std <= 0).any()):
         raise ValueError("Image normalization requires three finite means and positive standard deviations")

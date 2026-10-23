@@ -180,6 +180,11 @@ class PreprocessingParityTests(unittest.TestCase):
                     scratch.numpy()[None], prepare_tensor(path, rotation, [0.5] * 3, [0.5] * 3))
             with self.assertRaisesRegex(ValueError, "normalization"):
                 prepare_tensor(path, "0", [0.5, 0.5], [0.5, 0.5])
+            for mean, std in [([], [0.5] * 3), ([0.5] * 3, []),
+                              ([float("nan")] * 3, [0.5] * 3),
+                              ([0.5] * 3, [0.5, 0, 0.5])]:
+                with self.subTest(mean=mean, std=std), self.assertRaisesRegex(ValueError, "normalization"):
+                    prepare_tensor(path, "0", mean, std)
 
 
 @unittest.skipUnless(HAS_BENCH, "Optional provider tests require evaluation environment")
