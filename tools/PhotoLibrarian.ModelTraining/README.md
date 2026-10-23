@@ -399,26 +399,58 @@ alone establish independence from pretrained weights or other libraries.
 
 ## Initial model decision and license inventory
 
-Source review: 2026-10-19, with ImageNet terms checked again 2026-10-22.
-URLs can change; the actual training run must pin
-package versions, source commits, checkpoint URLs/revisions and full SHA-256.
+Source review: 2026-10-23, including the official ImageNet agreement,
+Open Images V7 license notice, TorchVision pretrained-model disclaimer and
+MobileNetV3 weight metadata/source. URLs and terms can change; each actual
+training run must pin package versions, source commits, checkpoint
+URLs/revisions and full SHA-256.
 Research initialization uses the official TorchVision MobileNetV3-Large V2
 checkpoint (`mobilenet_v3_large-5c1a4163.pth`, SHA-256
 `5c1a416349c4cf298f2a6a5e2600ed0ee55e604713578f5e74e6bc8bcaef7997`,
 22,132,113 bytes), verified in full **before** weights-only deserialization.
-No weights are approved for redistribution. ImageNet's [database access
-agreement](https://image-net.org/accessagreement.php) limits database use to
-non-commercial research/education; it is not a separate license granting
-shipping rights to TorchVision's derived weights. TorchVision itself warns that
-weight/dataset terms require independent review. Local research here does not
-establish product/redistribution clearance for the initialization or fine-tune.
+**Release disposition: no research-derived model is cleared for product use,
+hosting or redistribution. This is a conservative project gate, not a legal
+opinion that every such use is prohibited.** ImageNet's [official access
+agreement][imagenet-agreement] says the database is for non-commercial research
+and education, disclaims warranties, and binds an employed researcher's
+for-profit employer as well. TorchVision's current [pretrained-model
+documentation][tv-models] explicitly warns that models may have dataset-derived
+terms and instructs users to determine permission for their use case. The
+MobileNetV3 V2 [upstream weight entry and source][mobilenet-source] identify
+the checkpoint and metrics but do **not** declare a separate weight license.
+The TorchVision repository's BSD-3-Clause license covers its code; it is not
+evidence by itself that this ImageNet-derived checkpoint or a fine-tune is
+cleared for product distribution. Any change requires documented rights review
+for the intended use/distribution, not an inference from the code license.
+
+Open Images V7's [official license notice][oi-facts] says Google annotations
+are CC BY 4.0 and that images are *listed* as CC BY 2.0, but explicitly
+disclaims any representation or warranty about an individual image's license
+and directs users to verify each image. The [CC BY 2.0 deed][cc-by-20] permits
+commercial sharing and adaptation subject to attribution and other terms; the
+[CC BY 4.0 deed][cc-by-40] likewise requires attribution for annotations. Both
+deeds warn that other rights (including privacy/publicity) can still apply.
+The project's metadata
+and retained author/landing-page/attribution fields are provenance aids, not
+proof that the image's actual licensor authorized the specific use. The
+annotation license does not replace image rights. Whether model training,
+derived parameters, attribution and distribution trigger obligations for the
+selected images needs case-specific legal review.
+
+The runs verified exact checkpoint hashes and preserved training/download
+provenance, but did not individually re-confirm present-day image ownership,
+author authority, publicity/privacy rights, or resolve derived-model terms.
+Private regression photos are not distributed. No model binaries, checkpoints
+or photos are committed or hosted. Until those questions are resolved, use
+these artifacts only for local research under applicable agreements; do not
+ship the model, add it to model hosting, or label it commercially cleared.
 
 | Component | Evidence and proposal | License / release condition |
 | --- | --- | --- |
-| MobileNetV3-Large | First candidate: [TorchVision V2][mobilenet] lists 5,483,032 parameters, 0.22 GFLOPS, 21.1 MB checkpoint; 224 crop after resize 232 with bilinear interpolation | TorchVision code is BSD-3-Clause; [weight/dataset terms require separate review][tv-models]. Not a weight redistribution approval |
+| MobileNetV3-Large | First candidate: [TorchVision V2][mobilenet] lists 5,483,032 parameters, 0.22 GFLOPS, 21.1 MB checkpoint; exact V2 weight URL/metadata in upstream [model source][mobilenet-source] | TorchVision code is BSD-3-Clause; no distinct V2 checkpoint license is declared in its weight metadata; [TorchVision requires case-specific permission review][tv-models]. Not cleared for product use/redistribution |
 | EfficientNet-B0 | Challenger: [TorchVision V1][efficientnet] lists 5,288,548 parameters, 0.39 GFLOPS, 20.5 MB checkpoint; 224 crop after resize 256 with bicubic interpolation | Same separate code/weight/dataset review; no assumption that a code license grants dataset rights |
 | Private library | Only consented, locally exported records; personal tags require explicit mapping | Owner permission/annotation rights must be recorded; no photo/identifier redistribution by default |
-| Open Images V7 | Human-verified labels and bounded class-specific subsets | Google annotations CC BY 4.0; images listed CC BY 2.0, individually verify and retain attribution. Training and redistribution are separate rights reviews |
+| Open Images V7 | Human-verified labels and bounded class-specific subsets | Annotations CC BY 4.0; images listed CC BY 2.0, with explicit no-warranty/verify-each-image warning. Preserve attribution/provenance; resolve image and derived-model rights before product use |
 | RAM++, SigLIP 2, TinyCLIP | Existing local reference models; do not reuse their human-reviewed cohort as final test | See [existing model asset provenance](../../MODEL-ASSETS.md) and pinned benchmark preparation scripts; record each exact revision/notice in a run |
 | Apple MobileCLIP | Excluded from this product-training proposal | [Model terms][mobileclip] exclude product development; MIT code is not permission for the weights |
 
@@ -1987,6 +2019,10 @@ These are development results, not final-test quality or production acceptance.
 [oi-download]: https://storage.googleapis.com/openimages/web/download_v7.html
 [oi-facts]: https://storage.googleapis.com/openimages/web/factsfigures_v7.html#licenses
 [mobilenet]: https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.mobilenet_v3_large.html
+[mobilenet-source]: https://github.com/pytorch/vision/blob/main/torchvision/models/mobilenetv3.py
 [efficientnet]: https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.efficientnet_b0.html
 [tv-models]: https://docs.pytorch.org/vision/stable/models.html
+[imagenet-agreement]: https://image-net.org/accessagreement.php
+[cc-by-20]: https://creativecommons.org/licenses/by/2.0/
+[cc-by-40]: https://creativecommons.org/licenses/by/4.0/
 [mobileclip]: https://github.com/apple-aiml-research/ml-mobileclip/blob/main/LICENSE_MODELS
