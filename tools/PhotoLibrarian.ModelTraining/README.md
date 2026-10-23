@@ -1517,6 +1517,49 @@ the same predeclared calibration-only five-fold diagnostic. Do not tune
 label gates, model, schedule or fold seed after observing those outcomes;
 keep the existing final reserve unscored.
 
+#### Frozen author-first calibration binding
+
+Training was started only after protocol commit `6f78a33`. The head contains
+42 evidence-supported labels; the selected checkpoint is head epoch 3
+(unweighted development BCE 0.57251417). Both fine-tuning epochs completed
+but did not improve checkpoint selection. The audited cohorts contain 11,639
+training / 2,525 development images, of which 11,186 / 2,328 have known states
+for the final head. The FP32 export is **17,014,460 bytes**; all 97,776
+development scores agree with PyTorch within 2.474e-6, with no 0.5 decision
+flips. New-cohort development precision/recall at 0.5 is 68.48% / 87.34%;
+these are model-selection diagnostics, not a paired improvement claim.
+
+`bind_author_calibration.py` verifies the completed checkpoint/export/run,
+reservation/download/mapping identities, exact prior evaluation exclusions
+and train/development cohort fingerprint. It recomputes the frozen
+transitive groups/split from actual decoded reservation rows and checks
+all 6,000 reservation references against training. It writes only a
+calibration manifest; no new test is manufactured or existing test scored.
+The frozen calibration has **2,519 photos / 1,623 approximate groups**.
+
+```powershell
+& $python tools\PhotoLibrarian.ModelTraining\export_pilot.py `
+  --run "$root\run-authors-first-v1" --output "$root\export-authors-first-v1"
+& $evalPython tools\PhotoLibrarian.ModelTraining\bind_author_calibration.py `
+  --reservation "$root\author-reservation-v1\reservation.json" `
+  --download "$root\download-authors-first-v1\download-manifest.jsonl" `
+  --run "$root\run-authors-first-v1" --bundle "$root\export-authors-first-v1" `
+  --output "$root\author-calibration-protocol-v1"
+& $evalPython tools\PhotoLibrarian.ModelTraining\calibrate_pilot.py fit `
+  --evaluation "$root\author-calibration-protocol-v1" `
+  --bundle "$root\export-authors-first-v1" --calibration-folds 5 `
+  --output "$root\author-calibration-results-v1"
+```
+
+Identities frozen **before calibration inference**:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Selected checkpoint | `4a6b52e2f1556ade0d515253a18df62bc9791351f628bd92b1e72bd04192bd4c` |
+| FP32 export | `b6b0afbcd00c92e020d56ba644b15a7d79ca71ec6c142dffefe042c49969f92f` |
+| Calibration protocol | `d44b53931d833e28961792a9c73d82bb7234142a6881c4716684011a6b4728c3` |
+| Calibration manifest | `8739a537a0e2b97d52220134f2106d01f8834cc61a680e9b74c6688237394ec0` |
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1594,9 +1637,9 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **82 distinct tests** were exercised across the
+train a model. Locally, all **86 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (11
-training/export-test skips). The base Python run has 45 optional skips.
+training/export-test skips). The base Python run has 49 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.
