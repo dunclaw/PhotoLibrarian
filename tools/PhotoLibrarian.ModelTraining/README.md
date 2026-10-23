@@ -1,6 +1,7 @@
 # Compact home-photo tagger: research foundation
 
-This is the **research pilot for #66**, including a measured 44-label model,
+This is the **research pilot for #66**, including measured 44-, 68- and
+author-first 42-label models,
 not a shipping profile or completion of that issue. Training/export tools are
 separate from the application; RAM++/TinyCLIP profiles, existing approvals and
 photo metadata are unchanged. Local exploratory artifacts are not licensed or
@@ -1560,6 +1561,53 @@ Identities frozen **before calibration inference**:
 | Calibration protocol | `d44b53931d833e28961792a9c73d82bb7234142a6881c4716684011a6b4728c3` |
 | Calibration manifest | `8739a537a0e2b97d52220134f2106d01f8834cc61a680e9b74c6688237394ec0` |
 
+#### Author-first results: evidence coverage restored, not production approval
+
+Binding code and the above hashes were committed in `28de1c9` **before
+calibration inference**. The unchanged policy and five-fold seed were used;
+there was no outcome-driven head/threshold-policy/schedule/seed tuning.
+All 42 head labels now have the predeclared full-calibration state/group
+evidence. **17 qualify for a full-fit threshold; 25 have no threshold meeting
+the fixed precision/support policy**, rather than missing-state evidence.
+
+| 2,519 calibration photos; 5,467 known entries | Fixed 0.5 | Full-fit resubstitution | Grouped out-of-fold |
+| --- | ---: | ---: | ---: |
+| TP / FP / FN | 2,681 / 1,289 / 420 | 1,355 / 142 / 1,746 | 1,219 / 162 / 1,882 |
+| Known-entry precision | 67.53% | 90.51% | 88.27% |
+| Recall including disabled-label positives | 86.46% | 43.70% | 39.31% |
+| Emitted tags with unknown source state | 36,178 | 4,727 | 4,664 |
+
+Full-fit labels: animal, dog, bird, horse, flower, tree, grass, leaves,
+rocks, car, bicycle, boat, chair, table, food, person and snow. Ten labels
+qualify in all five fold fits; fold policies are not one deployable policy.
+All 42 labels' known states/groups, full-fit thresholds/counts and OOF counts
+are published in `author-calibration-results-v1.csv`. Cat has 23 positives
+and 23 negatives but no qualifying threshold, illustrating a remaining
+discrimination/support limitation rather than an absent-negative shortcut.
+
+**Decision: do not promote this model or change the shipping default.**
+Reserving authors first makes a broader calibratable head feasible, but
+full-fit precision is optimistic and grouped OOF precision misses the 90%
+research target. Recall remains limited. Old-cohort seven-label results
+and this narrower head have different photos, groups and recall denominators:
+17 versus seven enabled labels is an allocation/coverage observation,
+not a matched accuracy gain. Fold cross-validation checks threshold fitting
+only, not the entire vocabulary/model-selection procedure. Neither
+development nor calibration is a new blind test, and partial annotations
+do not establish exhaustive precision, recall or useful-tag quality.
+
+The original consumed test was not reused; the newer **1,425-photo reserve
+remains unscored**. Photos, private identifiers and model binaries remain
+external. Further production claims still require a separately justified,
+frozen evaluation plan, licensing clearance and actual application evidence;
+another ad-hoc tuning run is not a substitute.
+
+| Measured artifact | SHA-256 |
+| --- | --- |
+| Calibration result JSON | `4dc4ba39e0b208f1cb9bc2feab7e2a44f5001bd97a50e1d8124cda1888f50aa9` |
+| Calibration score arrays | `fd7ecce98c17f1b8ee9ef9457bd7471975cb071ce1f30ce4f4947514f37bac24` |
+| Published aggregate CSV | `7b5eeccf92fb35c4e481db33d4b8aac0d6d58409c445c9b7e709850a6ff6c301` |
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1646,6 +1694,9 @@ deterministic grouped uncertainty.
 The controlled retraining tests additionally cover training-only state counts,
 weight caps and weighted unknown gradients, immutable run/array identities,
 ordered targets, recipe equality and masked BCE/ranking comparisons.
+Author-first tests additionally cover reservation membership/group separation,
+known-state head gating, recomputed transitive grouping/splits, and immutable
+run/export/checkpoint/download/exclusion/cohort bindings.
 
 Exports also score every supervised development image with FP32 and, when
 requested, INT8. Reports retain known-entry metrics and quantized decision flips
