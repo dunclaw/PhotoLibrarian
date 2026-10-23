@@ -632,6 +632,30 @@ preprocessing and does not stand in for app end-to-end latency, working memory,
 DirectML fallback verification or a quality benchmark. No runtime profile is
 automatically created or approved.
 
+### Frozen author-first initialization comparison results
+
+The two runs used the same 42-label order, seed, data fingerprint
+(`1ae4615e96d4f8c32ded3cde2aa478b88f4a0a7d3ee03001a9c0d10ccc876278`),
+and previously exposed development cohort (2,328 supervised images). Their
+training schedules differed, so this is a protocol diagnostic, not a controlled
+estimate of the causal benefit of pretraining. The random-init run began at
+masked development BCE **0.69299**; its best trained epoch reached **0.77667**,
+so baseline-aware selection retained the untrained initialization. The
+ImageNet-initialized run began at **0.69556** and selected head epoch 3 at
+**0.57251**; the later fine-tuning epochs worsened development loss.
+
+At the selected ImageNet checkpoint's uncalibrated 0.5 cutoff, known-entry
+micro precision/recall were **68.48% / 87.34%**, and macro
+precision/recall across 42 defined labels were **68.78% / 81.25%**. These
+partial-label development metrics are for model selection, not an untouched
+quality estimate; consumed test cohorts were not scored and thresholds were
+not calibrated. Full-development FP32 ONNX parity passed on 97,776 scores
+(maximum absolute error **0.0000025**, zero cutoff flips). The ONNX file is
+**17,014,460 bytes**; single-tensor CPU inference measured p50 **1.20 ms** and
+p95 **1.24 ms** with four ORT threads, excluding image decode and preprocessing.
+The export and checkpoint remain external research artifacts and are not
+approved for production or redistribution.
+
 ## Measured research pilot and model card
 
 The local `run-balanced-pilot-v2` / `export-balanced-pilot-v2` artifacts were
