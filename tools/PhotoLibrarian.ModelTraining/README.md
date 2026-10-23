@@ -987,6 +987,53 @@ are required before another generalization claim; do not reopen the consumed
 research test. Licensing clearance and actual application benchmarks remain
 separate release gates.
 
+### Controlled training-only state-balance experiment
+
+The original audited training pool has strongly unequal **known** state
+frequencies: `person` has 2,257 positive / 157 negative entries, `animal`
+834 / 94 and `food` 527 / 126. This is not population prevalence and does not
+make unknown entries negative. Before expanding downloads, isolate whether
+the unweighted objective's state imbalance contributes to development false
+positives with one controlled, same-seed retraining.
+
+`train_pilot.py --loss-balance known-state` computes each label/state weight
+from **audited original training rows only**: known total divided by twice
+that state's count, capped at four. Both states must have evidence.
+Unknown entries contribute neither frequencies, loss nor gradients.
+Weighted loss is divided by the number of known entries, not the weight sum;
+capped weights are not renormalized. Only the training objective changes.
+Default `--loss-balance none`, architecture, initialization, head, data,
+seed 66, five-epoch recipe, augmentation, optimizer and learning rates stay
+unchanged. **Unweighted** development BCE still selects the best checkpoint,
+so weighted and unweighted losses are not confused.
+
+```powershell
+& $python tools\PhotoLibrarian.ModelTraining\train_pilot.py `
+  --train D:\Training\OpenImages\download-train-balanced-v1\download-manifest.jsonl `
+  --validation D:\Training\OpenImages\download-validation-balanced-v1\download-manifest.jsonl `
+  --regression-images D:\Temp\Pictures\Diverse `
+  --output D:\Training\OpenImages\run-state-balanced-v1 `
+  --weights-cache D:\Training\OpenImages\weights-cache `
+  --research-only --device cuda --head-epochs 3 --finetune-epochs 2 `
+  --loss-balance known-state
+```
+
+Predeclared diagnostic: compare the selected checkpoint against
+`run-balanced-pilot-v2` on the **same ordered full prior-development cohort
+and 44 labels**, checking fingerprints and target equality before masked BCE,
+0.5 precision/recall and tie-aware per-label/macro AP. Use the existing
+matched-development fit/check protocol for a secondary same-policy coverage
+diagnostic, without changing its requirements. A lower fixed-cutoff false
+positive count alone is not sufficient: report lost recall and ranking as
+well. Export only after the completed checkpoint is verified, and apply the
+unchanged FP32 parity gates. Retain a negative result rather than selecting
+another seed or repeatedly adjusting the cap/recipe in response.
+
+Do not open the consumed calibration/test or private judgments for this
+experiment. It cannot establish independent generalization, approve a new
+production model or resolve weight/image licensing. Wider data and separately
+frozen calibration plus a new untouched test remain necessary.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit

@@ -138,6 +138,40 @@ class PilotDataTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_TORCH, "Optional training tests require requirements-training.txt (PyTorch)")
 class MaskedTrainingTests(unittest.TestCase):
+    def test_state_weights_use_training_known_counts_and_cap_rare_states(self):
+        import torch
+        from train_pilot import training_state_weights
+        rows = [{"originalSplit": "train", "labels": {"cat": "positive"}} for _ in range(19)]
+        rows += [{"originalSplit": "train", "labels": {"cat": "negative"}},
+                 {"originalSplit": "train", "labels": {}}]
+        weights, evidence = training_state_weights(rows, ["cat"])
+        torch.testing.assert_close(weights, torch.tensor([[4.0, 20 / 38]]))
+        self.assertEqual(19, evidence[0]["knownPositive"])
+        self.assertEqual(1, evidence[0]["knownNegative"])
+        with self.assertRaisesRegex(ValueError, "original training"):
+            training_state_weights(rows + [{"originalSplit": "validation", "labels": {}}], ["cat"])
+        with self.assertRaisesRegex(ValueError, "both known states"):
+            training_state_weights(rows, ["dog"])
+
+    def test_balanced_loss_matches_manual_known_mean_and_keeps_unknown_gradients_zero(self):
+        import torch
+        from train_pilot import masked_loss
+        logits = torch.zeros(2, 2, requires_grad=True)
+        targets = torch.tensor([[1.0, -1.0], [0.0, 1.0]])
+        weights = torch.tensor([[3.0, 0.5], [2.0, 1.0]])
+        loss, count = masked_loss(logits, targets, weights)
+        self.assertEqual(3, count)
+        self.assertAlmostEqual(math.log(2) * 4.5 / 3, loss.item(), places=6)
+        loss.backward()
+        torch.testing.assert_close(logits.grad, torch.tensor([[-0.5 / 6, 0], [3 / 6, -1 / 6]]))
+        empty, count = masked_loss(torch.zeros(1, 2), torch.full((1, 2), -1.0), weights)
+        self.assertIsNone(empty)
+        self.assertEqual(0, count)
+        for bad in [torch.ones(2), torch.zeros(2, 2), torch.full((2, 2), float("nan")),
+                    torch.full((2, 2), 4.1)]:
+            with self.assertRaisesRegex(ValueError, "State weights"):
+                masked_loss(logits, targets, bad)
+
     def test_unknown_entries_have_no_loss_or_gradient(self):
         import torch
         from train_pilot import masked_loss

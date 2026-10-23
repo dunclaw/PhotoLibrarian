@@ -63,16 +63,43 @@ class PilotDataset(Dataset):
         return image, targets
 
 
-def masked_loss(logits: torch.Tensor, targets: torch.Tensor) -> tuple[torch.Tensor | None, int]:
+def training_state_weights(rows: list[dict], labels: list[str]) -> tuple[torch.Tensor, list[dict]]:
+    if not rows or not labels or any(row["originalSplit"] != "train" for row in rows):
+        raise ValueError("State weights require original training examples only")
+    evidence = []
+    for label in labels:
+        positive = sum(row["labels"].get(label) == "positive" for row in rows)
+        negative = sum(row["labels"].get(label) == "negative" for row in rows)
+        if not positive or not negative:
+            raise ValueError("State balancing requires both known states for every label")
+        total = positive + negative
+        evidence.append({"label": label, "knownPositive": positive, "knownNegative": negative,
+                         "negativeWeight": min(4.0, total / (2 * negative)),
+                         "positiveWeight": min(4.0, total / (2 * positive))})
+    weights = torch.tensor([[item["negativeWeight"], item["positiveWeight"]] for item in evidence])
+    return weights, evidence
+
+
+def masked_loss(logits: torch.Tensor, targets: torch.Tensor,
+                state_weights: torch.Tensor | None = None) -> tuple[torch.Tensor | None, int]:
     if logits.shape != targets.shape or not torch.isfinite(logits).all():
         raise ValueError("Logit shape mismatch or nonfinite model outputs")
     if not torch.all((targets == -1) | (targets == 0) | (targets == 1)):
         raise ValueError("Targets must be positive 1, negative 0 or unknown -1")
+    if state_weights is not None and (
+            logits.ndim != 2 or state_weights.shape != (logits.shape[1], 2)
+            or not torch.isfinite(state_weights).all()
+            or not torch.all((state_weights > 0) & (state_weights <= 4))):
+        raise ValueError("State weights must be finite positive label-by-state weights capped at four")
     mask = targets >= 0
     count = int(mask.sum().item())
     if not count:
         return None, 0
-    return nn.functional.binary_cross_entropy_with_logits(logits[mask], targets[mask]), count
+    losses = nn.functional.binary_cross_entropy_with_logits(logits[mask], targets[mask], reduction="none")
+    if state_weights is not None:
+        weights = torch.where(targets == 1, state_weights[:, 1], state_weights[:, 0])
+        losses = losses * weights[mask]
+    return losses.mean(), count
 
 
 def metrics(scores: np.ndarray, targets: np.ndarray, labels: list[str]) -> dict:
@@ -156,6 +183,8 @@ def main() -> None:
     parser.add_argument("--minimum-train", type=int, default=50)
     parser.add_argument("--minimum-validation", type=int, default=10)
     parser.add_argument("--seed", type=int, default=66)
+    parser.add_argument("--loss-balance", choices=["none", "known-state"], default="none",
+                        help="Opt-in inverse known-state training frequencies, capped at four")
     args = parser.parse_args()
     if min(args.head_epochs, args.finetune_epochs, args.batch_size) < 1 or not 0 <= args.workers <= 8:
         parser.error("Both stages and batch size must be positive; workers 0..8")
@@ -207,6 +236,10 @@ def main() -> None:
     }
     train_data = PilotDataset(train, labels, augment=True)
     val_data = PilotDataset(validation, labels, augment=False)
+    state_weights, state_evidence = None, None
+    if args.loss_balance == "known-state":
+        state_weights, state_evidence = training_state_weights(train, labels)
+        state_weights = state_weights.to(device)
     generator = torch.Generator().manual_seed(args.seed)
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, generator=generator,
                               num_workers=args.workers, persistent_workers=args.workers > 0)
@@ -231,7 +264,11 @@ def main() -> None:
         "preprocessing": {"size": [224, 224], "resize": "full-image PIL bilinear",
                           "orientation": "Open Images Rotation degrees CCW, EXIF not additionally applied",
                           "mean": MEAN, "std": STD, "augmentation": "horizontal flip p=0.5 only"},
-        "optimizer": "AdamW; weight_decay=0.0001; no class weights",
+        "optimizer": "AdamW; weight_decay=0.0001",
+        "loss": {"balance": args.loss_balance, "weightCap": 4 if state_weights is not None else None,
+                 "trainingEvidence": state_evidence,
+                 "reduction": "weighted sum divided by known-entry count; no weight renormalization",
+                 "validationSelection": "unweighted masked BCE, unchanged from baseline"},
         "headEpochs": args.head_epochs, "finetuneEpochs": args.finetune_epochs,
         "headLearningRate": 0.001, "finetuneLearningRate": 0.0001,
         "batchSize": args.batch_size, "workers": args.workers,
@@ -264,7 +301,7 @@ def main() -> None:
             total = known = updates = 0
             for images, targets in train_loader:
                 optimizer.zero_grad(set_to_none=True)
-                loss, count = masked_loss(model(images.to(device)), targets.to(device))
+                loss, count = masked_loss(model(images.to(device)), targets.to(device), state_weights)
                 if loss is None:
                     continue
                 if not torch.isfinite(loss):
