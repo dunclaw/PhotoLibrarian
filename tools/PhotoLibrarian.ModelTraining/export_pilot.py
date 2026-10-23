@@ -55,6 +55,18 @@ def development_scores(session, rows: list[dict], labels: list[str]) -> tuple[np
     return np.asarray(scores), np.asarray(targets)
 
 
+def development_parity(expected: np.ndarray, actual: np.ndarray, targets: np.ndarray) -> dict:
+    if (expected.shape != actual.shape or actual.shape != targets.shape or not actual.size
+            or not np.isfinite(expected).all() or not np.isfinite(actual).all()):
+        raise ValueError("Development parity arrays are invalid")
+    maximum = float(np.max(np.abs(expected - actual)))
+    flips = (expected >= 0.5) != (actual >= 0.5)
+    if maximum > 1e-4 or flips.any():
+        raise ValueError(f"Full development FP32 parity failed: maxAbs={maximum}, flips={int(flips.sum())}")
+    return {"maxAbsoluteError": maximum, "tolerance": 1e-4, "cutoff05Flips": int(flips.sum()),
+            "knownEntryCutoff05Flips": int((flips & (targets >= 0)).sum()), "entries": int(actual.size)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True, help="Completed train_pilot output")
@@ -139,6 +151,13 @@ def main() -> None:
         "limitations": checkpoint["config"]["limitations"],
     }
     development, targets = development_scores(session, rows, labels)
+    reference_path = args.run / "validation-scores.npz"
+    if file_hash(reference_path) != completion["validationScoresSha256"]:
+        raise ValueError("Selected PyTorch development scores changed")
+    with np.load(reference_path) as reference:
+        if not np.array_equal(reference["targets"], targets):
+            raise ValueError("PyTorch/ONNX development targets differ")
+        report["fullDevelopmentParity"] = development_parity(reference["scores"], development, targets)
     report["development"] = {
         "purpose": "partial-label development/model selection only; not untouched test quality",
         "supervisedImages": len(targets),

@@ -189,6 +189,20 @@ class MaskedTrainingTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_EXPORT, "Optional export tests require requirements-training.txt")
 class ExportTests(unittest.TestCase):
+    def test_full_development_parity_rejects_score_drift_and_cutoff_flips(self):
+        import numpy as np
+        from export_pilot import development_parity
+        expected = np.array([[0.8, 0.4]])
+        targets = np.array([[1, -1]])
+        report = development_parity(expected, expected + 1e-6, targets)
+        self.assertEqual(0, report["cutoff05Flips"])
+        self.assertEqual(2, report["entries"])
+        for actual in [expected + 0.001, np.array([[float("nan"), 0.4]])]:
+            with self.assertRaises(ValueError):
+                development_parity(expected, actual, targets)
+        with self.assertRaisesRegex(ValueError, "flips=1"):
+            development_parity(np.array([[0.49999]]), np.array([[0.50001]]), np.array([[-1]]))
+
     def test_development_scoring_preserves_unknowns_and_checks_images_and_outputs(self):
         import hashlib
         import numpy as np

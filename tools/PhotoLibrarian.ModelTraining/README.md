@@ -1,7 +1,7 @@
 # Compact home-photo tagger: research foundation
 
-This is the **data-readiness stage of #66**, not a trained model, shipping
-profile, or completion of that issue. Research training/export tools are
+This is the **research pilot for #66**, including a measured 44-label model,
+not a shipping profile or completion of that issue. Training/export tools are
 separate from the application; RAM++/TinyCLIP profiles, existing approvals and
 photo metadata are unchanged. Local exploratory artifacts are not licensed or
 quality-approved shipping bundles.
@@ -441,7 +441,10 @@ For CPU only, omit the GPU preinstallation and install the requirements.
 The exact resolved versions including CUDA suffix, device, seed, optimizer,
 preprocessing, manifests and initialization identities are recorded in `run.json`.
 Deterministic Torch algorithms are required; explicitly requested CUDA must be
-available or the run fails rather than falling back silently.
+available or the run fails rather than falling back silently. CUDA convolution
+and matrix-multiplication TF32 are explicitly disabled to preserve FP32
+cross-runtime parity. Resolved environment versions and source-code hashes are
+recorded, not just the dependency manifest.
 
 ```powershell
 & $python tools\PhotoLibrarian.ModelTraining\train_pilot.py `
@@ -503,7 +506,8 @@ an annotated positive object. Horizontal flips are the sole augmentation.
 Threshold 0.5 is **uncalibrated**, and undefined precision is null, not perfect.
 The best checkpoint is chosen by masked development loss, never private
 regression scores or an untouched test. `completion.json` is written only after
-both stages finish and fingerprints the checkpoint.
+both stages finish and fingerprints the checkpoint and selected validation
+score arrays.
 
 ```powershell
 & $python tools\PhotoLibrarian.ModelTraining\export_pilot.py `
@@ -515,8 +519,9 @@ Export loads a matching completed checkpoint with weights-only deserialization.
 FP32 ONNX has fixed `image` float32 `[1,3,224,224]` input and `scores` float32
 `[1,labelCount]` independent sigmoid output. ONNX checker and actual CPU
 inference are required; parity uses three synthetic tensors plus up to 16
-development photos, predeclared maximum absolute error <=0.0001 and zero 0.5
-decision flips. The pinned legacy TorchScript exporter is explicitly selected
+development photos, plus the entire supervised development cohort against the
+selected PyTorch score arrays. Both require predeclared maximum absolute error
+<=0.0001 and zero 0.5 decision flips. The pinned legacy TorchScript exporter is explicitly selected
 (`dynamo=False`), so this small fixed graph does not need extra exporter
 packages; its deprecation warning is not hidden.
 
@@ -524,8 +529,9 @@ Optional INT8 uses static QDQ with per-channel signed weights and unsigned
 activations, calibrated on at most 128 **original training** images, never
 validation/private/test. It records score errors and threshold flips against
 FP32 on the same parity inputs, without claiming those errors are acceptable
-for production. It needs full development quality comparison and independently
-calibrated thresholds. The preprocessed ONNX is an intermediate diagnostic,
+for production. Full development metrics and known-entry flips are also
+recorded; independently calibrated thresholds and quality approval remain
+required. The preprocessed ONNX is an intermediate diagnostic,
 not an additional runtime dependency.
 
 `export-report.json` records runtime bytes/hashes, score contract, preprocessing,
@@ -535,10 +541,96 @@ preprocessing and does not stand in for app end-to-end latency, working memory,
 DirectML fallback verification or a quality benchmark. No runtime profile is
 automatically created or approved.
 
+## Measured research pilot and model card
+
+The local `run-balanced-pilot-v2` / `export-balanced-pilot-v2` artifacts were
+actually trained/exported with the commands above, using new output directories.
+This is an object/scene retrieval feasibility baseline, **not a replacement
+default, exhaustive photo description, identity/sensitive inference model, or
+redistribution-approved bundle**. The full 100-concept proposal remains the
+target vocabulary; only **44 concepts** passed the declared post-filter
+positive/negative gates. The other 56 abstain. The head order and per-concept
+counts/metrics are published in [`pilot-results-v2.csv`](pilot-results-v2.csv).
+
+Public acquisition downloaded and hash-verified 10,000 original training and
+3,000 original validation images: **4,221,291,827 bytes**. The audit excluded
+1,800 unknown source rotations, 115 hierarchy conflicts, 2,272 validation-author
+overlaps, 88 approximate validation near-matches, and 25 approximate private
+regression near-matches. It checked the existing 156 private regression photos
+read-only; none entered training. After exclusions, 6,107 training / 2,593
+validation images remained; 5,936 / 2,390 had supervision for the gated head.
+Counts are images, not independently reviewed events, and perceptual hashes can
+overexclude or miss matches.
+
+Training used Python 3.12.0, Torch 2.9.1+cu128, TorchVision 0.24.1+cu128,
+CUDA 12.8 and an RTX 5080 on Windows 11. The documented seed-66 recipe ran
+three head epochs and two fine-tuning epochs in **147.48 seconds** excluding
+the data audit and baseline evaluation. Masked validation BCE improved from
+**0.69596 to 0.59450**. The first fine-tuning epoch was best; the second worsened
+to 0.63376 and was **not** selected. No claim of convergence or optimal recipe
+is made.
+
+All metrics below use the same **2,390 development photos / 5,450 known entries**
+at the **uncalibrated 0.5 cutoff**. Another 99,710 entries remain unknown and
+are ignored, not treated as negative. Validation was used for checkpoint and
+quantization development, so these are **not untouched-test accuracy or
+exhaustive recall**, and cannot be compared to prior RAM++ human ratings.
+
+| Measurement | FP32 | Static INT8 diagnostic |
+| --- | ---: | ---: |
+| ONNX bytes | 17,024,708 | 4,768,694 |
+| Known-entry micro precision | 69.34% | 69.15% |
+| Known-entry micro recall | 85.51% | 75.08% |
+| Macro precision (44 defined labels) | 69.30% | 68.39% |
+| Macro recall (44 defined labels) | 77.20% | 56.02% |
+
+The FP32 file meets the initial 15-30 MB engineering target. It passed ONNX
+checking and PyTorch parity across all **105,160 development scores**, maximum
+absolute error **0.000003160**, with **zero 0.5 decision flips**. Three synthetic
+and 16-photo checks also passed. An initial exploratory run exposed CUDA's
+default TF32 convolution drift (up to 0.005823 against CPU ONNX); the published
+v2 run disables TF32 and enforces full-cohort parity rather than relying on a
+small sample.
+
+**INT8 is rejected as a usable pilot replacement.** Calibration used 128
+original training images only. Maximum full-development score error versus
+FP32 was **0.939996**, with **1,049 known-entry decision flips** and substantial
+recall loss. A separate Conv/Gemm/MatMul-only quantization experiment did not
+fix this (1,109 flips; 73.96% micro recall). Keep FP32 for further research;
+revisit quantization/calibration before considering INT8. No tolerances or
+label gates were relaxed to manufacture acceptance.
+
+FP32 ORT 1.23.2 CPU diagnostic: four intra-op threads, 5 warmups / 30 iterations,
+**2.79 ms p50 / 2.98 ms p95**, **27.74 ms session load**. This is one input tensor
+on this host, excludes decoding/preprocessing, and is not app end-to-end latency
+or a CPU-versus-GPU benchmark. DirectML, fallback, peak working set and a matched
+RAM++/SigLIP 2/TinyCLIP comparison remain unmeasured.
+
+Artifact identities (SHA-256; binaries and photo-level records stay local):
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Post-filter dataset fingerprint | `7d1e5cc5bf1c78bce336f1f27d7e2a16f154c1133e6c376fdbc277ff553b6d0c` |
+| Selected PyTorch checkpoint | `02b1ba18d9d2fb432cb2427797d50d3ab97817fc0abce8939d2a74229461c9ac` |
+| FP32 ONNX | `3b7d32bc041442ae84ced7a9273d64323ae0805acb3993fb3339aa9568b34938` |
+| INT8 diagnostic ONNX | `b5251dc701654f3e44c7f59108cf47990e3c86f02bf67f46c101849029698cce` |
+
+Sources/rights remain as documented above: Open Images annotation CC BY 4.0,
+image-level CC BY 2.0 metadata with retained attribution but no guarantee of
+current individual rights, TorchVision BSD-3-Clause code, and separately
+unresolved ImageNet-derived initialization rights. No product/redistribution
+clearance or model hosting approval is implied. Sparse reviewed labels, source
+selection, geographic/cultural representation, small objects and visually
+similar classes remain important limitations; for example FP32 camera
+precision was only 41.67% on 18 known positives and 18 negatives. Next steps
+require licensing clearance, independent calibration/test cohorts and matched
+evaluation, **not wholesale relabeling of the maintainer's collection**.
+
 ## Remaining validation and release gates
 
-1. Review the pilot with diverse users; map and audit private data, verified Open
-   Images subsets and cross-source duplicates. Collect independent positive
+1. Review the pilot and public-data mapping/coverage with diverse users; audit
+   verified Open Images subsets and cross-source duplicates. Consented private
+   data remains optional. Collect independent positive
    **and reviewed negative** groups. A provisional data-collection goal is at
    least 50 positive training groups per concept, with separately reviewed
    calibration/test coverage; it is not a scientifically established minimum.

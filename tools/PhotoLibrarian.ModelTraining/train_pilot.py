@@ -172,6 +172,8 @@ def main() -> None:
     torch.use_deterministic_algorithms(True)
     torch.set_num_threads(8)
     torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
     train, validation, labels, audit = build_audit(
         args.train, args.validation, args.vocabulary, args.mapping, args.regression_images,
         args.minimum_train, args.minimum_validation)
@@ -216,6 +218,7 @@ def main() -> None:
         "initialization": initialization, "seed": args.seed,
         "device": str(device), "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
         "python": sys.version, "platform": platform.platform(), "cudaRuntime": torch.version.cuda,
+        "precision": {"dtype": "float32", "cudnnAllowTF32": False, "matmulAllowTF32": False},
         "environment": dict(sorted((distribution.metadata["Name"], distribution.version)
                                   for distribution in importlib.metadata.distributions())),
         "codeSha256": {name: file_hash(Path(__file__).with_name(name)) for name in [
@@ -292,6 +295,7 @@ def main() -> None:
         "bestValidationLoss": best, "initialValidationLoss": baseline_loss,
         "checkpointSha256": file_hash(args.output / "best.pt"),
         "checkpointBytes": (args.output / "best.pt").stat().st_size,
+        "validationScoresSha256": file_hash(args.output / "validation-scores.npz"),
         "trainingSeconds": time.perf_counter() - start,
         "headEpochsCompleted": args.head_epochs, "finetuneEpochsCompleted": args.finetune_epochs,
         "validationPurpose": "development/model selection only, not final test",
