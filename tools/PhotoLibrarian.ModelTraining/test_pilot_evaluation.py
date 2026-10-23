@@ -97,6 +97,13 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(1, summary["unreviewedEmittedPairs"])
         self.assertEqual(1, summary["microPrecision"])
         self.assertEqual(2, len(baseline_emissions(self.review(), labels)["old"]))
+        review = self.review()
+        review["items"][1].update(initialDecision=None, reason="conflict")
+        _, coverage = reviewed_pairs(review, labels)
+        self.assertEqual(1, coverage["states"]["conflict"])
+        review["items"][1]["reason"] = "new"
+        _, coverage = reviewed_pairs(review, labels)
+        self.assertEqual(1, coverage["states"]["pending"])
 
     def test_review_schema_duplicates_conflicts_and_bad_baseline_references_fail(self):
         from evaluate_regression import reviewed_pairs, baseline_emissions

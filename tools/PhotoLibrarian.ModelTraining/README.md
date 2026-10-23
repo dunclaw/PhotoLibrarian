@@ -603,8 +603,9 @@ label gates were relaxed to manufacture acceptance.
 FP32 ORT 1.23.2 CPU diagnostic: four intra-op threads, 5 warmups / 30 iterations,
 **2.79 ms p50 / 2.98 ms p95**, **27.74 ms session load**. This is one input tensor
 on this host, excludes decoding/preprocessing, and is not app end-to-end latency
-or a CPU-versus-GPU benchmark. DirectML, fallback, peak working set and a matched
-RAM++/SigLIP 2/TinyCLIP comparison remain unmeasured.
+or a CPU-versus-GPU benchmark. Subsequent real-photo CPU/DirectML execution and
+host-memory diagnostics are below; a matched RAM++/SigLIP 2/TinyCLIP quality
+comparison remains outstanding.
 
 Artifact identities (SHA-256; binaries and photo-level records stay local):
 
@@ -622,11 +623,12 @@ unresolved ImageNet-derived initialization rights. No product/redistribution
 clearance or model hosting approval is implied. Sparse reviewed labels, source
 selection, geographic/cultural representation, small objects and visually
 similar classes remain important limitations; for example FP32 camera
-precision was only 41.67% on 18 known positives and 18 negatives. Next steps
-require licensing clearance, independent calibration/test cohorts and matched
-evaluation, **not wholesale relabeling of the maintainer's collection**.
+precision was only 41.67% on 18 known positives and 18 negatives. The additional
+calibration/test below does not clear licensing or matched-model evaluation.
+Further progress does **not require wholesale relabeling of the maintainer's
+collection**.
 
-## Remaining validation and release gates
+## Additional evaluation and remaining release gates
 
 ### Frozen additional public evaluation protocol
 
@@ -715,6 +717,123 @@ directories; `fit` never reads the test manifest or test photos:
   --output D:\Training\OpenImages\test-public-v1
 ```
 
+### First held-out research test: precision improves, breadth is not ready
+
+The policy, code and artifact hashes above were committed in **`52d7aac` before
+the first test inference**. The frozen thresholds were then evaluated once,
+without retuning, on **1,659 held-out photos / 3,366 known label entries**.
+The public download added 1,255,728,923 bytes. Full per-tag results and exact
+frozen thresholds are in
+[`pilot-test-results-v1.csv`](pilot-test-results-v1.csv); blank thresholds mean
+disabled/abstaining, not zero.
+
+| Held-out known-entry measurement | Fixed 0.5 baseline | Calibration-only thresholds |
+| --- | ---: | ---: |
+| Enabled labels | 44 | 9 |
+| Micro precision | 71.97% | 88.65% |
+| Micro recall, including disabled labels' positives | 84.80% | 37.18% |
+| True positives / false positives / false negatives | 1,674 / 652 / 300 | 734 / 94 / 1,240 |
+| Photos with any emitted tag | 1,659 | 1,128 |
+| Total emitted tags / unreviewed emitted tags | 21,058 / 18,732 | 1,846 / 1,018 |
+
+**Do not promote this pilot as a general-purpose default.** The observed
+held-out precision is below the provisional 90% calibration target, and only
+nine labels have support for the fitted policy. For example, calibrated
+`table` precision fell to 69.57% on 23 accepted known test entries. The
+descriptive micro-precision Wilson interval is 86.31-90.63%; group correlation,
+balanced selection and incomplete annotation preclude a population guarantee.
+More than half of calibrated emitted tags are unreviewed, so the results do
+not establish full prediction precision, exhaustive recall, useful distinct
+tags per photo or human quality ratings.
+
+The local `test-public-v1\test.json` SHA-256 is
+`14e22290b7902a154493306ffa7d9e905267e2674092e8d2866a46a2b1d7bf5d`.
+This research test is now **consumed**: changing the model, mapping, sampling
+or policy based on these findings requires a new untouched test for any
+subsequent generalization claim. Do not repeatedly optimize this score.
+
+### Real-photo CPU/DirectML and memory diagnostics
+
+`benchmark_pilot.py` verifies the export identity/contract, fully decodes local
+photos and uses bit-exact pilot preprocessing. `--provider` is mandatory;
+unavailable/failed providers are errors, and Python's runtime retry fallback is
+disabled. DirectML's graph-level CPU fallback is permitted only for the first
+diagnostic, recorded from an actual ORT node profile, then explicitly disabled
+in a separate strict session. A provider-list entry alone is not execution
+evidence.
+
+Measured sequentially in separate processes on the same 156 Diverse files:
+Python 3.12 / ORT DirectML 1.23.0 / four intra-op CPU threads / five warmups,
+AMD Ryzen 9 9950X3D, Windows 11, RTX 5080 driver **32.0.16.1088**.
+DirectML device index **0** was explicit; a separate DXGI `EnumAdapters1`
+inspection identified it as the RTX 5080 (index 1 is the integrated AMD GPU).
+The report also records the full Windows CIM CPU/video-driver inventory.
+
+| Measurement | CPU | DirectML adapter 0 |
+| --- | ---: | ---: |
+| Session construction | 33.36 ms | 375.46 ms |
+| First inference, before remaining warmups | 3.02 ms | 2.69 ms |
+| Warm inference p50 / p95 | 3.14 / 3.94 ms | 0.82 / 0.97 ms |
+| Decode + preprocess + inference p50 / p95 | 35.93 / 181.57 ms | 35.02 / 183.98 ms |
+| Sampled process peak host RSS | 551.99 MiB | 752.02 MiB |
+| Host RSS increase over pre-session baseline | 496.94 MiB | 697.25 MiB |
+
+DirectML executed one **fused GPU partition**, with **no CPU execution nodes**
+in the profiled graph; the strict CPU-fallback-disabled session also succeeded.
+CPU profiling recorded 188 optimized execution nodes. Across all **6,864 private
+regression scores**, CPU/DirectML max absolute difference was **0.000001014**
+with **zero 0.5 cutoff flips**. This does not certify every GPU/driver or all
+possible calibrated-threshold behavior.
+
+The larger DirectML startup/RSS matters: faster inference barely changes total
+photo latency when decoding dominates. Memory is the entire Python/decoder/
+runtime **host process RSS**, sampled every 5 ms; it is neither isolated model
+memory nor GPU VRAM, and brief peaks can be missed. Timings include decoding,
+orientation and normalization but exclude hashing/report writing and do not
+measure application scheduling, metadata writes or UI latency. File-cache
+state and unrelated host workloads are uncontrolled. These are diagnostics,
+not a shipping performance promise.
+
+```powershell
+& $evalPython tools\PhotoLibrarian.ModelTraining\benchmark_pilot.py `
+  --bundle D:\Training\OpenImages\export-balanced-pilot-v2 `
+  --images D:\Temp\Pictures\Diverse --provider cpu `
+  --output D:\Training\OpenImages\benchmark-diverse-cpu-v4
+& $evalPython tools\PhotoLibrarian.ModelTraining\benchmark_pilot.py `
+  --bundle D:\Training\OpenImages\export-balanced-pilot-v2 `
+  --images D:\Temp\Pictures\Diverse --provider directml --device-id 0 `
+  --output D:\Training\OpenImages\benchmark-diverse-directml-v4
+& $evalPython tools\PhotoLibrarian.ModelTraining\evaluate_regression.py `
+  --benchmark D:\Training\OpenImages\benchmark-diverse-cpu-v4 `
+  --compare-provider D:\Training\OpenImages\benchmark-diverse-directml-v4 `
+  --review D:\Temp\DiverseLabeling\Diverse-General-ReviewComplete-V2-20260917\review-items.json `
+  --output D:\Training\OpenImages\regression-diverse-v5
+```
+
+Local CPU / DirectML `benchmark.json` SHA-256:
+`74a5a1e37bce0cc6d9d7e2602272073cef947fed0c36b112db06795435e58ece` /
+`255f73b80a7cbb04c0ec15c0b58d24df4d26f0e56498d247e003db5cfd3f9d5f`.
+
+### Existing manual reviews reused, without new labeling
+
+The completed review has 2,472 judgments (1,137 correct, 1,335 incorrect).
+Exact canonical-label matching to the gated 44-label head yields **181 known
+photo/tag pairs across 21 labels**. Broad aliases and ancestors do not inherit
+negative judgments from narrower tags. On those known pairs, the pilot's
+unchanged 0.5 cutoff gives **113 TP / 25 FP / 28 FN**, or **81.88% precision /
+80.14% recall**. Only 138 of its 1,933 emitted tags have matching reviewed
+judgments; the other 1,795 remain unknown, not falsely counted as correct or
+incorrect. No threshold was fitted on these photos.
+
+The script also records historical displayed RAM++/TinyCLIP emissions against
+the same reviewed pool (respectively 139/39/2 and 36/2/105 TP/FP/FN). These are
+**not a fair leaderboard**: review candidates came from those models and their
+original vocabularies, cutoffs and top-K limits differ. SigLIP 2 and new
+whole-photo quality ratings are absent. Existing review filenames match the
+current 156 files, but the review artifact has no historical byte hashes, so
+unchanged content since the original review cannot be certified. This remains
+development regression evidence, not a new final test.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -757,7 +876,8 @@ directories; `fit` never reads the test manifest or test photos:
    ratings. Do not double-count ancestors as extra useful tags. Partial-label
    metrics cover reviewed entries only: full recall claims require an
    exhaustively reviewed test vocabulary, not missing-label-as-negative scoring.
-7. Measure actual Windows Release CPU and DirectML cold load, warm-up, p50/p95
+7. Extend the measured Python CPU/DirectML diagnostics above to actual Windows
+   Release application cold load, warm-up, p50/p95
    preprocessing/inference/end-to-end latency, peak working set, model bytes,
    machine/driver/thread settings, provider availability and node fallback.
    Record failed or unsupported provider runs explicitly. INT8 on DirectML is
@@ -788,8 +908,12 @@ Optional research tests additionally check decode/rotation and overlap
 quarantine, positive/negative label gates, masked gradients, all-unknown batches,
 partial-label metrics, training-only INT8 calibration and export input/output
 integrity. Run the same command with the isolated training environment's Python
-to execute these tests. The dependency-free CI job explicitly skips tests whose
-Pillow/PyTorch/ONNX dependencies are absent; it does not train a model.
+to execute these tests. CI first runs the dependency-free subset, then installs
+the isolated evaluation requirements and runs those optional tests without
+models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
+train a model. Locally, all **60 distinct tests** were exercised across the
+training environment (one provider-test skip) and evaluation environment (nine
+training/export-test skips). The base Python run has 27 optional skips.
 
 Exports also score every supervised development image with FP32 and, when
 requested, INT8. Reports retain known-entry metrics and quantized decision flips

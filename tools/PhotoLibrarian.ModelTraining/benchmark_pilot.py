@@ -8,6 +8,7 @@ import importlib.metadata
 import json
 from pathlib import Path
 import platform
+import subprocess
 import threading
 import time
 
@@ -43,6 +44,20 @@ def session_options(threads: int, strict: bool = False):
     return options
 
 
+def hardware_info() -> dict:
+    if platform.system() != "Windows":
+        return {"processor": platform.processor(), "driverInventory": "Windows CIM query not applicable"}
+    command = (
+        "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); "
+        "@{ cpu=@(Get-CimInstance Win32_Processor | Select-Object Name); "
+        "videoControllers=@(Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion) } "
+        "| ConvertTo-Json -Depth 4 -Compress"
+    )
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                            check=True, capture_output=True, text=True, encoding="utf-8")
+    return json.loads(result.stdout)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
@@ -66,6 +81,7 @@ def main() -> None:
     provider = "DmlExecutionProvider" if args.provider == "directml" else "CPUExecutionProvider"
     if provider not in ort.get_available_providers():
         raise RuntimeError(f"Requested {provider} unavailable: {ort.get_available_providers()}")
+    hardware = hardware_info()
     providers = ([provider] if args.provider == "cpu"
                  else [(provider, {"device_id": args.device_id}), "CPUExecutionProvider"])
     args.output.mkdir(parents=True, exist_ok=False)
@@ -90,8 +106,11 @@ def main() -> None:
         load_ms = (time.perf_counter() - start) * 1000
         validate_session(session, bundle["labels"])
         first = prepare_tensor(images[0])
+        warmup_ms = []
         for _ in range(5):
+            start = time.perf_counter()
             infer(session, first, len(bundle["labels"]))
+            warmup_ms.append((time.perf_counter() - start) * 1000)
         scores, records, preprocess, inference, total = [], [], [], [], []
         for path in images:
             identity = {"image": path.relative_to(args.images).as_posix(), "sha256": file_hash(path)}
@@ -142,13 +161,14 @@ def main() -> None:
         "codeSha256": {name: file_hash(Path(__file__).with_name(name)) for name in
                        ["benchmark_pilot.py", "pilot_inference.py", "requirements-evaluation.txt"]},
         "platform": platform.platform(), "python": platform.python_version(),
-        "processor": platform.processor(), "ortVersion": ort.__version__,
+        "hardware": hardware, "ortVersion": ort.__version__,
         "environment": dict(sorted((d.metadata["Name"], d.version) for d in importlib.metadata.distributions())),
         "requestedProvider": provider, "availableProviders": ort.get_available_providers(),
         "requestedDirectMLDeviceId": args.device_id if args.provider == "directml" else None,
         "sessionProviders": session.get_providers(), "pythonRuntimeFallbackDisabled": True,
         "nodePlacement": nodes, "strictNoCpuFallback": strict, "intraOpThreads": args.threads,
         "warmups": 5, "images": records, "imageCount": len(records), "loadMs": load_ms,
+        "firstInferenceMs": warmup_ms[0], "warmupInferenceMs": warmup_ms,
         "preprocessing": "PIL EXIF transpose, RGB, full-image bilinear 224; ImageNet normalization",
         "timingMs": {name: {"p50": float(np.percentile(values, 50)),
                            "p95": float(np.percentile(values, 95))}

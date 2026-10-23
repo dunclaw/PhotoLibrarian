@@ -29,6 +29,8 @@ def reviewed_pairs(review: dict, labels: list[str]) -> tuple[dict, dict]:
             raise ValueError("Duplicate item or unknown photo in review")
         ids.add(item["id"])
         decision = item["initialDecision"]
+        if decision is None:
+            decision = "conflict" if item.get("reason") == "conflict" else "pending"
         if decision not in {"correct", "incorrect", "pending", "conflict"}:
             raise ValueError("Unknown review decision")
         states[decision] += 1

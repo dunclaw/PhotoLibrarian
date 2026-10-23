@@ -26,7 +26,7 @@ defaults:
 jobs:
   model-research-tests:
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -34,6 +34,16 @@ jobs:
           python-version: '3.12'
       - name: Test dataset audits and Open Images preparation
         run: python -m unittest discover -s tools\PhotoLibrarian.ModelTraining -p "test_*.py" -v
+      - name: Test isolated pilot evaluation tools (no model or GPU required)
+        shell: pwsh
+        run: |
+          $venv = Join-Path $env:RUNNER_TEMP 'pilot-evaluation'
+          python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $python = Join-Path $venv 'Scripts\python.exe'
+          & $python -m pip install -r tools\PhotoLibrarian.ModelTraining\requirements-evaluation.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -m unittest discover -s tools\PhotoLibrarian.ModelTraining -p "test_*.py" -v
 
   version:
     runs-on: windows-latest

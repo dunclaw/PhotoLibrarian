@@ -338,6 +338,10 @@ selection, overlap/label audits, staged MobileNetV3 training and verified
 FP32/INT8 ONNX export. Training and exports are local research only, with
 unresolved pretrained-weight rights and no production approval. No model
 weights are included and the shipping profiles are unchanged.
+The research results now include frozen public calibration/held-out testing,
+reuse of existing private review judgments, and measured CPU/DirectML node
+placement, timing and host memory. Precision/breadth limitations still prevent
+choosing this pilot as a shipping default.
 
 `PhotoLibrarian.ModelBench` evaluates the discussed EfficientNet, YOLOv8
 classification/detection, YOLOv10 detection, JoyTag, and RAM++ ONNX models
