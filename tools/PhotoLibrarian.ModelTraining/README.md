@@ -1034,6 +1034,76 @@ experiment. It cannot establish independent generalization, approve a new
 production model or resolve weight/image licensing. Wider data and separately
 frozen calibration plus a new untouched test remain necessary.
 
+#### Completed same-seed result
+
+The protocol and training source were committed as `75c91f2` **before**
+retraining. Both runs used the identical audited fingerprint, 5,936 supervised
+training images and 2,390 supervised development images / 44 labels.
+Initial unweighted development BCE matched exactly at 0.6959589017421828.
+All five epochs completed (139.74 seconds excluding audit/baseline).
+The predeclared selection rule chose **head epoch three**, rather than
+fine-tuning: development BCE was 0.60699, 0.58232, 0.57348, 0.58185, 0.59623.
+Both fine-tuning epochs were worse; neither the schedule nor cap was changed
+after observing this.
+
+| Full prior-development metric, 5,450 known entries | Original unweighted | Known-state balanced |
+| --- | ---: | ---: |
+| Selected unweighted BCE | 0.59450 | 0.57348 |
+| Precision at unchanged 0.5 | 69.34% | 73.42% |
+| Recall at unchanged 0.5 | 85.51% | 76.68% |
+| TP / FP / FN | 2,673 / 1,182 / 453 | 2,397 / 868 / 729 |
+| Macro AP, 44 labels | 0.7855 | 0.7869 |
+
+Balancing reduced known false positives by **314 (26.6%)**, but lost
+**276 true positives**. This mostly changes the operating point, rather
+than clearly improving ranking. Per-label evidence is published in
+[`state-balance-results-v1.csv`](state-balance-results-v1.csv). For example,
+`person` false positives fell from 334 to 162, while true positives fell from
+548 to 475; `tree` AP fell from 0.9125 to 0.8608. Some rare concepts improved,
+but the aggregate is not a general quality win.
+
+The existing 1,000-photo / 40-label matched development subset gives macro AP
+**0.8059 to 0.7903**. Fitting the unchanged precision policy on its 525 fit
+photos still enables the same four labels (`animal`, `tree`, `food`,
+`person`). On the 475 check photos, precision/recall worsens from
+**89.94% / 27.54% to 87.90% / 25.00%** (152 / 17 / 400 TP/FP/FN versus
+138 / 19 / 414). This is reused development, not an independent test.
+**Do not promote this candidate over the original research baseline.**
+State balancing alone does not solve the reliable-coverage problem.
+
+The candidate's FP32 export is still **17,024,708 bytes**, SHA-256
+`68f897bd60fc807c158775b38208917894692cd362c2009d71b8b6205400c6ef`.
+Selected checkpoint SHA-256:
+`7e56d97cd93895f8d5bc21b286498ec345e3fb27e26a33eda182bf649b411920`.
+All **105,160** development scores pass the unchanged FP32 parity gate:
+max absolute error 0.000003338, zero 0.5 flips. The three synthetic / 16-photo
+check also passes (max error 0.000008464). This verifies export fidelity,
+not generalization or production approval. No new INT8 or DirectML claim
+is made for this rejected candidate.
+
+Reproduce export and comparison after training:
+
+```powershell
+& $python tools\PhotoLibrarian.ModelTraining\export_pilot.py `
+  --run D:\Training\OpenImages\run-state-balanced-v1 `
+  --output D:\Training\OpenImages\export-state-balanced-v1 --samples 16
+& $evalPython tools\PhotoLibrarian.ModelTraining\compare_training.py `
+  --baseline D:\Training\OpenImages\run-balanced-pilot-v2 `
+  --candidate D:\Training\OpenImages\run-state-balanced-v1 `
+  --candidate-bundle D:\Training\OpenImages\export-state-balanced-v1 `
+  --comparison D:\Training\OpenImages\matched-development-v2 `
+  --baseline-scores D:\Training\OpenImages\matched-development-scores-v1 `
+  --output D:\Training\OpenImages\state-balanced-comparison-v1
+```
+
+`compare_training.py` verifies completed checkpoint/score hashes, audited
+data fingerprints, ordered targets, fixed recipe and candidate export
+identity. It reuses frozen baseline scores and scores only the candidate
+on the exact prior-development photos, retaining both full and shared
+per-label evidence. It does not read the consumed test or calibration files.
+The next experiment should address public-data coverage and state/semantic
+sampling rather than repeat tuning of this weight cap.
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
@@ -1111,12 +1181,15 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **66 distinct tests** were exercised across the
-training environment (one provider-test skip) and evaluation environment (nine
-training/export-test skips). The base Python run has 33 optional skips.
+train a model. Locally, all **72 distinct tests** were exercised across the
+training environment (one provider-test skip) and evaluation environment (11
+training/export-test skips). The base Python run has 39 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.
+The controlled retraining tests additionally cover training-only state counts,
+weight caps and weighted unknown gradients, immutable run/array identities,
+ordered targets, recipe equality and masked BCE/ranking comparisons.
 
 Exports also score every supervised development image with FP32 and, when
 requested, INT8. Reports retain known-entry metrics and quantized decision flips
