@@ -11,7 +11,7 @@ import numpy as np
 import onnxruntime as ort
 
 from pilot_inference import infer, load_bundle, prepare_tensor, validate_session, write_json
-from prepare_dataset import file_hash
+from prepare_dataset import file_hash, fingerprint
 
 
 def wilson(success: int, count: int) -> list[float] | None:
@@ -84,6 +84,49 @@ def summarize(scores: np.ndarray, targets: np.ndarray, labels: list[str],
             "photosWithAnyTag": int(any_tag.sum()), "perLabel": rows}
 
 
+def calibration_cross_validation(scores: np.ndarray, targets: np.ndarray, labels: list[str],
+                                 groups: list[str], policy: dict, folds: int = 5) -> dict:
+    if (folds != 5 or scores.ndim != 2 or scores.shape != targets.shape
+            or scores.shape != (len(groups), len(labels)) or not np.isfinite(scores).all()
+            or not ((scores >= 0) & (scores <= 1)).all() or not np.isin(targets, [-1, 0, 1]).all()
+            or any(not group for group in groups)):
+        raise ValueError("Invalid grouped calibration arrays or fold count")
+    seed = "expanded-calibration-five-fold-v1"
+    assignments = np.asarray([int(fingerprint([seed, group]), 16) % folds for group in groups])
+    if set(assignments) != set(range(folds)):
+        raise ValueError("Every grouped calibration fold must contain photos")
+    decisions = np.zeros_like(scores)
+    reports = []
+    for fold in range(folds):
+        check = assignments == fold
+        fit = ~check
+        fit_groups = [group for group, include in zip(groups, fit) if include]
+        fitted = [choose_threshold(scores[fit, i], targets[fit, i], fit_groups, policy)
+                  for i in range(len(labels))]
+        thresholds = [entry["threshold"] for entry in fitted]
+        for i, threshold in enumerate(thresholds):
+            if threshold is not None:
+                decisions[check, i] = scores[check, i] >= threshold
+        reports.append({"fold": fold, "fitImages": int(fit.sum()), "checkImages": int(check.sum()),
+                        "fitGroups": len(set(fit_groups)),
+                        "checkGroups": len({group for group, include in zip(groups, check) if include}),
+                        "perLabelFit": fitted,
+                        "check": summarize(scores[check], targets[check], labels, thresholds)})
+    pooled = summarize(decisions, targets, labels, [0.5] * len(labels))
+    pooled["enabledLabels"] = None
+    for i, row in enumerate(pooled["perLabel"]):
+        row.pop("threshold")
+        row["enabledFolds"] = sum(report["perLabelFit"][i]["threshold"] is not None for report in reports)
+    return {"folds": folds, "seed": seed, "perFold": reports, "pooledOutOfFold": pooled,
+            "limitations": [
+                "Threshold-only group cross-validation within calibration, not an untouched final test.",
+                "Each check photo uses thresholds fit without its entire approximate group.",
+                "Enabled labels and thresholds differ per fold; pooled enabledLabels is intentionally null.",
+                "No model, policy, evidence threshold or fold seed is tuned using this diagnostic.",
+                "Unknown emissions are not counted as false positives; labels are not exhaustive.",
+            ]}
+
+
 def score_rows(session, rows: list[dict], labels: list[str]) -> tuple[np.ndarray, np.ndarray]:
     scores, targets = [], []
     for row in rows:
@@ -101,10 +144,13 @@ def main() -> None:
     parser.add_argument("--evaluation", type=Path, required=True)
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--calibration", type=Path, help="Frozen calibration.json required for test")
+    parser.add_argument("--calibration-folds", type=int, choices=[0, 5], default=0,
+                        help="Optional predeclared calibration-only grouped threshold diagnostic; fit only")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if (args.output.exists() or args.output.resolve().is_relative_to(Path(__file__).resolve().parents[2])
             or (args.operation == "test" and args.calibration is None)
+            or (args.operation == "test" and args.calibration_folds)
             or (args.operation == "fit" and args.calibration is not None)):
         parser.error("New external output required; --calibration is for test only")
     model, bundle = load_bundle(args.bundle)
@@ -158,6 +204,10 @@ def main() -> None:
     }
     if args.operation == "fit":
         result["perLabelFit"] = fitted
+        if args.calibration_folds:
+            result["calibrationCrossValidation"] = calibration_cross_validation(
+                scores, targets, bundle["labels"], [row["evaluationGroup"] for row in rows],
+                protocol["calibrationPolicy"], args.calibration_folds)
     else:
         result["calibrationSha256"] = file_hash(args.calibration)
     args.output.mkdir(parents=True, exist_ok=False)

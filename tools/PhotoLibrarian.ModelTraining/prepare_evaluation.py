@@ -54,7 +54,7 @@ def filter_fresh(rows: list[dict], prior: list[dict], regression_hashes: list[in
     hashes = {r["sha256"] for r in prior}
     authors = {r["provenance"].get("AuthorProfileURL") for r in prior} - {"", "nan", None}
     md5 = {r["provenance"].get("OriginalMD5") for r in prior} - {"", "nan", None}
-    dhashes = [r["dhash"] for r in prior]
+    dhashes = [r["dhash"] for r in prior if "dhash" in r]
     hierarchy = {row["label"]: row["parent"] for row in concepts}
     duplicate_states = {}
     conflicts = set()
@@ -100,6 +100,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--download", type=Path, required=True)
     parser.add_argument("--prior-run", type=Path, required=True)
+    parser.add_argument("--exclude-download", type=Path, action="append", default=[],
+                        help="Earlier original-validation downloads; identities/near hashes only, never outcomes")
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--regression-images", type=Path, required=True)
     parser.add_argument("--vocabulary", type=Path, default=Path(__file__).with_name("pilot-vocabulary.csv"))
@@ -129,6 +131,8 @@ def main() -> None:
     })
     if identity != config["dataFingerprint"]:
         raise ValueError("Prior audited cohort identities changed")
+    for manifest in args.exclude_download:
+        prior.extend(load_downloads(manifest, "validation"))
     regression_hashes = []
     from PIL import Image, ImageOps
     for path in sorted(args.regression_images.rglob("*")):
@@ -155,6 +159,7 @@ def main() -> None:
         "modelSha256": bundle["modelSha256"], "labels": bundle["labels"],
         "manifests": manifests, "selectionSource": "additional original Open Images validation images",
         "priorCohortSha256": [file_hash(path) for path in prior_files],
+        "excludedDownloadSha256": [file_hash(path) for path in args.exclude_download],
         "downloadSha256": file_hash(args.download), "vocabularySha256": file_hash(args.vocabulary),
         "codeSha256": file_hash(Path(__file__)), "seed": "open-images-independent-evaluation-v1",
         "images": dict(Counter(row["evaluationSplit"] for row in rows)),

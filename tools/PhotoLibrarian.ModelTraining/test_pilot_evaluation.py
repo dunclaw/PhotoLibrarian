@@ -14,6 +14,20 @@ HAS_CALIBRATION = HAS_ARRAYS and importlib.util.find_spec("onnxruntime") is not 
 
 @unittest.skipUnless(HAS_ARRAYS, "Optional evaluation tests require Pillow/numpy")
 class EvaluationTests(unittest.TestCase):
+    def test_prior_download_unknown_rotation_still_excludes_identity_without_inventing_hash(self):
+        from prepare_evaluation import filter_fresh
+        prior = [{"sourceId": "old", "sha256": "old-bytes", "decodeExclusion": "unknown-source-rotation",
+                  "provenance": {"AuthorProfileURL": "reserved-author", "OriginalMD5": "reserved-md5"}}]
+        base = {"labels": {"animal": "positive"}, "provenance": {}, "dhash": 0xAAAAAAAAAAAAAAAA}
+        rows = [{**base, "sourceId": "copy", "sha256": "old-bytes"},
+                {**base, "sourceId": "author", "sha256": "other",
+                 "provenance": {"AuthorProfileURL": "reserved-author"}},
+                {**base, "sourceId": "good", "sha256": "good"}]
+        kept, rejected = filter_fresh(rows, prior, [], [{"label": "animal", "parent": ""}])
+        self.assertEqual(["good"], [row["sourceId"] for row in kept])
+        self.assertEqual(2, len(rejected))
+        self.assertTrue(all(row["reason"] == "prior-development-identity-or-author" for row in rejected))
+
     def test_grouping_is_transitive_for_authors_bytes_and_near_neighbors(self):
         from prepare_evaluation import group_partition
         rows = [
@@ -182,6 +196,43 @@ class PlacementTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_CALIBRATION, "Optional calibration tests require evaluation environment")
 class CalibrationTests(unittest.TestCase):
+    def test_cross_validation_fits_without_check_groups_and_pools_masked_decisions(self):
+        import numpy as np
+        from unittest.mock import patch
+        from calibrate_pilot import calibration_cross_validation
+        from prepare_dataset import fingerprint
+        seed = "expanded-calibration-five-fold-v1"
+        chosen = {}
+        for i in range(100):
+            group = f"group-{i}"
+            chosen.setdefault(int(fingerprint([seed, group]), 16) % 5, group)
+        self.assertEqual(5, len(chosen))
+        groups = [group for _, group in sorted(chosen.items()) for _ in range(3)]
+        scores = np.tile([[0.9], [0.1], [0.99]], (5, 1))
+        targets = np.tile([[1], [0], [-1]], (5, 1))
+        def fit(values, actual, fit_groups, policy):
+            self.assertEqual(4, len(set(fit_groups)))
+            self.assertEqual(12, len(values))
+            return {"threshold": 0.5}
+        with patch("calibrate_pilot.choose_threshold", side_effect=fit) as mocked:
+            result = calibration_cross_validation(scores, targets, ["cat"], groups, self.policy())
+            self.assertEqual(5, mocked.call_count)
+        summary = result["pooledOutOfFold"]
+        self.assertEqual((5, 0, 0), (summary["tp"], summary["fp"], summary["fn"]))
+        self.assertEqual(5, summary["unknownEmittedTags"])
+        self.assertIsNone(summary["enabledLabels"])
+        self.assertEqual(5, summary["perLabel"][0]["enabledFolds"])
+        self.assertNotIn("threshold", summary["perLabel"][0])
+        self.assertTrue(all(report["checkGroups"] == 1 for report in result["perFold"]))
+        with patch("calibrate_pilot.choose_threshold", return_value={"threshold": None}):
+            result = calibration_cross_validation(scores, targets, ["cat"], groups, self.policy())
+            self.assertEqual(5, result["pooledOutOfFold"]["fn"])
+            self.assertEqual(0, result["pooledOutOfFold"]["perLabel"][0]["enabledFolds"])
+        with self.assertRaisesRegex(ValueError, "Every grouped"):
+            calibration_cross_validation(scores, targets, ["cat"], ["same"] * 15, self.policy())
+        with self.assertRaisesRegex(ValueError, "Invalid grouped"):
+            calibration_cross_validation(scores, targets, ["cat"], groups[:-1], self.policy())
+
     def policy(self):
         return {"targetPrecision": 0.9, "minimumWilsonLower95": 0.75, "minimumAccepted": 20,
                 "minimumKnownPositive": 10, "minimumKnownNegative": 10, "minimumGroupsPerState": 5}

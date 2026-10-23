@@ -1233,6 +1233,82 @@ semantics/negative sampling, rather than assuming more images alone will
 clear a precision gate. The consumed evaluation outcomes were not opened;
 no new independent-test, licensing or shipping claim follows.
 
+### Fresh calibration for the fixed expanded head
+
+Freeze the 68-label export unchanged. Select at most 8,000 additional
+original-validation photos with seed `open-images-expanded-calibration-v1`,
+150 source MID/state candidates, provenance-first balanced selection, and
+**all four** previous selections excluded (original training, expanded
+training, development, first evaluation). The available eligible pool yields
+only **3,396 photos**, not the requested maximum. Do not relax exclusions
+or invent negative labels to fill the cap.
+
+```powershell
+python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
+  --annotations "$root\metadata\oidv7-val-annotations-human-imagelabels.csv" `
+  --metadata "$root\metadata\validation-images-with-rotation.csv" `
+  --classes "$root\metadata\oidv7-class-descriptions.csv" `
+  --split validation --per-state 150 --max-images 8000 --eligible-first --balanced `
+  --seed open-images-expanded-calibration-v1 `
+  --exclude-selection "$root\selection-train-balanced-v1\selection.jsonl" `
+  --exclude-selection "$root\selection-train-expansion-v1\selection.jsonl" `
+  --exclude-selection "$root\selection-validation-balanced-v1\selection.jsonl" `
+  --exclude-selection "$root\selection-evaluation-v1\selection.jsonl" `
+  --output "$root\selection-expanded-evaluation-v1"
+python tools\PhotoLibrarian.ModelTraining\download_open_images.py `
+  --selection "$root\selection-expanded-evaluation-v1\selection.jsonl" `
+  --output "$root\download-expanded-evaluation-v1" --limit 8000 --workers 8
+& $evalPython tools\PhotoLibrarian.ModelTraining\prepare_evaluation.py `
+  --download "$root\download-expanded-evaluation-v1\download-manifest.jsonl" `
+  --prior-run "$root\run-expanded-pilot-v1" `
+  --bundle "$root\export-expanded-pilot-v1" `
+  --exclude-download "$root\download-evaluation-v1\download-manifest.jsonl" `
+  --regression-images D:\Temp\Pictures\Diverse `
+  --output "$root\expanded-evaluation-protocol-v1"
+```
+
+`--exclude-download` adds earlier original-validation downloads to identity,
+author, byte, MD5 and approximate-neighbor exclusion, **never their evaluation
+outcomes**. A prior photo with unknown rotation still excludes identities,
+but cannot supply an invented perceptual hash. Existing audit/model identities
+remain mandatory. Additional screening leaves **1,467 calibration / 1,425
+reserved test photos**, with 1,346 / 1,292 approximate groups. Quarantine:
+402 unknown rotations, 100 prior near matches, one hierarchy conflict and
+one private near match.
+
+Before inference, retain protocol/manifests/model identities and the unchanged
+90%-precision research policy in source history. Fit thresholds on calibration
+only. Do not change architecture, mapping, policy or evidence requirements
+based on this cohort. Calibration resubstitution is not independent quality;
+report disabled labels and unknown emissions. **Keep the 1,425-photo reserve
+unscored** while determining whether calibration supplies useful evidence.
+Creating its grouped manifest does not mean it has been evaluated. The old
+consumed test is never reused. No production approval follows from calibration.
+
+Frozen identities before calibration inference:
+
+- Protocol SHA-256: `6f643772f9ec996ff96fad6b7fcb5e67181d779216e1d9021cfe52a6cd6b6d97`
+- Calibration manifest: `4ac7c4180ee0f2efe0117e85ae73c0ef317345d4b5ba679d5ee470b8185a8e18`
+- Unopened reserve manifest: `7c4716b77deeb791c8ee078c30d88c16e6405e27f34ef5214312b1c02ac03a01`
+- Fixed model: `a0b790c4431c2ab5dffeb49c639a3ab5ef511935b305c3d2bc7681eec7ef5d70`
+
+Predeclare one **five-fold, approximate-group threshold cross-validation**
+diagnostic inside calibration. Each group is assigned by the hash of
+`["expanded-calibration-five-fold-v1", group]` modulo five; no fold-seed search.
+Each check photo uses per-label thresholds fit on the other four folds under
+the identical research policy. Pool its out-of-fold decisions with unknowns
+masked and all disabled-label positives in recall. Store per-fold fitted
+thresholds and enabled-label counts; pooled `enabledLabels` is null because
+the policies differ. This checks threshold stability without consuming a
+second final test and is **not an untouched-test quality claim**.
+
+```powershell
+& $evalPython tools\PhotoLibrarian.ModelTraining\calibrate_pilot.py fit `
+  --evaluation "$root\expanded-evaluation-protocol-v1" `
+  --bundle "$root\export-expanded-pilot-v1" --calibration-folds 5 `
+  --output "$root\calibration-expanded-public-v1"
+```
+
 ### Outstanding production gates
 
 1. Review the pilot and public-data mapping/coverage with diverse users; audit
