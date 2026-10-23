@@ -312,7 +312,8 @@ def main() -> None:
                  "validationSelection": "unweighted masked BCE, unchanged from baseline"},
         "headEpochs": args.head_epochs if args.initialization != "random" else 0,
         "finetuneEpochs": args.finetune_epochs if args.initialization != "random" else 0,
-        "scratchEpochs": args.scratch_epochs, "headLearningRate": 0.001, "finetuneLearningRate": 0.0001,
+        "scratchEpochs": args.scratch_epochs if args.initialization == "random" else 0,
+        "headLearningRate": 0.001, "finetuneLearningRate": 0.0001,
         "scratchScheduler": "CosineAnnealingLR, eta_min=0.00001" if args.initialization == "random" else None,
         "batchSize": args.batch_size, "workers": args.workers,
         "batchNorm": ("running statistics updated during full-network scratch training"
