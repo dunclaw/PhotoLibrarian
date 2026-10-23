@@ -1240,8 +1240,9 @@ original-validation photos with seed `open-images-expanded-calibration-v1`,
 150 source MID/state candidates, provenance-first balanced selection, and
 **all four** previous selections excluded (original training, expanded
 training, development, first evaluation). The available eligible pool yields
-only **3,396 photos**, not the requested maximum. Do not relax exclusions
-or invent negative labels to fill the cap.
+only **3,396 photos under these per-state candidate caps**, not the requested
+maximum. This does not prove that all remaining original-validation photos
+are exhausted. Do not relax exclusions or invent negative labels to fill the cap.
 
 ```powershell
 python tools\PhotoLibrarian.ModelTraining\select_open_images.py `
@@ -1308,6 +1309,61 @@ second final test and is **not an untouched-test quality claim**.
   --bundle "$root\export-expanded-pilot-v1" --calibration-folds 5 `
   --output "$root\calibration-expanded-public-v1"
 ```
+
+#### Completed calibration-only result
+
+Protocol, hashes, fixed model, policy and five-fold diagnostic were committed
+in **`525334e` before calibration inference**. There are **3,020 known entries**
+(1,917 positives, 1,103 negatives) across the 1,467 calibration photos.
+The full calibration fit enables just seven labels: `animal`, `flower`,
+`tree`, `building`, `car`, `food`, `person`. **51 labels lack required
+known-state/group evidence; another ten have no qualifying threshold.**
+None of the newly admitted 24 head labels qualifies on the full calibration
+fit. This is a data-evidence shortfall as well as a discrimination problem;
+do not describe unsupported labels as proven inaccurate.
+
+| Same calibration photos / known entries | Fixed 0.5 | Full-fit resubstitution | Five-fold grouped out-of-fold |
+| --- | ---: | ---: | ---: |
+| TP / FP / FN | 1,695 / 543 / 222 | 612 / 67 / 1,305 | 599 / 70 / 1,318 |
+| Precision on known emissions | 75.74% | 90.13% | 89.54% |
+| Recall, including disabled-label positives | 88.42% | 31.92% | 31.25% |
+| Emitted tags / unknown emissions | 27,487 / 25,249 | 1,750 / 1,071 | 1,735 / 1,066 |
+
+The full-fit 90.13% is an optimistic resubstitution result, **not** a passed
+independent precision gate. Fold policies enable seven labels in four folds,
+eight in one; `table` qualifies in only one fold and not in the full fit.
+Pooled out-of-fold decisions are therefore **not one deployable policy**.
+Per-fold precision ranges 83.45-93.89%. The descriptive pooled Wilson
+precision interval is 86.99-91.63%, not a group-corrected confidence guarantee
+or evidence of exceeding 90%. Correlated labels, partial annotation,
+balanced selection and unknown pretraining overlap remain limitations.
+
+All 68 label counts, fit statuses/thresholds and out-of-fold counts are in
+[`expanded-calibration-results-v1.csv`](expanded-calibration-results-v1.csv).
+Examples of the actual missing evidence: `cat` has 25 known positives and
+**zero negatives**, `dog` 77 / 1, and `ocean` 44 / 0. Missing source entries
+cannot fill those negative counts. `house` has 35 / 31 known states but no
+threshold meets the fixed policy, so it needs discrimination/semantic review
+rather than merely lowering the minimum evidence. These examples distinguish
+annotation scarcity from model-quality failures.
+
+Frozen full-fit calibration SHA-256:
+`7a8309b1b547689ee8ffd92873c48403b607afaebac4372545d568ff082d1c2e`;
+score-array SHA-256:
+`cf54d36dff444c0e6cc5a8d03489a00e633e0d74e4f0303f9f1386562cecf201`.
+The **1,425-photo reserve remains unscored**; no `test` inference was run for
+this protocol. Neither the model nor policy was adjusted after this fit.
+No production profile, private annotation or approved asset changed.
+
+The next public-data acquisition needs **targeted known-negative and positive
+coverage from authors not used for training**, potentially reserving such
+authors before a future training selection instead of allowing rare-class
+authors to be consumed by training. Increasing the per-state cap is not proof
+it can supply the missing states; measure source/author coverage first.
+Do not ask for hundreds of new private labels or treat unannotated public
+images as negative. Any later training/policy changes require fresh
+calibration and an independently justified untouched test; do not reuse this
+fit as a blind quality claim.
 
 ### Outstanding production gates
 
@@ -1386,9 +1442,9 @@ integrity. Run the same command with the isolated training environment's Python
 to execute these tests. CI first runs the dependency-free subset, then installs
 the isolated evaluation requirements and runs those optional tests without
 models or a GPU. PyTorch/export tests still explicitly skip there; CI does not
-train a model. Locally, all **76 distinct tests** were exercised across the
+train a model. Locally, all **78 distinct tests** were exercised across the
 training environment (one provider-test skip) and evaluation environment (11
-training/export-test skips). The base Python run has 43 optional skips.
+training/export-test skips). The base Python run has 45 optional skips.
 Comparison tests cover legacy RAM label integrity, frozen model/photo
 identities, zero-shot preprocessing/scoring, unknown-masked tie-aware AP and
 deterministic grouped uncertainty.
