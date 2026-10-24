@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "profileId": "tinyclip.vit-40m-32.int8",
+      "publicationReady": false,
+      "blockedReason": "The current app profile expects a 40,622,561-byte model with SHA-256 9aa0c0c8d4abdb4f80e8f26e74236bb1bf13d43ffaab4e17fb03e48c4e01be0d, while the pinned preparation tool produces an 85,618,595-byte ONNX with SHA-256 0843578fa3e1c386a3be5250ccb13cc8836d062876a34756f380a2e371e86a75. Reconcile the export and calibration before publication.",
+      "version": "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3",
+      "pipelineVersion": "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3",
+      "manifestUri": "https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/tinyclip.vit-40m-32.int8/tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3.json",
+      "license": "MIT",
+      "sourceRevisions": {
+        "wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M": "95ec8197b3f2fe7f747865c61ca556cf0768b2f7",
+        "onnx-community/TinyCLIP-ViT-40M-32-Text-19M-LAION400M-ONNX": "737108a175dc6c043d9e64cf738baa91a272f7cb"
+      },
+      "assets": [
+        {
+          "fileName": "tinyclip-vision-int8.onnx",
+          "sizeBytes": 40622561,
+          "sha256": "9AA0C0C8D4ABDB4F80E8F26E74236BB1BF13D43FFAAB4E17FB03E48C4E01BE0D"
+        },
+        {
+          "fileName": "tinyclip.json",
+          "sizeBytes": 58298021,
+          "sha256": "F40DF22806EB77961356898CE0B01B540139CA412B877860417BEB4E8B16BC8A"
+        }
+      ],
+      "notices": [
+        "LICENSE",
+        "NOTICE.txt"
+      ],
+      "provenanceFile": "preparation-manifest.json"
+    },
+    {
+      "profileId": "ram-plus.swin-large-14m",
+      "publicationReady": false,
+      "blockedReason": "No verified RAM++ release bundle is available in this checkout. Generate the pinned export, complete parity validation, review its notices, and enable publication in a reviewed release change.",
+      "version": "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3",
+      "pipelineVersion": "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3",
+      "manifestUri": "https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/ram-plus.swin-large-14m/ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3.json",
+      "license": "Apache-2.0",
+      "sourceRevisions": {
+        "recognize-anything": "7cb804a8609e9f4b1a50b7f31436d2df40bb9481",
+        "recognize-anything-plus-model": "84d4aee3a0265c4e0df1f714f0572011d1bf2ec3"
+      },
+      "assets": [
+        {
+          "fileName": "ram_plus_swin_large_14m.onnx",
+          "sizeBytes": 1849873814,
+          "sha256": "FF29E0E18E80B8F2FDC2566B9368BD904664CDC1FCE380F57E73DCF03F4ADDA3"
+        },
+        {
+          "fileName": "ram_plus_swin_large_14m_labels.txt",
+          "sizeBytes": 41905,
+          "sha256": "1A6C943DD251993770E7CF6FED23A38B7AC068F4C8FBC7A0DB85CBE0FE5221B3"
+        }
+      ],
+      "notices": [
+        "recognize-anything-LICENSE",
+        "recognize-anything-NOTICE.txt",
+        "MODIFICATIONS.txt"
+      ],
+      "provenanceFile": "ram_plus_manifest.json"
+    }
+  ]
+}

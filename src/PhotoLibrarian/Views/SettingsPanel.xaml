@@ -194,6 +194,25 @@
                                          Content="Model source and license" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="DownloadModelAssetsButton"
+                                AutomationProperties.AutomationId="DownloadModelAssetsButton"
+                                Content="Download and verify model"
+                                Click="OnDownloadModelAssets"
+                                Visibility="Collapsed" />
+                        <Button x:Name="CancelModelDownloadButton"
+                                AutomationProperties.AutomationId="CancelModelDownloadButton"
+                                Content="Cancel download"
+                                Click="OnCancelModelDownload"
+                                Visibility="Collapsed" />
+                    </StackPanel>
+                    <ProgressBar x:Name="ModelDownloadProgressBar"
+                                 AutomationProperties.Name="Model download progress"
+                                 Maximum="100"
+                                 Visibility="Collapsed" />
+                    <TextBlock x:Name="ModelDownloadMessageText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="ImportModelAssetsButton"
                                 AutomationProperties.AutomationId="ImportModelAssetsButton"
                                 Content="Import model assets"
@@ -207,10 +226,12 @@
                                       Visibility="Collapsed" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button AutomationProperties.AutomationId="ChooseModelDirectoryButton"
+                        <Button x:Name="ChooseModelDirectoryButton"
+                                AutomationProperties.AutomationId="ChooseModelDirectoryButton"
                                 Content="Choose folder"
                                 Click="OnChooseModelDirectory" />
-                        <Button AutomationProperties.AutomationId="ResetModelDirectoryButton"
+                        <Button x:Name="ResetModelDirectoryButton"
+                                AutomationProperties.AutomationId="ResetModelDirectoryButton"
                                 Content="Use default"
                                 Click="OnResetModelDirectory" />
                     </StackPanel>

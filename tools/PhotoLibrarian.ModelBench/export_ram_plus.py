@@ -136,6 +136,23 @@ def copy_notices(source: Path, output: Path) -> list[dict[str, str]]:
         destination = output / f"recognize-anything-{name}"
         shutil.copyfile(path, destination)
         notices.append({"file": destination.name, "sha256": sha256(destination)})
+    modification_notice = output / "MODIFICATIONS.txt"
+    modification_notice.write_text(
+        "PhotoLibrarian modification notice\n"
+        "The upstream RAM++ PyTorch checkpoint was converted to ONNX by "
+        "PhotoLibrarian using the pinned exporter and source/checkpoint "
+        "revisions recorded in ram_plus_manifest.json. The exported graph "
+        "preserves the upstream 4,585-label vocabulary and detection "
+        "thresholds. It exposes logits, probabilities, and the application's "
+        "binary targets mask. See the manifest for the input/output and "
+        "preprocessing contract.\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    notices.append({
+        "file": modification_notice.name,
+        "sha256": sha256(modification_notice),
+    })
     return notices
 
 

@@ -1,0 +1,69 @@
+name: Publish model asset release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub release tag containing the verified model bundle ZIP
+        required: true
+        type: string
+      profile_id:
+        description: Exact automatic-tagging profile in the release bundle
+        required: true
+        type: choice
+        options:
+          - ram-plus.swin-large-14m
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    environment: model-assets-production
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate Azure deployment variables
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_STORAGE_ACCOUNT: ${{ vars.AZURE_MODEL_ASSET_STORAGE_ACCOUNT }}
+        shell: pwsh
+        run: |
+          foreach ($name in @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'AZURE_STORAGE_ACCOUNT')) {
+            if (-not (Get-Item "Env:$name" -ErrorAction SilentlyContinue).Value) {
+              throw "Configure the '$name' repository or environment variable before publishing."
+            }
+          }
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Download reviewed release bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+        shell: pwsh
+        run: |
+          $download = Join-Path $env:RUNNER_TEMP 'model-release'
+          New-Item -ItemType Directory -Path $download -Force | Out-Null
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern "$($env:PROFILE_ID)-bundle.zip" --dir $download
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the selected release bundle.' }
+          $archive = Join-Path $download "$($env:PROFILE_ID)-bundle.zip"
+          Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $download 'bundle') -Force
+          "MODEL_ASSET_BUNDLE=$(Join-Path $download 'bundle')" >> $env:GITHUB_ENV
+      - name: Publish immutable verified blobs
+        env:
+          PROFILE_ID: ${{ inputs.profile_id }}
+          AZURE_STORAGE_ACCOUNT: ${{ vars.AZURE_MODEL_ASSET_STORAGE_ACCOUNT }}
+        shell: pwsh
+        run: |
+          .\tools\ModelAssets\Publish-ModelAssetRelease.ps1 `
+            -ProfileId $env:PROFILE_ID `
+            -BundleDirectory $env:MODEL_ASSET_BUNDLE `
+            -StorageAccountName $env:AZURE_STORAGE_ACCOUNT
