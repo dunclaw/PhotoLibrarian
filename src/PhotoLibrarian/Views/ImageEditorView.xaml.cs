@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI;
 using Microsoft.Graphics.Canvas.UI.Xaml;
@@ -6,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Input;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using System.Numerics;
@@ -506,7 +508,9 @@ public sealed partial class ImageEditorView : UserControl
         [
             ExposureSlider, BrightnessSlider, ContrastSlider, HighlightsSlider, ShadowsSlider,
             SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, SharpnessSlider,
-            NoiseReductionSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider, RotationSlider
+            NoiseReductionSlider, UnsharpMaskAmountSlider, UnsharpMaskRadiusSlider,
+            UnsharpMaskThresholdSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider,
+            RotationSlider
         ];
         foreach (var slider in sliders)
         {
@@ -519,6 +523,9 @@ public sealed partial class ImageEditorView : UserControl
                     "BlackPoint" => "Black point",
                     "WhitePoint" => "White point",
                     "NoiseReduction" => "Noise reduction",
+                    "UnsharpMaskAmount" => "Unsharp-mask amount",
+                    "UnsharpMaskRadius" => "Unsharp-mask radius",
+                    "UnsharpMaskThreshold" => "Unsharp-mask threshold",
                     var label => label
                 });
             }), true);
@@ -562,11 +569,36 @@ public sealed partial class ImageEditorView : UserControl
         ViewModel.Clarity = ClaritySlider.Value;
         ViewModel.Sharpness = SharpnessSlider.Value;
         ViewModel.NoiseReduction = NoiseReductionSlider.Value;
+        ViewModel.UnsharpMaskAmount = UnsharpMaskAmountSlider.Value;
+        ViewModel.UnsharpMaskRadius = UnsharpMaskRadiusSlider.Value;
+        ViewModel.UnsharpMaskThreshold = UnsharpMaskThresholdSlider.Value;
         ViewModel.BlackPoint = BlackPointSlider.Value;
         ViewModel.WhitePoint = WhitePointSlider.Value;
         ViewModel.Midtones = MidtonesSlider.Value;
         ViewModel.RotationAngle = RotationSlider.Value;
         HistogramCanvas.Invalidate();
+    }
+
+    private void OnSharpeningModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSliderEvents || ViewModel is null) return;
+
+        var mode = SharpeningModeComboBox.SelectedIndex == 1
+            ? SharpeningMode.UnsharpMask
+            : SharpeningMode.Legacy;
+        if (ViewModel.SharpeningMode == mode) return;
+
+        ViewModel.BeginEdit("Sharpening mode");
+        ViewModel.SharpeningMode = mode;
+        ViewModel.EndEdit();
+        UpdateSharpeningControls();
+    }
+
+    private void UpdateSharpeningControls()
+    {
+        var useUnsharpMask = ViewModel?.SharpeningMode == SharpeningMode.UnsharpMask;
+        LegacySharpeningPanel.Visibility = useUnsharpMask ? Visibility.Collapsed : Visibility.Visible;
+        UnsharpMaskPanel.Visibility = useUnsharpMask ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnAutoEnhance(object sender, RoutedEventArgs e)
@@ -667,6 +699,15 @@ public sealed partial class ImageEditorView : UserControl
         ClaritySlider.Value = ViewModel.Clarity;
         SharpnessSlider.Value = ViewModel.Sharpness;
         NoiseReductionSlider.Value = ViewModel.NoiseReduction;
+        SharpeningModeComboBox.SelectedIndex =
+            ViewModel.SharpeningMode == SharpeningMode.UnsharpMask ? 1 : 0;
+        UnsharpMaskAmountSlider.Value = ViewModel.UnsharpMaskAmount;
+        UnsharpMaskAmountText.Text = ViewModel.UnsharpMaskAmount.ToString("0.00");
+        UnsharpMaskRadiusSlider.Value = ViewModel.UnsharpMaskRadius;
+        UnsharpMaskRadiusText.Text = $"{ViewModel.UnsharpMaskRadius:0.0} px";
+        UnsharpMaskThresholdSlider.Value = ViewModel.UnsharpMaskThreshold;
+        UnsharpMaskThresholdText.Text = ViewModel.UnsharpMaskThreshold.ToString("0.000");
+        UpdateSharpeningControls();
         BlackPointSlider.Value = ViewModel.BlackPoint;
         WhitePointSlider.Value = ViewModel.WhitePoint;
         MidtonesSlider.Value = ViewModel.Midtones;

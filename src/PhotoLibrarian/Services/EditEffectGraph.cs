@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Effects;
 using PhotoLibrarian.Core.Models;
@@ -128,8 +129,17 @@ public static class EditEffectGraph
             };
         }
 
-        // 7. Sharpness (via unsharp mask)
-        if (p.Sharpness > 0)
+        // 7. Sharpening. Preserve the old effect exactly for existing recipes.
+        if (p.SharpeningMode == SharpeningMode.UnsharpMask)
+        {
+            current = UnsharpMaskEffect.Create(
+                current,
+                sourceSize,
+                p.UnsharpMaskAmount,
+                p.UnsharpMaskRadius,
+                p.UnsharpMaskThreshold);
+        }
+        else if (p.SharpeningMode == SharpeningMode.Legacy && p.Sharpness > 0)
         {
             current = new SharpenEffect
             {
