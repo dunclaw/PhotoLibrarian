@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ViewModels;
@@ -200,6 +201,58 @@ public sealed class ImageEditorHistoryTests : IDisposable
         }));
         Assert.Equal(0, vm.NoiseReduction);
         Assert.Empty(vm.UndoHistory);
+        Assert.False(ImageEditService.ReadEditParameters(_entry.FilePath).HasAdjustments);
+    }
+
+    [Fact]
+    public async Task UnsharpMaskSettings_RoundTripHistoryResetAndSave()
+    {
+        var initial = new EditParameters
+        {
+            SharpeningMode = SharpeningMode.UnsharpMask,
+            UnsharpMaskAmount = 1.25,
+            UnsharpMaskRadius = 2.4,
+            UnsharpMaskThreshold = 0.04
+        };
+        await new ImageEditService(_backups).SaveEditParametersAsync(_entry.FilePath, initial);
+        var vm = await OpenAsync();
+        Assert.Equal(SharpeningMode.UnsharpMask, vm.SharpeningMode);
+        Assert.Equal(1.25, vm.UnsharpMaskAmount);
+        Assert.Equal(2.4, vm.UnsharpMaskRadius);
+        Assert.Equal(0.04, vm.UnsharpMaskThreshold);
+        Assert.False(vm.HasChanges);
+
+        vm.BeginEdit("Unsharp mask");
+        vm.UnsharpMaskAmount = 1.5;
+        vm.UnsharpMaskRadius = 3.2;
+        vm.UnsharpMaskThreshold = 0.08;
+        vm.EndEdit();
+        Assert.Single(vm.UndoHistory);
+        vm.UndoCommand.Execute(null);
+        Assert.Equal(initial.UnsharpMaskAmount, vm.UnsharpMaskAmount);
+        Assert.Equal(initial.UnsharpMaskRadius, vm.UnsharpMaskRadius);
+        Assert.Equal(initial.UnsharpMaskThreshold, vm.UnsharpMaskThreshold);
+        vm.RedoCommand.Execute(null);
+        Assert.Equal(1.5, vm.UnsharpMaskAmount);
+        Assert.Equal(3.2, vm.UnsharpMaskRadius);
+        Assert.Equal(0.08, vm.UnsharpMaskThreshold);
+
+        vm.ResetAllCommand.Execute(null);
+        Assert.Equal(SharpeningMode.Legacy, vm.SharpeningMode);
+        Assert.Equal(0, vm.UnsharpMaskAmount);
+        Assert.Equal(1, vm.UnsharpMaskRadius);
+        Assert.Equal(0.02, vm.UnsharpMaskThreshold);
+        vm.UndoCommand.Execute(null);
+        Assert.Equal(SharpeningMode.UnsharpMask, vm.SharpeningMode);
+        Assert.Equal(1.5, vm.UnsharpMaskAmount);
+        Assert.True(await vm.SaveAsync((_, parameters) =>
+        {
+            Assert.Equal(SharpeningMode.UnsharpMask, parameters.SharpeningMode);
+            Assert.Equal(1.5, parameters.UnsharpMaskAmount);
+            Assert.Equal(3.2, parameters.UnsharpMaskRadius);
+            Assert.Equal(0.08, parameters.UnsharpMaskThreshold);
+            return Task.FromResult((10u, 20u));
+        }));
         Assert.False(ImageEditService.ReadEditParameters(_entry.FilePath).HasAdjustments);
     }
 

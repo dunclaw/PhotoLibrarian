@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Services;
@@ -29,7 +30,23 @@ public sealed class ImageRenderParityTests : IDisposable
                 Temperature = 0.12, Tint = -0.08, Highlights = -0.2, Shadows = 0.25,
                 BlackPoint = 0.03, WhitePoint = 0.96, Midtones = 0.54
             }),
-            ("detail", new() { Clarity = 0.25, Sharpness = 0.35 }),
+            ("detail", new() { Clarity = 0.25 }),
+            ("legacy-sharpen", new() { Sharpness = 0.35 }),
+            ("unsharp-mask", new()
+            {
+                SharpeningMode = SharpeningMode.UnsharpMask,
+                UnsharpMaskAmount = 0.8,
+                UnsharpMaskRadius = 1.4,
+                UnsharpMaskThreshold = 0.02
+            }),
+            ("denoise-unsharp", new()
+            {
+                NoiseReduction = 0.4,
+                SharpeningMode = SharpeningMode.UnsharpMask,
+                UnsharpMaskAmount = 0.8,
+                UnsharpMaskRadius = 1.4,
+                UnsharpMaskThreshold = 0.02
+            }),
             ("rotation", new() { RotationAngle = 23 })
         };
 

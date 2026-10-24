@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using XmpCore;
 using PhotoLibrarian.Core.Models;
 
@@ -27,6 +28,10 @@ public static class EditParametersSerializer
         SetDouble(xmp, "Clarity", p.Clarity);
         SetDouble(xmp, "Sharpness", p.Sharpness);
         SetDouble(xmp, "NoiseReduction", p.NoiseReduction);
+        xmp.SetProperty(Ns, $"{Pre}:SharpeningMode", p.SharpeningMode.ToString());
+        SetDouble(xmp, "UnsharpMaskAmount", p.UnsharpMaskAmount);
+        SetDouble(xmp, "UnsharpMaskRadius", p.UnsharpMaskRadius);
+        SetDouble(xmp, "UnsharpMaskThreshold", p.UnsharpMaskThreshold);
         SetDouble(xmp, "BlackPoint", p.BlackPoint);
         SetDouble(xmp, "WhitePoint", p.WhitePoint);
         SetDouble(xmp, "Midtones", p.Midtones);
@@ -59,6 +64,7 @@ public static class EditParametersSerializer
         {
             "Brightness", "Contrast", "Exposure", "Highlights", "Shadows",
             "Saturation", "Temperature", "Tint", "Clarity", "Sharpness", "NoiseReduction",
+            "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
             "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
             "CropLeft", "CropTop", "CropWidth", "CropHeight"
         })
@@ -82,6 +88,10 @@ public static class EditParametersSerializer
             Clarity = GetDouble(xmp, "Clarity"),
             Sharpness = GetDouble(xmp, "Sharpness"),
             NoiseReduction = GetDouble(xmp, "NoiseReduction"),
+            SharpeningMode = GetSharpeningMode(xmp),
+            UnsharpMaskAmount = GetDouble(xmp, "UnsharpMaskAmount"),
+            UnsharpMaskRadius = GetDouble(xmp, "UnsharpMaskRadius", 1.0),
+            UnsharpMaskThreshold = GetDouble(xmp, "UnsharpMaskThreshold", 0.02),
             BlackPoint = GetDouble(xmp, "BlackPoint"),
             WhitePoint = GetDouble(xmp, "WhitePoint", 1.0),
             Midtones = GetDouble(xmp, "Midtones", 0.5),
@@ -118,6 +128,21 @@ public static class EditParametersSerializer
     {
         try { return xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}"); }
         catch { return null; }
+    }
+
+    private static SharpeningMode GetSharpeningMode(IXmpMeta xmp)
+    {
+        try
+        {
+            var value = xmp.GetPropertyString(Ns, $"{Pre}:SharpeningMode");
+            return Enum.TryParse<SharpeningMode>(value, out var mode) && Enum.IsDefined(mode)
+                ? mode
+                : SharpeningMode.Legacy;
+        }
+        catch
+        {
+            return SharpeningMode.Legacy;
+        }
     }
 
     private static void DeleteProp(IXmpMeta xmp, string prop)

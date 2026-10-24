@@ -191,10 +191,80 @@
                             TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Sharpness" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="1" StepFrequency="0.01"
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Sharpening mode" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <ComboBox x:Name="SharpeningModeComboBox"
+                              AutomationProperties.Name="Sharpening mode"
+                              AutomationProperties.AutomationId="EditorSharpeningMode"
+                              SelectedIndex="0"
+                              SelectionChanged="OnSharpeningModeChanged">
+                        <ComboBoxItem Content="Legacy sharpen" />
+                        <ComboBoxItem Content="Unsharp mask" />
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel x:Name="LegacySharpeningPanel" Spacing="2">
+                    <TextBlock Text="Legacy sharpness amount" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="SharpnessSlider"
+                            AutomationProperties.Name="Legacy sharpness amount"
+                            AutomationProperties.AutomationId="EditorLegacySharpness"
+                            Minimum="0" Maximum="1" StepFrequency="0.01"
+                            ToolTipService.ToolTip="Uses the existing Win2D SharpenEffect."
                             Value="0" ValueChanged="OnSliderChanged" />
+                </StackPanel>
+                <StackPanel x:Name="UnsharpMaskPanel" Spacing="8" Visibility="Collapsed">
+                    <TextBlock Text="Increases edge contrast; it does not recover lost detail."
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               TextWrapping="Wrap" />
+                    <StackPanel Spacing="2">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Amount" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <TextBlock x:Name="UnsharpMaskAmountText" Grid.Column="1"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                        </Grid>
+                        <Slider x:Name="UnsharpMaskAmountSlider"
+                                AutomationProperties.Name="Unsharp-mask amount"
+                                AutomationProperties.AutomationId="EditorUnsharpAmount"
+                                Minimum="0" Maximum="2" StepFrequency="0.01"
+                                Value="0" ValueChanged="OnSliderChanged" />
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Radius (source pixels)" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <TextBlock x:Name="UnsharpMaskRadiusText" Grid.Column="1"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                        </Grid>
+                        <Slider x:Name="UnsharpMaskRadiusSlider"
+                                AutomationProperties.Name="Unsharp-mask radius in source pixels"
+                                AutomationProperties.AutomationId="EditorUnsharpRadius"
+                                Minimum="0.5" Maximum="5" StepFrequency="0.1"
+                                ToolTipService.ToolTip="Gaussian blur radius measured on the full-resolution image."
+                                Value="1" ValueChanged="OnSliderChanged" />
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Noise threshold" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <TextBlock x:Name="UnsharpMaskThresholdText" Grid.Column="1"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                        </Grid>
+                        <Slider x:Name="UnsharpMaskThresholdSlider"
+                                AutomationProperties.Name="Unsharp-mask noise threshold"
+                                AutomationProperties.AutomationId="EditorUnsharpThreshold"
+                                Minimum="0" Maximum="0.25" StepFrequency="0.005"
+                                ToolTipService.ToolTip="Ignore source-to-blur channel differences below this normalized value."
+                                Value="0.02" ValueChanged="OnSliderChanged" />
+                    </StackPanel>
                 </StackPanel>
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

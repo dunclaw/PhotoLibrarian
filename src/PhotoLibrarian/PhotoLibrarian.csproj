@@ -30,11 +30,13 @@
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\NoiseReduction.cso"
                       LogicalName="PhotoLibrarian.Shaders.NoiseReduction.cso" />
+    <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\UnsharpMask.cso"
+                      LogicalName="PhotoLibrarian.Shaders.UnsharpMask.cso" />
   </ItemGroup>
 
-  <Target Name="CompileNoiseReductionShader" BeforeTargets="PrepareResources"
-          Inputs="Shaders\NoiseReduction.hlsl;$(MSBuildProjectFullPath)"
-          Outputs="$(IntermediateOutputPath)Shaders\NoiseReduction.cso">
+  <Target Name="CompileImageProcessingShaders" BeforeTargets="PrepareResources"
+          Inputs="Shaders\NoiseReduction.hlsl;Shaders\UnsharpMask.hlsl;$(MSBuildProjectFullPath)"
+          Outputs="$(IntermediateOutputPath)Shaders\NoiseReduction.cso;$(IntermediateOutputPath)Shaders\UnsharpMask.cso">
     <PropertyGroup>
       <_ShaderSdkRoot Condition="'$(WindowsSdkDir)' != ''">$(WindowsSdkDir)</_ShaderSdkRoot>
       <_ShaderSdkRoot Condition="'$(_ShaderSdkRoot)' == ''">$(MSBuildProgramFiles32)\Windows Kits\10\</_ShaderSdkRoot>
@@ -49,8 +51,10 @@
     <Error Condition="!Exists('$(FxcPath)')" Text="Install the Windows SDK shader compiler (fxc.exe), or set FxcPath to its location." />
     <MakeDir Directories="$(IntermediateOutputPath)Shaders" />
     <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\NoiseReduction.cso&quot; &quot;$(MSBuildProjectDirectory)\Shaders\NoiseReduction.hlsl&quot;" />
+    <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\UnsharpMask.cso&quot; &quot;$(MSBuildProjectDirectory)\Shaders\UnsharpMask.hlsl&quot;" />
     <ItemGroup>
       <FileWrites Include="$(IntermediateOutputPath)Shaders\NoiseReduction.cso" />
+      <FileWrites Include="$(IntermediateOutputPath)Shaders\UnsharpMask.cso" />
     </ItemGroup>
   </Target>
 

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.Core.Models;
 
 /// <summary>
@@ -20,9 +21,17 @@ public sealed class EditParameters
 
     // Detail
     public double Clarity { get; set; }
+    /// <summary>Legacy SharpenEffect amount. Retained for existing XMP recipes.</summary>
     public double Sharpness { get; set; }
     /// <summary>Edge-aware noise reduction (0.0 to 1.0, 0 = off).</summary>
     public double NoiseReduction { get; set; }
+    public SharpeningMode SharpeningMode { get; set; }
+    /// <summary>Unsharp-mask amount (0.0 to 2.0, 0 = off).</summary>
+    public double UnsharpMaskAmount { get; set; }
+    /// <summary>Unsharp-mask Gaussian blur amount in source pixels (0.5 to 5.0).</summary>
+    public double UnsharpMaskRadius { get; set; } = 1.0;
+    /// <summary>Minimum per-channel source/blur difference needed to sharpen (0.0 to 0.25).</summary>
+    public double UnsharpMaskThreshold { get; set; } = 0.02;
 
     // Levels (0.0 to 1.0)
     public double BlackPoint { get; set; }
@@ -37,6 +46,8 @@ public sealed class EditParameters
         Brightness != 0 || Contrast != 0 || Exposure != 0 ||
         Highlights != 0 || Shadows != 0 || Saturation != 0 ||
         Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
+        SharpeningMode != PhotoLibrarian.Core.Models.SharpeningMode.Legacy || UnsharpMaskAmount != 0 ||
+        UnsharpMaskRadius != 1.0 || UnsharpMaskThreshold != 0.02 ||
         BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 ||
         RotationAngle != 0 || Crop is not null;
 
@@ -53,6 +64,10 @@ public sealed class EditParameters
         Clarity = Clarity,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
+        SharpeningMode = SharpeningMode,
+        UnsharpMaskAmount = UnsharpMaskAmount,
+        UnsharpMaskRadius = UnsharpMaskRadius,
+        UnsharpMaskThreshold = UnsharpMaskThreshold,
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
@@ -65,7 +80,10 @@ public sealed class EditParameters
         Brightness = Contrast = Exposure = 0;
         Highlights = Shadows = 0;
         Saturation = Temperature = Tint = 0;
-        Clarity = Sharpness = NoiseReduction = 0;
+        Clarity = Sharpness = NoiseReduction = UnsharpMaskAmount = 0;
+        SharpeningMode = PhotoLibrarian.Core.Models.SharpeningMode.Legacy;
+        UnsharpMaskRadius = 1.0;
+        UnsharpMaskThreshold = 0.02;
         BlackPoint = 0;
         WhitePoint = 1.0;
         Midtones = 0.5;
@@ -76,6 +94,12 @@ public sealed class EditParameters
     // XMP namespace for PhotoLibrarian edit parameters
     public const string XmpNamespace = "http://ns.photolibrarian.app/edit/1.0/";
     public const string XmpPrefix = "pledit";
+}
+
+public enum SharpeningMode
+{
+    Legacy,
+    UnsharpMask
 }
 
 /// <summary>
