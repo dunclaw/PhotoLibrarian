@@ -356,6 +356,20 @@ fingerprint, and conflicting merged judgments still require review.
 
 ## Compare tagging models
 
+For the separate purpose-trained compact-model workstream, see the
+[compact-model research pipeline](tools/PhotoLibrarian.ModelTraining/README.md).
+It includes pinned Open Images acquisition, partial-label-aware balanced
+selection, overlap/label audits, staged MobileNetV3 training and verified
+FP32/INT8 ONNX export. Training and exports are local research only, with
+unresolved pretrained-weight rights and no production approval. No model
+weights are included and the shipping profiles are unchanged.
+The research results now include frozen public calibration/held-out testing,
+reuse of existing private review judgments, and measured CPU/DirectML node
+placement, timing and host memory. A matched 1,000-photo development comparison
+against RAM++, TinyCLIP and SigLIP 2 separates native cutoffs from ranking and
+asset/latency budgets without reopening the consumed test. Precision/breadth
+limitations still prevent choosing this pilot as a shipping default.
+
 `PhotoLibrarian.ModelBench` evaluates the discussed EfficientNet, YOLOv8
 classification/detection, YOLOv10 detection, JoyTag, and RAM++ ONNX models
 against the same controlled image set. It does not write tags or modify source
