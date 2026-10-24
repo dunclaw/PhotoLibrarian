@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using System.Security.Cryptography;
 
 namespace PhotoLibrarian.ML.Services;
@@ -26,6 +28,8 @@ public static class AutoTagModelCatalog
         $"https://media.githubusercontent.com/media/onnx/models/{ModelZooRevision}/validated/vision/classification";
     private const string ModelZooRawRoot =
         $"https://raw.githubusercontent.com/onnx/models/{ModelZooRevision}/validated/vision/classification";
+    private const string ModelAssetBaseUri =
+        "https://photolibrarianassets.blob.core.windows.net/model-assets";
 
     private static readonly AutoTagAssetDefinition ImageNetLabels = new(
         "imagenet-labels.json",
@@ -101,7 +105,25 @@ public static class AutoTagModelCatalog
         PreserveAspectRatio: false,
         OutputKind: AutoTagOutputKind.BinaryTagMask,
         UsesTagHierarchy: true,
-        OutputName: "targets");
+        OutputName: "targets",
+        ManifestUri: CreateManifestUri(
+            RamPlusProfileId,
+            "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3"),
+        License: "Apache-2.0",
+        SourceRevisions: new Dictionary<string, string>(
+            StringComparer.Ordinal)
+        {
+            ["recognize-anything"] =
+                "7cb804a8609e9f4b1a50b7f31436d2df40bb9481",
+            ["recognize-anything-plus-model"] =
+                "84d4aee3a0265c4e0df1f714f0572011d1bf2ec3"
+        },
+        RequiredNoticeFiles:
+        [
+            "recognize-anything-LICENSE",
+            "recognize-anything-NOTICE.txt",
+            "MODIFICATIONS.txt"
+        ]);
 
     public static AutoTagModelDefinition TinyClip { get; } = new(
         TinyClipProfileId,
@@ -270,6 +292,13 @@ public static class AutoTagModelCatalog
             ["bolete"] = "mushroom"
         };
 
+    private static Uri CreateManifestUri(
+        string profileId,
+        string version) =>
+        new(
+            $"{ModelAssetBaseUri}/manifests/" +
+            $"{Uri.EscapeDataString(profileId)}/" +
+            $"{Uri.EscapeDataString(version)}.json");
 }
 
 public enum AutoTagTensorLayout
@@ -337,7 +366,11 @@ public sealed record AutoTagModelDefinition(
     bool UseCpuOnly = false,
     bool UsesCalibratedThresholds = false,
     bool UsesTagHierarchy = false,
-    string? OutputName = null)
+    string? OutputName = null,
+    Uri? ManifestUri = null,
+    string? License = null,
+    IReadOnlyDictionary<string, string>? SourceRevisions = null,
+    IReadOnlyList<string>? RequiredNoticeFiles = null)
 {
     public bool UsesFixedThresholds =>
         OutputKind == AutoTagOutputKind.BinaryTagMask;
@@ -352,5 +385,6 @@ public sealed record AutoTagModelDefinition(
         SafeLabelMappings.Count > 0;
 
     public bool RequiresLocalImport =>
-        ModelAsset.RequiresImport || LabelsAsset.RequiresImport;
+        ManifestUri is null &&
+        (ModelAsset.RequiresImport || LabelsAsset.RequiresImport);
 }

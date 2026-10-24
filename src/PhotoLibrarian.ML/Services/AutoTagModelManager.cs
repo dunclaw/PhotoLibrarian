@@ -1,3 +1,10 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Collections.Concurrent;
+
 namespace PhotoLibrarian.ML.Services;
 
 public enum AutoTagDownloadState
@@ -11,17 +18,27 @@ public sealed record AutoTagDownloadStatus(
     AutoTagDownloadState State,
     long BytesOnDisk);
 
+public sealed record AutoTagModelDownloadProgress(
+    string FileName,
+    long BytesDownloaded,
+    long TotalBytes);
+
 public sealed class AutoTagModelManager : IAutoTagModelProvider
 {
-    private static readonly HttpClient HttpClient = new();
+    private static readonly HttpClient SharedHttpClient = CreateHttpClient();
+    private readonly HttpClient _httpClient;
     private readonly OnnxSessionManager _sessionManager;
     private readonly string _defaultDirectory;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim>
+        _profileLocks = new(StringComparer.Ordinal);
 
     public AutoTagModelManager(
         OnnxSessionManager sessionManager,
-        string? defaultDirectory = null)
+        string? defaultDirectory = null,
+        HttpClient? httpClient = null)
     {
         _sessionManager = sessionManager;
+        _httpClient = httpClient ?? SharedHttpClient;
         _defaultDirectory = Path.GetFullPath(defaultDirectory ?? Path.Combine(
             sessionManager.ModelDirectory,
             "AutoTagging"));
@@ -90,22 +107,109 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
             asset.FileName);
     }
 
-    public async Task EnsureModelAsync(
+    public Task EnsureModelAsync(
         string profileId,
         string? modelDirectory,
+        CancellationToken cancellationToken = default) =>
+        DownloadProfileAssetsAsync(
+            profileId,
+            modelDirectory,
+            progress: null,
+            cancellationToken);
+
+    public async Task DownloadProfileAssetsAsync(
+        string profileId,
+        string? modelDirectory,
+        IProgress<AutoTagModelDownloadProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         var definition = AutoTagModelCatalog.ForId(profileId);
-        Directory.CreateDirectory(
-            GetProfileDirectory(profileId, modelDirectory));
-        await EnsureAssetAsync(
-            GetAssetPath(profileId, definition.ModelAsset, modelDirectory),
+        var profileLock = _profileLocks.GetOrAdd(
+            profileId,
+            _ => new SemaphoreSlim(1, 1));
+        await profileLock.WaitAsync(cancellationToken);
+        try
+        {
+            await DownloadProfileAssetsCoreAsync(
+                definition,
+                modelDirectory,
+                progress,
+                cancellationToken);
+        }
+        finally
+        {
+            profileLock.Release();
+        }
+    }
+
+    private async Task DownloadProfileAssetsCoreAsync(
+        AutoTagModelDefinition definition,
+        string? modelDirectory,
+        IProgress<AutoTagModelDownloadProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var profileId = definition.Id;
+        var profileDirectory =
+            GetProfileDirectory(profileId, modelDirectory);
+        Directory.CreateDirectory(profileDirectory);
+
+        var assets = new[]
+        {
             definition.ModelAsset,
-            cancellationToken);
-        await EnsureAssetAsync(
-            GetAssetPath(profileId, definition.LabelsAsset, modelDirectory),
-            definition.LabelsAsset,
-            cancellationToken);
+            definition.LabelsAsset
+        };
+        var existing = new bool[assets.Length];
+        for (var index = 0; index < assets.Length; index++)
+        {
+            existing[index] = await HasExpectedHashAsync(
+                GetAssetPath(profileId, assets[index], modelDirectory),
+                assets[index],
+                cancellationToken);
+        }
+
+        AutoTagModelManifest? manifest = null;
+        if (existing.Any(isPresent => !isPresent) &&
+            definition.ManifestUri is not null)
+        {
+            manifest = await AutoTagModelManifest.LoadAsync(
+                _httpClient,
+                definition.ManifestUri,
+                definition,
+                cancellationToken);
+        }
+
+        long bytesCompleted = 0;
+        var totalBytes = assets.Sum(asset => asset.DownloadSizeBytes);
+        for (var index = 0; index < assets.Length; index++)
+        {
+            var asset = assets[index];
+            var assetPath = GetAssetPath(
+                profileId,
+                asset,
+                modelDirectory);
+            if (existing[index])
+            {
+                bytesCompleted += asset.DownloadSizeBytes;
+                progress?.Report(new AutoTagModelDownloadProgress(
+                    asset.FileName,
+                    bytesCompleted,
+                    totalBytes));
+                continue;
+            }
+
+            var downloadUri = manifest?.GetAssetUri(asset.FileName)
+                ?? asset.DownloadUri;
+            await DownloadVerifiedAssetAsync(
+                _httpClient,
+                assetPath,
+                asset,
+                downloadUri,
+                bytesCompleted,
+                totalBytes,
+                progress,
+                cancellationToken);
+            bytesCompleted += asset.DownloadSizeBytes;
+        }
     }
 
     public async Task ImportProfileAssetsAsync(
@@ -115,13 +219,6 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
         CancellationToken cancellationToken = default)
     {
         var definition = AutoTagModelCatalog.ForId(profileId);
-        if (!definition.RequiresLocalImport)
-        {
-            throw new InvalidOperationException(
-                $"{definition.DisplayName} is downloaded automatically " +
-                "and does not accept imported assets.");
-        }
-
         if (!Directory.Exists(sourceDirectory))
         {
             throw new DirectoryNotFoundException(
@@ -191,11 +288,25 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
             GetAssetPath(profileId, definition.ModelAsset, modelDirectory),
             GetAssetPath(profileId, definition.LabelsAsset, modelDirectory)
         };
-        var existing = paths.Where(File.Exists).ToArray();
-        var state = existing.Length switch
+        var existing = new List<string>();
+        var completeAssets = 0;
+        foreach (var path in paths)
+        {
+            if (File.Exists(path))
+            {
+                existing.Add(path);
+                completeAssets++;
+            }
+            else if (File.Exists(path + ".partial"))
+            {
+                existing.Add(path + ".partial");
+            }
+        }
+        var state = completeAssets == paths.Length
+            ? AutoTagDownloadState.Downloaded
+            : existing.Count switch
         {
             0 => AutoTagDownloadState.NotDownloaded,
-            2 => AutoTagDownloadState.Downloaded,
             _ => AutoTagDownloadState.PartiallyDownloaded
         };
         return new AutoTagDownloadStatus(
@@ -238,66 +349,197 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
             profileId);
     }
 
-    private static async Task EnsureAssetAsync(
+    private static HttpClient CreateHttpClient()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(20),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10)
+        };
+        return new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        };
+    }
+
+    internal static async Task DownloadVerifiedAssetAsync(
+        HttpClient httpClient,
         string destinationPath,
         AutoTagAssetDefinition asset,
+        Uri? downloadUri,
+        long bytesCompleted,
+        long totalBytes,
+        IProgress<AutoTagModelDownloadProgress>? progress,
         CancellationToken cancellationToken)
     {
+        using var timeout =
+            CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromHours(2));
+        var downloadToken = timeout.Token;
+
         if (await HasExpectedHashAsync(
             destinationPath,
             asset,
-            cancellationToken))
+            downloadToken))
         {
             return;
         }
 
-        if (asset.RequiresImport)
+        if (downloadUri is null)
         {
             throw new InvalidOperationException(
                 $"Local model asset '{asset.FileName}' is missing or does " +
-                "not match the selected tested model version. Open Settings and " +
-                "choose Import model assets.");
+                "not match the selected tested model version. Downloading is " +
+                "not available for this profile yet; choose Import model assets.");
         }
 
-        var temporaryPath = destinationPath + ".download";
+        var temporaryPath = destinationPath + ".partial";
+        var offset = 0L;
+        if (File.Exists(temporaryPath))
+        {
+            offset = new FileInfo(temporaryPath).Length;
+            if (offset > asset.DownloadSizeBytes)
+            {
+                File.Delete(temporaryPath);
+                offset = 0;
+            }
+            else if (offset == asset.DownloadSizeBytes &&
+                     await HasExpectedHashAsync(
+                         temporaryPath,
+                         asset,
+                         downloadToken))
+            {
+                File.Move(temporaryPath, destinationPath, true);
+                progress?.Report(new AutoTagModelDownloadProgress(
+                    asset.FileName,
+                    bytesCompleted + asset.DownloadSizeBytes,
+                    totalBytes));
+                return;
+            }
+            else if (offset == asset.DownloadSizeBytes)
+            {
+                File.Delete(temporaryPath);
+                offset = 0;
+            }
+        }
+
+        progress?.Report(new AutoTagModelDownloadProgress(
+            asset.FileName,
+            bytesCompleted + offset,
+            totalBytes));
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            downloadUri);
+        if (offset > 0)
+        {
+            request.Headers.Range = new RangeHeaderValue(offset, null);
+        }
+
+        using var response = await httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            downloadToken);
+        if (response.StatusCode == HttpStatusCode.PartialContent)
+        {
+            var range = response.Content.Headers.ContentRange;
+            if (range?.Unit != "bytes" ||
+                range.From != (offset > 0 ? offset : 0) ||
+                range.Length != asset.DownloadSizeBytes)
+            {
+                throw new InvalidDataException(
+                    $"The model server returned an invalid byte range for '{asset.FileName}'.");
+            }
+        }
+        else
+        {
+            response.EnsureSuccessStatusCode();
+            if (offset > 0)
+            {
+                offset = 0;
+            }
+        }
+
+        var expectedResponseBytes =
+            asset.DownloadSizeBytes - offset;
+        if (response.Content.Headers.ContentLength is long responseLength &&
+            responseLength != expectedResponseBytes)
+        {
+            throw new InvalidDataException(
+                $"The model server returned an unexpected size for '{asset.FileName}'.");
+        }
+
+        var downloaded = offset;
         try
         {
-            using var response = await HttpClient.GetAsync(
-                asset.DownloadUri!,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
-            response.EnsureSuccessStatusCode();
-
+            var fileMode = offset > 0
+                ? FileMode.Append
+                : FileMode.Create;
             await using (var source =
-                await response.Content.ReadAsStreamAsync(cancellationToken))
+                await response.Content.ReadAsStreamAsync(downloadToken))
             await using (var destination = new FileStream(
                 temporaryPath,
-                FileMode.Create,
+                fileMode,
                 FileAccess.Write,
                 FileShare.None,
-                81920,
+                1_048_576,
                 FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                await source.CopyToAsync(destination, cancellationToken);
+                var buffer = new byte[1_048_576];
+                while (true)
+                {
+                    var read = await source.ReadAsync(
+                        buffer,
+                        downloadToken);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    downloaded += read;
+                    if (downloaded > asset.DownloadSizeBytes)
+                    {
+                        throw new InvalidDataException(
+                            $"The model server sent too many bytes for '{asset.FileName}'.");
+                    }
+                    await destination.WriteAsync(
+                        buffer.AsMemory(0, read),
+                        downloadToken);
+                    progress?.Report(new AutoTagModelDownloadProgress(
+                        asset.FileName,
+                        bytesCompleted + downloaded,
+                        totalBytes));
+                }
+                await destination.FlushAsync(downloadToken);
+            }
+
+            if (downloaded != asset.DownloadSizeBytes)
+            {
+                throw new InvalidDataException(
+                    $"Downloaded model asset '{asset.FileName}' has an unexpected size.");
             }
 
             if (!await HasExpectedHashAsync(
                 temporaryPath,
                 asset,
-                cancellationToken))
+                downloadToken))
             {
+                File.Delete(temporaryPath);
                 throw new InvalidDataException(
-                    $"Downloaded automatic-tagging asset '{asset.FileName}' failed checksum validation.");
+                    $"Downloaded automatic-tagging asset '{asset.FileName}' failed SHA-256 validation. The corrupt partial file was removed.");
             }
 
             File.Move(temporaryPath, destinationPath, true);
         }
-        finally
+        catch (InvalidDataException)
         {
-            if (File.Exists(temporaryPath))
+            if (File.Exists(temporaryPath) &&
+                new FileInfo(temporaryPath).Length > asset.DownloadSizeBytes)
             {
                 File.Delete(temporaryPath);
             }
+            throw;
         }
     }
 
@@ -340,9 +582,9 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
                 cancellationToken))
             {
                 throw new InvalidDataException(
-                    $"'{asset.FileName}' does not match the tested RAM++ " +
-                    "asset. Select the exact model conversion used by the " +
-                    "comparison benchmark.");
+                    $"'{asset.FileName}' does not match the tested " +
+                    "profile asset. Select the exact model conversion used " +
+                    "by the comparison benchmark.");
             }
         }
         catch
@@ -366,6 +608,11 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
             return false;
         }
 
+        if (new FileInfo(path).Length != asset.DownloadSizeBytes)
+        {
+            return false;
+        }
+
         await using var stream = new FileStream(
             path,
             FileMode.Open,
@@ -373,7 +620,7 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
             FileShare.Read,
             81920,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        var hash = await System.Security.Cryptography.SHA256.HashDataAsync(
+        var hash = await SHA256.HashDataAsync(
             stream,
             cancellationToken);
         return Convert.ToHexString(hash).Equals(
