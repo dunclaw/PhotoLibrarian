@@ -3,9 +3,11 @@
 Research decision for [#90](https://github.com/dunclaw/PhotoLibrarian/issues/90),
 2026-10-19. This is an implementation gate, not a claim that these features
 are available. No restoration models, RAW decoder, new controls, or runtime
-dependencies are added by this investigation. No candidate was benchmarked
-in PhotoLibrarian; sizes below are planning estimates, not measured downloads
-or performance results.
+dependencies are added by the original research. No candidate was benchmarked
+in that research phase; sizes below are planning estimates, not measured
+downloads or performance results. The later bounded model-free deblur
+experiment and its no-ship decision are recorded in
+[DEBLUR-EXPERIMENTS.md](DEBLUR-EXPERIMENTS.md).
 
 ## Decision and implementation order
 
@@ -13,8 +15,9 @@ or performance results.
    [#26](https://github.com/dunclaw/PhotoLibrarian/issues/26), prototyping a
    bounded edge-aware filter before choosing its slider mapping. Do not call
    ordinary Gaussian blur detail-preserving noise reduction.
-2. Use [#78](https://github.com/dunclaw/PhotoLibrarian/issues/78) for selectable
-   sharpening and a bounded deconvolution experiment. Separate motion from
+2. Use [#108](https://github.com/dunclaw/PhotoLibrarian/issues/108) for selectable
+   sharpening and [#78](https://github.com/dunclaw/PhotoLibrarian/issues/78)
+   for a bounded deconvolution experiment. Separate motion from
    defocus, and distinguish sharpening from actual blur inversion. Do not
    promise automatic recovery of arbitrary camera or subject motion.
 3. Evaluate optional local restoration models only after establishing those
