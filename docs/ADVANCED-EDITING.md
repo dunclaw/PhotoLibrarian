@@ -13,10 +13,14 @@ or performance results.
    [#26](https://github.com/dunclaw/PhotoLibrarian/issues/26), prototyping a
    bounded edge-aware filter before choosing its slider mapping. Do not call
    ordinary Gaussian blur detail-preserving noise reduction.
-2. Use [#78](https://github.com/dunclaw/PhotoLibrarian/issues/78) for selectable
-   sharpening and a bounded deconvolution experiment. Separate motion from
-   defocus, and distinguish sharpening from actual blur inversion. Do not
-   promise automatic recovery of arbitrary camera or subject motion.
+2. Add the model-free selectable sharpening baseline in
+   [#108](https://github.com/dunclaw/PhotoLibrarian/issues/108): keep the
+   existing `SharpenEffect` as the old-edit default and offer an explicit,
+   bounded source-pixel unsharp mask. Use
+   [#78](https://github.com/dunclaw/PhotoLibrarian/issues/78) for a separate
+   bounded deconvolution experiment. Distinguish sharpening from blur
+   inversion; do not promise automatic recovery of arbitrary camera or
+   subject motion.
 3. Evaluate optional local restoration models only after establishing those
    baselines. Start with NAFNet's smaller, task-specific denoising and motion
    models; use Restormer as a quality/defocus comparator. Neither is selected
@@ -26,9 +30,10 @@ or performance results.
    specified below. A slider on today's 8-bit decoder is not RAW-aware HDR.
    HDR display output and exposure-bracket merging are separate work again.
 
-These recommendations let #26 and #78 proceed without depending on a large
-model download or a replacement RAW pipeline. This document completes the
-research deliverable, not the feature implementations in those issues.
+These recommendations let #26, #108, and #78 proceed without depending on a
+large model download or a replacement RAW pipeline. This document records the
+research and implementation evidence; it does not claim deconvolution or RAW
+development is available.
 
 ## Existing pipeline and constraints
 
@@ -36,11 +41,11 @@ research deliverable, not the feature implementations in those issues.
 | --- | --- |
 | Decode | [`ImageEditRenderer.LoadOrientedAsync`](../src/PhotoLibrarian/Services/ImageEditRenderer.cs) requests premultiplied `Bgra8`, applies EXIF orientation, and uses `DoNotColorManage`. Precision and color interpretation must change before a RAW/HDR claim. Even a 16-bit TIFF is reduced to 8-bit here. |
 | Preview/save | [`ImageEditorView`](../src/PhotoLibrarian/Views/ImageEditorView.xaml.cs) and `ImageEditRenderer` both call [`EditEffectGraph.Build`](../src/PhotoLibrarian/Services/EditEffectGraph.cs). Preview loads the full-resolution oriented bitmap and scales the graph output for display. Preserve this shared source-space processing; filtering a downscaled preview separately would change kernel behavior. |
-| Current detail effects | The graph has `HighlightsAndShadowsEffect` clarity and `SharpenEffect` with a fixed threshold. It has no denoising, blur inversion, model inference, or RAW development. Existing sharpness must remain the default when adding modes. |
+| Current detail effects | The graph has `HighlightsAndShadowsEffect` clarity, edge-aware noise reduction, and selectable sharpening: the existing `SharpenEffect` remains the default for old XMP, with a source-pixel unsharp-mask alternative. It has no blur inversion, model inference, or RAW development. |
 | Save | The renderer accepts JPEG, PNG, TIFF, and BMP extensions only, renders into a default `CanvasRenderTarget`, reads byte pixels, and transcodes over the source. PNG/TIFF preserve alpha; other outputs fill exposed rotation corners white. This is not a high-bit-depth export path. |
 | Safety and recipes | [`ImageEditService`](../src/PhotoLibrarian.Core/Services/ImageEditService.cs) backs up before rendering and clears pending edit XMP after success. RAW export must not use this overwrite/clear flow for the RAW original. |
 | State | [`EditParameters`](../src/PhotoLibrarian.Core/Models/EditParameters.cs), its serializer, editor history, and viewmodel all need to agree on any new amount/mode. Clone, reset, `HasAdjustments`, missing-XMP defaults, undo/redo, and saved/reopened state are part of each implementation, not just a slider. |
-| Analysis | `AutoEnhanceAnalyzer` works on decoded byte pixels; it cannot infer recoverable RAW highlights from clipped RGB. Its unit tests do not establish GPU render parity. Current graph tests cover rotation extent, not pixel parity. |
+| Analysis | `AutoEnhanceAnalyzer` works on decoded byte pixels; it cannot infer recoverable RAW highlights from clipped RGB. Its unit tests do not establish GPU render parity. Source-resolution preview/save parity is exercised by the off-screen graph tests. |
 | Local inference | `Directory.Packages.props` already pins `Microsoft.ML.OnnxRuntime.DirectML` at 1.24.4. Tagging model assets are opt-in and managed locally; see [MODEL-ASSETS.md](../MODEL-ASSETS.md). Reuse the asset-management pattern, not tagging tensors or classification preprocessing. |
 
 ### Input/output boundary
@@ -59,7 +64,7 @@ research deliverable, not the feature implementations in those issues.
 | Gaussian smoothing | Fast and deterministic, but removes edges and fine texture with the noise. | Existing Win2D effect, no new runtime/model assets. Useful comparison baseline only, not the recommended standalone noise slider. |
 | Small bilateral filter | Spatial and intensity weighting can reduce flat-area noise while retaining edges. Strong settings erase texture; large kernels are expensive. RGB filtering can shift color; luminance/chroma treatment needs comparison. | Prototype a bounded source-space kernel through a Win2D custom pixel shader for #26. The built-in effect list has no bilateral denoiser. Budget shader compilation/packaging and GPU boundary tests; do not assume a ready-made Win2D API. |
 | Non-local means / wavelet thresholding | Non-local means can retain repeated texture but is expensive and can smear unusual details. Wavelets offer multiscale denoising but require boundary and threshold design to avoid artifacts. | Additional implementation, buffers, and tuning; defer unless the bounded bilateral baseline fails visual review. Do not import an entire image-processing runtime for one slider without measurements. |
-| Existing sharpen / explicit unsharp mask | Boosts edge contrast, including noise and halos; cannot recreate missing detail. An explicit Gaussian/unsharp composition can expose radius and threshold separately. | Existing `SharpenEffect` remains compatible default. Prototype a second explicit mode using Win2D blur/composition, with source-pixel radius and bounded overshoot. Denoise before sharpening. |
+| Existing sharpen / explicit unsharp mask | Boosts edge contrast, including noise and halos; cannot recreate missing detail. An explicit Gaussian/unsharp composition can expose radius and threshold separately. | Implemented in [#108](https://github.com/dunclaw/PhotoLibrarian/issues/108): existing `SharpenEffect` remains the compatible default; the alternative uses a source-pixel Win2D Gaussian blur plus a thresholded shader with output clamped to the normalized range. Denoise precedes sharpening. |
 | Wiener / Richardson-Lucy deconvolution | Inverts an assumed blur kernel, not arbitrary blur. Wiener needs noise regularization; Richardson-Lucy needs iteration limits and noise/ringing control. A line kernel models uniform camera motion; a disk approximates uniform defocus. Moving subjects and depth-varying focus need different kernels/masks. | #78 should first test known-kernel fixtures and bounded iterations. GPU iteration requires intermediate targets and cancellation; FFT-based Wiener adds implementation/dependency cost. Do not relabel a sharpen slider as deblur or infer a universal kernel from it. |
 | Multiscale local contrast | Separate broad illumination from fine detail, then apply bounded gains by scale/tonal range. Can increase halos, noise, and unnatural texture. | Existing clarity is the baseline. A future independent design needs multiple source-space buffers and tonal masks; not equivalent to RAW highlight recovery. No copying of ON1 implementation or UI. |
 
@@ -178,25 +183,70 @@ guarantees. The source-resolution render-parity harness now lives in
 edge, fine-texture, gradient, and known 3×3-box-blurred inputs without user
 photos or external assets.
 
-On Windows, run the pure fixture checks and device-dependent parity suite with:
+On Windows, run the generated fixture and source-resolution parity suites with:
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.UnsharpMaskTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.NoiseReductionTests
 ```
 
 `ImageRenderParityTests` requires Win2D and a working Windows graphics device;
 device initialization errors fail the run rather than being reported as a
 skip or parity success. It compares exact BGRA8 pixels from the production
 preview draw pass and the save renderer before encoding, covering neutral,
-tone, detail, and rotation recipes; EXIF orientation; a portrait 300-DPI
+tone, detail, both sharpening modes, denoise-before-sharpen, and rotation
+recipes; EXIF orientation; a portrait 300-DPI
 source; small/odd dimensions; alpha; and transparent PNG versus white JPEG
-rotation corners. The focused baseline currently passes all 6 tests with no
-skips, including 26 exact preview/save pixel comparisons across the six
-fixtures and geometry cases. A separate PNG save/reopen test checks encoded
+rotation corners. The focused suite passes with no skips, including 44 exact
+preview/save pixel comparisons across the six fixtures and geometry cases.
+Additional unsharp-mask tests cover bounded parameters/output, neutral
+bypass, edge contrast, low-amplitude noise suppression, small/odd alpha
+images, legacy XMP defaults, and history/reset/save state. A separate PNG
+save/reopen test checks encoded
 dimensions, orientation reset, exact alpha, and RGB within one BGRA8 value
 for premultiplication roundoff. The suite intentionally does not use JPEG
 equality as an encoding-parity check. Pure generated-fixture checks are in
 the separate `RenderQualityFixtureTests` class.
+
+### #108 source-pixel sharpening evidence
+
+`SharpeningMode` defaults to `Legacy`, including when older XMP has no mode
+property; that path retains the existing `SharpenEffect` amount mapping and
+threshold. The editor presents a single **Sharpening** block with an **Amount**
+slider by default. Checking **Advanced** switches to the unsharp-mask method
+and replaces that slider with **Amount**, **Radius (pixels)**, and **Noise
+threshold**. Unchecking it returns to the original method; each method retains
+its own settings, including through undo/redo and pending XMP edits.
+`UnsharpMask` uses the existing source-resolution graph for both
+preview and save. Its amount is bounded to 0–2, its Gaussian blur amount is
+0.5–5 source pixels, and its per-channel noise threshold is 0–0.25 in
+normalized channel units. The shader clamps output to [0, 1] and preserves
+source alpha. Zero amount returns the input image without adding a render
+effect. The UI describes the feature as edge-contrast enhancement, not lost
+detail recovery.
+
+On Windows, collect source-resolution timing with:
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.UnsharpMaskPerformanceTests
+```
+
+Warm draw-plus-readback medians captured 2026-10-23 on Windows 11 Pro
+10.0.26300, .NET 8.0.32, Win2D 1.4.0, AMD Ryzen 9 9950X3D, and a system with
+NVIDIA GeForce RTX 5080 (driver 32.0.16.1088) plus AMD Radeon integrated
+graphics (driver 32.0.21042.62), using `CanvasDevice.GetSharedDevice()`:
+
+| Source pixels | Median render |
+| ---: | ---: |
+| 1024 × 1024 (1.05 MP) | 1.6 ms |
+| 4000 × 3000 (12 MP) | 15.0 ms |
+| 6000 × 4000 (24 MP) | 41.7 ms |
+
+Each case creates/uploads the source before timing, warms the graph once, then
+times three full-resolution draws followed by pixel readback; the table
+reports the median. It does not include decoding, encoding, target/graph
+construction, peak memory, or a comparison across adapters, so these numbers
+are a focused render-cost observation rather than a whole-save latency
+guarantee.
 
 | Area | Required evidence before enabling a feature |
 | --- | --- |

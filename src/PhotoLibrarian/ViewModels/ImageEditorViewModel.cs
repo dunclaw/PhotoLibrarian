@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PhotoLibrarian.Core.Models;
@@ -77,6 +78,18 @@ public partial class ImageEditorViewModel : ObservableObject
     [ObservableProperty]
     public partial double NoiseReduction { get; set; }
 
+    [ObservableProperty]
+    public partial SharpeningMode SharpeningMode { get; set; }
+
+    [ObservableProperty]
+    public partial double UnsharpMaskAmount { get; set; }
+
+    [ObservableProperty]
+    public partial double UnsharpMaskRadius { get; set; }
+
+    [ObservableProperty]
+    public partial double UnsharpMaskThreshold { get; set; }
+
     // Levels
     [ObservableProperty]
     public partial double BlackPoint { get; set; }
@@ -120,6 +133,8 @@ public partial class ImageEditorViewModel : ObservableObject
         Title = "";
         WhitePoint = 1.0;
         Midtones = 0.5;
+        UnsharpMaskRadius = 1.0;
+        UnsharpMaskThreshold = 0.02;
         ClearHistory();
     }
 
@@ -184,6 +199,10 @@ public partial class ImageEditorViewModel : ObservableObject
         Clarity = Clarity,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
+        SharpeningMode = SharpeningMode,
+        UnsharpMaskAmount = UnsharpMaskAmount,
+        UnsharpMaskRadius = UnsharpMaskRadius,
+        UnsharpMaskThreshold = UnsharpMaskThreshold,
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
@@ -258,6 +277,10 @@ public partial class ImageEditorViewModel : ObservableObject
         Clarity = p.Clarity;
         Sharpness = p.Sharpness;
         NoiseReduction = p.NoiseReduction;
+        SharpeningMode = p.SharpeningMode;
+        UnsharpMaskAmount = p.UnsharpMaskAmount;
+        UnsharpMaskRadius = p.UnsharpMaskRadius;
+        UnsharpMaskThreshold = p.UnsharpMaskThreshold;
         BlackPoint = p.BlackPoint;
         WhitePoint = p.WhitePoint;
         Midtones = p.Midtones;
@@ -276,6 +299,10 @@ public partial class ImageEditorViewModel : ObservableObject
     partial void OnClarityChanged(double value) => OnParameterChanged("Clarity");
     partial void OnSharpnessChanged(double value) => OnParameterChanged("Sharpness");
     partial void OnNoiseReductionChanged(double value) => OnParameterChanged("Noise reduction");
+    partial void OnSharpeningModeChanged(SharpeningMode value) => OnParameterChanged("Sharpening mode");
+    partial void OnUnsharpMaskAmountChanged(double value) => OnParameterChanged("Unsharp-mask amount");
+    partial void OnUnsharpMaskRadiusChanged(double value) => OnParameterChanged("Unsharp-mask radius");
+    partial void OnUnsharpMaskThresholdChanged(double value) => OnParameterChanged("Unsharp-mask threshold");
     partial void OnBlackPointChanged(double value) => OnParameterChanged("Black point");
     partial void OnWhitePointChanged(double value) => OnParameterChanged("White point");
     partial void OnMidtonesChanged(double value) => OnParameterChanged("Midtones");
@@ -375,6 +402,9 @@ public partial class ImageEditorViewModel : ObservableObject
         a.Highlights == b.Highlights && a.Shadows == b.Shadows && a.Saturation == b.Saturation &&
         a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
         a.Sharpness == b.Sharpness && a.NoiseReduction == b.NoiseReduction &&
+        a.SharpeningMode == b.SharpeningMode && a.UnsharpMaskAmount == b.UnsharpMaskAmount &&
+        a.UnsharpMaskRadius == b.UnsharpMaskRadius &&
+        a.UnsharpMaskThreshold == b.UnsharpMaskThreshold &&
         a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
         a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle;
 }
