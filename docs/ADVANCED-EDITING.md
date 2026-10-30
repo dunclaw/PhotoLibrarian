@@ -211,7 +211,12 @@ the separate `RenderQualityFixtureTests` class.
 
 `SharpeningMode` defaults to `Legacy`, including when older XMP has no mode
 property; that path retains the existing `SharpenEffect` amount mapping and
-threshold. `UnsharpMask` uses the existing source-resolution graph for both
+threshold. The editor presents a single **Sharpening** block with an **Amount**
+slider by default. Checking **Advanced** switches to the unsharp-mask method
+and replaces that slider with **Amount**, **Radius (pixels)**, and **Noise
+threshold**. Unchecking it returns to the original method; each method retains
+its own settings, including through undo/redo and pending XMP edits.
+`UnsharpMask` uses the existing source-resolution graph for both
 preview and save. Its amount is bounded to 0–2, its Gaussian blur amount is
 0.5–5 source pixels, and its per-channel noise threshold is 0–0.25 in
 normalized channel units. The shader clamps output to [0, 1] and preserves

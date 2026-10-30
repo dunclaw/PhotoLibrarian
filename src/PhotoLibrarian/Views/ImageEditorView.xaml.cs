@@ -579,16 +579,16 @@ public sealed partial class ImageEditorView : UserControl
         HistogramCanvas.Invalidate();
     }
 
-    private void OnSharpeningModeChanged(object sender, SelectionChangedEventArgs e)
+    private void OnAdvancedSharpeningChanged(object sender, RoutedEventArgs e)
     {
         if (_suppressSliderEvents || ViewModel is null) return;
 
-        var mode = SharpeningModeComboBox.SelectedIndex == 1
+        var mode = AdvancedSharpeningCheckBox.IsChecked == true
             ? SharpeningMode.UnsharpMask
             : SharpeningMode.Legacy;
         if (ViewModel.SharpeningMode == mode) return;
 
-        ViewModel.BeginEdit("Sharpening mode");
+        ViewModel.BeginEdit("Advanced sharpening");
         ViewModel.SharpeningMode = mode;
         ViewModel.EndEdit();
         UpdateSharpeningControls();
@@ -597,7 +597,7 @@ public sealed partial class ImageEditorView : UserControl
     private void UpdateSharpeningControls()
     {
         var useUnsharpMask = ViewModel?.SharpeningMode == SharpeningMode.UnsharpMask;
-        LegacySharpeningPanel.Visibility = useUnsharpMask ? Visibility.Collapsed : Visibility.Visible;
+        BasicSharpeningPanel.Visibility = useUnsharpMask ? Visibility.Collapsed : Visibility.Visible;
         UnsharpMaskPanel.Visibility = useUnsharpMask ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -699,8 +699,8 @@ public sealed partial class ImageEditorView : UserControl
         ClaritySlider.Value = ViewModel.Clarity;
         SharpnessSlider.Value = ViewModel.Sharpness;
         NoiseReductionSlider.Value = ViewModel.NoiseReduction;
-        SharpeningModeComboBox.SelectedIndex =
-            ViewModel.SharpeningMode == SharpeningMode.UnsharpMask ? 1 : 0;
+        AdvancedSharpeningCheckBox.IsChecked =
+            ViewModel.SharpeningMode == SharpeningMode.UnsharpMask;
         UnsharpMaskAmountSlider.Value = ViewModel.UnsharpMaskAmount;
         UnsharpMaskAmountText.Text = ViewModel.UnsharpMaskAmount.ToString("0.00");
         UnsharpMaskRadiusSlider.Value = ViewModel.UnsharpMaskRadius;

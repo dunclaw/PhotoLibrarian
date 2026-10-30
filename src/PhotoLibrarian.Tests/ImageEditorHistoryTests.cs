@@ -205,6 +205,39 @@ public sealed class ImageEditorHistoryTests : IDisposable
     }
 
     [Fact]
+    public async Task AdvancedSharpeningSwitch_PreservesBothMethodsAndIsUndoable()
+    {
+        var vm = await OpenAsync();
+        Assert.Equal(SharpeningMode.Legacy, vm.SharpeningMode);
+        vm.Sharpness = 0.4;
+        vm.BeginEdit("Advanced sharpening");
+        vm.SharpeningMode = SharpeningMode.UnsharpMask;
+        vm.EndEdit();
+        vm.UnsharpMaskAmount = 1.2;
+        vm.UnsharpMaskRadius = 2.5;
+        vm.UnsharpMaskThreshold = 0.05;
+
+        vm.BeginEdit("Advanced sharpening");
+        vm.SharpeningMode = SharpeningMode.Legacy;
+        vm.EndEdit();
+        Assert.Equal(0.4, vm.Sharpness);
+        Assert.Equal("Advanced sharpening", vm.UndoHistory[0]);
+        vm.UndoCommand.Execute(null);
+        Assert.Equal(SharpeningMode.UnsharpMask, vm.SharpeningMode);
+        Assert.Equal(1.2, vm.UnsharpMaskAmount);
+        Assert.Equal(2.5, vm.UnsharpMaskRadius);
+        Assert.Equal(0.05, vm.UnsharpMaskThreshold);
+        vm.RedoCommand.Execute(null);
+        Assert.Equal(SharpeningMode.Legacy, vm.SharpeningMode);
+        Assert.Equal(0.4, vm.Sharpness);
+
+        vm.ResetAllCommand.Execute(null);
+        Assert.Equal(SharpeningMode.Legacy, vm.SharpeningMode);
+        Assert.Equal(0, vm.Sharpness);
+        Assert.Equal(0, vm.UnsharpMaskAmount);
+    }
+
+    [Fact]
     public async Task UnsharpMaskSettings_RoundTripHistoryResetAndSave()
     {
         var initial = new EditParameters
