@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "profileId": "tinyclip.vit-40m-32.int8",
+      "publicationReady": false,
+      "blockedReason": "The current app profile expects a 40,622,561-byte model with SHA-256 9aa0c0c8d4abdb4f80e8f26e74236bb1bf13d43ffaab4e17fb03e48c4e01be0d, while the pinned preparation tool produces an 85,618,595-byte ONNX with SHA-256 0843578fa3e1c386a3be5250ccb13cc8836d062876a34756f380a2e371e86a75. Reconcile the export and calibration before publication.",
+      "version": "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3",
+      "pipelineVersion": "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3",
+      "manifestUri": "https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/tinyclip.vit-40m-32.int8/tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3.json",
+      "license": "MIT",
+      "sourceRevisions": {
+        "wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M": "95ec8197b3f2fe7f747865c61ca556cf0768b2f7",
+        "onnx-community/TinyCLIP-ViT-40M-32-Text-19M-LAION400M-ONNX": "737108a175dc6c043d9e64cf738baa91a272f7cb"
+      },
+      "assets": [
+        {
+          "fileName": "tinyclip-vision-int8.onnx",
+          "sizeBytes": 40622561,
+          "sha256": "9AA0C0C8D4ABDB4F80E8F26E74236BB1BF13D43FFAAB4E17FB03E48C4E01BE0D"
+        },
+        {
+          "fileName": "tinyclip.json",
+          "sizeBytes": 58298021,
+          "sha256": "F40DF22806EB77961356898CE0B01B540139CA412B877860417BEB4E8B16BC8A"
+        }
+      ],
+      "notices": [
+        "LICENSE",
+        "NOTICE.txt"
+      ],
+      "provenanceFile": "preparation-manifest.json"
+    },
+    {
+      "profileId": "ram-plus.swin-large-14m",
+      "publicationReady": false,
+      "blockedReason": "Verified RAM++ artifacts and evidence are available; publication requires a reviewed readiness change and separate deployment approval.",
+      "reviewEvidence": {
+        "provenanceSha256": "1D49785E2E8B2A140386D94B23D9F1B44B777E5738904285C0EEBA803CE88C1C",
+        "checkpointSha256": "497C178836BA66698CA226C7895317E6E800034BE986452DBD2593298D50E87D",
+        "validatorSha256": "F750E58C8C60E029DF812132411108C602E11E11DB824014A25E3382E02BE744",
+        "noticeSha256": {
+          "recognize-anything-LICENSE": "D38F4EDCFB09332FA497FD3CE52BD6C13DD73FA5ACB8418A47AECE5A2D311F26",
+          "recognize-anything-NOTICE.txt": "DDB1BF4CB85CEFEFACC718B470A7B6CEF644A45ABA338219B03EE0BBE0C60537",
+          "MODIFICATIONS.txt": "830621A5642E84A138A5C6F74E523D5BB4F3408A922DBAA71A0CA7A31E90530B"
+        },
+        "reports": [
+          {
+            "fileName": "parity-report.json",
+            "sha256": "F3E12B37DE4CB7284623AA0D8F4F074756739A3AE0B393A226851DDFEC46CAD1",
+            "executionProvider": "CPUExecutionProvider"
+          },
+          {
+            "fileName": "parity-report-directml.json",
+            "sha256": "04C9112B1DF09631F6ACE06F7D0231C8481ECBC39F96E97F5BE05455F32C58AC",
+            "executionProvider": "DmlExecutionProvider"
+          }
+        ]
+      },
+      "version": "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3",
+      "pipelineVersion": "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3",
+      "manifestUri": "https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/ram-plus.swin-large-14m/ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3.json",
+      "license": "Apache-2.0",
+      "sourceRevisions": {
+        "recognize-anything": "7cb804a8609e9f4b1a50b7f31436d2df40bb9481",
+        "recognize-anything-plus-model": "84d4aee3a0265c4e0df1f714f0572011d1bf2ec3"
+      },
+      "assets": [
+        {
+          "fileName": "ram_plus_swin_large_14m.onnx",
+          "sizeBytes": 1849873814,
+          "sha256": "FF29E0E18E80B8F2FDC2566B9368BD904664CDC1FCE380F57E73DCF03F4ADDA3"
+        },
+        {
+          "fileName": "ram_plus_swin_large_14m_labels.txt",
+          "sizeBytes": 41905,
+          "sha256": "1A6C943DD251993770E7CF6FED23A38B7AC068F4C8FBC7A0DB85CBE0FE5221B3"
+        }
+      ],
+      "notices": [
+        "recognize-anything-LICENSE",
+        "recognize-anything-NOTICE.txt",
+        "MODIFICATIONS.txt"
+      ],
+      "provenanceFile": "ram_plus_manifest.json"
+    }
+  ]
+}

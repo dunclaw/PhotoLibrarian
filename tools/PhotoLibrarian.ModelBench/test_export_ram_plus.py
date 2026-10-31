@@ -133,6 +133,26 @@ class RamPlusExportTests(unittest.TestCase):
         self.assertEqual(("logits", "probabilities", "targets"), export.OUTPUT_NAMES)
         self.assertEqual("targets", export.OUTPUT_NAMES[-1])
 
+    def test_modification_notice_identifies_the_conversion_and_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            source = output / "source"
+            source.mkdir()
+            (source / "LICENSE").write_text("license", encoding="utf-8")
+            (source / "NOTICE.txt").write_text("third-party notices", encoding="utf-8")
+
+            notices = export.copy_notices(source, output)
+
+            names = {notice["file"] for notice in notices}
+            self.assertEqual({
+                "recognize-anything-LICENSE",
+                "recognize-anything-NOTICE.txt",
+                "MODIFICATIONS.txt",
+            }, names)
+            text = (output / "MODIFICATIONS.txt").read_text(encoding="utf-8")
+            self.assertIn("PhotoLibrarian modification notice", text)
+            self.assertIn("ram_plus_manifest.json", text)
+
     def test_preprocessing_is_fixed_to_upstream_contract(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "white.png"

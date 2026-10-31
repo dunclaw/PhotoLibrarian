@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Data.Sqlite;
@@ -15,6 +17,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly AutoTagBenchmarkProcessor _benchmarkProcessor;
     private Dictionary<string, AutoTagQualityStatus> _qualityStatuses = [];
     private bool _isInitializing;
+    private CancellationTokenSource? _modelDownloadCancellation;
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
@@ -75,6 +78,15 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool IsModelImportRunning { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsModelDownloadRunning { get; set; }
+
+    [ObservableProperty]
+    public partial double ModelDownloadProgress { get; set; }
+
+    [ObservableProperty]
+    public partial string ModelDownloadMessage { get; set; } = "";
 
     [ObservableProperty]
     public partial bool IsAutoTagCleanupRunning { get; set; }
@@ -206,6 +218,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         if (IsBenchmarkRunning ||
             IsModelImportRunning ||
+            IsModelDownloadRunning ||
             profileId == SelectedProfileId ||
             !AutoTagModelCatalog.TryGet(profileId, out var definition))
         {
@@ -269,11 +282,10 @@ public partial class SettingsViewModel : ObservableObject
         string sourceDirectory,
         CancellationToken cancellationToken = default)
     {
-        if (!SelectedProfile.RequiresLocalImport)
+        if (IsModelImportRunning ||
+            IsModelDownloadRunning ||
+            IsBenchmarkRunning)
         {
-            ModelImportHasError = true;
-            ModelImportMessage =
-                "The selected profile downloads its assets automatically.";
             return false;
         }
 
@@ -317,6 +329,80 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    public async Task<bool> DownloadSelectedModelAssetsAsync()
+    {
+        if (IsModelDownloadRunning ||
+            IsModelImportRunning ||
+            IsBenchmarkRunning)
+        {
+            return false;
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        _modelDownloadCancellation = cancellation;
+        IsModelDownloadRunning = true;
+        ModelImportHasError = false;
+        ModelDownloadProgress = 0;
+        ModelDownloadMessage =
+            $"Preparing {SelectedProfile.DisplayName} download…";
+
+        var progress = new Progress<AutoTagModelDownloadProgress>(
+            UpdateModelDownloadProgress);
+        try
+        {
+            await _autoTagModelManager.DownloadProfileAssetsAsync(
+                SelectedProfileId,
+                GetCustomModelDirectory(),
+                progress,
+                cancellation.Token);
+            ModelDownloadProgress = 100;
+            RefreshSelectedProfileDetails();
+            ModelDownloadMessage =
+                $"{SelectedProfile.DisplayName} assets were downloaded and SHA-256 verified.";
+            return true;
+        }
+        catch (OperationCanceledException)
+            when (cancellation.IsCancellationRequested)
+        {
+            RefreshSelectedProfileDetails();
+            ModelDownloadMessage =
+                "Download canceled. The partial file was kept so you can resume later.";
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            RefreshSelectedProfileDetails();
+            ModelImportHasError = true;
+            ModelDownloadMessage =
+                "Model download timed out after two hours. The partial file was kept so you can retry.";
+            ModelImportMessage = ModelDownloadMessage;
+            return false;
+        }
+        catch (Exception exception)
+            when (exception is HttpRequestException or
+                IOException or
+                InvalidDataException or
+                InvalidOperationException or
+                UnauthorizedAccessException or
+                ArgumentException)
+        {
+            RefreshSelectedProfileDetails();
+            ModelImportHasError = true;
+            ModelDownloadMessage =
+                $"Model download failed: {exception.Message} You can retry or import compatible files instead.";
+            ModelImportMessage = ModelDownloadMessage;
+            return false;
+        }
+        finally
+        {
+            _modelDownloadCancellation = null;
+            IsModelDownloadRunning = false;
+        }
+    }
+
+    public void CancelModelDownload() =>
+        _modelDownloadCancellation?.Cancel();
+
     public async Task DeleteSelectedModelAssetsAsync()
     {
         try
@@ -354,6 +440,13 @@ public partial class SettingsViewModel : ObservableObject
         string folderPath,
         CancellationToken cancellationToken = default)
     {
+        if (IsBenchmarkRunning ||
+            IsModelImportRunning ||
+            IsModelDownloadRunning)
+        {
+            return;
+        }
+
         var definition = SelectedProfile;
         IsBenchmarkRunning = true;
         HasBenchmarkResults = false;
@@ -541,12 +634,44 @@ public partial class SettingsViewModel : ObservableObject
     private void SetModelImportGuidance()
     {
         ModelImportHasError = false;
-        ModelImportMessage = SelectedProfile.RequiresLocalImport
-            ? $"{SelectedProfile.DisplayName} is not distributed by PhotoLibrarian. Select a folder " +
-              $"containing '{SelectedProfile.ModelAsset.FileName}' and " +
-              $"'{SelectedProfile.LabelsAsset.FileName}'. Source files are " +
-              "verified, copied, and never modified."
-            : string.Empty;
+        ModelDownloadMessage = string.Empty;
+        ModelDownloadProgress = 0;
+        var profile = SelectedProfile;
+        if (profile.ManifestUri is not null)
+        {
+            ModelImportMessage =
+                $"Download the verified {profile.DisplayName} bundle or select a folder containing " +
+                $"'{profile.ModelAsset.FileName}' and '{profile.LabelsAsset.FileName}'. " +
+                "Imported source files are verified, copied, and never modified.";
+        }
+        else if (profile.RequiresLocalImport)
+        {
+            ModelImportMessage =
+                $"{profile.DisplayName} is not distributed by PhotoLibrarian yet. Select a folder " +
+                $"containing '{profile.ModelAsset.FileName}' and " +
+                $"'{profile.LabelsAsset.FileName}'. Source files are verified, copied, and never modified.";
+        }
+        else
+        {
+            ModelImportMessage = string.Empty;
+        }
+    }
+
+    private void UpdateModelDownloadProgress(
+        AutoTagModelDownloadProgress progress)
+    {
+        if (progress.TotalBytes > 0)
+        {
+            ModelDownloadProgress = Math.Clamp(
+                100d * progress.BytesDownloaded / progress.TotalBytes,
+                0,
+                100);
+        }
+
+        ModelDownloadMessage =
+            $"Downloading {progress.FileName}: " +
+            $"{FormatByteSize(progress.BytesDownloaded)} of " +
+            $"{FormatByteSize(progress.TotalBytes)}";
     }
 
     private AutoTaggingSettings CreateSettings() => new(

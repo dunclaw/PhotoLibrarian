@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -63,7 +65,8 @@ public sealed partial class SettingsPanel : UserControl
             var profile = ViewModel.SelectedProfile;
             var isProfileEditable =
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             var calibratedThresholdsVisibility =
                 profile.UsesCalibratedThresholds
                     ? Visibility.Visible
@@ -90,6 +93,17 @@ public sealed partial class SettingsPanel : UserControl
                 $"Asset size: {ViewModel.ModelDownloadSize}";
             ModelDownloadStatusText.Text =
                 ViewModel.ModelDownloadStatus;
+            ModelDownloadMessageText.Text =
+                ViewModel.ModelDownloadMessage;
+            ModelDownloadProgressBar.Value =
+                ViewModel.ModelDownloadProgress;
+            ModelDownloadProgressBar.Visibility =
+                ViewModel.IsModelDownloadRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            ModelDownloadProgressBar.IsIndeterminate =
+                ViewModel.IsModelDownloadRunning &&
+                ViewModel.ModelDownloadProgress == 0;
             QualityStatusText.Text = ViewModel.QualityStatus;
             MaximumTagsNumberBox.Maximum =
                 profile.MaximumSupportedTags;
@@ -132,6 +146,12 @@ public sealed partial class SettingsPanel : UserControl
             BinaryDetectionScoreHelpText.Visibility =
                 binaryTagMaskVisibility;
             ModelDirectoryText.Text = ViewModel.ModelDirectory;
+            ChooseModelDirectoryButton.IsEnabled =
+                !ViewModel.IsModelDownloadRunning &&
+                !ViewModel.IsModelImportRunning;
+            ResetModelDirectoryButton.IsEnabled =
+                !ViewModel.IsModelDownloadRunning &&
+                !ViewModel.IsModelImportRunning;
             AutoTaggingStatusText.Text =
                 ViewModel.AutoTaggingStatus;
             AutoTaggingProgress.Visibility =
@@ -150,7 +170,8 @@ public sealed partial class SettingsPanel : UserControl
 
             RunBenchmarkButton.IsEnabled =
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             BenchmarkProgressRing.IsActive =
                 ViewModel.IsBenchmarkRunning;
             BenchmarkProgressRing.Visibility =
@@ -164,20 +185,41 @@ public sealed partial class SettingsPanel : UserControl
             ApproveProfileButton.IsEnabled =
                 !ViewModel.IsBenchmarkRunning &&
                 !ViewModel.IsModelImportRunning &&
-                (!profile.RequiresLocalImport ||
+                !ViewModel.IsModelDownloadRunning &&
+                (ViewModel.ModelDownloadStatus.StartsWith(
+                     "Imported", StringComparison.Ordinal) ||
                  ViewModel.ModelDownloadStatus.StartsWith(
-                     "Imported", StringComparison.Ordinal));
+                     "Downloaded", StringComparison.Ordinal));
             var requiresImport = profile.RequiresLocalImport;
-            ImportModelAssetsButton.Content =
-                $"Import {profile.DisplayName} assets";
-            ImportModelAssetsButton.Visibility =
-                requiresImport
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-            ImportModelAssetsButton.IsEnabled =
-                requiresImport &&
+            var supportsLocalImport = requiresImport ||
+                profile.ManifestUri is not null;
+            var supportsDownload = profile.ManifestUri is not null ||
+                profile.ModelAsset.DownloadUri is not null &&
+                profile.LabelsAsset.DownloadUri is not null;
+            DownloadModelAssetsButton.Visibility = supportsDownload
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            DownloadModelAssetsButton.IsEnabled =
+                supportsDownload &&
+                !ViewModel.IsModelDownloadRunning &&
                 !ViewModel.IsModelImportRunning &&
                 !ViewModel.IsBenchmarkRunning &&
+                !ViewModel.IsAutoTaggingRunning;
+            CancelModelDownloadButton.Visibility =
+                ViewModel.IsModelDownloadRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            ImportModelAssetsButton.Visibility =
+                supportsLocalImport
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            ImportModelAssetsButton.Content =
+                $"Import {profile.DisplayName} assets";
+            ImportModelAssetsButton.IsEnabled =
+                supportsLocalImport &&
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsBenchmarkRunning &&
+                !ViewModel.IsModelDownloadRunning &&
                 !ViewModel.IsAutoTaggingRunning;
             ModelImportProgressRing.IsActive =
                 ViewModel.IsModelImportRunning;
@@ -186,12 +228,13 @@ public sealed partial class SettingsPanel : UserControl
                     ? Visibility.Visible
                     : Visibility.Collapsed;
             ModelImportInfoBar.Visibility =
-                requiresImport
+                supportsLocalImport
                     ? Visibility.Visible
                     : Visibility.Collapsed;
-            ModelImportInfoBar.IsOpen = requiresImport;
-            ModelImportInfoBar.Title =
-                $"Local assets — {profile.DisplayName}";
+            ModelImportInfoBar.IsOpen = supportsLocalImport;
+            ModelImportInfoBar.Title = supportsDownload
+                ? $"Download or import — {profile.DisplayName}"
+                : $"Local assets — {profile.DisplayName}";
             ModelImportInfoBar.Message =
                 ViewModel.ModelImportMessage;
             ModelImportInfoBar.Severity =
@@ -205,15 +248,18 @@ public sealed partial class SettingsPanel : UserControl
             DeleteSelectedModelButton.IsEnabled =
                 !ViewModel.IsAutoTaggingRunning &&
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             DeleteAllModelsButton.IsEnabled =
                 !ViewModel.IsAutoTaggingRunning &&
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             RemoveAutoTagsButton.IsEnabled =
                 !ViewModel.IsAutoTagCleanupRunning &&
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
         }
         finally
         {
@@ -343,6 +389,23 @@ public sealed partial class SettingsPanel : UserControl
         {
             await ViewModel.ImportSelectedModelAssetsAsync(folder.Path);
         }
+    }
+
+    private async void OnDownloadModelAssets(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (ViewModel is not null)
+        {
+            await ViewModel.DownloadSelectedModelAssetsAsync();
+        }
+    }
+
+    private void OnCancelModelDownload(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ViewModel?.CancelModelDownload();
     }
 
     private async void OnDeleteSelectedModel(
