@@ -1,5 +1,7 @@
 # Python 3.12; official RAM++ source export, CPU verification and ONNX output.
 numpy==2.2.6
+scipy==1.15.3
+Pillow==13.0.0
 onnx==1.18.0
 onnxruntime==1.22.0
 torch==2.7.1

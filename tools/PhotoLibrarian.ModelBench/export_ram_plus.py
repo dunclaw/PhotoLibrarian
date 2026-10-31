@@ -149,6 +149,9 @@ def package_versions() -> dict[str, str]:
         "tokenizers": "tokenizers",
         "timm": "timm",
         "fairscale": "fairscale",
+        "numpy": "numpy",
+        "scipy": "scipy",
+        "Pillow": "PIL",
     }
     return {
         package: getattr(importlib.import_module(module), "__version__", "unknown")
@@ -227,6 +230,25 @@ def export_model(source: Path, checkpoint: Path, output: Path, thresholds: list[
     )
 
 
+def write_modifications(output: Path) -> None:
+    (output / "MODIFICATIONS.txt").write_text(
+        "PhotoLibrarian RAM++ ONNX conversion\n"
+        f"Upstream source: {SOURCE_REPOSITORY}, revision {SOURCE_REVISION}\n"
+        f"Checkpoint: {CHECKPOINT_REPOSITORY}, revision {CHECKPOINT_REVISION}\n"
+        "The upstream PyTorch inference graph was converted to ONNX opset 17.\n"
+        "Tokenizer initialization was replaced for export only; the tagging graph "
+        "does not use token embeddings.\n"
+        "Description reweighting was vectorized for the fixed batch size of one.\n"
+        "Named logits and probabilities outputs were added alongside the binary "
+        "targets mask using the unchanged upstream per-class thresholds.\n"
+        "Labels are the upstream vocabulary, serialized as UTF-8 with LF endings.\n"
+        "No training, fine-tuning, quantization or threshold calibration was performed.\n"
+        "Retain recognize-anything-LICENSE and recognize-anything-NOTICE.txt, "
+        "including all embedded third-party notices, with this conversion.\n",
+        encoding="utf-8", newline="\n",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -254,6 +276,11 @@ def main() -> None:
         "\n".join(labels) + "\n", encoding="utf-8", newline="\n"
     )
     notices = copy_notices(source, output)
+    write_modifications(output)
+    notices.append({
+        "file": "MODIFICATIONS.txt",
+        "sha256": sha256(output / "MODIFICATIONS.txt"),
+    })
     external_data = sorted(
         path.name for path in output.iterdir()
         if path.name.startswith(model_path.name + ".data")
@@ -262,12 +289,14 @@ def main() -> None:
         "schemaVersion": 1,
         "modelFile": model_path.name,
         "modelSha256": sha256(model_path),
+        "modelSizeBytes": model_path.stat().st_size,
         "externalDataFiles": [
             {"file": name, "sha256": sha256(output / name)}
             for name in external_data
         ],
         "labelsFile": "ram_plus_swin_large_14m_labels.txt",
         "labelsSha256": sha256(output / "ram_plus_swin_large_14m_labels.txt"),
+        "labelsSizeBytes": (output / "ram_plus_swin_large_14m_labels.txt").stat().st_size,
         "labelCount": len(labels),
         "input": {"name": "image", "dtype": "float32", "shape": [1, 3, 384, 384]},
         "outputs": [
@@ -284,6 +313,10 @@ def main() -> None:
         "sourceRevision": SOURCE_REVISION,
         "checkpointRepository": CHECKPOINT_REPOSITORY,
         "checkpointRevision": CHECKPOINT_REVISION,
+        "checkpoints": [
+            {"file": name, "sizeBytes": size, "sha256": checksum}
+            for name, (size, checksum) in CHECKPOINTS.items()
+        ],
         "labelGitBlobSha1": LABEL_GIT_BLOB_SHA1,
         "thresholdGitBlobSha1": THRESHOLD_GIT_BLOB_SHA1,
         "license": "Apache-2.0",
@@ -293,6 +326,10 @@ def main() -> None:
             "python": sys.version,
             "packages": package_versions(),
             "opset": 17,
+            "exporterSha256": sha256(Path(__file__)),
+            "requirementsSha256": sha256(
+                Path(__file__).with_name("requirements-ram-plus-export.txt")
+            ),
         },
     }
     (output / "ram_plus_manifest.json").write_text(
