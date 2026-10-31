@@ -2,17 +2,17 @@
 
 This is deliberately a source-based export, not a download of an ONNX file from
 an unrelated project.  The command downloads the pinned upstream source and
-checkpoint, verifies every input, exports the numeric inference graph with
-external ONNX data, and writes a provenance manifest beside the result.
+checkpoint, verifies every source/environment input, exports a self-contained
+numeric inference graph, and verifies its byte identity before writing provenance.
 
 The resulting graph has one input, ``image`` (float32 NCHW, 384x384), and three
 outputs: ``logits``, ``probabilities``, and ``targets``.  ``targets`` retains
 the application's existing binary-mask contract; the other outputs make parity
 and future threshold review possible without another model export.
 
-The export requires Python 3.12, PyTorch, torchvision, transformers, timm, and
-the packages in requirements-ram-plus-export.txt.  It intentionally does not
-use remote Python code or an ONNX file from a third party.
+The byte-reproducible build requires CPython 3.12.0 on Windows AMD64 and the
+complete hash-locked CPU environment prepared by New-RamPlusExportEnvironment.ps1.
+It intentionally does not use remote Python code or an ONNX file from a third party.
 """
 
 from __future__ import annotations
@@ -20,8 +20,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib
+import importlib.metadata
 import json
 from pathlib import Path
+import platform
+import re
 import shutil
 import sys
 import urllib.request
@@ -49,6 +52,76 @@ CHECKPOINTS = {
 LABEL_COUNT = 4_585
 IMAGE_SIZE = 384
 OUTPUT_NAMES = ("logits", "probabilities", "targets")
+BUILD_LOCK_PATH = Path(__file__).with_name("ram-plus-build-lock.json")
+REQUIREMENTS_PATH = Path(__file__).with_name("requirements-ram-plus-export.txt")
+
+
+def build_lock() -> dict:
+    lock = json.loads(BUILD_LOCK_PATH.read_text(encoding="utf-8"))
+    if lock["schemaVersion"] != 1 or lock["sourceRevision"] != SOURCE_REVISION:
+        raise ValueError("RAM++ build lock does not match the pinned source")
+    return lock
+
+
+def locked_packages() -> dict[str, str]:
+    packages = {}
+    for line in REQUIREMENTS_PATH.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==(\S+) --hash=sha256:([a-f0-9]{64})", line)
+        if match is None:
+            raise ValueError(f"Invalid hash-locked requirement: {line}")
+        packages[match[1]] = match[2]
+    return packages
+
+
+def verify_environment() -> dict[str, str]:
+    expected = build_lock()["python"]
+    actual = {
+        "version": platform.python_version(),
+        "implementation": platform.python_implementation(),
+        "system": platform.system(),
+        "machine": platform.machine(),
+    }
+    if actual != expected:
+        raise ValueError(f"Unsupported RAM++ build interpreter/platform: {actual}; expected {expected}")
+    packages = locked_packages()
+    for package, version in packages.items():
+        try:
+            installed = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError as error:
+            raise ValueError(f"Missing locked export dependency: {package}=={version}") from error
+        if installed != version:
+            raise ValueError(
+                f"Export dependency drift: {package}=={installed}; required {version}. "
+                "Create the hash-locked environment with New-RamPlusExportEnvironment.ps1."
+            )
+    return packages
+
+
+def verify_source(source: Path) -> None:
+    entries = build_lock()["sourceFiles"]
+    expected = {entry["path"] for entry in entries}
+    for entry in entries:
+        path = source / entry["path"]
+        if (not path.is_file() or path.is_symlink() or
+                path.stat().st_size != entry["size"] or sha256(path) != entry["sha256"]):
+            raise ValueError(f"Pinned RAM++ source file differs: {entry['path']}")
+    # Module search must not pick up unpinned code beside or inside the ram package.
+    for path in source.rglob("*.py"):
+        relative = path.relative_to(source).as_posix()
+        if ".git" in path.relative_to(source).parts:
+            continue
+        if (relative.startswith("ram/") or path.parent == source) and relative not in expected:
+            raise ValueError(f"Unpinned Python source in export import path: {relative}")
+
+
+def verify_artifact(path: Path, expected: dict) -> None:
+    if path.stat().st_size != expected["sizeBytes"] or sha256(path) != expected["sha256"]:
+        raise ValueError(
+            f"Export did not reproduce the locked artifact: {path.name}; "
+            f"actual size={path.stat().st_size}, SHA256={sha256(path)}"
+        )
 
 
 def sha256(path: Path) -> str:
@@ -57,6 +130,10 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def text_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def git_blob_sha1(path: Path) -> str:
@@ -100,6 +177,10 @@ def download_source(destination: Path) -> Path:
         shutil.rmtree(source)
     source.mkdir()
     with zipfile.ZipFile(archive) as bundle:
+        for entry in bundle.infolist():
+            path = Path(entry.filename)
+            if path.is_absolute() or ".." in path.parts or (entry.external_attr >> 16) & 0o170000 == 0o120000:
+                raise ValueError(f"Unsafe upstream archive entry: {entry.filename}")
         bundle.extractall(source)
     roots = list(source.iterdir())
     if len(roots) != 1 or not (roots[0] / "ram").is_dir():
@@ -166,6 +247,9 @@ def package_versions() -> dict[str, str]:
         "tokenizers": "tokenizers",
         "timm": "timm",
         "fairscale": "fairscale",
+        "numpy": "numpy",
+        "scipy": "scipy",
+        "Pillow": "PIL",
     }
     return {
         package: getattr(importlib.import_module(module), "__version__", "unknown")
@@ -176,6 +260,12 @@ def package_versions() -> dict[str, str]:
 def export_model(source: Path, checkpoint: Path, output: Path, thresholds: list[float]) -> None:
     import torch
     from torch import nn
+    if torch.version.cuda is not None:
+        raise ValueError("Reproducible RAM++ export requires the locked CPU PyTorch distribution")
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+    torch.use_deterministic_algorithms(True)
+    torch.set_default_dtype(torch.float32)
 
     sys.path.insert(0, str(source))
     ram_plus_module = importlib.import_module("ram.models.ram_plus")
@@ -244,18 +334,39 @@ def export_model(source: Path, checkpoint: Path, output: Path, thresholds: list[
     )
 
 
+def write_modifications(output: Path) -> None:
+    (output / "MODIFICATIONS.txt").write_text(
+        "PhotoLibrarian RAM++ ONNX conversion\n"
+        f"Upstream source: {SOURCE_REPOSITORY}, revision {SOURCE_REVISION}\n"
+        f"Checkpoint: {CHECKPOINT_REPOSITORY}, revision {CHECKPOINT_REVISION}\n"
+        "The upstream PyTorch inference graph was converted to ONNX opset 17.\n"
+        "Tokenizer initialization was replaced for export only; the tagging graph "
+        "does not use token embeddings.\n"
+        "Description reweighting was vectorized for the fixed batch size of one.\n"
+        "Named logits and probabilities outputs were added alongside the binary "
+        "targets mask using the unchanged upstream per-class thresholds.\n"
+        "Labels are the upstream vocabulary, serialized as UTF-8 with LF endings.\n"
+        "No training, fine-tuning, quantization or threshold calibration was performed.\n"
+        "Retain recognize-anything-LICENSE and recognize-anything-NOTICE.txt, "
+        "including all embedded third-party notices, with this conversion.\n",
+        encoding="utf-8", newline="\n",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-dir", type=Path)
     parser.add_argument("--checkpoint-dir", type=Path)
     args = parser.parse_args()
+    installed_packages = verify_environment()
     output = args.output.resolve()
     source = (
         args.source_dir.resolve()
         if args.source_dir
         else download_source(output / "source-cache")
     )
+    verify_source(source)
     checkpoint_dir = (args.checkpoint_dir or output / "source-cache" / "checkpoint").resolve()
     for name, (size, checksum) in CHECKPOINTS.items():
         download(
@@ -266,11 +377,20 @@ def main() -> None:
         )
     labels, thresholds = load_labels(source)
     model_path = output / "ram_plus_swin_large_14m.onnx"
-    export_model(source, checkpoint_dir / "ram_plus_swin_large_14m.pth", model_path, thresholds)
+    pending_model = output / "ram_plus_swin_large_14m.pending.onnx"
+    export_model(source, checkpoint_dir / "ram_plus_swin_large_14m.pth", pending_model, thresholds)
+    verify_artifact(pending_model, build_lock()["expectedModel"])
+    pending_model.replace(model_path)
     (output / "ram_plus_swin_large_14m_labels.txt").write_text(
         "\n".join(labels) + "\n", encoding="utf-8", newline="\n"
     )
+    verify_artifact(output / "ram_plus_swin_large_14m_labels.txt", build_lock()["expectedLabels"])
     notices = copy_notices(source, output)
+    write_modifications(output)
+    notices.append({
+        "file": "MODIFICATIONS.txt",
+        "sha256": sha256(output / "MODIFICATIONS.txt"),
+    })
     external_data = sorted(
         path.name for path in output.iterdir()
         if path.name.startswith(model_path.name + ".data")
@@ -279,12 +399,14 @@ def main() -> None:
         "schemaVersion": 1,
         "modelFile": model_path.name,
         "modelSha256": sha256(model_path),
+        "modelSizeBytes": model_path.stat().st_size,
         "externalDataFiles": [
             {"file": name, "sha256": sha256(output / name)}
             for name in external_data
         ],
         "labelsFile": "ram_plus_swin_large_14m_labels.txt",
         "labelsSha256": sha256(output / "ram_plus_swin_large_14m_labels.txt"),
+        "labelsSizeBytes": (output / "ram_plus_swin_large_14m_labels.txt").stat().st_size,
         "labelCount": len(labels),
         "input": {"name": "image", "dtype": "float32", "shape": [1, 3, 384, 384]},
         "outputs": [
@@ -301,6 +423,10 @@ def main() -> None:
         "sourceRevision": SOURCE_REVISION,
         "checkpointRepository": CHECKPOINT_REPOSITORY,
         "checkpointRevision": CHECKPOINT_REVISION,
+        "checkpoints": [
+            {"file": name, "sizeBytes": size, "sha256": checksum}
+            for name, (size, checksum) in CHECKPOINTS.items()
+        ],
         "labelGitBlobSha1": LABEL_GIT_BLOB_SHA1,
         "thresholdGitBlobSha1": THRESHOLD_GIT_BLOB_SHA1,
         "license": "Apache-2.0",
@@ -310,6 +436,17 @@ def main() -> None:
             "python": sys.version,
             "packages": package_versions(),
             "opset": 17,
+            "cpuOnly": True,
+            "deterministicAlgorithms": True,
+            "intraOpThreads": 1,
+            "interOpThreads": 1,
+            "installedDistributions": installed_packages,
+            "textFingerprintEncoding": "UTF-8 with LF line endings",
+            "buildLockSha256": text_sha256(BUILD_LOCK_PATH),
+            "exporterSha256": text_sha256(Path(__file__)),
+            "requirementsSha256": text_sha256(
+                REQUIREMENTS_PATH
+            ),
         },
     }
     (output / "ram_plus_manifest.json").write_text(

@@ -1,0 +1,6 @@
+# Build fingerprints must not depend on the checkout's core.autocrlf setting.
+export_ram_plus.py text eol=lf
+validate_ram_plus.py text eol=lf
+ram-plus-build-lock.json text eol=lf
+requirements-ram-plus-*.txt text eol=lf
+New-RamPlusExportEnvironment.ps1 text eol=lf

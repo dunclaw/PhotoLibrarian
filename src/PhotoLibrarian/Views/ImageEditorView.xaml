@@ -191,10 +191,78 @@
                             TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Sharpness" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="1" StepFrequency="0.01"
-                            Value="0" ValueChanged="OnSliderChanged" />
+                <StackPanel x:Name="SharpeningPanel" Spacing="8">
+                    <TextBlock Text="Sharpening" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <CheckBox x:Name="AdvancedSharpeningCheckBox"
+                              AutomationProperties.Name="Advanced sharpening"
+                              AutomationProperties.AutomationId="EditorAdvancedSharpening"
+                              Content="Advanced"
+                              Checked="OnAdvancedSharpeningChanged"
+                              Unchecked="OnAdvancedSharpeningChanged" />
+                    <StackPanel x:Name="BasicSharpeningPanel" Spacing="4">
+                        <TextBlock Text="Amount" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Slider x:Name="SharpnessSlider"
+                                AutomationProperties.Name="Sharpening amount"
+                                AutomationProperties.AutomationId="EditorSharpness"
+                                Minimum="0" Maximum="1" StepFrequency="0.01"
+                                ToolTipService.ToolTip="Increase edge contrast to make details look sharper."
+                                Value="0" ValueChanged="OnSliderChanged" />
+                    </StackPanel>
+                    <StackPanel x:Name="UnsharpMaskPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock Text="Increases edge contrast; it does not recover lost detail."
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Spacing="4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Amount" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="UnsharpMaskAmountText" Grid.Column="1"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </Grid>
+                            <Slider x:Name="UnsharpMaskAmountSlider"
+                                    AutomationProperties.Name="Advanced sharpening amount"
+                                    AutomationProperties.AutomationId="EditorUnsharpAmount"
+                                    Minimum="0" Maximum="2" StepFrequency="0.01"
+                                    Value="0" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Radius (pixels)" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="UnsharpMaskRadiusText" Grid.Column="1"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </Grid>
+                            <Slider x:Name="UnsharpMaskRadiusSlider"
+                                    AutomationProperties.Name="Sharpening radius in pixels"
+                                    AutomationProperties.AutomationId="EditorUnsharpRadius"
+                                    Minimum="0.5" Maximum="5" StepFrequency="0.1"
+                                    ToolTipService.ToolTip="Set how far sharpening extends around edges, measured in original image pixels."
+                                    Value="1" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Noise threshold" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="UnsharpMaskThresholdText" Grid.Column="1"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </Grid>
+                            <Slider x:Name="UnsharpMaskThresholdSlider"
+                                    AutomationProperties.Name="Sharpening noise threshold"
+                                    AutomationProperties.AutomationId="EditorUnsharpThreshold"
+                                    Minimum="0" Maximum="0.25" StepFrequency="0.005"
+                                    ToolTipService.ToolTip="Raise this to avoid sharpening small differences such as noise."
+                                    Value="0.02" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

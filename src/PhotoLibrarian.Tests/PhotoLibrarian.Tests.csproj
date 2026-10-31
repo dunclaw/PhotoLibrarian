@@ -25,6 +25,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\PhotoLibrarian\Views\ImageEditorView.xaml"
+          Link="TestAssets\ImageEditorView.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml"
           Link="TestAssets\ImageViewerOverlay.xaml"
           CopyToOutputDirectory="PreserveNewest" />
@@ -35,4 +38,31 @@
           Link="TestAssets\VideoStabilizationDialog.xaml"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso"
+                      LogicalName="PhotoLibrarian.Tests.WaveletNoiseReductionExperiment.cso" />
+  </ItemGroup>
+
+  <Target Name="CompileWaveletNoiseReductionExperimentShader" BeforeTargets="PrepareResources"
+          Inputs="Assets\WaveletNoiseReductionExperiment.hlsl;$(MSBuildProjectFullPath)"
+          Outputs="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso">
+    <PropertyGroup>
+      <_ShaderSdkRoot Condition="'$(WindowsSdkDir)' != ''">$(WindowsSdkDir)</_ShaderSdkRoot>
+      <_ShaderSdkRoot Condition="'$(_ShaderSdkRoot)' == ''">$(MSBuildProgramFiles32)\Windows Kits\10\</_ShaderSdkRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ShaderCompiler Include="$(_ShaderSdkRoot)\bin\*\$(WindowsSDKBuildToolsArchFolder)\fxc.exe" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_ShaderCompilerPaths>@(_ShaderCompiler)</_ShaderCompilerPaths>
+      <FxcPath Condition="'$(FxcPath)' == '' AND '$(_ShaderCompilerPaths)' != ''">$(_ShaderCompilerPaths.Split(';')[0])</FxcPath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(FxcPath)')" Text="Install the Windows SDK shader compiler (fxc.exe), or set FxcPath to its location." />
+    <MakeDir Directories="$(IntermediateOutputPath)Shaders" />
+    <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso&quot; &quot;$(MSBuildProjectDirectory)\Assets\WaveletNoiseReductionExperiment.hlsl&quot;" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso" />
+    </ItemGroup>
+  </Target>
 </Project>

@@ -85,11 +85,13 @@ Windows property-handler level rather than by running Photo Gallery itself.
 
 Active personal project — usable for daily browsing, tagging, and rating today. See [Roadmap](#roadmap) for what's missing relative to Windows Live Photo Gallery.
 
-Advanced denoising, motion/defocus deblurring, and RAW-aware tone mapping are
-research-stage, not current editor features. See the
+The bilateral slider is the current denoising feature; no advanced denoiser
+has passed the detail-retention evidence gate yet. Motion/defocus deblurring
+and RAW-aware tone mapping are also research-stage, not current editor
+features. See the
 [advanced editing feasibility decision](docs/ADVANCED-EDITING.md) for the
 recommended implementation order, model/dependency costs, format boundaries,
-and quality/render-parity gates.
+quality/render-parity gates, and the #119 model-free comparison results.
 
 ---
 
@@ -162,9 +164,10 @@ Move a JPEG to another drive or another machine and every edit goes with it.
 - **Windows 10 1809** or newer (WinUI 3 requirement).
 - **.NET 8 SDK** with Windows targeting pack (`net8.0-windows10.0.22621.0`).
 - **Visual Studio 2022** 17.10+ with the *Windows App SDK C# Templates* component, or just `dotnet` CLI.
-- **Windows SDK shader compiler (`fxc.exe`)** to build the embedded noise-reduction
-  shader. The build finds it under `WindowsSdkDir` or the standard Windows Kits
-  installation; set `-p:FxcPath="C:\path\to\fxc.exe"` for a custom location.
+- **Windows SDK shader compiler (`fxc.exe`)** to build the embedded
+  noise-reduction and unsharp-mask shaders. The build finds it under
+  `WindowsSdkDir` or the standard Windows Kits installation; set
+  `-p:FxcPath="C:\path\to\fxc.exe"` for a custom location.
 
 ### From the command line
 
