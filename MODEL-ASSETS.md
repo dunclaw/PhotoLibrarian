@@ -20,11 +20,15 @@ access. The publisher role is scoped to the blob container and excludes blob
 deletion. The release script refuses to overwrite an existing versioned blob;
 Azure Blob versioning remains available for operator recovery.
 
-No Azure subscription is authenticated in the development environment, and no
-generated model bundle is present in the repository. RAM++ publication is
-disabled in the release catalog until the pinned export is generated, parity
-validated, and its notices reviewed; the deployment workflow refuses to
-publish while that gate is closed. TinyCLIP publication is explicitly
+The operator reports creating the role and storage account in
+`rg_photo_librarian` / West US 2; live deployment verification and publication
+remain on hold. RAM++ now has a locally verified reproducible bundle at
+`D:\Models\PhotoLibrarian\RAM-Plus\reproducible-20261031\release-bundle`.
+Its exact model/labels identity matches the catalog, and provenance and CPU/
+DirectML report fingerprints are pinned under `reviewEvidence`. RAM++
+publication remains disabled pending a reviewed readiness change and separate
+deployment approval; the workflow refuses to publish while that gate is
+closed. TinyCLIP publication is explicitly
 blocked: the app profile expects a 40,622,561-byte
 ONNX with SHA-256
 `9aa0c0c8d4abdb4f80e8f26e74236bb1bf13d43ffaab4e17fb03e48c4e01be0d`, while
@@ -78,6 +82,41 @@ secret or storage key is needed.
 
 ### Preparing and publishing a release
 
+Run the read-only readiness check even while `publicationReady=false`:
+
+```powershell
+.\tools\ModelAssets\Test-ModelAssetRelease.ps1 `
+  -BundleDirectory D:\Models\PhotoLibrarian\RAM-Plus\reproducible-20261031\release-bundle
+.\tools\ModelAssets\Test-ModelAssetEvidence.ps1 `
+  -VerifiedBundleDirectory D:\Models\PhotoLibrarian\RAM-Plus\reproducible-20261031\release-bundle
+```
+
+This checks exact artifact bytes, provenance and notice bindings, tensor/
+preprocessing contracts, pinned validator/checkpoint identities, and both
+eight-input parity reports with exact masks, finite outputs and the reviewed
+numeric tolerance. It does not rerun inference, create a cloud manifest, or
+authorize publication. The regressions use small temporary fixtures, never
+altering the preserved bundle or bypassing the production publication gate.
+
+**Two different manifests:** `ram_plus_manifest.json` is the pinned exporter
+provenance, with build inputs and contracts. `model-assets-manifest.json` is
+the separately generated hosting manifest, with immutable URLs and the app
+profile/version. The latter contains only catalog evidence fingerprints, not
+the reports or their developer paths. Release preparation validates the
+actual local reports before writing it. The publisher requires exactly the
+catalog's evidence receipt and independently checks the public artifacts,
+profile identity and URLs; it does not fetch or rerun local reports. The
+receipt is a reviewer-controlled binding, not a cryptographic attestation
+that an arbitrary manifest author executed the validator.
+
+**Remaining reviewer action:** review the merged reproducibility work (#133),
+the exact `reviewEvidence` pins and local validation results, then approve a
+change setting only RAM++ `publicationReady=true` and removing its stale
+blocked reason. Do not regenerate pins to accommodate unreviewed evidence.
+Merge the hosting/release changes through normal user review and authorize
+the production environment separately. Until then, builder and publisher
+must fail before writing or uploading release output.
+
 Export assets outside the repository and validate them with the profile's
 documented exporter/parity tests. The release builder refuses unexpected hashes
 or sizes, missing source provenance, required license notices, and profile
@@ -87,15 +126,31 @@ licenses, notice hashes, asset hashes, and byte sizes:
 
 ```powershell
 $profile = 'ram-plus.swin-large-14m'
-$bundle = 'D:\Models\RAM-Plus-PhotoLibrarian'
+$bundle = 'D:\Models\PhotoLibrarian\RAM-Plus\reproducible-20261031\release-bundle'
 $build = git rev-parse HEAD
 .\tools\ModelAssets\New-ModelAssetRelease.ps1 `
   -ProfileId $profile `
   -BundleDirectory $bundle `
   -StorageAccountName photolibrarianassets `
   -BuildRevision $build
-Compress-Archive -Path "$bundle\*" -DestinationPath "$bundle\$profile-bundle.zip"
+$publicFiles = @(
+  'ram_plus_swin_large_14m.onnx',
+  'ram_plus_swin_large_14m_labels.txt',
+  'recognize-anything-LICENSE',
+  'recognize-anything-NOTICE.txt',
+  'MODIFICATIONS.txt',
+  'model-assets-manifest.json'
+) | ForEach-Object { Join-Path $bundle $_ }
+Compress-Archive -LiteralPath $publicFiles `
+  -DestinationPath (Join-Path (Split-Path $bundle -Parent) "$profile-bundle.zip")
 ```
+
+Run the preparation commands only after the reviewed gate change, from a
+clean committed checkout. The six-file public archive/upload allowlist
+excludes exporter provenance and both raw parity reports. Those are local
+review evidence; reports contain absolute developer image paths and must not
+be attached raw to a public release. Never recursively package the durable
+parent's checkpoints, package caches, environments or validation images.
 
 Attach `<profile-id>-bundle.zip` to a reviewed GitHub release. Then dispatch
 **Publish model asset release** against that release tag/profile. The workflow
