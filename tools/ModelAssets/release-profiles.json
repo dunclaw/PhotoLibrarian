@@ -34,7 +34,29 @@
     {
       "profileId": "ram-plus.swin-large-14m",
       "publicationReady": false,
-      "blockedReason": "No verified RAM++ release bundle is available in this checkout. Generate the pinned export, complete parity validation, review its notices, and enable publication in a reviewed release change.",
+      "blockedReason": "Verified RAM++ artifacts and evidence are available; publication requires a reviewed readiness change and separate deployment approval.",
+      "reviewEvidence": {
+        "provenanceSha256": "1D49785E2E8B2A140386D94B23D9F1B44B777E5738904285C0EEBA803CE88C1C",
+        "checkpointSha256": "497C178836BA66698CA226C7895317E6E800034BE986452DBD2593298D50E87D",
+        "validatorSha256": "F750E58C8C60E029DF812132411108C602E11E11DB824014A25E3382E02BE744",
+        "noticeSha256": {
+          "recognize-anything-LICENSE": "D38F4EDCFB09332FA497FD3CE52BD6C13DD73FA5ACB8418A47AECE5A2D311F26",
+          "recognize-anything-NOTICE.txt": "DDB1BF4CB85CEFEFACC718B470A7B6CEF644A45ABA338219B03EE0BBE0C60537",
+          "MODIFICATIONS.txt": "830621A5642E84A138A5C6F74E523D5BB4F3408A922DBAA71A0CA7A31E90530B"
+        },
+        "reports": [
+          {
+            "fileName": "parity-report.json",
+            "sha256": "F3E12B37DE4CB7284623AA0D8F4F074756739A3AE0B393A226851DDFEC46CAD1",
+            "executionProvider": "CPUExecutionProvider"
+          },
+          {
+            "fileName": "parity-report-directml.json",
+            "sha256": "04C9112B1DF09631F6ACE06F7D0231C8481ECBC39F96E97F5BE05455F32C58AC",
+            "executionProvider": "DmlExecutionProvider"
+          }
+        ]
+      },
       "version": "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3",
       "pipelineVersion": "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3",
       "manifestUri": "https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/ram-plus.swin-large-14m/ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3.json",
