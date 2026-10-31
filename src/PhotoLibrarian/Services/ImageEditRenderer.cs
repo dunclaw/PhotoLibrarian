@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Effects;
 using PhotoLibrarian.Core.Models;
@@ -46,6 +47,8 @@ public static class ImageEditRenderer
     /// </summary>
     public static async Task<CanvasBitmap> LoadOrientedAsync(ICanvasResourceCreator device, string filePath)
     {
+        if (RawToneMappingService.IsRaw(filePath))
+            throw new NotSupportedException("RAW must use the scene-linear development and SDR preview pipeline, not the raster decoder.");
         var file = await StorageFile.GetFileFromPathAsync(filePath);
         using var stream = await file.OpenAsync(FileAccessMode.Read);
         var decoder = await BitmapDecoder.CreateAsync(stream);

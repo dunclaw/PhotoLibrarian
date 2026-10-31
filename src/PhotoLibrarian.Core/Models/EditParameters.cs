@@ -14,6 +14,10 @@ public sealed class EditParameters
     public double Highlights { get; set; }
     public double Shadows { get; set; }
 
+    // RAW-only scene-linear recipe; never interpreted by the legacy raster graph.
+    public double RawExposureEv { get; set; }
+    public double RawWhitePoint { get; set; } = 4.0;
+
     // Color adjustments (-1.0 to 1.0, 0 = no change)
     public double Saturation { get; set; }
     public double Temperature { get; set; }
@@ -44,6 +48,7 @@ public sealed class EditParameters
 
     public bool HasAdjustments =>
         Brightness != 0 || Contrast != 0 || Exposure != 0 ||
+        RawExposureEv != 0 || RawWhitePoint != 4.0 ||
         Highlights != 0 || Shadows != 0 || Saturation != 0 ||
         Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
         SharpeningMode != PhotoLibrarian.Core.Models.SharpeningMode.Legacy || UnsharpMaskAmount != 0 ||
@@ -56,6 +61,8 @@ public sealed class EditParameters
         Brightness = Brightness,
         Contrast = Contrast,
         Exposure = Exposure,
+        RawExposureEv = RawExposureEv,
+        RawWhitePoint = RawWhitePoint,
         Highlights = Highlights,
         Shadows = Shadows,
         Saturation = Saturation,
@@ -78,6 +85,8 @@ public sealed class EditParameters
     public void Reset()
     {
         Brightness = Contrast = Exposure = 0;
+        RawExposureEv = 0;
+        RawWhitePoint = 4.0;
         Highlights = Shadows = 0;
         Saturation = Temperature = Tint = 0;
         Clarity = Sharpness = NoiseReduction = UnsharpMaskAmount = 0;

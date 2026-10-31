@@ -39,6 +39,7 @@ public sealed class RawDevelopmentTests : IDisposable
         Assert.Equal((uint)orientation, result.Metadata.SourceOrientation);
         Assert.Equal((int)(result.Metadata.OutputWidth * result.Metadata.OutputHeight * 3), result.RgbValues.Length);
         Assert.Equal("Linear ProPhoto RGB", RawDevelopmentService.WorkingColorSpace);
+        Assert.Equal("D65 (LibRaw output_color=4)", RawDevelopmentService.WorkingWhitePoint);
         Assert.Equal(0.25f, result.Metadata.ReferenceExposureScale);
         Assert.Equal(result.RgbValues.ToArray(), repeated.RgbValues.ToArray());
         Assert.Contains(result.RgbValues.Span.ToArray(), value => value > 1.0f);
@@ -122,7 +123,7 @@ public sealed class RawDevelopmentTests : IDisposable
             $"{Math.Max(0, peakWorkingSet - startingWorkingSet) / (1024d * 1024):F1} MiB peak working-set growth.");
     }
 
-    private static class SyntheticDngFixture
+    internal static class SyntheticDngFixture
     {
         private sealed record Entry(ushort Tag, ushort Type, uint Count, byte[] Data);
 

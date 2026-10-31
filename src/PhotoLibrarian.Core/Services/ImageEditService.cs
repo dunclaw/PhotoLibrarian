@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 using XmpCore;
 
@@ -36,6 +37,8 @@ public sealed class ImageEditService
         string filePath, EditParameters parameters, PixelRenderer renderer)
     {
         ArgumentNullException.ThrowIfNull(renderer);
+        if (RawToneMappingService.IsRaw(filePath))
+            throw new NotSupportedException("RAW is preview-only. Overwriting sensor originals is not supported; derivative export is unavailable.");
 
         await _backupService.BackupOriginalAsync(filePath);
         var size = await renderer(filePath, parameters);
@@ -60,6 +63,44 @@ public sealed class ImageEditService
         });
     }
 
+    /// <summary>Atomically keeps a portable RAW preview recipe without touching sensor bytes.</summary>
+    public static async Task SaveRawPreviewRecipeAsync(string filePath, EditParameters parameters)
+    {
+        if (!RawToneMappingService.IsRaw(filePath))
+            throw new NotSupportedException("A RAW preview recipe requires a RAW source.");
+        RawToneMappingService.ValidateRecipe(parameters);
+        var snapshot = parameters.Clone();
+        await Task.Run(() =>
+        {
+            var sidecar = GetSidecarPath(filePath);
+            // Never replace an unreadable sidecar with an empty packet.
+            IXmpMeta xmp;
+            if (File.Exists(sidecar))
+            {
+                using var stream = File.OpenRead(sidecar);
+                xmp = XmpMetaFactory.Parse(stream);
+            }
+            else
+            {
+                xmp = ReadXmp(filePath);
+            }
+            EditParametersSerializer.WriteToXmp(xmp, snapshot);
+            var temporary = sidecar + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(temporary, XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
+                if (File.Exists(sidecar))
+                    File.Replace(temporary, sidecar, sidecar + "." + Guid.NewGuid().ToString("N") + ".bak");
+                else
+                    File.Move(temporary, sidecar);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+        });
+    }
+
     /// <summary>
     /// Strips PhotoLibrarian's edit properties from the sidecar, leaving any other XMP content
     /// (a Lightroom sidecar, for example) alone. Does nothing when no sidecar exists.
@@ -77,7 +118,8 @@ public sealed class ImageEditService
                 xmp = XmpMetaFactory.Parse(stream);
             }
 
-            EditParametersSerializer.ClearFromXmp(xmp);
+            // Same-stem RAW/raster photos can share a sidecar; raster baking must keep the RAW recipe.
+            EditParametersSerializer.ClearFromXmp(xmp, includeRawParameters: false);
             WriteSidecar(filePath, xmp);
         }
         catch
@@ -90,8 +132,26 @@ public sealed class ImageEditService
     /// Reads the pending (not yet rendered) edit parameters for an image, preferring our sidecar
     /// and falling back to XMP embedded in the file.
     /// </summary>
-    public static EditParameters ReadEditParameters(string filePath) =>
-        EditParametersSerializer.ReadFromXmp(ReadXmp(filePath));
+    public static EditParameters ReadEditParameters(string filePath)
+    {
+        IXmpMeta xmp;
+        if (RawToneMappingService.IsRaw(filePath) && File.Exists(GetSidecarPath(filePath)))
+        {
+            using var stream = File.OpenRead(GetSidecarPath(filePath));
+            xmp = XmpMetaFactory.Parse(stream);
+        }
+        else
+        {
+            xmp = ReadXmp(filePath);
+        }
+        if (RawToneMappingService.IsRaw(filePath) &&
+            xmp.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:RawToneMapping") &&
+            xmp.GetPropertyString(EditParameters.XmpNamespace, "pledit:RawToneMapping") != RawToneMappingService.RecipeVersion)
+            throw new NotSupportedException("The RAW preview recipe uses an unsupported tone-mapping version.");
+        var parameters = EditParametersSerializer.ReadFromXmp(xmp);
+        if (RawToneMappingService.IsRaw(filePath)) RawToneMappingService.ValidateRecipe(parameters);
+        return parameters;
+    }
 
     private static IXmpMeta ReadXmp(string filePath)
     {

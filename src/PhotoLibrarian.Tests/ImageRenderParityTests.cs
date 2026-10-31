@@ -1,6 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using System.Numerics;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -17,6 +18,46 @@ public sealed class ImageRenderParityTests : IDisposable
     public ImageRenderParityTests() => Directory.CreateDirectory(_directory);
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
+
+    [Fact]
+    public async Task RawOnlyRecipeFieldsLeaveLegacyRasterPixelsUnchanged()
+    {
+        var path = Path.Combine(_directory, "legacy.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 47, 31,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 47, 31));
+        using var device = new CanvasDevice();
+        var parameters = new EditParameters { Exposure = 0.35, Sharpness = 0.4, RotationAngle = 7 };
+        var baseline = await ImageEditRenderer.RenderToPixelsAsync(device, path, parameters);
+        parameters.RawExposureEv = 8;
+        parameters.RawWhitePoint = 16;
+        var dormant = await ImageEditRenderer.RenderToPixelsAsync(device, path, parameters);
+        Assert.Equal(baseline.Pixels, dormant.Pixels);
+        Assert.Equal(baseline.Width, dormant.Width);
+        Assert.Equal(baseline.Height, dormant.Height);
+    }
+
+    [Fact]
+    public async Task RawReferenceUploadAndDrawPreserveSourcePixelsBeforeViewportScaling()
+    {
+        float[] input = [0, 0, 0, 0.18f, 0.18f, 0.18f, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4];
+        var result = await RawToneMappingService.RenderAsync(input, 3, 2, new EditParameters());
+        var bytes = result.ToPreviewBgra8();
+        using var device = new CanvasDevice();
+        using var bitmap = CanvasBitmap.CreateFromBytes(device, bytes, result.Width, result.Height,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+        using var target = new CanvasRenderTarget(device, result.Width, result.Height, 96);
+        using (var session = target.CreateDrawingSession())
+            ImageEditRenderPass.DrawRawPreview(session, bitmap, Matrix3x2.Identity);
+        Assert.Equal(bytes, target.GetPixelBytes());
+        using var scaled = new CanvasRenderTarget(device, result.Width * 2, result.Height * 2, 96);
+        using (var session = scaled.CreateDrawingSession())
+            ImageEditRenderPass.DrawRawPreview(session, bitmap, Matrix3x2.CreateScale(2));
+        Assert.Equal(3u, bitmap.SizeInPixels.Width);
+        Assert.Equal(2u, bitmap.SizeInPixels.Height);
+        Assert.Equal(6u, scaled.SizeInPixels.Width);
+        Assert.Equal(4u, scaled.SizeInPixels.Height);
+        Assert.Equal(bytes, bitmap.GetPixelBytes());
+    }
 
     [Fact]
     public async Task OffscreenPreviewAndSaveMatchBeforeEncodingAcrossRecipesAndFixtures()

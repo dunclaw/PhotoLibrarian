@@ -20,6 +20,9 @@ public static class EditParametersSerializer
         SetDouble(xmp, "Brightness", p.Brightness);
         SetDouble(xmp, "Contrast", p.Contrast);
         SetDouble(xmp, "Exposure", p.Exposure);
+        SetDouble(xmp, "RawExposureEv", p.RawExposureEv);
+        SetDouble(xmp, "RawWhitePoint", p.RawWhitePoint);
+        xmp.SetProperty(Ns, $"{Pre}:RawToneMapping", RawToneMappingService.RecipeVersion);
         SetDouble(xmp, "Highlights", p.Highlights);
         SetDouble(xmp, "Shadows", p.Shadows);
         SetDouble(xmp, "Saturation", p.Saturation);
@@ -58,7 +61,7 @@ public static class EditParametersSerializer
     /// have been baked into the pixels, so re-opening the image doesn't apply them a second time.
     /// Properties owned by other applications are left untouched.
     /// </summary>
-    public static void ClearFromXmp(IXmpMeta xmp)
+    public static void ClearFromXmp(IXmpMeta xmp, bool includeRawParameters = true)
     {
         foreach (var prop in new[]
         {
@@ -71,6 +74,12 @@ public static class EditParametersSerializer
         {
             DeleteProp(xmp, prop);
         }
+        if (includeRawParameters)
+        {
+            DeleteProp(xmp, "RawExposureEv");
+            DeleteProp(xmp, "RawWhitePoint");
+            DeleteProp(xmp, "RawToneMapping");
+        }
     }
 
     public static EditParameters ReadFromXmp(IXmpMeta xmp)
@@ -80,6 +89,8 @@ public static class EditParametersSerializer
             Brightness = GetDouble(xmp, "Brightness"),
             Contrast = GetDouble(xmp, "Contrast"),
             Exposure = GetDouble(xmp, "Exposure"),
+            RawExposureEv = GetRawDouble(xmp, "RawExposureEv", 0),
+            RawWhitePoint = GetRawDouble(xmp, "RawWhitePoint", 4.0),
             Highlights = GetDouble(xmp, "Highlights"),
             Shadows = GetDouble(xmp, "Shadows"),
             Saturation = GetDouble(xmp, "Saturation"),
@@ -112,6 +123,11 @@ public static class EditParametersSerializer
 
         return p;
     }
+
+    private static double GetRawDouble(IXmpMeta xmp, string prop, double defaultValue) =>
+        xmp.DoesPropertyExist(Ns, $"{Pre}:{prop}")
+            ? xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}")
+            : defaultValue;
 
     private static void SetDouble(IXmpMeta xmp, string prop, double value)
     {

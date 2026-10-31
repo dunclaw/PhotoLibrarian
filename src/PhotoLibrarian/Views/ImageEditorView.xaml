@@ -71,7 +71,7 @@
                     </Button>
                     <AppBarSeparator />
                     <Button x:Name="SaveBtn" Click="OnSave" ToolTipService.ToolTip="Save edits" Padding="8"
-                            AutomationProperties.Name="Save edits">
+                            AutomationProperties.Name="Save edits" AutomationProperties.AutomationId="EditorSave">
                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
                     </Button>
                     <Button x:Name="CloseBtn" Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8"
@@ -105,12 +105,43 @@
 
                 <!-- Quick actions -->
                 <StackPanel Orientation="Horizontal" Spacing="4">
-                    <Button Content="Auto" Click="OnAutoEnhance" Padding="8,4" />
-                    <Button Content="Reset" Click="OnReset" Padding="8,4" />
+                    <Button x:Name="AutoBtn" Content="Auto" Click="OnAutoEnhance" Padding="8,4" />
+                    <Button Content="Reset" Click="OnReset" Padding="8,4"
+                            AutomationProperties.AutomationId="EditorReset" />
                     <Button x:Name="RevertBtn" Content="Revert" Click="OnRevert" Padding="8,4"
                             Visibility="Collapsed" />
                 </StackPanel>
 
+                <StackPanel x:Name="RawPreviewPanel" Spacing="12" Visibility="Collapsed">
+                    <InfoBar IsOpen="True" IsClosable="False" Severity="Warning"
+                             Title="Experimental RAW preview"
+                             Message="Fixed SDR reference. Real-camera color accuracy is not yet validated. Decoder channels have a finite ceiling near 4; fully saturated detail cannot be recovered. Save is disabled; derivative export is unavailable." />
+                    <TextBlock x:Name="RawPreviewStatus" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="EditorRawPreviewStatus"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Text="Exposure (stops)" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Name="RawExposureText" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="RawExposureSlider"
+                            AutomationProperties.Name="RAW exposure in stops"
+                            AutomationProperties.AutomationId="EditorRawExposure"
+                            Minimum="-8" Maximum="8" StepFrequency="0.1" SmallChange="0.1"
+                            Value="0" ValueChanged="OnRawSliderChanged" />
+                    <TextBlock Text="Scene white point" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Name="RawWhitePointText" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="RawWhitePointSlider"
+                            AutomationProperties.Name="RAW scene white point"
+                            AutomationProperties.AutomationId="EditorRawWhitePoint"
+                            Minimum="1" Maximum="16" StepFrequency="0.1" SmallChange="0.1"
+                            ToolTipService.ToolTip="Scene-linear luminance mapped to SDR white after exposure. Higher values retain more unsaturated highlight range."
+                            Value="4" ValueChanged="OnRawSliderChanged" />
+                    <Button x:Name="KeepRecipeBtn" Content="Keep preview recipe" Click="OnKeepRawRecipe"
+                            AutomationProperties.Name="Keep RAW preview recipe in an XMP sidecar"
+                            AutomationProperties.AutomationId="EditorKeepRawRecipe" />
+                    <TextBlock Text="Only these RAW controls apply. Existing raster adjustments are retained in the recipe but not applied to RAW."
+                               TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                </StackPanel>
+
+                <StackPanel x:Name="RasterAdjustmentsPanel" Spacing="12">
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Tone section -->
@@ -261,6 +292,7 @@
                                     Minimum="0" Maximum="0.25" StepFrequency="0.005"
                                     ToolTipService.ToolTip="Raise this to avoid sharpening small differences such as noise."
                                     Value="0.02" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>

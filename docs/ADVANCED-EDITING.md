@@ -4,7 +4,9 @@ Research decision for [#90](https://github.com/dunclaw/PhotoLibrarian/issues/90)
 2026-10-19. This is an implementation gate, not a claim that these features
 are available. No restoration models or editor controls are added by this
 investigation. The separate pinned RAW decoder foundation in [#112](https://github.com/dunclaw/PhotoLibrarian/issues/112)
-does not enable RAW editing or export. No restoration candidate was benchmarked
+does not enable RAW export. The explicitly experimental SDR preview in
+[#113](https://github.com/dunclaw/PhotoLibrarian/issues/113) is documented below.
+No restoration candidate was benchmarked
 in PhotoLibrarian; sizes below are planning estimates, not measured downloads
 or performance results.
 
@@ -40,7 +42,7 @@ production camera coverage, or an enabled RAW editor is available.
 
 | Surface | Evidence and consequence |
 | --- | --- |
-| Decode | [`ImageEditRenderer.LoadOrientedAsync`](../src/PhotoLibrarian/Services/ImageEditRenderer.cs) requests premultiplied `Bgra8`, applies EXIF orientation, and uses `DoNotColorManage`. Even a 16-bit TIFF is reduced to 8-bit here. The separate [`RawDevelopmentService`](../src/PhotoLibrarian.Core/Services/RawDevelopmentService.cs) returns sensor-derived linear float RGB but is not connected to this renderer. |
+| Decode | [`ImageEditRenderer.LoadOrientedAsync`](../src/PhotoLibrarian/Services/ImageEditRenderer.cs) requests premultiplied `Bgra8`, applies EXIF orientation, and uses `DoNotColorManage`. Even a 16-bit TIFF is reduced to 8-bit here. It rejects recognized RAW inputs. The separate [`RawDevelopmentService`](../src/PhotoLibrarian.Core/Services/RawDevelopmentService.cs) feeds the FP32 RAW preview, never this raster decoder. |
 | Preview/save | [`ImageEditorView`](../src/PhotoLibrarian/Views/ImageEditorView.xaml.cs) and `ImageEditRenderer` both call [`EditEffectGraph.Build`](../src/PhotoLibrarian/Services/EditEffectGraph.cs). Preview loads the full-resolution oriented bitmap and scales the graph output for display. Preserve this shared source-space processing; filtering a downscaled preview separately would change kernel behavior. |
 | Current detail effects | The graph has `HighlightsAndShadowsEffect` clarity, edge-aware noise reduction, and selectable sharpening: the existing `SharpenEffect` remains the default for old XMP, with a source-pixel unsharp-mask alternative. It has no blur inversion, model inference, or RAW editor integration. |
 | Save | The renderer accepts JPEG, PNG, TIFF, and BMP extensions only, renders into a default `CanvasRenderTarget`, reads byte pixels, and transcodes over the source. PNG/TIFF preserve alpha; other outputs fill exposed rotation corners white. This is not a high-bit-depth export path. |
@@ -134,10 +136,10 @@ label. Reject stale asynchronous results after changing photo/settings.
 
 ## RAW-aware tone mapping
 
-The separate **RAW development and SDR tone-mapped export** work remains a
-follow-up. [#112](https://github.com/dunclaw/PhotoLibrarian/issues/112)
-establishes a pinned, local decoder/development API only; there is no RAW
-editor integration, tone-map UI, derivative export, or raster-save expansion.
+The separate **RAW development and SDR tone-mapped export** sequence now has
+a pinned local decoder (#112) and an explicitly experimental, preview-only
+SDR tone map (#113). Safe derivative export (#114), production camera/color
+validation, and raster-save expansion are not implemented here.
 Keep the RAW original immutable and create a separate JPEG/PNG/TIFF derivative
 only through a separately validated export path. Retain the development
 recipe rather than clearing it as if it were baked into sensor data.
@@ -170,7 +172,13 @@ enabled. The build log reports those compiled features; the LibRaw CMake
 helper and vcpkg are not included in the application.
 
 The decoder contract is row-major, three-channel float32 **linear ProPhoto
-RGB**, developed from sensor samples, not embedded previews. LibRaw is asked
+RGB**, developed from sensor samples, not embedded previews. Its precise white
+point is **LibRaw ProPhoto D65**, not standard ICC ProPhoto D50:
+`output_color=4` is named "ProPhoto D65" in the pinned
+`src/postprocessing/postprocessing_utils_dcrdefs.cpp`; its forward matrix is
+in `src/tables/colorconst.cpp`. The source archive shipped with the build
+makes that contract inspectable without installing a decoder.
+LibRaw is asked
 for 16-bit RGB, linear gamma, camera white balance/matrix, AHD demosaic,
 disabled auto-brightness/maximum adjustment, and a fixed 0.25 reference
 exposure that is inverted into float output. Black/white levels, camera
@@ -201,32 +209,167 @@ working-set growth. This is a single local run, not a latency or
 peak-allocation guarantee. The Release DLL sizes measured in this build were
 1,318,400 bytes x64, 1,255,424 bytes ARM64, and 1,175,040 bytes x86.
 Real-camera coverage, camera-specific color accuracy, peak memory,
-cancellation latency, and broader performance remain unverified; do not
-enable editor controls until those gates pass.
+cancellation latency, and broader performance remain unverified. Only the
+explicitly experimental preview described below is enabled; production camera
+accuracy and export remain gated on those missing measurements.
 
-The follow-up needs to:
+### #113 experimental SDR reference preview
 
-1. Use the #112 sensor-data foundation; before enabling editing, validate
-   camera-specific black levels, documented
-   white-balance/highlight handling and demosaic, and convert to a defined
-   scene-linear RGB working space. LibRaw can emit 16-bit linear RGB with
-   `output_bps=16` and linear gamma settings; disable automatic brightness
-   for reproducible exposure. Avoid clipping valuable headroom before
-   conversion to floating-point working buffers.
-2. Use FP16/FP32 intermediate surfaces with explicit precision/color-space
-   settings, not today's byte round trip. Distinguish real unsaturated sensor
-   headroom from reconstructed color in clipped channels; fully saturated
+**Entry and safety.** Open a recognized RAW through **Adjust**. The editor
+shows an experimental warning, RAW-only exposure/white-point controls, and
+**Keep preview recipe**. Raster tone/color/detail/rotation controls and auto
+enhance are hidden/disabled; their pending recipe values (including crop)
+are retained, not interpreted as scene-linear controls. **Reset** resets only
+the RAW controls in this workflow. Undo/redo, clone, dirty state, missing-XMP
+defaults, reset, and reopen cover both RAW fields.
+**Save is disabled with a reason**: derivative export is unavailable.
+The viewmodel and `ImageEditService.ApplyEditsAsync` reject RAW before calling
+any supplied overwrite renderer or backup/clear flow; the raster decoder and
+renderer reject RAW too. Revert cannot overwrite a RAW original.
+
+Keeping the preview recipe writes the sibling `.xmp`, not the sensor file,
+and retains other XMP properties. Existing readable XMP is replaced atomically
+with the previous packet backed up as `.xmp.<unique-id>.bak` without replacing
+earlier backups. Unreadable XMP, malformed
+RAW parameters, and unknown tone-map versions report errors rather than
+silently substituting a default recipe. The sidecar uses the existing
+same-basename convention, so files sharing a stem share an XMP packet.
+Raster baking clears only raster fields, retaining the RAW fields in a
+shared same-stem packet.
+Close does not automatically keep a recipe. No derivative or sensor bytes
+are written by preview rendering.
+
+**Precision and color contract.** `RawToneMappingService` consumes the full
+oriented, cropped, camera-white-balanced float32 linear LibRaw ProPhoto D65
+buffer. Its intermediates/output are CPU FP32 RGB surfaces with double scalar
+arithmetic; FP16/GPU tone-map surfaces are deliberately not used. Exposure
+is `2^RawExposureEv`, bounded to -8 through +8 stops, default zero.
+`RawWhitePoint` is exposed scene luminance mapped to SDR white, bounded to
+1 through 16, default 4. The scene luminance weights
+`(0.2683649469, 0.7151089340, 0.0165256105)` are derived from the inverse
+of the pinned LibRaw forward matrix and the sRGB D65 luminance weights.
+For positive exposed luminance `L`, the versioned `GlobalLuminanceV1`
+shoulder is `min(1, L * (1 + L / W^2) / (1 + L))`.
+It is increasing up to `W`, then constant at SDR white.
+It scales RGB by mapped/source luminance, converts using the inverse
+LibRaw matrix, and clips out-of-sRGB channels only at the output boundary.
+It does **not** perform another D50-to-D65 adaptation. Signed finite inputs
+with nonpositive luminance map to black; nonfinite samples and invalid
+geometry/parameters are explicit errors. Extreme finite FP32 inputs stay
+finite/bounded. Neutral tolerances of `1e-5` linear accommodate the rounding
+of LibRaw's six-decimal forward matrix; independently generated forward-matrix
+sRGB patches round-trip through the shoulder within `1e-6`.
+
+`RawSdrImage.LinearRgb` is a reusable, source-resolution, oriented, opaque
+FP32 **linear sRGB D65** output for #114. `ToPreviewBgra8` applies the fixed
+IEC 61966-2-1 sRGB transfer and rounds to 8-bit only for the final Win2D
+preview upload. The production RAW draw pass scales that completed SDR image
+for the viewport without running the raster effects. Mapping has no current
+monitor/profile/HDR-effect input; display color adaptation is not implemented
+or part of the recipe. This is a reproducible SDR reference, not calibrated
+appearance on every monitor.
+
+The decoder still uses 16-bit LibRaw development, with a fixed 0.25 reference
+scale inverted into float32. Its finite per-channel ceiling is near 4 and its
+quantization interval near `4/65535`; converting that output to FP32 does not
+create lost precision or unlimited scene range. The native color conversion
+and scaling also have 16-bit clamps. This stage preserves **available**
+developed values above 1 until the intended shoulder, but cannot undo earlier
+decoder/sensor clipping, reconstruct fully saturated samples, or establish
+camera-specific highlight/color fidelity. Lower exposure can reveal distinct
+unsaturated values; identical clipped values remain identical.
+
+**Operator decision.** A test-only alternative uses a 7x7 bilateral base in
+log luminance (spatial sigma 2 source pixels, range sigma 0.75 natural-log
+units), the same shoulder on the base, unit-gain log detail, and the same
+output conversion/clipping. It is not exposed as a second mode. Generated
+128x64 fixtures were measured on 2026-10-31; ranges and deviations below are
+linear output RGB, not perceptual/real-camera quality scores.
+
+| Fixture / measurement | Global | Local base/detail |
+| --- | ---: | ---: |
+| Unclipped 1/2/4 highlight patch range | 0.468752 | 0.516678 |
+| Ramp output range | 1.000000 | 1.000000 |
+| Color-chart output range | 0.396718 | 0.397980 |
+| Fine-texture standard deviation | 0.022087 | 0.025574 |
+| Seeded shadow-noise standard deviation | 0.001131 | 0.001141 |
+| Dark edge near/far deviation (halo) | 0.000000 | 0.003470 |
+| Edge fixture mapping latency | 0.140 ms | 2.102 ms |
+
+Local/global linear RGB RMS differences were 0.012851 (highlights),
+0.000292 (ramp), 0.002209 (color chart), 0.003575 (texture), 0.000010
+(shadows), and 0.002310 (edge). The local candidate increased texture contrast
+but also shadow-noise gain and a dark-side halo; its increased highlight range
+includes neighborhood effects, not newly recovered sensor detail.
+The global shoulder is selected for boundedness, cheaper cost, spatially
+independent mapping, and no local halo. These are generated-fixture comparisons,
+not a claim that all local tone mappers are inferior or that real-camera
+quality is validated. First-fixture timings include JIT/scheduling overhead;
+small timings are single observations, not performance guarantees.
+
+**Cost and cancellation.** One isolated serial Release x64 run on Windows
+build 26300 (26H2), AMD Ryzen 9 9950X3D, approximately 61.6 GiB RAM, .NET
+8.0.33 / SDK 10.0.402 measured:
+
+| Source resolution | FP32 map | sRGB BGRA8 encoding | Sampled peak process working set | Growth during case | Live frame payload |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1024x768 | 12.4 ms | 59.2 ms | 84.7 MiB | 21.7 MiB | 21.0 MiB |
+| 4000x3000 | 162.6 ms | 884.6 ms | 383.4 MiB | 298.7 MiB | 320.4 MiB |
+| 6000x4000 | 317.4 ms | 1774.8 ms | 1024.6 MiB | 641.2 MiB | 640.9 MiB |
+
+Sampling is every 2 ms and can miss instantaneous peaks; these are process
+working-set observations, not exact peak allocations. The serial process
+retains allocator/earlier-test memory. Payload counts input/output RGB arrays
+and encoded BGRA8, excluding native decoder buffers, file input, Win2D upload,
+GPU allocations, and full editor overhead. Mapping is CPU-only; these are not
+whole-photo decode-to-screen times. x64 and ARM64 Release builds pass, but
+ARM64 runtime, integrated/discrete GPU memory, camera samples, and interactive
+visual review of RAW controls are unverified.
+
+The current native/source limit remains 24 MP (including the native sensor
+geometry check), not an unlimited-resolution promise. Preview requests debounce
+for 80 ms, reuse one developed source per photo, serialize decode/map work,
+cancel superseded work, and check cancellation before publishing a result.
+CPU map/encode checks every 4096 pixels. Closing/unloading or changing photos
+invalidates the source and cancels work; even a decoder that ignores its token
+cannot publish a stale result. All CPU image processing runs off the UI thread.
+At 24 MP the measured map-plus-encode is about 2.1 seconds and memory is
+substantial; responsiveness/native cancellation latency on lower-memory
+devices remains a validation limitation, not a claimed budget.
+
+Reproduce the focused suites (serial execution avoids existing tests disposing
+the shared Win2D device during another graphics test):
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawToneMappingTests -class PhotoLibrarian.Tests.RawPreviewWorkflowTests -class PhotoLibrarian.Tests.RawDevelopmentTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.UnsharpMaskTests -class PhotoLibrarian.Tests.NoiseReductionTests -parallelMode none
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -method PhotoLibrarian.Tests.RawToneMappingTests.ReportsFullResolutionLatencyAndSampledPeakWorkingSet -method PhotoLibrarian.Tests.RawToneMappingTests.CompareGlobalWithEdgeAwareLogBaseDetailOnGeneratedAnalysisFixtures -parallelMode none
+```
+
+The focused run passes 79 tests with no skips: scalar/matrix contracts,
+clipped/unclipped highlights, ramps/charts/texture/shadows, malformed/extreme
+inputs, deterministic source-size output, active cancellation and stale decode,
+Bayer/X-Trans geometry, byte-identical originals, recipe history/sidecar safety,
+overwrite rejection, actual Win2D RAW upload/draw/viewport scaling, and
+unchanged raster pixels with dormant RAW fields. There is no derivative
+save/reopen parity claim; #114 must implement and validate it.
+
+The remaining RAW follow-up needs to:
+
+1. Before claiming production camera support, validate camera-specific black
+   levels, white balance, demosaic, color accuracy, and unclipped/clipped
+   highlight behavior with real-camera fixtures. Investigate the native
+   16-bit clamps and finite reference headroom; FP32 output cannot undo them.
+2. If FP16/GPU intermediates are introduced, validate their precision, memory,
+   cancellation, and color behavior against this FP32 reference. Distinguish
+   real unsaturated sensor headroom from reconstructed color; fully saturated
    samples cannot be recovered reliably.
-3. First compare a deterministic global luminance shoulder (Reinhard-style
-   compression with explicit exposure/white point) with an edge-aware
-   base/detail local operator. Global mapping is cheaper and avoids local
-   halos; local mapping can retain contrast but risks halos and noise.
-   Select only after highlight, gradient, color, and runtime comparisons.
-4. Define an SDR output reference independent of the current monitor.
-   Apply the same tone map/color conversion for preview and derivative save.
-   Direct2D's HDR tone-map effect adapts luminance for displays; it does not
-   decode RAW or supply missing sensor range. Any display-specific HDR
-   transform must not leak into an SDR saved render.
+3. If a local operator is revisited, compare against the selected global
+   shoulder on real highlights, gradients, color, noise, texture, halos,
+   and runtime rather than shipping an unvalidated second mode.
+4. Apply this monitor-independent SDR reference to derivative export and
+   validate preview/save/reopen parity. Direct2D's HDR tone-map effect does
+   not decode RAW or supply missing sensor range; display adaptation must
+   not leak into saved-render parameters.
 5. Encode a color-tagged derivative with documented bit depth, orientation,
    alpha, metadata, and collision-safe output semantics. Test that reopening
    the result does not apply the recipe again. HDR display/export formats
