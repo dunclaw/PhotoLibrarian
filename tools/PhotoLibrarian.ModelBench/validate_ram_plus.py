@@ -128,6 +128,9 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--provider", choices=["cpu", "directml"], default="cpu")
     args = parser.parse_args()
+    export.verify_environment()
+    export.verify_source(args.source_dir)
+    export.verify_artifact(args.bundle, export.build_lock()["expectedModel"])
     images = resolve_images(args.images)
     checkpoint_size, checkpoint_hash = export.CHECKPOINTS["ram_plus_swin_large_14m.pth"]
     if (args.checkpoint.stat().st_size != checkpoint_size or
@@ -192,7 +195,7 @@ def main() -> None:
         "checkpointSha256": checkpoint_hash,
         "modelSha256": export.sha256(args.bundle),
         "modelSizeBytes": args.bundle.stat().st_size,
-        "validatorSha256": export.sha256(Path(__file__)),
+        "validatorSha256": export.text_sha256(Path(__file__)),
         "labelsSha256": export.sha256(labels_path),
         "sourceLabelsSha256": export.sha256(args.source_dir / export.LABEL_PATH),
         "executionProvider": provider,

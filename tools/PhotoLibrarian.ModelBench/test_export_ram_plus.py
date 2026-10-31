@@ -30,6 +30,72 @@ class RamPlusExportTests(unittest.TestCase):
         )
         self.assertTrue(export.CHECKPOINTS["ram_plus_swin_large_14m.pth"][1].isalnum())
 
+    def test_build_lock_preserves_authoritative_catalog_artifacts(self):
+        lock = export.build_lock()
+        self.assertEqual(
+            "ff29e0e18e80b8f2fdc2566b9368bd904664cdc1fce380f57e73dcf03f4adda3",
+            lock["expectedModel"]["sha256"],
+        )
+        self.assertEqual(1849873814, lock["expectedModel"]["sizeBytes"])
+        files = {entry["path"] for entry in lock["sourceFiles"]}
+        self.assertTrue({
+            "ram/models/ram_plus.py", "ram/models/bert.py",
+            "ram/models/swin_transformer.py", "ram/configs/q2l_config.json",
+            export.LABEL_PATH, export.THRESHOLD_PATH, "LICENSE", "NOTICE.txt",
+        }.issubset(files))
+        self.assertEqual("2.8.0", export.locked_packages()["torch"])
+        self.assertEqual("0.23.0", export.locked_packages()["torchvision"])
+        self.assertGreater(len(export.locked_packages()), 30)
+
+    def test_environment_drift_is_rejected_before_export(self):
+        with patch.object(export, "locked_packages", return_value={"torch": "2.8.0"}):
+            with patch.object(export.importlib.metadata, "version", return_value="2.7.1"):
+                with self.assertRaisesRegex(ValueError, "dependency drift"):
+                    export.verify_environment()
+            with patch.object(export.importlib.metadata, "version", return_value="2.8.0"):
+                self.assertEqual({"torch": "2.8.0"}, export.verify_environment())
+            with patch.object(export.platform, "python_version", return_value="3.12.1"):
+                with self.assertRaisesRegex(ValueError, "interpreter/platform"):
+                    export.verify_environment()
+
+    def test_source_verification_rejects_modified_configuration_and_extra_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            path = source / "ram" / "configs" / "q2l_config.json"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"{}")
+            lock = {"sourceFiles": [{"path": "ram/configs/q2l_config.json",
+                                    "size": 2, "sha256": export.sha256(path)}]}
+            with patch.object(export, "build_lock", return_value=lock):
+                export.verify_source(source)
+                extra = source / "torch.py"
+                extra.write_bytes(b"")
+                with self.assertRaisesRegex(ValueError, "Unpinned Python"):
+                    export.verify_source(source)
+                extra.unlink()
+                path.write_bytes(b"[]")
+                with self.assertRaisesRegex(ValueError, "source file differs"):
+                    export.verify_source(source)
+
+    def test_artifact_hash_is_enforced_even_when_size_matches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "model.onnx"
+            path.write_bytes(b"correct")
+            expected = {"sizeBytes": 7, "sha256": export.sha256(path)}
+            export.verify_artifact(path, expected)
+            path.write_bytes(b"changed")
+            with self.assertRaisesRegex(ValueError, "did not reproduce"):
+                export.verify_artifact(path, expected)
+
+    def test_build_fingerprints_ignore_checkout_line_endings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lf = Path(directory) / "lf.txt"
+            crlf = Path(directory) / "crlf.txt"
+            lf.write_bytes(b"first\nsecond\n")
+            crlf.write_bytes(b"first\r\nsecond\r\n")
+            self.assertEqual(export.text_sha256(lf), export.text_sha256(crlf))
+            self.assertNotEqual(export.sha256(lf), export.sha256(crlf))
+
     def test_load_labels_rejects_wrong_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory)
