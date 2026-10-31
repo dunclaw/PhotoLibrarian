@@ -109,6 +109,11 @@ revision, hash, applicable weight terms, notices, training-data limitations,
 and conversion provenance. Unresolved weight terms block distribution.
 This investigation neither downloads nor redistributes weights.
 
+The evaluation of the three bounded checkpoints found no candidate with
+verified weight terms, and did not export or benchmark them. See the
+[candidate-by-candidate gate and upstream contracts](RESTORATION-MODEL-GATE.md)
+before reopening downstream model integration.
+
 Use explicit, user-initiated local asset import, checksum/shape/opset checks,
 and a manifest with RGB order, range, transfer function, padding, task,
 tensor contract, and model version. No runtime Python, CUDA requirement,
