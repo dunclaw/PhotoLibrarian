@@ -3,14 +3,16 @@
 Research decision for [#90](https://github.com/dunclaw/PhotoLibrarian/issues/90),
 2026-10-19, with the [#119](https://github.com/dunclaw/PhotoLibrarian/issues/119)
 model-free comparison updated 2026-10-30. This is an implementation gate, not
-a claim that advanced restoration features are available. No restoration
-models or editor controls are added by this investigation. The separate
+a claim that advanced restoration features are available. The separate
 pinned RAW decoder foundation in
 [#112](https://github.com/dunclaw/PhotoLibrarian/issues/112) does not enable
-RAW editing or export. The wavelet and non-local-means candidates were
-evaluated only in test fixtures; neither passed the initial detail-retention
-comparison. Sizes below are planning estimates, not measured downloads or
-performance results.
+RAW editing or export. No restoration models or editor controls are added by
+this investigation. The wavelet and non-local-means candidates were evaluated
+only in test fixtures; neither passed the initial detail-retention comparison.
+No restoration candidate was benchmarked in PhotoLibrarian; sizes below are
+planning estimates, not measured downloads or performance results. The later
+bounded model-free deblur experiment and its no-ship decision are recorded in
+[DEBLUR-EXPERIMENTS.md](DEBLUR-EXPERIMENTS.md).
 
 ## Decision and implementation order
 
