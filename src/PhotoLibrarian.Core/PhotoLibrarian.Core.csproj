@@ -12,4 +12,52 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <RawDecoderBuildDirectory>$(MSBuildProjectDirectory)\obj\RawDecoder\$(Platform)\$(Configuration)</RawDecoderBuildDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="$(RawDecoderBuildDirectory)\PhotoLibrarian.RawDecoder.dll"
+             Link="PhotoLibrarian.RawDecoder.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\ThirdPartyNotices.RawDecoder.txt"
+             Link="ThirdPartyNotices\RawDecoder.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-LICENSE.CDDL.txt"
+             Link="ThirdPartyNotices\LibRaw-LICENSE.CDDL.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-COPYRIGHT.txt"
+             Link="ThirdPartyNotices\LibRaw-COPYRIGHT.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-DCB-FBDD-BSD-LICENSE.txt"
+             Link="ThirdPartyNotices\LibRaw-DCB-FBDD-BSD-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-X3F-BSD-LICENSE.txt"
+             Link="ThirdPartyNotices\LibRaw-X3F-BSD-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-Adobe-DNG-SDK-MIT-LICENSE.txt"
+             Link="ThirdPartyNotices\LibRaw-Adobe-DNG-SDK-MIT-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\zlib-LICENSE.txt"
+             Link="ThirdPartyNotices\zlib-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-0.22.3-source.tar.gz"
+             Link="ThirdPartySources\LibRaw-0.22.3-source.tar.gz"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="BuildRawDecoderNative" BeforeTargets="PrepareForBuild"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-RawDecoder.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(RawDecoderBuildDirectory)&quot;" />
+  </Target>
 </Project>

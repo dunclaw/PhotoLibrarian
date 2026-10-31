@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "7cb804a8609e9f4b1a50b7f31436d2df40bb9481",
+  "python": {
+    "version": "3.12.0",
+    "implementation": "CPython",
+    "system": "Windows",
+    "machine": "AMD64"
+  },
+  "expectedModel": {
+    "sizeBytes": 1849873814,
+    "sha256": "ff29e0e18e80b8f2fdc2566b9368bd904664cdc1fce380f57e73dcf03f4adda3"
+  },
+  "expectedLabels": {
+    "sizeBytes": 41905,
+    "sha256": "1a6c943dd251993770e7cf6fed23a38b7ac068f4c8fbc7a0db85cbe0fe5221b3"
+  },
+  "sourceFiles": [
+    {
+      "path": "LICENSE",
+      "sha": "1141a7683eff9735cd8e063ce613eb4045852f25",
+      "size": 11306,
+      "sha256": "d38f4edcfb09332fa497fd3ce52bd6c13dd73fa5acb8418a47aece5a2d311f26"
+    },
+    {
+      "path": "NOTICE.txt",
+      "sha": "0b40f18e16beee2b4892dc6ed0f561afb6b7d8bd",
+      "size": 25888,
+      "sha256": "ddb1bf4cb85cefefacc718b470a7b6cef644a45aba338219b03ee0bbe0c60537"
+    },
+    {
+      "path": "batch_inference.py",
+      "sha": "1ab4bda4df0cd79351582970dbc0cd6a709d8445",
+      "size": 17066,
+      "sha256": "161c18ca6c78487ad2d52473ccfd6584cf319fd6bb88124a0292f551723fbd51"
+    },
+    {
+      "path": "finetune.py",
+      "sha": "3a80387aabc3b51faa26cdfd167f1974d568bb0f",
+      "size": 11433,
+      "sha256": "32d8d032b50f5281dc619c2baefe8146e96b77cbb2f0f1e08d9c87923bac4711"
+    },
+    {
+      "path": "generate_tag_des_llm.py",
+      "sha": "c5083988f02c51b4f291cd81b1700d125840e8b9",
+      "size": 2024,
+      "sha256": "3a8a30bbd2fa95b0f8bb124dfe804c12d9685360dc1880ce3e527c105778452f"
+    },
+    {
+      "path": "inference_ram.py",
+      "sha": "4cc80f72d06004ea2459b38191ad734f2ee70e41",
+      "size": 1487,
+      "sha256": "40899d30500f09629e958512e3c3ea0db9c82be6712f919f3948b5fe13c865c7"
+    },
+    {
+      "path": "inference_ram_openset.py",
+      "sha": "0b2454aa42226b6bad4a27c9c56a35fb5075c72c",
+      "size": 1990,
+      "sha256": "10354be1288d830fdcf07a1f7d094ea28137906a4d5ba3beb587c9b5f4d26cd0"
+    },
+    {
+      "path": "inference_ram_plus.py",
+      "sha": "4de0e0fadb084c68de1a70f934a8421f4d350d74",
+      "size": 1509,
+      "sha256": "25d225365aa5fc367d9b815ec9431f54aa1b21486f077c2ec91a73f1988a74a9"
+    },
+    {
+      "path": "inference_ram_plus_openset.py",
+      "sha": "4b5fe35d7a274ead21e82fce8fe4461e659799a1",
+      "size": 2392,
+      "sha256": "b4f308cca6ab3f05282fba252a19d21ba2f05eddb9c4fe480225ff607c380a49"
+    },
+    {
+      "path": "inference_tag2text.py",
+      "sha": "43ea302cca8b9717f82c4a536aade0172a3645fe",
+      "size": 2213,
+      "sha256": "f550548d983c74ed8f40e9f3671b9e68630f78ac8e3f604c40b5072a2f232717"
+    },
+    {
+      "path": "pretrain.py",
+      "sha": "4380eb763f4468e296fd5e1337fb4053e65095ec",
+      "size": 12138,
+      "sha256": "40ac5d18c64829c0175a0970edad625596822e3a41ea20f37e630ff6b537ec2e"
+    },
+    {
+      "path": "ram/__init__.py",
+      "sha": "31d536a683944674c92421f6bf7b0d838924b686",
+      "size": 117,
+      "sha256": "b40b043778bb4c00af5ac64769b73b5e5d5f3acf0c7794dc405a700547b1ff2c"
+    },
+    {
+      "path": "ram/configs/finetune.yaml",
+      "sha": "f72ab80c74311b7b0730c07b4cf6810260db2aa8",
+      "size": 337,
+      "sha256": "528adcf393b86e3f02127bfaeaa3f954bae551afac341740041fa33e6a7f8970"
+    },
+    {
+      "path": "ram/configs/finetune_tag2text.yaml",
+      "sha": "36cd663bc51eea96336b23392c2a1b821fb7499c",
+      "size": 337,
+      "sha256": "f4c90e4b5708232e26e743e8dd5e12257be97f799ede3ac61a25c984ab2b9db3"
+    },
+    {
+      "path": "ram/configs/med_config.json",
+      "sha": "49d64f890cc38d558c4fd3bab048cc521a69a2be",
+      "size": 524,
+      "sha256": "8ff4c73e6781e9597714670d13551129a712cecb8effa71ad1968e93ba2f8a2d"
+    },
+    {
+      "path": "ram/configs/pretrain.yaml",
+      "sha": "e8b88e3b2d8e57dff6d6f5d727c6827a17d4242f",
+      "size": 602,
+      "sha256": "5c3514ec9fec7ab9e0af4a83b3877f476bda377d39ad4322628fdf8b52f67d23"
+    },
+    {
+      "path": "ram/configs/pretrain_tag2text.yaml",
+      "sha": "5b13eaa517409628be538c3cb7090bca4d74db79",
+      "size": 602,
+      "sha256": "7acb5ef783bd7d6873b6c9bb45b63ea344d2e7e9780fdeb1f352da520f3a1376"
+    },
+    {
+      "path": "ram/configs/q2l_config.json",
+      "sha": "a8eba56c27769cadd1506c8e88fe33aced92668f",
+      "size": 557,
+      "sha256": "e3bbbefc4011d577b58b67e155f7d67f38554f2797ddb7a29a6516a423ab578b"
+    },
+    {
+      "path": "ram/configs/swin/config_swinB_224.json",
+      "sha": "79777948695aedfb56ed0d5720b3d8bbe2c4371d",
+      "size": 229,
+      "sha256": "18a248e23fed5d8634d48a692cefce7fe965381c6b2c9022180d0c550fd1c799"
+    },
+    {
+      "path": "ram/configs/swin/config_swinB_384.json",
+      "sha": "d2f3e0724319655e7a084d602db3712abda746ee",
+      "size": 230,
+      "sha256": "fda66c6e525eff268b2bcf4184e9d944babd1619b60745aa34fc6ce4dd379ee4"
+    },
+    {
+      "path": "ram/configs/swin/config_swinL_224.json",
+      "sha": "ded917d5b2e1bf48f4a8ab130ec150f6b1f31c1a",
+      "size": 232,
+      "sha256": "778444e6d82495ba726966c4aae9320bcbfe45ea7dc7d88d6b1e0908da8f9669"
+    },
+    {
+      "path": "ram/configs/swin/config_swinL_384.json",
+      "sha": "e6443a2d209fef96f4a183b7499323976f3a88e5",
+      "size": 233,
+      "sha256": "f07de971155ff50dfe13e5e34b0211133f602934e7fe230febe60b5a93700f9a"
+    },
+    {
+      "path": "ram/data/__init__.py",
+      "sha": "7cdbded5fee6cc5baef3d91850f107648b8cd661",
+      "size": 2993,
+      "sha256": "2638517620367c228c31e5ec6e21a89293cd4a966aa71d6bc001bef040c79633"
+    },
+    {
+      "path": "ram/data/dataset.py",
+      "sha": "39380c87954bb44008d404e45915aeff6c04cbcf",
+      "size": 3228,
+      "sha256": "68c0b9473aff3e873663ea2768317a02ab5bce2ed97266e9760abfe750b67bd0"
+    },
+    {
+      "path": "ram/data/ram_tag_list.txt",
+      "sha": "49c840b71915f639fb79cd83ac4a3e313cfbc2b1",
+      "size": 41904,
+      "sha256": "5d96d2f7225527480ad773aaac76b6e5c08a18adf6eae9ca7d2ab923d5e7bd8b"
+    },
+    {
+      "path": "ram/data/ram_tag_list_chinese.txt",
+      "sha": "3f61dc0b84ed58e019d7e331555ef438f2ded2de",
+      "size": 44181,
+      "sha256": "c912657a0f30be7b2f5df6ccffa17e1d84561d0bea508528e38b6d0d711bcfbe"
+    },
+    {
+      "path": "ram/data/ram_tag_list_threshold.txt",
+      "sha": "0472b23c25903900c0dde68fffc9a6a6755f5117",
+      "size": 22016,
+      "sha256": "b6f81d0de1bc7f9c251af512c413eae976c77dbfbadf700d4e3d90510f4c6447"
+    },
+    {
+      "path": "ram/data/randaugment.py",
+      "sha": "094d9f4cacc93146d2bab7311d9dc04feb07032c",
+      "size": 9785,
+      "sha256": "9685d968c3530b9324a79e8cd6aa7f55a7e3b3cb5c4924fde4aca9d0c1b1fc01"
+    },
+    {
+      "path": "ram/data/tag2text_ori_tag_list.txt",
+      "sha": "11a61b68fb9a22eec9cc52a3a2d32474323aafdb",
+      "size": 29062,
+      "sha256": "7d05c7cb88ed46a2aee1434776964f6bdbda0c0f4233c8633e109084382d3a45"
+    },
+    {
+      "path": "ram/data/tag_list.txt",
+      "sha": "11a61b68fb9a22eec9cc52a3a2d32474323aafdb",
+      "size": 29062,
+      "sha256": "7d05c7cb88ed46a2aee1434776964f6bdbda0c0f4233c8633e109084382d3a45"
+    },
+    {
+      "path": "ram/data/utils.py",
+      "sha": "628894844becd462d444584b8b2b01a84ee4b8f7",
+      "size": 3449,
+      "sha256": "893c6f16902f24db0e03883b2b9495be7c4b35b3fa5bfb21bd91ff04e8dad20b"
+    },
+    {
+      "path": "ram/inference.py",
+      "sha": "182efc55098ce201cdc776236aa8c9468845cb41",
+      "size": 1323,
+      "sha256": "27101fa761b0e7484da76afb4d796f887298d6816f0a66e315a9f93de0d38055"
+    },
+    {
+      "path": "ram/models/__init__.py",
+      "sha": "9a8d0f48ceeed9145bbc3cc086869447a1de82f3",
+      "size": 83,
+      "sha256": "bfbc02cc78e714808822dda8f2c810a05af329a82b123913ecb6144b10608144"
+    },
+    {
+      "path": "ram/models/bert.py",
+      "sha": "cb90b794284d2262d171aa0f93fdf20854a9059b",
+      "size": 45130,
+      "sha256": "6f242cd972d48c2722e8ffe62990945ba0ecaf1b2672ab458a742890e5a03a9e"
+    },
+    {
+      "path": "ram/models/ram.py",
+      "sha": "e32989754bf777786a1f60da3c27dd3eb5e89dd7",
+      "size": 17210,
+      "sha256": "d1e01f080f276ef683a844d8993827327451eecb7c03ed71eaedf4d3f85f3a12"
+    },
+    {
+      "path": "ram/models/ram_plus.py",
+      "sha": "925d76c969b75ef2b0f9c629a693cfa2a60fb84c",
+      "size": 17166,
+      "sha256": "2c108fbf9f25e46fc9f6515176e7ab1e7b7356381240bc84f78da623645c6f94"
+    },
+    {
+      "path": "ram/models/swin_transformer.py",
+      "sha": "c1affc9a8695474e831ad060343c1988d750dc5f",
+      "size": 26827,
+      "sha256": "6ad728f9eb9276b292cbdabe6f3f77bfea3c8603b8b672ec02331c9d467c386c"
+    },
+    {
+      "path": "ram/models/tag2text.py",
+      "sha": "ac26b8539d21d97df98ae40d82aec13c80b1de73",
+      "size": 15734,
+      "sha256": "7b31dcd35557b6dc328cec350b0b3dc326b138622e18f4e7a15ef9fd5b615522"
+    },
+    {
+      "path": "ram/models/utils.py",
+      "sha": "1a6476526fd283b8572f84008cb391944de90af2",
+      "size": 13013,
+      "sha256": "1013022590dd04a1be0852eb416f75c687f225c37424a189d833e0fc597506eb"
+    },
+    {
+      "path": "ram/models/vit.py",
+      "sha": "cec3d8e08ed4451d65392feb2e9f4848d1ef3899",
+      "size": 14240,
+      "sha256": "c16ef04bd471dc4d6ea1cae57982891670949bd9117ad209750bc88622539454"
+    },
+    {
+      "path": "ram/transform.py",
+      "sha": "baff9cdc7b437f842e07849d04e3e9a905d303e2",
+      "size": 356,
+      "sha256": "54242a905a94975d32a9da63a6dd4d3302c5b19f05cdd63ff7cd4add8507d9cb"
+    },
+    {
+      "path": "ram/utils/__init__.py",
+      "sha": "9183543e9b82ec382be4c68a58befbc05d22fb44",
+      "size": 129,
+      "sha256": "a3438c08eb80cf725b03d49a44a7305637d3edbd819bfb26b572f29e5ca5d3f3"
+    },
+    {
+      "path": "ram/utils/metrics.py",
+      "sha": "7738dfa1a84d30ec17a292a20d917d75cce8de16",
+      "size": 3222,
+      "sha256": "42a960479866319c2effda5ea16236499c44edd7c28a16a4676ad1ea2ff51413"
+    },
+    {
+      "path": "ram/utils/openset_utils.py",
+      "sha": "8140053e1089242de3e20f5651908ba3be39e0b4",
+      "size": 8376,
+      "sha256": "1fcc52482e77736adc5d53a38ab6bf447c6506690b6c13208ffbf45ced80e687"
+    },
+    {
+      "path": "setup.py",
+      "sha": "a4f49f9202fb5e6c72e24566a1efe9fce65f0ab9",
+      "size": 37,
+      "sha256": "70d8e7fbc6753231c43f5f5b41c005423fa7908d077c8dd7a4c9c0e93dea191e"
+    },
+    {
+      "path": "utils.py",
+      "sha": "b6c669d5bb9691ba5ec064f93b86552eb306747d",
+      "size": 8475,
+      "sha256": "a0850ba60c3f8be44bae7b8daa442894a9fabe138641af6c120bcde5abef915c"
+    }
+  ]
+}

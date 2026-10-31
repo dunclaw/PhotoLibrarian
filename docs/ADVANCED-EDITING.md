@@ -4,10 +4,13 @@ Research decision for [#90](https://github.com/dunclaw/PhotoLibrarian/issues/90)
 2026-10-19, with the [#119](https://github.com/dunclaw/PhotoLibrarian/issues/119)
 model-free comparison updated 2026-10-30. This is an implementation gate, not
 a claim that advanced restoration features are available. No restoration
-models, RAW decoder, new controls, or runtime dependencies are added. The
-wavelet and non-local-means candidates were evaluated only in test fixtures;
-neither passed the initial detail-retention comparison. Sizes below remain
-planning estimates, not measured downloads or performance results.
+models or editor controls are added by this investigation. The separate
+pinned RAW decoder foundation in
+[#112](https://github.com/dunclaw/PhotoLibrarian/issues/112) does not enable
+RAW editing or export. The wavelet and non-local-means candidates were
+evaluated only in test fixtures; neither passed the initial detail-retention
+comparison. Sizes below are planning estimates, not measured downloads or
+performance results.
 
 ## Decision and implementation order
 
@@ -33,17 +36,17 @@ planning estimates, not measured downloads or performance results.
    HDR display output and exposure-bracket merging are separate work again.
 
 These recommendations let #26, #108, and #78 proceed without depending on a
-large model download or a replacement RAW pipeline. This document records the
-research and implementation evidence; it does not claim deconvolution or RAW
-development is available.
+large model download or a replacement raster pipeline. This document records
+the research and implementation evidence; it does not claim deconvolution,
+production camera coverage, or an enabled RAW editor is available.
 
 ## Existing pipeline and constraints
 
 | Surface | Evidence and consequence |
 | --- | --- |
-| Decode | [`ImageEditRenderer.LoadOrientedAsync`](../src/PhotoLibrarian/Services/ImageEditRenderer.cs) requests premultiplied `Bgra8`, applies EXIF orientation, and uses `DoNotColorManage`. Precision and color interpretation must change before a RAW/HDR claim. Even a 16-bit TIFF is reduced to 8-bit here. |
+| Decode | [`ImageEditRenderer.LoadOrientedAsync`](../src/PhotoLibrarian/Services/ImageEditRenderer.cs) requests premultiplied `Bgra8`, applies EXIF orientation, and uses `DoNotColorManage`. Even a 16-bit TIFF is reduced to 8-bit here. The separate [`RawDevelopmentService`](../src/PhotoLibrarian.Core/Services/RawDevelopmentService.cs) returns sensor-derived linear float RGB but is not connected to this renderer. |
 | Preview/save | [`ImageEditorView`](../src/PhotoLibrarian/Views/ImageEditorView.xaml.cs) and `ImageEditRenderer` both call [`EditEffectGraph.Build`](../src/PhotoLibrarian/Services/EditEffectGraph.cs). Preview loads the full-resolution oriented bitmap and scales the graph output for display. Preserve this shared source-space processing; filtering a downscaled preview separately would change kernel behavior. |
-| Current detail effects | The graph has `HighlightsAndShadowsEffect` clarity, edge-aware noise reduction, and selectable sharpening: the existing `SharpenEffect` remains the default for old XMP, with a source-pixel unsharp-mask alternative. It has no blur inversion, model inference, or RAW development. |
+| Current detail effects | The graph has `HighlightsAndShadowsEffect` clarity, edge-aware noise reduction, and selectable sharpening: the existing `SharpenEffect` remains the default for old XMP, with a source-pixel unsharp-mask alternative. It has no blur inversion, model inference, or RAW editor integration. |
 | Save | The renderer accepts JPEG, PNG, TIFF, and BMP extensions only, renders into a default `CanvasRenderTarget`, reads byte pixels, and transcodes over the source. PNG/TIFF preserve alpha; other outputs fill exposed rotation corners white. This is not a high-bit-depth export path. |
 | Safety and recipes | [`ImageEditService`](../src/PhotoLibrarian.Core/Services/ImageEditService.cs) backs up before rendering and clears pending edit XMP after success. RAW export must not use this overwrite/clear flow for the RAW original. |
 | State | [`EditParameters`](../src/PhotoLibrarian.Core/Models/EditParameters.cs), its serializer, editor history, and viewmodel all need to agree on any new amount/mode. Clone, reset, `HasAdjustments`, missing-XMP defaults, undo/redo, and saved/reopened state are part of each implementation, not just a slider. |
@@ -216,24 +219,80 @@ label. Reject stale asynchronous results after changing photo/settings.
 
 ## RAW-aware tone mapping
 
-Recommend a separate **RAW development and SDR tone-mapped export** follow-up;
-no existing open issue inspected for this investigation owns this pipeline.
+The separate **RAW development and SDR tone-mapped export** work remains a
+follow-up. [#112](https://github.com/dunclaw/PhotoLibrarian/issues/112)
+establishes a pinned, local decoder/development API only; there is no RAW
+editor integration, tone-map UI, derivative export, or raster-save expansion.
 Keep the RAW original immutable and create a separate JPEG/PNG/TIFF derivative
-only through a validated export path. Retain the development recipe rather
-than clearing it as if it were baked into the sensor data.
+only through a separately validated export path. Retain the development
+recipe rather than clearing it as if it were baked into sensor data.
 
-LibRaw is the practical decoder candidate: sensor samples, black/white levels,
-white balance, color matrices, and camera-dependent geometry are available.
-It is dual-licensed LGPL-2.1/CDDL-1.0 (choose one compliance path), not MIT.
-Pin a stable version and build options, audit optional components and their
-terms, ship notices, and budget native binaries/interop for x64 and ARM64.
-Native bundle size must be measured from those builds. Upstream explicitly
-does not promise a production-quality rendering pipeline; adopting its
-decoder does not eliminate camera/color validation work.
+### Pinned decoder foundation (#112)
+
+The managed [`RawDevelopmentService`](../src/PhotoLibrarian.Core/Services/RawDevelopmentService.cs)
+calls an app-owned C ABI DLL that statically links LibRaw 0.22.3 and zlib.
+The source archive is pinned by SHA-512
+`a9453f8cff55302926c11c47ba7c8d04d81023bbbcad145551d2c0cc601de7eea8218d00a073e6b9ece845d3420897a2272a34fabf55f5b821183eaa7f66b3ef`;
+the build helper is pinned to commit
+`eb98e4325aef2ce85d2eb031c2ff18640ca616d3` by SHA-512
+`63e68a4d30286ec3aa97168d46b7a1199268099ae27b61abcc92e93ec30e48d364086227983a1d724415e5f4da44d905422f30192453b95f31040e5f8469c3f9`.
+vcpkg is pinned to commit `d186940b2f0c4e8e5b4ff804af57d2a26fbfa091`; its
+2026-09-26 executable is SHA-256-verified as
+`2a4ae1467b9e797964c60c919d057b9e5dc1ec03f4b9632c1150026db25201f2`.
+zlib is 1.3.2. The measured builds used Visual Studio 2026 18.11.1 and MSVC
+14.51.36231. These build-time tools and source downloads require network
+access when not cached, but runtime decoding is local and has no separate
+decoder installation or cloud dependency.
+
+The selected LibRaw license path is CDDL-1.0. The build ships the exact LibRaw
+source archive and its CDDL text, upstream copyright, zlib license, and
+embedded DCB/FBDD BSD, X3F BSD, and Adobe DNG SDK MIT notices with the
+application output and publish files. The app-owned DLL is statically linked;
+LibRaw modifications are not carried as a binary-only patch. OpenMP, LCMS,
+Jasper/RedCine, DNG lossy JPEG, RawSpeed, debug output, X3F support, examples,
+and Raspberry Pi support are disabled; zlib-backed DNG deflate remains
+enabled. The build log reports those compiled features; the LibRaw CMake
+helper and vcpkg are not included in the application.
+
+The decoder contract is row-major, three-channel float32 **linear ProPhoto
+RGB**, developed from sensor samples, not embedded previews. LibRaw is asked
+for 16-bit RGB, linear gamma, camera white balance/matrix, AHD demosaic,
+disabled auto-brightness/maximum adjustment, and a fixed 0.25 reference
+exposure that is inverted into float output. Black/white levels, camera
+identity, sensor and active-area dimensions, EXIF orientation, and the
+reference exposure are returned separately. ActiveArea crop and orientation
+are applied by LibRaw before the pixels are returned. The original file is
+read-only. Input and LibRaw raw-memory limits are each 512 MiB; decode geometry
+is bounded at 24 MP. Work runs off the UI thread, supports cancellation, owns the native
+buffer through a safe handle, and reports unsupported/corrupt input as errors
+without thumbnail fallback.
+
+Build the native decoder for x64, ARM64, or the app's existing x86 target with
+`tools\Build-RawDecoder.ps1 -Architecture <x64|ARM64|x86> -OutputDirectory <path>`.
+The managed decoder is covered by:
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawDevelopmentTests
+```
+
+The synthetic DNG fixtures cover Bayer and X-Trans, active-area crop,
+orientation 1 and 6, deterministic repeated output, finite float values,
+headroom above 1.0, immutable input bytes, unsupported/corrupt input, a
+512-MiB input rejection, and pre-cancelled work. The X-Trans fixture is a
+synthetic 528 × 528 DNG, sized for LibRaw's 512-pixel demosaic tile; it is not
+a camera sample. One isolated x64 synthetic Bayer benchmark at 1024 × 768
+(1,573,314 input bytes) measured 46.8 ms and 16.6 MiB sampled process
+working-set growth. This is a single local run, not a latency or
+peak-allocation guarantee. The Release DLL sizes measured in this build were
+1,318,400 bytes x64, 1,255,424 bytes ARM64, and 1,175,040 bytes x86.
+Real-camera coverage, camera-specific color accuracy, peak memory,
+cancellation latency, and broader performance remain unverified; do not
+enable editor controls until those gates pass.
 
 The follow-up needs to:
 
-1. Decode actual sensor data, apply black-level correction, documented
+1. Use the #112 sensor-data foundation; before enabling editing, validate
+   camera-specific black levels, documented
    white-balance/highlight handling and demosaic, and convert to a defined
    scene-linear RGB working space. LibRaw can emit 16-bit linear RGB with
    `output_bps=16` and linear gamma settings; disable automatic brightness
