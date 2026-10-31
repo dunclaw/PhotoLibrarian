@@ -8,10 +8,12 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Input;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using System.Numerics;
 using Windows.Foundation;
+using Windows.Graphics.DirectX;
 
 namespace PhotoLibrarian.Views;
 
@@ -33,6 +35,8 @@ public sealed partial class ImageEditorView : UserControl
     private Vector2 _lastPanPoint;
     private readonly Dictionary<Slider, (double Neutral, double Threshold)> _sliderSnaps = new();
     private Slider? _draggedSlider;
+    private readonly RawPreviewSession _rawPreview = new();
+    private CancellationTokenSource? _previewRequest;
 
     public ImageEditorView()
     {
@@ -71,11 +75,14 @@ public sealed partial class ImageEditorView : UserControl
         if (ViewModel is null) return;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewModel.ParametersChanged += OnParametersChanged;
-        UpdateHistoryControls();
+        SyncSlidersFromViewModel();
+        TitleText.Text = ViewModel.Title;
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _previewRequest?.Cancel();
+        _rawPreview.Invalidate();
         if (ViewModel is not null)
         {
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
@@ -89,6 +96,17 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ImageEditorViewModel.ImagePath))
+        {
+            var path = ViewModel?.ImagePath;
+            _previewRequest?.Cancel();
+            _rawPreview.Invalidate();
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (ViewModel?.ImagePath == path) _ = LoadImageAsync(path);
+            });
+            return;
+        }
         DispatcherQueue.TryEnqueue(() =>
         {
             if (ViewModel is null) return;
@@ -98,14 +116,14 @@ public sealed partial class ImageEditorView : UserControl
                     Visibility = ViewModel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
                     if (ViewModel.IsOpen) SyncSlidersFromViewModel();
                     break;
-                case nameof(ImageEditorViewModel.ImagePath):
-                    _ = LoadImageAsync(ViewModel.ImagePath);
+                case nameof(ImageEditorViewModel.IsRawPreview):
+                    UpdateHistoryControls();
                     break;
                 case nameof(ImageEditorViewModel.Title):
                     TitleText.Text = ViewModel.Title;
                     break;
                 case nameof(ImageEditorViewModel.HasBackup):
-                    RevertBtn.Visibility = ViewModel.HasBackup ? Visibility.Visible : Visibility.Collapsed;
+                    UpdateHistoryControls();
                     break;
                 case nameof(ImageEditorViewModel.CanUndo):
                 case nameof(ImageEditorViewModel.CanRedo):
@@ -119,6 +137,11 @@ public sealed partial class ImageEditorView : UserControl
     private void OnParametersChanged(object? sender, EventArgs e)
     {
         SyncSlidersFromViewModel();
+        if (ViewModel?.IsRawPreview == true)
+        {
+            _ = LoadImageAsync(ViewModel.ImagePath);
+            return;
+        }
         DispatcherQueue.TryEnqueue(() => EditCanvas.Invalidate());
         DispatcherQueue.TryEnqueue(() => HistogramCanvas.Invalidate());
     }
@@ -130,7 +153,14 @@ public sealed partial class ImageEditorView : UserControl
         var isSaving = ViewModel?.IsSaving == true;
         AdjustmentsPanel.IsEnabled = !isSaving;
         CloseBtn.IsEnabled = !isSaving;
-        SaveBtn.IsEnabled = !isSaving;
+        var isRaw = ViewModel?.IsRawPreview == true;
+        SaveBtn.IsEnabled = ViewModel?.CanSavePixels == true;
+        ToolTipService.SetToolTip(SaveBtn, isRaw ? ViewModel!.SaveDisabledReason : "Save edits");
+        RawPreviewPanel.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
+        RasterAdjustmentsPanel.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
+        AutoBtn.IsEnabled = !isRaw && !isSaving;
+        RevertBtn.Visibility = !isRaw && ViewModel?.HasBackup == true ? Visibility.Visible : Visibility.Collapsed;
+        KeepRecipeBtn.IsEnabled = isRaw && !isSaving;
     }
 
     private void OnUndo(SplitButton sender, SplitButtonClickEventArgs args) =>
@@ -178,6 +208,7 @@ public sealed partial class ImageEditorView : UserControl
         if (_sourceBitmap is null || ViewModel is null) return;
 
         var p = ViewModel.GetCurrentParameters();
+        if (ViewModel.IsRawPreview) p = new EditParameters();
         // Frame the *output* extent — rotation makes it larger than the source — so the preview
         // shows exactly what a save would write.
         var imageSize = _sourceBitmap.Size;
@@ -193,6 +224,12 @@ public sealed partial class ImageEditorView : UserControl
             Matrix3x2.CreateScale(_viewport.Scale) *
             Matrix3x2.CreateTranslation(origin);
 
+        if (ViewModel.IsRawPreview)
+        {
+            // The SDR transfer has already been applied. Do not run the byte raster effects again.
+            ImageEditRenderPass.DrawRawPreview(args.DrawingSession, _sourceBitmap, transform);
+            return;
+        }
         ImageEditRenderPass.Draw(
             args.DrawingSession,
             _sourceBitmap,
@@ -333,39 +370,76 @@ public sealed partial class ImageEditorView : UserControl
 
     private async Task LoadImageAsync(string? path)
     {
-        _sourceBitmap?.Dispose();
-        _sourceBitmap = null;
-        _sourcePixels = null;
-
-        if (path is null)
+        _previewRequest?.Cancel();
+        using var request = new CancellationTokenSource();
+        _previewRequest = request;
+        var token = request.Token;
+        var parameters = ViewModel?.GetCurrentParameters() ?? new EditParameters();
+        var isRaw = path is not null && RawToneMappingService.IsRaw(path);
+        var differentPhoto = !string.Equals(_loadedPath, path, StringComparison.OrdinalIgnoreCase);
+        if (differentPhoto || path is null)
         {
-            _loadedPath = null;
+            _rawPreview.Invalidate();
+            _sourceBitmap?.Dispose();
+            _sourceBitmap = null;
+            _sourcePixels = null;
+            _loadedPath = path;
             _viewport.Fit();
             UpdateZoomText();
-            return;
+            EditCanvas.Invalidate();
         }
-
         try
         {
-            _sourceBitmap = await ImageEditRenderer.LoadOrientedAsync(EditCanvas, path);
-            _sourcePixels = _sourceBitmap.GetPixelBytes();
-
-            // A different photo starts at fit; reloading the same file after save/revert keeps
-            // the user's zoom so they can keep inspecting the same detail.
-            if (!string.Equals(_loadedPath, path, StringComparison.OrdinalIgnoreCase))
+            if (path is null) return;
+            CanvasBitmap bitmap;
+            byte[] pixels;
+            if (isRaw)
             {
-                _viewport.Fit();
-                _loadedPath = path;
+                RawPreviewStatus.Text = "Developing full-resolution RAW preview...";
+                await Task.Delay(80, token);
+                var result = await _rawPreview.RenderAsync(path, parameters, token);
+                pixels = await Task.Run(() => result.ToPreviewBgra8(token), token);
+                token.ThrowIfCancellationRequested();
+                bitmap = CanvasBitmap.CreateFromBytes(EditCanvas, pixels, result.Width, result.Height,
+                    DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+                RawPreviewStatus.Text = $"{result.Width} x {result.Height}; sRGB SDR reference. Camera WB; global luminance shoulder.";
             }
+            else
+            {
+                bitmap = await ImageEditRenderer.LoadOrientedAsync(EditCanvas, path);
+                if (token.IsCancellationRequested)
+                {
+                    bitmap.Dispose();
+                    token.ThrowIfCancellationRequested();
+                }
+                pixels = bitmap.GetPixelBytes();
+            }
+            _sourceBitmap?.Dispose();
+            _sourceBitmap = bitmap;
+            _sourcePixels = isRaw ? null : pixels;
             var size = _sourceBitmap.Size;
             var (_, outputWidth, outputHeight) = EditEffectGraph.ComputeOutputExtent(
-                size.Width, size.Height, ViewModel?.RotationAngle ?? 0);
+                size.Width, size.Height, isRaw ? 0 : ViewModel?.RotationAngle ?? 0);
             _viewport.SetContentSize(new Vector2(outputWidth, outputHeight), resetView: false);
             UpdateZoomText();
             EditCanvas.Invalidate();
             HistogramCanvas.Invalidate();
         }
-        catch { /* Failed to load */ }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (token.IsCancellationRequested) return;
+            _sourceBitmap?.Dispose();
+            _sourceBitmap = null;
+            _sourcePixels = null;
+            RawPreviewStatus.Text = $"Preview failed: {ex.Message}";
+            SetStatus($"Preview failed: {ex.Message}");
+            EditCanvas.Invalidate();
+        }
+        finally
+        {
+            if (_previewRequest == request) _previewRequest = null;
+        }
     }
 
     private void OnHistogramDraw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -510,7 +584,7 @@ public sealed partial class ImageEditorView : UserControl
             SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, SharpnessSlider,
             NoiseReductionSlider, UnsharpMaskAmountSlider, UnsharpMaskRadiusSlider,
             UnsharpMaskThresholdSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider,
-            RotationSlider
+            RotationSlider, RawExposureSlider, RawWhitePointSlider
         ];
         foreach (var slider in sliders)
         {
@@ -556,6 +630,7 @@ public sealed partial class ImageEditorView : UserControl
                 slider.Value = snapped; // Re-raises ValueChanged with the neutral value.
                 return;
             }
+
         }
 
         ViewModel.Brightness = BrightnessSlider.Value;
@@ -577,6 +652,24 @@ public sealed partial class ImageEditorView : UserControl
         ViewModel.Midtones = MidtonesSlider.Value;
         ViewModel.RotationAngle = RotationSlider.Value;
         HistogramCanvas.Invalidate();
+    }
+
+    private void OnRawSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_suppressSliderEvents || ViewModel?.IsRawPreview != true) return;
+        if (sender == RawExposureSlider) ViewModel.RawExposureEv = e.NewValue;
+        else if (sender == RawWhitePointSlider) ViewModel.RawWhitePoint = e.NewValue;
+    }
+
+    private async void OnKeepRawRecipe(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null) return;
+        try
+        {
+            await ViewModel.KeepRawPreviewRecipeAsync();
+            SetStatus("RAW preview recipe kept in XMP sidecar; original unchanged.");
+        }
+        catch (Exception ex) { SetStatus($"Unable to keep RAW recipe: {ex.Message}"); }
     }
 
     private void OnAdvancedSharpeningChanged(object sender, RoutedEventArgs e)
@@ -603,7 +696,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnAutoEnhance(object sender, RoutedEventArgs e)
     {
-        if (ViewModel is not null && _sourcePixels is not null)
+        if (ViewModel is not null && !ViewModel.IsRawPreview && _sourcePixels is not null)
             ViewModel.ApplyAutoEnhance(AutoEnhanceAnalyzer.Analyze(_sourcePixels));
         SyncSlidersFromViewModel();
     }
@@ -641,6 +734,11 @@ public sealed partial class ImageEditorView : UserControl
     private async void OnSave(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null || ViewModel.IsSaving) return;
+        if (ViewModel.IsRawPreview)
+        {
+            SetStatus(ViewModel.SaveDisabledReason);
+            return;
+        }
 
         if (!ViewModel.HasChanges)
         {
@@ -673,7 +771,7 @@ public sealed partial class ImageEditorView : UserControl
         }
         finally
         {
-            SaveBtn.IsEnabled = true;
+            UpdateHistoryControls();
         }
     }
 
@@ -688,6 +786,11 @@ public sealed partial class ImageEditorView : UserControl
     {
         if (ViewModel is null) return;
         _suppressSliderEvents = true;
+        RawExposureSlider.Value = ViewModel.RawExposureEv;
+        RawWhitePointSlider.Value = ViewModel.RawWhitePoint;
+        RawExposureText.Text = $"{ViewModel.RawExposureEv:+0.0;-0.0;0.0} EV";
+        RawWhitePointText.Text = ViewModel.RawWhitePoint.ToString("0.0");
+        UpdateHistoryControls();
         BrightnessSlider.Value = ViewModel.Brightness;
         ContrastSlider.Value = ViewModel.Contrast;
         ExposureSlider.Value = ViewModel.Exposure;

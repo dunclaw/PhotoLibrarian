@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -478,7 +479,7 @@ public sealed partial class MainWindow : Window
     {
         var entry = ViewModel.ImageViewer.CurrentEntry;
         if (entry is null || ViewModel.ImageViewer.IsVideo) return;
-        if (!ImageEditRenderer.IsSupported(entry.FilePath))
+        if (!ImageEditRenderer.IsSupported(entry.FilePath) && !RawToneMappingService.IsRaw(entry.FilePath))
         {
             ViewModel.StatusText = $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
             return;
@@ -500,7 +501,14 @@ public sealed partial class MainWindow : Window
             TopRibbon.ExitRedEyeMode();
         }
 
-        await ViewModel.ImageEditor.OpenForEditAsync(entry);
+        try
+        {
+            await ViewModel.ImageEditor.OpenForEditAsync(entry);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusText = $"Unable to open editor: {ex.Message}";
+        }
     }
 
     private void OnRibbonRedEyeClicked(object? sender, EventArgs e)

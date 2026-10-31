@@ -22,6 +22,7 @@ public partial class ImageEditorViewModel : ObservableObject
     private EditParameters? _editStart;
     private string _editLabel = "";
     private bool _restoring;
+    private CropRect? _crop;
 
     private sealed record HistoryEntry(string Label, EditParameters Before, EditParameters After);
 
@@ -41,6 +42,25 @@ public partial class ImageEditorViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string? ImagePath { get; set; }
+
+    public bool IsRawPreview => ImagePath is not null && RawToneMappingService.IsRaw(ImagePath);
+    public bool CanSavePixels => IsOpen && !IsSaving && !IsRawPreview;
+    public string SaveDisabledReason => IsRawPreview
+        ? "RAW is preview-only. Save is disabled until safe derivative export is available."
+        : "";
+
+    partial void OnImagePathChanged(string? value)
+    {
+        OnPropertyChanged(nameof(IsRawPreview));
+        OnPropertyChanged(nameof(CanSavePixels));
+        OnPropertyChanged(nameof(SaveDisabledReason));
+    }
+
+    [ObservableProperty]
+    public partial double RawExposureEv { get; set; }
+
+    [ObservableProperty]
+    public partial double RawWhitePoint { get; set; }
 
     // Tone
     [ObservableProperty]
@@ -132,6 +152,7 @@ public partial class ImageEditorViewModel : ObservableObject
         _editService = new ImageEditService(backupService);
         Title = "";
         WhitePoint = 1.0;
+        RawWhitePoint = RawToneMappingService.DefaultWhitePoint;
         Midtones = 0.5;
         UnsharpMaskRadius = 1.0;
         UnsharpMaskThreshold = 0.02;
@@ -140,13 +161,21 @@ public partial class ImageEditorViewModel : ObservableObject
 
     public async Task OpenForEditAsync(ImageEntry entry)
     {
+        var parameters = ImageEditService.ReadEditParameters(entry.FilePath);
         _currentEntry = entry;
         Title = entry.FileName;
         ImagePath = entry.FilePath;
         IsOpen = true;
 
-        RestoreParameters(ImageEditService.ReadEditParameters(entry.FilePath));
+        RestoreParameters(parameters);
         ClearHistory();
+
+        if (IsRawPreview)
+        {
+            _backupHash = null;
+            HasBackup = false;
+            return;
+        }
 
         // Backups are keyed by the content hash of the file they were taken from, so remember
         // the hash we opened with — after a save the file's own hash no longer finds it.
@@ -162,6 +191,7 @@ public partial class ImageEditorViewModel : ObservableObject
     /// </summary>
     public async Task<bool> SaveAsync(ImageEditService.PixelRenderer renderer)
     {
+        if (IsRawPreview) throw new NotSupportedException(SaveDisabledReason);
         if (_currentEntry is null || IsSaving) return false;
 
         EndEdit();
@@ -191,6 +221,8 @@ public partial class ImageEditorViewModel : ObservableObject
         Brightness = Brightness,
         Contrast = Contrast,
         Exposure = Exposure,
+        RawExposureEv = RawExposureEv,
+        RawWhitePoint = RawWhitePoint,
         Highlights = Highlights,
         Shadows = Shadows,
         Saturation = Saturation,
@@ -206,21 +238,44 @@ public partial class ImageEditorViewModel : ObservableObject
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
-        RotationAngle = RotationAngle
+        RotationAngle = RotationAngle,
+        Crop = _crop?.Clone()
     };
+
+    public async Task KeepRawPreviewRecipeAsync()
+    {
+        if (!IsRawPreview || _currentEntry is null)
+            throw new InvalidOperationException("No RAW preview is open.");
+        if (IsSaving) throw new InvalidOperationException("An editor operation is already in progress.");
+        EndEdit();
+        var parameters = GetCurrentParameters();
+        IsSaving = true;
+        try
+        {
+            await ImageEditService.SaveRawPreviewRecipeAsync(_currentEntry.FilePath, parameters);
+            _baseline = parameters.Clone();
+            HasChanges = false;
+        }
+        finally { IsSaving = false; }
+    }
 
     [RelayCommand]
     private void ResetAll()
     {
         if (IsSaving) return;
         BeginEdit("Reset adjustments");
-        ApplyParametersToSliders(new EditParameters());
+        var parameters = IsRawPreview ? GetCurrentParameters() : new EditParameters();
+        parameters.RawExposureEv = 0;
+        parameters.RawWhitePoint = RawToneMappingService.DefaultWhitePoint;
+        ApplyParametersToSliders(parameters);
         EndEdit();
     }
 
     [RelayCommand]
     private async Task RevertToOriginalAsync()
     {
+        if (IsRawPreview)
+            throw new NotSupportedException("RAW originals are immutable in the preview workflow. Reset the preview recipe instead.");
         if (_currentEntry is null || IsSaving) return;
         EndEdit();
         IsSaving = true;
@@ -266,9 +321,13 @@ public partial class ImageEditorViewModel : ObservableObject
 
     private void ApplyParametersToSliders(EditParameters p)
     {
+        var cropChanged = !CropEqual(_crop, p.Crop);
+        _crop = p.Crop?.Clone();
         Brightness = p.Brightness;
         Contrast = p.Contrast;
         Exposure = p.Exposure;
+        RawExposureEv = p.RawExposureEv;
+        RawWhitePoint = p.RawWhitePoint;
         Highlights = p.Highlights;
         Shadows = p.Shadows;
         Saturation = p.Saturation;
@@ -285,12 +344,15 @@ public partial class ImageEditorViewModel : ObservableObject
         WhitePoint = p.WhitePoint;
         Midtones = p.Midtones;
         RotationAngle = p.RotationAngle;
+        if (cropChanged) OnParameterChanged("Crop");
     }
 
     // Called when any slider value changes to trigger re-render
     partial void OnBrightnessChanged(double value) => OnParameterChanged("Brightness");
     partial void OnContrastChanged(double value) => OnParameterChanged("Contrast");
     partial void OnExposureChanged(double value) => OnParameterChanged("Exposure");
+    partial void OnRawExposureEvChanged(double value) => OnParameterChanged("RAW exposure");
+    partial void OnRawWhitePointChanged(double value) => OnParameterChanged("RAW white point");
     partial void OnHighlightsChanged(double value) => OnParameterChanged("Highlights");
     partial void OnShadowsChanged(double value) => OnParameterChanged("Shadows");
     partial void OnSaturationChanged(double value) => OnParameterChanged("Saturation");
@@ -393,12 +455,14 @@ public partial class ImageEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(RedoHistory));
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
+        OnPropertyChanged(nameof(CanSavePixels));
         UndoCommand.NotifyCanExecuteChanged();
         RedoCommand.NotifyCanExecuteChanged();
     }
 
     private static bool ParametersEqual(EditParameters a, EditParameters b) =>
         a.Brightness == b.Brightness && a.Contrast == b.Contrast && a.Exposure == b.Exposure &&
+        a.RawExposureEv == b.RawExposureEv && a.RawWhitePoint == b.RawWhitePoint &&
         a.Highlights == b.Highlights && a.Shadows == b.Shadows && a.Saturation == b.Saturation &&
         a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
         a.Sharpness == b.Sharpness && a.NoiseReduction == b.NoiseReduction &&
@@ -406,7 +470,12 @@ public partial class ImageEditorViewModel : ObservableObject
         a.UnsharpMaskRadius == b.UnsharpMaskRadius &&
         a.UnsharpMaskThreshold == b.UnsharpMaskThreshold &&
         a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
-        a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle;
+        a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle &&
+        CropEqual(a.Crop, b.Crop);
+
+    private static bool CropEqual(CropRect? a, CropRect? b) =>
+        a is null || b is null ? a is null && b is null :
+        a.Left == b.Left && a.Top == b.Top && a.Width == b.Width && a.Height == b.Height;
 }
 
 /// <summary>
