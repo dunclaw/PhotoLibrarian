@@ -51,6 +51,8 @@ $bundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
 . (Join-Path $PSScriptRoot 'ModelAssetEvidence.ps1')
 if ($ProfileId -eq 'ram-plus.swin-large-14m') {
     Test-RamPlusReleaseEvidence -BundleDirectory $bundle -Profile $profile
+} else {
+    Test-TinyClipReleaseEvidence -BundleDirectory $bundle -Profile $profile
 }
 
 function Get-VerifiedFileRecord {
@@ -192,9 +194,7 @@ $manifest = [ordered]@{
         }
     )
 }
-if ($ProfileId -eq 'ram-plus.swin-large-14m') {
-    $manifest.reviewEvidence = $profile.reviewEvidence
-}
+$manifest.reviewEvidence = $profile.reviewEvidence
 $manifestPath = Join-Path $bundle 'model-assets-manifest.json'
 $manifest | ConvertTo-Json -Depth 20 |
     Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM

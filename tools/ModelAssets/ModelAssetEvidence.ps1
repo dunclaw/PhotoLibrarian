@@ -30,6 +30,73 @@ function Assert-ModelEvidenceReceipt {
     }
 }
 
+function Test-TinyClipReleaseEvidence {
+    param([string]$BundleDirectory, $Profile)
+
+    $pins = $Profile.reviewEvidence
+    $provenance = Read-PinnedModelEvidence $BundleDirectory $Profile.provenanceFile $pins.provenanceSha256
+    $model = $Profile.assets[0]
+    $labels = $Profile.assets[1]
+    foreach ($asset in $Profile.assets) {
+        $file = Get-Item -LiteralPath (Join-Path $BundleDirectory $asset.fileName) -Force -ErrorAction Stop
+        if ($file.PSIsContainer -or
+            ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            $file.Length -ne $asset.sizeBytes -or
+            (Get-FileHash -LiteralPath $file.FullName).Hash -ne $asset.sha256) {
+            throw "TinyCLIP artifact mismatch: $($asset.fileName)"
+        }
+    }
+    $prepared = @($provenance.models | Where-Object modelId -CEQ 'tinyclip')
+    if ($provenance.schemaVersion -ne 1 -or $prepared.Count -ne 1 -or
+        $prepared[0].modelFile -cne $model.fileName -or
+        $prepared[0].modelSha256 -ne $model.sha256 -or
+        $prepared[0].modelSizeBytes -ne $model.sizeBytes -or
+        $prepared[0].bundleFile -cne $labels.fileName -or
+        $prepared[0].bundleSha256 -ne $labels.sha256 -or
+        $provenance.executionProvider -cne 'CPUExecutionProvider' -or
+        $provenance.labelCount -ne 3632 -or
+        $provenance.vocabularySha256 -ne $pins.vocabularySha256 -or
+        $provenance.referenceSha256 -ne $pins.referenceSha256) {
+        throw 'TinyCLIP preparation evidence identity mismatch.'
+    }
+    $metadata = Get-Content -LiteralPath (Join-Path $BundleDirectory $labels.fileName) -Raw |
+        ConvertFrom-Json -Depth 30
+    if ($metadata.modelId -cne 'tinyclip' -or $metadata.modelSha256 -ne $model.sha256 -or
+        $metadata.modelSizeBytes -ne $model.sizeBytes -or
+        $metadata.vocabularySha256 -ne $pins.vocabularySha256 -or
+        @($metadata.labels).Count -ne 3632 -or $metadata.embeddingDimension -ne 512 -or
+        $metadata.precision -cne 'int8' -or $metadata.scoreKind -cne 'cosine' -or
+        $metadata.inputName -cne 'pixel_values' -or $metadata.outputName -cne 'image_embeds' -or
+        $metadata.inputSize -ne 224 -or $metadata.resizeMode -cne 'shortest-center-crop' -or
+        $metadata.interpolation -cne 'cubic') {
+        throw 'TinyCLIP calibrated bundle contract mismatch.'
+    }
+    foreach ($source in $Profile.sourceRevisions.PSObject.Properties) {
+        if (@($metadata.sources | Where-Object {
+            $_.repository -ceq $source.Name -and $_.revision -ceq $source.Value -and $_.checksumVerified -eq $true
+        }).Count -eq 0) { throw 'TinyCLIP source pin mismatch.' }
+    }
+    $reference = Read-PinnedModelEvidence $BundleDirectory 'reference.json' $pins.referenceSha256
+    if ($reference.schemaVersion -ne 1 -or $reference.vocabularySha256 -ne $pins.vocabularySha256 -or
+        @($reference.fixtures).Count -ne 2) { throw 'TinyCLIP reference identity mismatch.' }
+    foreach ($fixture in $reference.fixtures) {
+        $result = @($fixture.models | Where-Object modelId -CEQ 'tinyclip')
+        if ($result.Count -ne 1 -or $result[0].executionProvider -cne 'CPUExecutionProvider' -or
+            @($result[0].scores).Count -ne 3632 -or @($result[0].imageEmbedding).Count -ne 512) {
+            throw 'TinyCLIP CPU reference contract mismatch.'
+        }
+    }
+    foreach ($name in $Profile.notices) {
+        $pin = $pins.noticeSha256.PSObject.Properties[$name]
+        if ($null -eq $pin) { throw 'Missing TinyCLIP notice pin.' }
+        $file = Get-Item -LiteralPath (Join-Path $BundleDirectory $name) -Force -ErrorAction Stop
+        if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            $file.Length -le 0 -or (Get-FileHash -LiteralPath $file.FullName).Hash -ne $pin.Value) {
+            throw "TinyCLIP notice fingerprint mismatch: $name"
+        }
+    }
+}
+
 function Test-RamPlusReleaseEvidence {
     param([string]$BundleDirectory, $Profile)
 

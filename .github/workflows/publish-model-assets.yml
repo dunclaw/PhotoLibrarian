@@ -13,6 +13,7 @@ on:
         type: choice
         options:
           - ram-plus.swin-large-14m
+          - tinyclip.vit-40m-32.int8
 
 permissions:
   contents: read

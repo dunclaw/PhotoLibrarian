@@ -4,7 +4,16 @@
     {
       "profileId": "tinyclip.vit-40m-32.int8",
       "publicationReady": false,
-      "blockedReason": "The current app profile expects a 40,622,561-byte model with SHA-256 9aa0c0c8d4abdb4f80e8f26e74236bb1bf13d43ffaab4e17fb03e48c4e01be0d, while the pinned preparation tool produces an 85,618,595-byte ONNX with SHA-256 0843578fa3e1c386a3be5250ccb13cc8836d062876a34756f380a2e371e86a75. Reconcile the export and calibration before publication.",
+      "blockedReason": "Exact calibrated TinyCLIP assets have been reproduced; cloud publication remains on hold.",
+      "reviewEvidence": {
+        "provenanceSha256": "013DEACD7099CDFF207DAE078FC4AC3647BDAAFF31E229C47AA6D17B94DAE43E",
+        "referenceSha256": "31583B1BE941B89C53F23317DC0E9BE705A7C1AF4586D9436625638617BA7C7A",
+        "vocabularySha256": "AEC02D1C94EC5BFA0F18D8E9092E7240CC1D37F3C3DEDC5205D97AA55AA57C4E",
+        "noticeSha256": {
+          "LICENSE": "583ACC0D9C74DEF18EC24E56964421BF1FAC1FA2D60451E75E6681D5AE58A3F6",
+          "NOTICE.txt": "B4FF69DA16D77B76DE7090BEF3C4FFCC0FA4BF30DDA7F748D15B6F55254C05F9"
+        }
+      },
       "version": "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3",
       "pipelineVersion": "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3",
       "manifestUri": "https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/tinyclip.vit-40m-32.int8/tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3.json",

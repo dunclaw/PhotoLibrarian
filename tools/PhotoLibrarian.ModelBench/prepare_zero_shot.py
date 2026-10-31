@@ -87,6 +87,29 @@ SPECS = {
 }
 ORIGINAL_SIGLIP_SHA256 = "612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b"
 HTTP_HEADERS = {"User-Agent": "PhotoLibrarian-ModelBench-asset-preparation/1"}
+TINYCLIP_PROFILE_FILES = {
+    "tinyclip-vision-int8.onnx": (
+        40622561, "9aa0c0c8d4abdb4f80e8f26e74236bb1bf13d43ffaab4e17fb03e48c4e01be0d"
+    ),
+    "tinyclip.json": (
+        58298021, "f40df22806eb77961356898ce0b01b540139ca412b877860417beb4e8b16bc8a"
+    ),
+}
+TINYCLIP_VOCABULARY_FILE_SHA256 = "e41bcbca4fb055f127666a67e67e446009888a3db8c1da6c26b02f6421c8aad4"
+
+
+def canonical_tinyclip_vocabulary(path: Path) -> bytes:
+    data = path.read_bytes().replace(b"\r\n", b"\n")
+    if hashlib.sha256(data).hexdigest() != TINYCLIP_VOCABULARY_FILE_SHA256:
+        raise ValueError("TinyCLIP release requires the exact calibrated general-v2 vocabulary")
+    return data
+
+
+def verify_tinyclip_profile(output: Path) -> None:
+    for name, (size, checksum) in TINYCLIP_PROFILE_FILES.items():
+        path = output / name
+        if not path.is_file() or path.stat().st_size != size or digest(path) != checksum:
+            raise ValueError(f"TinyCLIP calibrated release identity mismatch: {name}")
 
 
 def digest(path: Path, algorithm: str = "sha256", git_blob: bool = False) -> str:
@@ -592,6 +615,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vocabulary", type=Path, default=Path(__file__).with_name("home-photo-vocabulary.json"))
     parser.add_argument("--source-cache", type=Path, help="Reuse verified source downloads (default: OUTPUT/source-cache)")
     parser.add_argument("--threads", type=int, default=min(4, os.cpu_count() or 1))
+    parser.add_argument("--verify-tinyclip-profile", action="store_true",
+                        help="Use canonical calibrated vocabulary bytes and refuse changed app asset hashes")
     args = parser.parse_args()
     args.output = args.output.resolve()
     args.source_cache = (args.source_cache or args.output / "source-cache").resolve()
@@ -601,6 +626,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--models must be a unique comma-separated subset of siglip2,tinyclip")
     if args.threads < 1:
         parser.error("--threads must be positive")
+    if args.verify_tinyclip_profile and (args.models != ["tinyclip"] or args.precision != "int8"):
+        parser.error("--verify-tinyclip-profile requires --models tinyclip --precision int8")
     repository = next((parent for parent in Path(__file__).resolve().parents if (parent / ".git").exists()), None)
     if repository and any(path == repository or repository in path.parents for path in (args.output, args.source_cache)):
         parser.error("Model assets must not be written inside the source repository")
@@ -611,8 +638,14 @@ def main() -> None:
     args = parse_args()
     vocabulary, vocabulary_sha = load_vocabulary(args.vocabulary)
     args.output.mkdir(parents=True, exist_ok=True)
+    if args.verify_tinyclip_profile and (args.output / "preparation-manifest.json").exists():
+        raise FileExistsError("Use a new output directory for a verified TinyCLIP release build")
     target_vocabulary = args.output / "home-photo-vocabulary.json"
-    if args.vocabulary != target_vocabulary:
+    if args.verify_tinyclip_profile:
+        vocabulary_bytes = canonical_tinyclip_vocabulary(args.vocabulary)
+        target_vocabulary.write_bytes(vocabulary_bytes)
+        args.vocabulary = target_vocabulary
+    elif args.vocabulary != target_vocabulary:
         shutil.copyfile(args.vocabulary, target_vocabulary)
     fixtures = create_fixtures(args.output)
     prepared = []
@@ -624,6 +657,8 @@ def main() -> None:
             "vocabularySha256": vocabulary_sha,
             "fixtures": fixtures,
         })
+    if args.verify_tinyclip_profile:
+        verify_tinyclip_profile(args.output)
     write_json(args.output / "preparation-manifest.json", {
         "schemaVersion": 1,
         "scriptSha256": digest(Path(__file__).resolve()),
