@@ -179,7 +179,26 @@ public sealed class AutoTagModelManager : IAutoTagModelProvider
         }
 
         long bytesCompleted = 0;
-        var totalBytes = assets.Sum(asset => asset.DownloadSizeBytes);
+        var totalBytes = assets.Sum(asset => asset.DownloadSizeBytes) +
+            (manifest?.LegalNotices.Sum(notice => notice.SizeBytes) ?? 0);
+        if (manifest is not null)
+        {
+            foreach (var notice in manifest.LegalNotices)
+            {
+                var noticeAsset = new AutoTagAssetDefinition(
+                    notice.FileName, notice.GetUri(), notice.Sha256, notice.SizeBytes);
+                await DownloadVerifiedAssetAsync(
+                    _httpClient,
+                    Path.Combine(GetProfileDirectory(profileId, modelDirectory), notice.FileName),
+                    noticeAsset,
+                    noticeAsset.DownloadUri,
+                    bytesCompleted,
+                    totalBytes,
+                    progress,
+                    cancellationToken);
+                bytesCompleted += notice.SizeBytes;
+            }
+        }
         for (var index = 0; index < assets.Length; index++)
         {
             var asset = assets[index];

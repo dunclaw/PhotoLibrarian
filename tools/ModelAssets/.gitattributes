@@ -1,0 +1,2 @@
+# Preserve the exact reviewed notice bytes and fingerprint on every checkout.
+TinyCLIP-NOTICE.txt -text
