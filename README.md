@@ -85,11 +85,13 @@ Windows property-handler level rather than by running Photo Gallery itself.
 
 Active personal project — usable for daily browsing, tagging, and rating today. See [Roadmap](#roadmap) for what's missing relative to Windows Live Photo Gallery.
 
-Advanced denoising, motion/defocus deblurring, and RAW-aware tone mapping are
-research-stage, not current editor features. See the
+The bilateral slider is the current denoising feature; no advanced denoiser
+has passed the detail-retention evidence gate yet. Motion/defocus deblurring
+and RAW-aware tone mapping are also research-stage, not current editor
+features. See the
 [advanced editing feasibility decision](docs/ADVANCED-EDITING.md) for the
 recommended implementation order, model/dependency costs, format boundaries,
-and quality/render-parity gates.
+quality/render-parity gates, and the #119 model-free comparison results.
 
 ---
 
