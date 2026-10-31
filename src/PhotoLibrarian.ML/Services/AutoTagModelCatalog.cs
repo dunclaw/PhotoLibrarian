@@ -150,7 +150,19 @@ public static class AutoTagModelCatalog
         OutputKind: AutoTagOutputKind.CosineEmbedding,
         UseCpuOnly: true,
         UsesCalibratedThresholds: true,
-        UsesTagHierarchy: true);
+        UsesTagHierarchy: true,
+        ManifestUri: CreateManifestUri(
+            TinyClipProfileId,
+            "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3"),
+        License: "MIT",
+        SourceRevisions: new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M"] =
+                "95ec8197b3f2fe7f747865c61ca556cf0768b2f7",
+            ["onnx-community/TinyCLIP-ViT-40M-32-Text-19M-LAION400M-ONNX"] =
+                "737108a175dc6c043d9e64cf738baa91a272f7cb"
+        },
+        RequiredNoticeFiles: ["LICENSE", "NOTICE.txt"]);
 
     public static IReadOnlyList<AutoTagModelDefinition> Profiles { get; } =
         [RamPlus, TinyClip, MobileNetV2, EfficientNetLite4];

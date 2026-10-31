@@ -38,9 +38,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 $manifest = Get-Content -LiteralPath $manifestPath -Raw |
     ConvertFrom-Json -Depth 30
 . (Join-Path $PSScriptRoot 'ModelAssetEvidence.ps1')
-if ($ProfileId -eq 'ram-plus.swin-large-14m') {
-    Assert-ModelEvidenceReceipt -Receipt $manifest.reviewEvidence -Profile $profile
-}
+Assert-ModelEvidenceReceipt -Receipt $manifest.reviewEvidence -Profile $profile
 if ($manifest.schemaVersion -ne 1 -or $manifest.profileId -ne $ProfileId) {
     throw 'Manifest schema or profile ID does not match the requested release.'
 }
@@ -91,11 +89,9 @@ foreach ($requiredNotice in $profile.notices) {
     if ($notice.Count -ne 1) {
         throw "Manifest is missing required legal notice '$requiredNotice'."
     }
-    if ($ProfileId -eq 'ram-plus.swin-large-14m') {
-        $pinnedNotice = $profile.reviewEvidence.noticeSha256.PSObject.Properties[$requiredNotice]
-        if ($null -eq $pinnedNotice -or $notice[0].sha256 -ne $pinnedNotice.Value) {
-            throw "Manifest notice fingerprint is not reviewed: $requiredNotice"
-        }
+    $pinnedNotice = $profile.reviewEvidence.noticeSha256.PSObject.Properties[$requiredNotice]
+    if ($null -eq $pinnedNotice -or $notice[0].sha256 -ne $pinnedNotice.Value) {
+        throw "Manifest notice fingerprint is not reviewed: $requiredNotice"
     }
     if ($requiredNotice -ne [IO.Path]::GetFileName($requiredNotice)) {
         throw "Unsafe legal notice path '$requiredNotice'."

@@ -12,10 +12,12 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class AutoTagModelManifestTests
 {
-    [Fact]
-    public async Task LoadAsyncAcceptsOnlyThePinnedVersionedAssets()
+    [Theory]
+    [InlineData(AutoTagModelCatalog.RamPlusProfileId)]
+    [InlineData(AutoTagModelCatalog.TinyClipProfileId)]
+    public async Task LoadAsyncAcceptsOnlyThePinnedVersionedAssets(string profileId)
     {
-        var profile = AutoTagModelCatalog.RamPlus;
+        var profile = AutoTagModelCatalog.ForId(profileId);
         var manifest = CreateManifest(profile);
         using var client = CreateClient(manifest);
 
@@ -36,10 +38,12 @@ public sealed class AutoTagModelManifestTests
             loaded.LegalNotices.Select(notice => notice.FileName));
     }
 
-    [Fact]
-    public async Task LoadAsyncRejectsAssetHashChanges()
+    [Theory]
+    [InlineData(AutoTagModelCatalog.RamPlusProfileId)]
+    [InlineData(AutoTagModelCatalog.TinyClipProfileId)]
+    public async Task LoadAsyncRejectsAssetHashChanges(string profileId)
     {
-        var profile = AutoTagModelCatalog.RamPlus;
+        var profile = AutoTagModelCatalog.ForId(profileId);
         var manifest = CreateManifest(profile);
         var original = manifest.Assets[0];
         manifest.Assets[0] = new AutoTagManifestAsset
@@ -59,10 +63,12 @@ public sealed class AutoTagModelManifestTests
                 TestContext.Current.CancellationToken));
     }
 
-    [Fact]
-    public async Task LoadAsyncRejectsAssetUrlsOutsideTheVersionedRelease()
+    [Theory]
+    [InlineData(AutoTagModelCatalog.RamPlusProfileId)]
+    [InlineData(AutoTagModelCatalog.TinyClipProfileId)]
+    public async Task LoadAsyncRejectsAssetUrlsOutsideTheVersionedRelease(string profileId)
     {
-        var profile = AutoTagModelCatalog.RamPlus;
+        var profile = AutoTagModelCatalog.ForId(profileId);
         var manifest = CreateManifest(profile);
         var original = manifest.Assets[0];
         manifest.Assets[0] = new AutoTagManifestAsset
@@ -163,6 +169,73 @@ public sealed class AutoTagModelManifestTests
     }
 
     [Fact]
+    public async Task DownloadVerifiedAssetAsyncCancellationRetainsOnlyUnverifiedPartial()
+    {
+        var bytes = new byte[3 * 1_048_576];
+        var asset = new AutoTagAssetDefinition(
+            "asset.bin", null, Convert.ToHexString(SHA256.HashData(bytes)), bytes.Length);
+        var root = Path.Combine(Path.GetTempPath(), $"cancel-download-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var destination = Path.Combine(root, asset.FileName);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new DelegateHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }));
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                AutoTagModelManager.DownloadVerifiedAssetAsync(
+                    client, destination, asset,
+                    new Uri("https://assets.example/releases/v1/asset.bin"),
+                    0, bytes.Length, new CancellingProgress(cancellation), cancellation.Token));
+            Assert.False(File.Exists(destination));
+            Assert.InRange(new FileInfo(destination + ".partial").Length, 1, bytes.Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class CancellingProgress(CancellationTokenSource cancellation)
+        : IProgress<AutoTagModelDownloadProgress>
+    {
+        public void Report(AutoTagModelDownloadProgress value)
+        {
+            if (value.BytesDownloaded > 0)
+            {
+                cancellation.Cancel();
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task LoadAsyncRejectsDuplicateOrOversizedNotices(bool duplicate)
+    {
+        var profile = AutoTagModelCatalog.TinyClip;
+        var manifest = CreateManifest(profile);
+        var notice = manifest.LegalNotices[0];
+        if (duplicate)
+        {
+            manifest.LegalNotices.Add(notice);
+        }
+        else
+        {
+            manifest.LegalNotices[0] = new AutoTagManifestAsset
+            {
+                FileName = notice.FileName, Url = notice.Url,
+                Sha256 = notice.Sha256, SizeBytes = 1_048_577
+            };
+        }
+        using var client = CreateClient(manifest);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            AutoTagModelManifest.LoadAsync(client, profile.ManifestUri!, profile,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task DownloadVerifiedAssetAsyncRetainsInterruptedPartialForRetry()
     {
         var bytes = Encoding.UTF8.GetBytes("resumable model");
@@ -208,6 +281,136 @@ public sealed class AutoTagModelManifestTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(AutoTagModelCatalog.TinyClipProfileId)]
+    [InlineData(AutoTagModelCatalog.RamPlusProfileId)]
+    public async Task PreparedProfileMissingNoticeNeverInstallsAssets(string profileId)
+    {
+        var profile = AutoTagModelCatalog.ForId(profileId);
+        var manifest = CreateManifest(profile);
+        var root = Path.Combine(Path.GetTempPath(), $"missing-notice-{Guid.NewGuid():N}");
+        var requests = new List<string>();
+        using var client = new HttpClient(new DelegateHandler(request =>
+        {
+            requests.Add(request.RequestUri!.AbsolutePath);
+            return request.RequestUri == profile.ManifestUri
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(
+                        manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)))
+                }
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+        using var sessions = new OnnxSessionManager(root);
+        var manager = new AutoTagModelManager(sessions, httpClient: client);
+        try
+        {
+            await Assert.ThrowsAsync<HttpRequestException>(() =>
+                manager.DownloadProfileAssetsAsync(profileId, root,
+                    cancellationToken: TestContext.Current.CancellationToken));
+            Assert.DoesNotContain(requests, path => path.EndsWith(profile.ModelAsset.FileName));
+            Assert.False(File.Exists(manager.GetAssetPath(profileId, profile.ModelAsset, root)));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Theory(Explicit = true)]
+    [InlineData(AutoTagModelCatalog.TinyClipProfileId, "MODELBENCH_ASSETS")]
+    [InlineData(AutoTagModelCatalog.RamPlusProfileId, "RAM_PLUS_ASSETS")]
+    public async Task PreparedProfileDownloadsResumesAndLoads(
+        string profileId,
+        string assetsVariable)
+    {
+        var assets = Environment.GetEnvironmentVariable(assetsVariable)
+            ?? throw new InvalidOperationException($"Set {assetsVariable} to the verified bundle.");
+        var profile = AutoTagModelCatalog.ForId(profileId);
+        var manifest = CreateManifest(profile);
+        for (var index = 0; index < manifest.LegalNotices.Count; index++)
+        {
+            var notice = manifest.LegalNotices[index];
+            var path = Path.Combine(assets, notice.FileName);
+            manifest.LegalNotices[index] = new AutoTagManifestAsset
+            {
+                FileName = notice.FileName,
+                Url = notice.Url,
+                Sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))),
+                SizeBytes = new FileInfo(path).Length
+            };
+        }
+        var root = Path.Combine(Path.GetTempPath(), $"model-install-{Guid.NewGuid():N}");
+        var requests = 0;
+        using var client = new HttpClient(new DelegateHandler(request =>
+        {
+            requests++;
+            if (request.RequestUri == profile.ManifestUri)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(
+                        manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)))
+                };
+            }
+            var name = Uri.UnescapeDataString(Path.GetFileName(request.RequestUri!.AbsolutePath));
+            var asset = manifest.Assets.Concat(manifest.LegalNotices)
+                .Single(item => item.FileName == name);
+            var stream = File.OpenRead(Path.Combine(assets, name));
+            var offset = request.Headers.Range?.Ranges.Single().From ?? 0;
+            stream.Position = offset;
+            var response = new HttpResponseMessage(
+                offset > 0 ? HttpStatusCode.PartialContent : HttpStatusCode.OK)
+            {
+                Content = new StreamContent(stream)
+            };
+            response.Content.Headers.ContentLength = asset.SizeBytes - offset;
+            if (offset > 0)
+            {
+                response.Content.Headers.ContentRange = new ContentRangeHeaderValue(
+                    offset, asset.SizeBytes - 1, asset.SizeBytes);
+            }
+            return response;
+        }));
+        try
+        {
+            using var sessions = new OnnxSessionManager(root);
+            var manager = new AutoTagModelManager(sessions, httpClient: client);
+            var destination = manager.GetAssetPath(profileId, profile.ModelAsset, null);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            var prefix = new byte[4096];
+            await using (var source = File.OpenRead(Path.Combine(assets, profile.ModelAsset.FileName)))
+            {
+                await source.ReadExactlyAsync(prefix, TestContext.Current.CancellationToken);
+            }
+            await File.WriteAllBytesAsync(
+                destination + ".partial", prefix, TestContext.Current.CancellationToken);
+            await manager.DownloadProfileAssetsAsync(
+                profileId, null, cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(3 + manifest.LegalNotices.Count, requests);
+            Assert.All(manifest.LegalNotices, notice =>
+                Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(destination)!, notice.FileName))));
+            Assert.False(File.Exists(destination + ".partial"));
+            Assert.Equal(AutoTagDownloadState.Downloaded, manager.GetDownloadStatus(profileId, null).State);
+            await manager.EnsureModelAsync(profileId, null, TestContext.Current.CancellationToken);
+            var tagger = new AutoTaggingService(sessions, manager);
+            tagger.LoadModel(profileId, null);
+            await manager.DownloadProfileAssetsAsync(
+                profileId, null, cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(3 + manifest.LegalNotices.Count, requests);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 

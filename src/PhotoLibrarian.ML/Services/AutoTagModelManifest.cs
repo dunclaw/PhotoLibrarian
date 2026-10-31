@@ -156,7 +156,8 @@ public sealed class AutoTagModelManifest
         }
 
         var requiredNotices = definition.RequiredNoticeFiles ?? [];
-        if (LegalNotices.Select(notice => notice.FileName)
+        if (LegalNotices.Count != requiredNotices.Count ||
+            LegalNotices.Select(notice => notice.FileName)
                 .Distinct(StringComparer.Ordinal)
                 .Count() != LegalNotices.Count ||
             requiredNotices.Any(required =>
@@ -168,7 +169,7 @@ public sealed class AutoTagModelManifest
         }
         foreach (var notice in LegalNotices)
         {
-            if (notice.SizeBytes <= 0 ||
+            if (notice.SizeBytes <= 0 || notice.SizeBytes > 1_048_576 ||
                 !IsSha256(notice.Sha256))
             {
                 throw new InvalidDataException(

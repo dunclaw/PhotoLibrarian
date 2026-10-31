@@ -25,19 +25,14 @@ The operator reports creating the role and storage account in
 remain on hold. RAM++ now has a locally verified reproducible bundle at
 `D:\Models\PhotoLibrarian\RAM-Plus\reproducible-20261031\release-bundle`.
 Its exact model/labels identity matches the catalog, and provenance and CPU/
-DirectML report fingerprints are pinned under `reviewEvidence`. RAM++
-publication remains disabled pending a reviewed readiness change and separate
-deployment approval; the workflow refuses to publish while that gate is
-closed. TinyCLIP publication is explicitly
-blocked: the app profile expects a 40,622,561-byte
-ONNX with SHA-256
-`9aa0c0c8d4abdb4f80e8f26e74236bb1bf13d43ffaab4e17fb03e48c4e01be0d`, while
-the pinned preparation tool currently produces an 85,618,595-byte ONNX with
-SHA-256
-`0843578fa3e1c386a3be5250ccb13cc8836d062876a34756f380a2e371e86a75`. Do not
-publish or relabel those files until the exact application bundle, calibration,
-and provenance are reconciled. TinyCLIP remains available through verified
-local import.
+DirectML report fingerprints are pinned under `reviewEvidence`. TinyCLIP's
+unchanged calibrated model and embedding bundle have also been reproduced,
+under `D:\Models\PhotoLibrarian\TinyCLIP\reproducible-20261031\release-bundle`.
+Both profiles have version-pinned Settings download support and verified
+local import fallback. Neither manifest has been published by this workstream:
+both publication flags stay disabled while the operator's cloud-write hold
+is in effect. Release evidence checks are automated internal steps of #68,
+not separate user approval milestones or replacement model versions.
 
 ### Provisioning
 
@@ -109,13 +104,13 @@ profile identity and URLs; it does not fetch or rerun local reports. The
 receipt is a reviewer-controlled binding, not a cryptographic attestation
 that an arbitrary manifest author executed the validator.
 
-**Remaining reviewer action:** review the merged reproducibility work (#133),
-the exact `reviewEvidence` pins and local validation results, then approve a
-change setting only RAM++ `publicationReady=true` and removing its stale
-blocked reason. Do not regenerate pins to accommodate unreviewed evidence.
-Merge the hosting/release changes through normal user review and authorize
-the production environment separately. Until then, builder and publisher
-must fail before writing or uploading release output.
+**Remaining external action:** authorize resuming Azure verification and
+publication once, then enable the relevant publication flags as part of that
+release operation. Normal code review and the production environment's
+deployment approval still apply; no separate artifact/readiness issues or
+repeated evidence approvals are required. Do not regenerate fingerprints to
+accommodate changed artifacts. While the hold remains, builder and publisher
+fail before writing or uploading release output.
 
 Export assets outside the repository and validate them with the profile's
 documented exporter/parity tests. The release builder refuses unexpected hashes
@@ -201,13 +196,50 @@ and the repository's current pinned ONNX conversion is
 [`onnx-community` conversion](https://huggingface.co/onnx-community/TinyCLIP-ViT-40M-32-Text-19M-LAION400M-ONNX).
 The catalogued PhotoLibrarian profile requires model SHA-256
 `9aa0c0c8d4abdb4f80e8f26e74236bb1bf13d43ffaab4e17fb03e48c4e01be0d` and
-40,622,561 bytes. The current repository preparation tool produces an
-85,618,595-byte ONNX with SHA-256
-`0843578fa3e1c386a3be5250ccb13cc8836d062876a34756f380a2e371e86a75`; it is
-not interchangeable with the calibrated profile. Do not use that output for
-the app or a release until the export, calibration, and profile are reconciled.
-The exact catalogued files and required Microsoft MIT notice are not present in
-this checkout.
+40,622,561 bytes. The 85,618,595-byte ONNX with SHA-256
+`0843578fa3e1c386a3be5250ccb13cc8836d062876a34756f380a2e371e86a75` is the
+pinned combined image/text **source**, not the runtime artifact. The preparation
+tool extracts the vision graph and recenters integer convolution weights for
+CPU support; this reproduces the exact catalogued model. No changed weights,
+embeddings, thresholds, vocabulary, hierarchy or approval identity are needed.
+
+The original `tinyclip.json` used canonical LF vocabulary bytes. A Windows
+CRLF checkout otherwise changes only its `vocabularyFileSha256` metadata and
+therefore the bundle's overall fingerprint. The verified profile mode
+canonicalizes that input before generating embeddings, and refuses to write
+a success preparation manifest unless both runtime asset sizes and hashes
+match the calibrated profile exactly:
+
+```powershell
+# Developer-only Python 3.12 environment; never required by app users.
+python -m pip install --require-hashes `
+  -r tools\PhotoLibrarian.ModelBench\requirements-tinyclip-release.txt
+python tools\PhotoLibrarian.ModelBench\prepare_zero_shot.py `
+  --output D:\Models\TinyCLIP-NewBuild `
+  --models tinyclip --precision int8 --threads 4 `
+  --vocabulary tools\PhotoLibrarian.ModelBench\home-photo-vocabulary.general-v2.json `
+  --verify-tinyclip-profile
+.\tools\ModelAssets\Test-ModelAssetRelease.ps1 `
+  -ProfileId tinyclip.vit-40m-32.int8 `
+  -BundleDirectory D:\Models\PhotoLibrarian\TinyCLIP\reproducible-20261031\release-bundle
+```
+
+The release environment is fully hash-pinned, including 29 transitive/tooling
+distributions, in `requirements-tinyclip-release.txt` for Windows x64 and
+CPython 3.12.0. Exact runtime bytes were reproduced in two preparation
+environments and a fresh environment restored fully offline from those wheels.
+Output verification rejects environment drift that changes runtime bytes.
+Retained sources, wheels, tooling and generated evidence are independent of
+Copilot worktrees under the permanent TinyCLIP artifact root noted above.
+Downloads retain verified license/notice files alongside the model.
+The generated `preparation-manifest.json` and synthetic `reference.json`
+remain local evidence and their fingerprints are catalog-pinned. The public
+TinyCLIP allowlist is `tinyclip-vision-int8.onnx`, `tinyclip.json`, `LICENSE`,
+`NOTICE.txt`, and the separate `model-assets-manifest.json`. Copy the retained
+upstream MIT license verbatim (including its third-party references) and
+`tools\ModelAssets\TinyCLIP-NOTICE.txt` as `NOTICE.txt`; do not publicly package
+source caches, Python environments, synthetic tensors or reference reports.
+The app's explicit trust step remains required after installation.
 
 TinyCLIP is published under the
 [MIT license](https://github.com/microsoft/Cream/blob/4a13c4091e78f9abd2160e7e01c02e48c1cf8fb9/TinyCLIP/LICENSE).
