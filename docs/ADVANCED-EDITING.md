@@ -1,14 +1,18 @@
 # Advanced editing feasibility
 
 Research decision for [#90](https://github.com/dunclaw/PhotoLibrarian/issues/90),
-2026-10-19. This is an implementation gate, not a claim that these features
-are available. The separate pinned RAW decoder foundation in
+2026-10-19, with the [#119](https://github.com/dunclaw/PhotoLibrarian/issues/119)
+model-free comparison updated 2026-10-30. This is an implementation gate, not
+a claim that advanced restoration features are available. The separate
+pinned RAW decoder foundation in
 [#112](https://github.com/dunclaw/PhotoLibrarian/issues/112) does not enable
 RAW editing or export. No restoration models or editor controls are added by
-this investigation. No restoration candidate was benchmarked in
-PhotoLibrarian; sizes below are planning estimates, not measured downloads
-or performance results. The later bounded model-free deblur experiment and
-its no-ship decision are recorded in [DEBLUR-EXPERIMENTS.md](DEBLUR-EXPERIMENTS.md).
+this investigation. The wavelet and non-local-means candidates were evaluated
+only in test fixtures; neither passed the initial detail-retention comparison.
+No restoration candidate was benchmarked in PhotoLibrarian; sizes below are
+planning estimates, not measured downloads or performance results. The later
+bounded model-free deblur experiment and its no-ship decision are recorded in
+[DEBLUR-EXPERIMENTS.md](DEBLUR-EXPERIMENTS.md).
 
 ## Decision and implementation order
 
@@ -75,6 +79,87 @@ The intended RGB order for the first implementations is decode/orient,
 denoise/deblur, existing tone/color controls, sharpening, then rotation.
 New detail stages need explicit neutral bypasses. Existing edits with no new
 properties must keep today's graph and appearance.
+
+### #119 model-free denoising comparison: no-go
+
+The advanced denoiser remains blocked. The existing bilateral filter is
+unchanged and remains the only user-facing denoise option. A test-only
+overlapping 2×2 Haar soft-threshold shader and a CPU reference implementation
+of non-local means (5×5 search, 3×3 patches) were compared with the bilateral
+shader. Neither prototype is included in the application pipeline or package.
+The experimental wavelet shader adds no runtime package or model asset; the
+test project compiles it with the installed Windows SDK `fxc.exe`. No
+third-party algorithm implementation or image asset was added.
+
+The reproducible 96×72 fixture uses seed 119 and independently adds uniform
+integer RGB noise in [-22, 22] to three clean bands: a flat neutral patch, a
+repeating two-color fabric-like pattern, and a 3×2 checker-like fine pattern.
+The flat band's input MSE is 165.382 (byte-value squared). For each candidate
+setting, the baseline slider was swept in 0.01 increments and the closest
+flat-band MSE was selected. A candidate only advances this screen if it
+reduces flat-band noise and produces lower clean-reference MSE in both
+texture bands at the matched noise-removal level; a lower MSE from simply
+removing more noise does not count as a win.
+
+| Candidate | Candidate setting | Matched bilateral | Flat-band MSE (candidate / baseline) | Texture-band MSE (candidate / baseline) |
+| --- | ---: | ---: | ---: | ---: |
+| Overlapping Haar threshold | 0.6 | 0.49 | 74.811 / 74.807 | 133.900 / 93.055 |
+| Overlapping Haar threshold | 0.8 | 0.59 | 56.431 / 56.476 | 133.422 / 75.501 |
+| Overlapping Haar threshold | 1.0 | 0.67 | 43.615 / 43.822 | 138.827 / 63.853 |
+| Non-local means | 2 | 0.82 | 25.349 / 25.758 | 119.653 / 48.336 |
+| Non-local means | 5 | 0.89 | 19.617 / 19.575 | 112.568 / 44.483 |
+| Non-local means | 8 | 0.96 | 15.249 / 15.082 | 107.064 / 43.548 |
+
+Texture-band MSE is averaged across the two patterned bands and all RGB
+channels. The results are an early quantitative screen, not proof that the
+bilateral filter is better on photographs: both tested patterns are repeated
+synthetic textures, and no real-photo crops, JPEG artifacts, luminance-only
+or chroma-only noise cases, visual 100% reviews, or perceptual metrics were
+available. In this fixture, however, both candidates have substantially
+higher reconstruction error than the baseline at matched flat-patch noise
+reduction. Neither meets the evidence gate, so no advanced mode/control is
+added and the baseline is not relabeled.
+At NLM setting 8, the matched pattern-band MSE is 47.438 versus 54.845
+(better), but the fine-pattern band is 166.691 versus 32.252 (substantially
+worse); at wavelet setting 0.8, the corresponding errors are 176.725 versus
+76.251 and 90.118 versus 74.751. This is why the gate checks both bands, not
+only one favored texture.
+
+The source-resolution benchmark uses Windows 11 Pro x64, .NET 8.0.33, and an
+AMD Ryzen 9 9950X3D. The system has an NVIDIA GeForce RTX 5080 (driver
+32.0.16.1088) and AMD Radeon integrated graphics (driver 32.0.21042.62); the
+specific adapter selected by Win2D was not recorded. Each case warms the
+graph once, then reports the median of three draw-plus-pixel-readback passes;
+decoding, device/graph/target construction, and encoding are excluded.
+
+| Source size | Wavelet, setting 0.8 | Bilateral, matched setting | Process working set after render |
+| ---: | ---: | ---: | ---: |
+| 1024 × 1024 (1.05 MP) | 1.6 ms | 1.6 ms (0.49) | 118 / 120 MB |
+| 4000 × 3000 (12 MP) | 13.2 ms | 12.8 ms (0.59) | 313 / 313 MB |
+| 6000 × 4000 (24 MP) | 38.5 ms | 29.5 ms (0.67) | 606 / 606 MB |
+
+Working set is the test process measurement after each run; it is neither
+peak process allocation nor GPU memory, and does not establish a memory
+advantage. The wavelet prototype was slower at 12 and 24 MP and offered no
+quality improvement on this fixture. Cold latency, cancellation,
+integrated-GPU comparison, ARM64, and large-image non-local-means performance
+remain unmeasured. NLM's test-only reference evaluates 25 search candidates
+against 3×3 patches (225 pixel-pair comparisons per output pixel), so it was
+not promoted to a full-resolution renderer without a bounded GPU
+implementation and further profiling.
+
+The experiment is repeatable on Windows with:
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.WaveletNoiseReductionExperimentTests -class PhotoLibrarian.Tests.WaveletNoiseReductionPerformanceTests -reporter verbose -showLiveOutput
+```
+
+Generated fixtures avoid uploading user photos. A future decision requires
+permitted real-photo crops spanning low-light color noise, hair/foliage/fabric/
+fine text, smooth gradients, clean controls, and compression artifacts, plus
+matched-strength quantitative and visual review. This no-go is limited to the
+two tested prototypes and the evidence currently available; it is not a claim
+that model-free denoising cannot improve on the bilateral baseline.
 
 ## Optional AI restoration
 
