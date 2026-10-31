@@ -229,12 +229,12 @@ label. Reject stale asynchronous results after changing photo/settings.
 ## RAW-aware tone mapping
 
 The separate **RAW development and SDR tone-mapped export** sequence now has
-a pinned local decoder (#112) and an explicitly experimental, preview-only
-SDR tone map (#113). Safe derivative export (#114), production camera/color
-validation, and raster-save expansion are not implemented here.
-Keep the RAW original immutable and create a separate JPEG/PNG/TIFF derivative
-only through a separately validated export path. Retain the development
-recipe rather than clearing it as if it were baked into sensor data.
+a pinned local decoder (#112), an explicitly experimental SDR tone map (#113),
+and safe, 8-bit SDR JPEG/PNG derivative export (#114). Production camera/color
+validation and raster-save expansion remain separate work.
+Keep the RAW original immutable; **Export SDR derivative** creates a separate
+photo and retains the development recipe rather than clearing it as if it
+were baked into sensor data. TIFF and HDR export are not supported.
 
 ### Pinned decoder foundation (#112)
 
@@ -302,8 +302,8 @@ peak-allocation guarantee. The Release DLL sizes measured in this build were
 1,318,400 bytes x64, 1,255,424 bytes ARM64, and 1,175,040 bytes x86.
 Real-camera coverage, camera-specific color accuracy, peak memory,
 cancellation latency, and broader performance remain unverified. Only the
-explicitly experimental preview described below is enabled; production camera
-accuracy and export remain gated on those missing measurements.
+explicitly experimental development described below is enabled; derivative
+export does not remove the missing production camera-accuracy measurements.
 
 ### #113 experimental SDR reference preview
 
@@ -314,7 +314,8 @@ enhance are hidden/disabled; their pending recipe values (including crop)
 are retained, not interpreted as scene-linear controls. **Reset** resets only
 the RAW controls in this workflow. Undo/redo, clone, dirty state, missing-XMP
 defaults, reset, and reopen cover both RAW fields.
-**Save is disabled with a reason**: derivative export is unavailable.
+**Save is disabled with a reason**: RAW originals cannot be overwritten.
+Use **Export SDR derivative** for a separate JPEG/PNG (see #114 below).
 The viewmodel and `ImageEditService.ApplyEditsAsync` reject RAW before calling
 any supplied overwrite renderer or backup/clear flow; the raster decoder and
 renderer reject RAW too. Revert cannot overwrite a RAW original.
@@ -442,8 +443,147 @@ clipped/unclipped highlights, ramps/charts/texture/shadows, malformed/extreme
 inputs, deterministic source-size output, active cancellation and stale decode,
 Bayer/X-Trans geometry, byte-identical originals, recipe history/sidecar safety,
 overwrite rejection, actual Win2D RAW upload/draw/viewport scaling, and
-unchanged raster pixels with dormant RAW fields. There is no derivative
-save/reopen parity claim; #114 must implement and validate it.
+unchanged raster pixels with dormant RAW fields. #114's derivative
+save/reopen evidence is documented separately below.
+
+### #114 safe SDR derivative export
+
+**Entry and output.** In the experimental RAW editor, choose **Export SDR
+derivative...**, an existing destination folder, and PNG (lossless) or JPEG
+(quality 95, 4:4:4 chroma, lossy). This is one full-resolution photo, not a
+general batch exporter. Default naming is `<source> - Developed.png/.jpg`;
+collisions add ` (2)`, ` (3)`, etc. Existing files/directories and same-stem
+sidecars or photos are skipped. The original RAW is never opened for writing.
+Raster Save continues its existing backup/render/clear behavior; export does
+not call that path.
+
+The export snapshots the current recipe, reuses the editor's developed
+source, and invokes the same `RawToneMappingService` and
+`RawSdrImage.ToPreviewBgra8` as preview. No viewport scaling, raster effects,
+second shoulder, additional D50 adaptation, model, or tile layout enters
+the saved render. The global operator is spatially independent. The
+full-resolution output is oriented/cropped by LibRaw before tone mapping;
+the sRGB transfer and rounding occur exactly once at the final byte boundary.
+Both formats are opaque 8-bit SDR, 96 DPI, with no source alpha to inherit.
+
+**Color and metadata policy.** Both outputs embed an app-owned ICC v2 sRGB
+matrix/shaper profile generated from the mathematical sRGB definition, with
+4096-entry transfer curves. JPEG uses ICC APP2; PNG uses an `iCCP` chunk.
+The profile's D50 PCS/Bradford-adapted primaries describe standard sRGB;
+they do **not** transform the already-linear-sRGB scene pixels again.
+WIC's generated PNG `sRGB`/`gAMA`/`cHRM` tags are removed before inserting
+the sole ICC policy; conflicting `sRGB` and `iCCP` chunks are never combined.
+No OS profile file, installed color utility, external runtime dependency,
+source ICC, or monitor profile is copied.
+
+Descriptive metadata is embedded as fresh XMP (JPEG APP1 / PNG `iTXt`).
+The whitelist is DC title, description, subject/keywords, creator, rights;
+XMP rating/create date; EXIF original capture date; TIFF camera make/model.
+Same-stem source XMP takes precedence over embedded XMP per property.
+EXIF make/model, image description, artist, copyright and capture date fill
+missing XMP values. Unsupported native metadata reads and malformed source
+XMP fail the export rather than silently dropping metadata. The source XMP
+is otherwise retained in full, including dormant raster edits.
+
+Source EXIF blocks, MakerNotes, GPS, face rectangles, flags, thumbnails,
+crop/orientation tags and live edit namespaces are not copied to the
+derivative. Pixels are already oriented; no binary EXIF orientation is
+carried over (absence means identity), and new XMP explicitly records
+orientation 1, output dimensions, and EXIF sRGB color-space value 1.
+Fresh metadata is intentionally not a byte-for-byte copy of every source
+field. JPEG metadata beyond its single APP1 capacity fails with an
+instruction to choose PNG; it is not truncated.
+
+Embedded provenance uses a separate `plraw` namespace: source **file name**
+(not an absolute private path), pinned development version, tone-map version,
+RAW exposure/white point, output color policy, and `State=Baked`. There is
+no live `pledit` recipe or derivative sidecar, so reopening does not
+double-develop or apply the source's dormant raster edits.
+The retained source recipe now pins
+`LibRaw0.22.3-AHD-CameraWB-LinearProPhotoD65-Reference0.25` as well as
+`GlobalLuminanceV1`. Earlier recipes without a development-version field use
+the existing pinned decoder; unknown explicit versions fail on open.
+
+**Commit, cancellation, and library refresh.** Encoding and tagging use
+private, uniquely owned staging files in the destination, flush the complete
+container to disk, then retain the source XMP snapshot using its existing
+atomic replacement/unique backup policy. Recipe writes are serialized within
+the app. Only after successful staging cleanup and recipe persistence is the
+derivative published by a same-folder, non-overwriting rename.
+Failed decode, encode, metadata, permission, recipe, or move operations remove
+owned staging files and surface the actual error. Cancellation is available
+while recipe controls are frozen; closing/unloading or switching sources
+invalidates the request. Even a renderer ignoring cancellation cannot publish
+a stale result. Cancellation before the file commit publishes nothing; a
+source recipe already committed is retained. Cancellation after the rename
+is success, not a misleading cancelled export.
+
+The derivative is explicitly passed to `LibraryIndexingService.IndexFileAsync`
+and the existing library refresh, independent of folder-watcher timing. It
+gets its own item ID, dimensions, and descriptive metadata; the RAW editor
+stays on the original. An indexing failure reports the saved path and
+instructs the user to refresh the destination; it does not misreport the
+completed file export as a failed encode. Existing filters may exclude the
+new item; exporting outside the currently displayed folder does not change
+the user's filter.
+
+**Parity and JPEG review.** Source-resolution synthetic Bayer DNG exports
+with multiple exposure/white-point settings and orientation 6 are identical
+to preview bytes after PNG reopen through both WIC and the actual app
+`ImageEditRenderer.LoadOrientedAsync` path (`DoNotColorManage`).
+The app's reference PNG parity is exact, including opaque alpha.
+Separately invoking WIC ICC-to-system-sRGB color management showed at most
+3 byte-code-value differences on these fixtures; that extra color conversion
+is not the app's saved-render/reopen path or a calibrated-display guarantee.
+
+JPEG is explicitly not lossless. The initial default chroma-subsampled trial
+showed maximum/RMS errors of 10/1.0272 byte code values on a smooth RGB
+gradient, and 50/5.1777 on the synthetic Bayer render. Quality 95 with 4:4:4
+reduced those to 5/0.7774 and 6/0.9152. Reviewed regression limits are
+maximum 8, RMS 1.25 for the 256x128 smooth gradient and maximum 12, RMS 2
+for the source-size Bayer render, measured over RGB only. These independent
+limits include headroom for codec rounding, not a universal per-pixel bound
+for all photos. Choose PNG when exact byte parity is required.
+
+Focused coverage includes existing-destination/foreign-sidecar and concurrent
+collisions, denied destination creation, recipe-write permission failure,
+invalid XMP after encoding, oversized JPEG metadata, WIC encode rejection,
+active encoder cancellation, pre-cancellation, non-cooperative stale results,
+versioned source recipe/history, immutable RAW bytes, ICC/XMP policy,
+independent indexing, and unchanged raster saves. Physical disk-full,
+power-loss/failed-storage recovery, real-camera color, ARM64 runtime,
+low-memory/device behavior, screen-reader and interactive dialog/visual
+review are not claimed. Cleanup errors caused by a failing/unavailable
+filesystem are surfaced, not hidden.
+
+**Measured cost.** A fresh serial x64 Release process on the same machine
+described for #113, SDK 10.0.403 / .NET 8.0.33, measured native decode through
+map, transfer, PNG encoding/tagging, source-recipe persistence and file
+publication on 2026-10-31. The generated DNG's active area removes eight
+pixels from each sensor dimension:
+
+| Input sensor size | Export size | End-to-end export | Sampled peak process working set | Growth during case |
+| --- | --- | ---: | ---: | ---: |
+| 1024x768 | 1016x760 | 226.3 ms | 103.2 MiB | 42.0 MiB |
+| 4000x3000 | 3992x2992 | 1681.8 ms | 516.9 MiB | 365.4 MiB |
+| 6000x4000 | 5992x3992 | 3367.0 ms | 1257.0 MiB | 648.6 MiB |
+
+These are generated Bayer DNGs, not camera samples. Sampling every 2 ms can
+miss instantaneous peaks; the serial process retains allocator/earlier-case
+memory. The first case includes JIT/startup costs. The measurement does not
+include a live editor's cached preview/Win2D/GPU allocations, interactive
+responsiveness, other devices, or slow/full destinations. Memory is
+substantial at the 24 MP limit; this is evidence, not a low-memory guarantee.
+The combined regression run passes 122 tests without skips, including
+index/search integration. x64 and ARM64 Release builds pass; the x64 WinUI
+analyzer review reports only existing warnings outside this feature.
+
+Reproduce in a serial x64 Release process:
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawDerivativeExportTests -class PhotoLibrarian.Tests.RawPreviewWorkflowTests -class PhotoLibrarian.Tests.RawDevelopmentTests -class PhotoLibrarian.Tests.RawToneMappingTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.ImageExportTests -class PhotoLibrarian.Tests.LibraryIndexingServiceTests -class PhotoLibrarian.Tests.ImageSearchRepositoryTests -parallelMode none
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -method PhotoLibrarian.Tests.RawDerivativeExportTests.ReportsSyntheticEndToEndExportCost -parallelMode none
+```
 
 The remaining RAW follow-up needs to:
 
@@ -458,12 +598,12 @@ The remaining RAW follow-up needs to:
 3. If a local operator is revisited, compare against the selected global
    shoulder on real highlights, gradients, color, noise, texture, halos,
    and runtime rather than shipping an unvalidated second mode.
-4. Apply this monitor-independent SDR reference to derivative export and
-   validate preview/save/reopen parity. Direct2D's HDR tone-map effect does
+4. Keep this monitor-independent SDR reference for derivative export and
+   validate any future changes against preview/save/reopen parity. Direct2D's HDR tone-map effect does
    not decode RAW or supply missing sensor range; display adaptation must
    not leak into saved-render parameters.
-5. Encode a color-tagged derivative with documented bit depth, orientation,
-   alpha, metadata, and collision-safe output semantics. Test that reopening
+5. Preserve the documented SDR color/metadata and collision-safe output
+   contract when extending formats. Test that reopening
    the result does not apply the recipe again. HDR display/export formats
    and exposure-bracket alignment/ghost removal are explicitly out of scope.
 

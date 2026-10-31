@@ -55,6 +55,7 @@ public sealed class RawDevelopedImage
 
 public static class RawDevelopmentService
 {
+    public const string RecipeVersion = "LibRaw0.22.3-AHD-CameraWB-LinearProPhotoD65-Reference0.25";
     public const string WorkingColorSpace = "Linear ProPhoto RGB";
     // output_color=4 uses LibRaw's ProPhoto D65 matrix, not an ICC D50 ProPhoto buffer.
     public const string WorkingWhitePoint = "D65 (LibRaw output_color=4)";
