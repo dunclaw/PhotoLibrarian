@@ -15,13 +15,13 @@ Sharpening remains sharpening, not blur recovery. This does not establish
 that all model-free approaches fail; it rejects this unregularized candidate
 as a general-purpose editor feature.
 
-This work is independent on master, not stacked on the unmerged selectable
-sharpening [PR #127](https://github.com/dunclaw/PhotoLibrarian/pull/127) /
-[#108](https://github.com/dunclaw/PhotoLibrarian/issues/108). **Direct comparison
-against that explicit unsharp-mask implementation must wait for #108 to
-merge.** The existing legacy Win2D sharpen is measured here; do not treat
-it as a substitute for the pending comparison or declare the whole #78
-handoff complete. No Azure or AI work is required or performed.
+This work was independent on master, not stacked on the then-unmerged
+selectable sharpening [PR #127](https://github.com/dunclaw/PhotoLibrarian/pull/127) /
+[#108](https://github.com/dunclaw/PhotoLibrarian/issues/108). That PR has since
+merged, but this experiment measures only the existing legacy Win2D sharpen;
+it does **not** compare the explicit unsharp-mask alternative. Do not treat
+that legacy baseline as a substitute for the deferred comparison or declare
+the whole #78 handoff complete. No Azure or AI work is required or performed.
 
 ## Reproducible method and bounds
 

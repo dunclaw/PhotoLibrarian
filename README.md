@@ -162,9 +162,10 @@ Move a JPEG to another drive or another machine and every edit goes with it.
 - **Windows 10 1809** or newer (WinUI 3 requirement).
 - **.NET 8 SDK** with Windows targeting pack (`net8.0-windows10.0.22621.0`).
 - **Visual Studio 2022** 17.10+ with the *Windows App SDK C# Templates* component, or just `dotnet` CLI.
-- **Windows SDK shader compiler (`fxc.exe`)** to build the embedded noise-reduction
-  shader. The build finds it under `WindowsSdkDir` or the standard Windows Kits
-  installation; set `-p:FxcPath="C:\path\to\fxc.exe"` for a custom location.
+- **Windows SDK shader compiler (`fxc.exe`)** to build the embedded
+  noise-reduction and unsharp-mask shaders. The build finds it under
+  `WindowsSdkDir` or the standard Windows Kits installation; set
+  `-p:FxcPath="C:\path\to\fxc.exe"` for a custom location.
 
 ### From the command line
 
