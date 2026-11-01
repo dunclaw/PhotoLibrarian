@@ -1,4 +1,5 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -6,6 +7,7 @@ using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices.WindowsRuntime;
 
@@ -62,6 +64,7 @@ public partial class ImageGridViewModel : ObservableObject
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly MainViewModel _main;
+    private readonly GridLayoutSettingsStore? _layoutSettingsStore;
     private List<string>? _currentFolderFilters; // Changed to support multiple folders
     private bool _currentDateRootSelected; // Root "Dates" node selected (show all dated images)
     private List<int>? _currentYearFilters;
@@ -115,17 +118,41 @@ public partial class ImageGridViewModel : ObservableObject
     
     partial void OnGroupByChanged(GroupByOption value)
     {
+        SaveLayoutSettings();
         _ = ApplyGroupingAsync();
     }
     
     partial void OnSortByChanged(SortByOption value)
     {
+        SaveLayoutSettings();
         _ = ApplyGroupingAsync();
     }
     
     partial void OnSortDescendingChanged(bool value)
     {
+        SaveLayoutSettings();
         _ = ApplyGroupingAsync();
+    }
+
+    private void SaveLayoutSettings()
+    {
+        if (_layoutSettingsStore is null)
+            return;
+
+        try
+        {
+            _layoutSettingsStore.Save(new GridLayoutSettings
+            {
+                GroupBy = GroupBy,
+                SortBy = SortBy,
+                SortDescending = SortDescending
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DebugLog.WriteLine($"[GRID LAYOUT] Could not save preferences: {ex.Message}");
+            _main.StatusText = $"Could not save grid layout: {ex.Message}";
+        }
     }
 
     [ObservableProperty]
@@ -150,7 +177,8 @@ public partial class ImageGridViewModel : ObservableObject
         ImageSearchRepository searchRepo,
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
-        MainViewModel main)
+        MainViewModel main,
+        GridLayoutSettingsStore? layoutSettingsStore = null)
     {
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
@@ -159,6 +187,13 @@ public partial class ImageGridViewModel : ObservableObject
         _scanner = scanner;
         _metadataReader = metadataReader;
         _main = main;
+        _layoutSettingsStore = layoutSettingsStore;
+
+        // Restore before the view is created, without saving or regrouping partial state.
+        var layout = layoutSettingsStore?.Load() ?? new GridLayoutSettings();
+        _groupBy = layout.GroupBy;
+        _sortBy = layout.SortBy;
+        _sortDescending = layout.SortDescending;
 
         ThumbnailSize = 180;
         SortField = "Date Taken";
