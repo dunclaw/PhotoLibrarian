@@ -13,7 +13,6 @@ namespace PhotoLibrarian.Views;
 public sealed partial class ImageGridView : UserControl
 {
     private ImageGridViewModel? ViewModel => App.ViewModel?.ImageGrid;
-    public LibrarySearchViewModel Search => App.ViewModel.Search;
     public event RoutedEventHandler? PeopleReviewRequested;
     public event RoutedEventHandler? DuplicateReviewRequested;
     private bool _isInitialized;
@@ -30,17 +29,6 @@ public sealed partial class ImageGridView : UserControl
 
     private void OnDuplicateReviewClick(object sender, RoutedEventArgs e) =>
         DuplicateReviewRequested?.Invoke(sender, e);
-
-    private async void LibrarySearchBox_TextChanged(
-        AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
-    {
-        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
-            await Search.UpdateSuggestionsAsync(sender.Text);
-    }
-
-    private async void LibrarySearchBox_QuerySubmitted(
-        AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args) =>
-        await Search.SubmitAsync(args.QueryText);
 
     /// <summary>Highlights the given face's rectangle over its image's grid thumbnail, if
     /// currently rendered. Pass null to clear. Forwarded from the Browse panel on hover.</summary>

@@ -22,19 +22,14 @@
         </Grid.RowDefinitions>
 
         <!-- Toolbar -->
-        <ScrollViewer Grid.Row="0"
-                      HorizontalScrollMode="Enabled"
-                      HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollMode="Disabled"
-                      VerticalScrollBarVisibility="Disabled">
-        <Grid Padding="8,4" ColumnSpacing="8" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+        <Grid Grid.Row="0" Padding="8,4" ColumnSpacing="8" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
@@ -67,20 +62,6 @@
                 </ComboBox>
             </StackPanel>
 
-            <AutoSuggestBox x:Name="LibrarySearchBox"
-                            AutomationProperties.AutomationId="LibrarySearchBox"
-                            AutomationProperties.Name="Search current photos"
-                            Grid.Column="5"
-                            Width="180"
-                            PlaceholderText="Search current photos"
-                            ToolTipService.ToolTip="Search the current left-pane selection and filters"
-                            QueryIcon="Find"
-                            TextMemberPath="FileName"
-                            DisplayMemberPath="FileName"
-                            ItemsSource="{x:Bind Search.Suggestions, Mode=OneWay}"
-                            TextChanged="LibrarySearchBox_TextChanged"
-                            QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
-
             <!-- Sort controls -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="12,0,0,0">
                 <TextBlock Text="Sort:" VerticalAlignment="Center" Margin="4,0" />
@@ -103,7 +84,7 @@
             <Button x:Name="FilterButton"
                     AutomationProperties.AutomationId="GridFilterButton"
                     AutomationProperties.Name="Refine photos"
-                    Grid.Column="4"
+                    Grid.Column="6"
                     Margin="0,0,12,0"
                     ToolTipService.ToolTip="Refine the current left-pane results">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -316,7 +297,7 @@
             </Button>
 
             <!-- Thumbnail size slider -->
-            <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="4">
+            <StackPanel Grid.Column="5" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="4">
                 <Button Click="OnDecreaseSize" Padding="6" ToolTipService.ToolTip="Smaller thumbnails">
                     <FontIcon Glyph="&#xE71F;" FontSize="12" />
                 </Button>
@@ -340,16 +321,11 @@
                     Grid.Column="3"
                     Click="OnDuplicateReviewClick"
                     Padding="8,4">
-                <FontIcon Glyph="&#xE8D4;" />
+                <SymbolIcon Symbol="Copy" />
             </Button>
         </Grid>
-        </ScrollViewer>
 
         <StackPanel Grid.Row="1">
-        <InfoBar AutomationProperties.AutomationId="LibrarySearchError"
-                 IsOpen="{x:Bind Search.IsError, Mode=TwoWay}"
-                 Message="{x:Bind Search.ErrorMessage, Mode=OneWay}"
-                 Severity="Error" />
         <ScrollViewer x:Name="ActiveFiltersScroller"
                       Padding="8,4"
                       Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"

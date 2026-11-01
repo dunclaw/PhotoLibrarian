@@ -13,6 +13,61 @@ namespace PhotoLibrarian.Tests;
 public sealed class DuplicateDetectionServiceTests
 {
     [Fact]
+    public async Task ScanAsync_MeasuresColdAndWarmSyntheticThumbnailThroughput()
+    {
+        var directory = CreateTestDirectory();
+        try
+        {
+            var source = Path.Combine(directory, "source.png");
+            await WicTestImage.CreateAsync(source, 192, 128);
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var repository = new ImageRepository(database);
+            var seeds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < 256; index++)
+            {
+                var path = Path.Combine(directory, $"{index}.png");
+                File.Copy(source, path);
+                await repository.UpsertImageAsync(CreateEntry(path));
+                if (index == 0)
+                    seeds.Add(path);
+            }
+            var service = new DuplicateDetectionService(repository);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var cold = await service.ScanAsync(seedPaths: seeds);
+            var coldTime = stopwatch.Elapsed;
+            stopwatch.Restart();
+            var warm = await service.ScanAsync(seedPaths: seeds);
+            Console.WriteLine(
+                $"256 synthetic 192x128 PNGs: cold {coldTime.TotalMilliseconds:N0} ms, " +
+                $"warm {stopwatch.Elapsed.TotalMilliseconds:N0} ms. Not real-library throughput.");
+            Assert.Empty(cold.Diagnostics);
+            Assert.Empty(warm.Diagnostics);
+            Assert.Equal(256, Assert.Single(cold.Groups).Files.Count);
+            Assert.Equal(256, Assert.Single(warm.Groups).Files.Count);
+
+            var hookCalls = new List<string>();
+            var viewModel = new DuplicateReviewViewModel(service,
+                new PhotoOperationsService(repository, new OriginalBackupService(Path.Combine(directory, "backups"))))
+            {
+                BeforeScanAsync = () =>
+                {
+                    hookCalls.Add("pause");
+                    return Task.CompletedTask;
+                },
+                AfterScan = () => hookCalls.Add("resume")
+            };
+            await viewModel.OpenForImagesAsync([CreateEntry(seeds.Single())]);
+            Assert.Equal(new[] { "pause", "resume" }, hookCalls);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ScanAsync_SeedScopeFindsOutsideMatchesAndReusesOnlyUnchangedCacheEntries()
     {
         var directory = CreateTestDirectory();

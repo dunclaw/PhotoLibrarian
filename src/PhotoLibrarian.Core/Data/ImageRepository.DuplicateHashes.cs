@@ -14,7 +14,7 @@ public sealed partial class ImageRepository
         command.CommandText = """
             SELECT i.file_path, c.file_size, c.modified_ticks, c.sha256, c.perceptual_hash
             FROM duplicate_hash_cache c JOIN images i ON i.id = c.image_id
-            WHERE c.hash_version = 1
+            WHERE c.hash_version = 2
             """;
         var results = new Dictionary<string, DuplicateHashCacheEntry>(
             StringComparer.OrdinalIgnoreCase);
@@ -43,7 +43,7 @@ public sealed partial class ImageRepository
         command.CommandText = """
             INSERT INTO duplicate_hash_cache
                 (image_id, file_size, modified_ticks, sha256, perceptual_hash, hash_version)
-            SELECT id, $size, $ticks, $sha, $perceptual, 1 FROM images WHERE id = $id
+            SELECT id, $size, $ticks, $sha, $perceptual, 2 FROM images WHERE id = $id
             ON CONFLICT(image_id) DO UPDATE SET
                 file_size = excluded.file_size, modified_ticks = excluded.modified_ticks,
                 sha256 = excluded.sha256, perceptual_hash = excluded.perceptual_hash,

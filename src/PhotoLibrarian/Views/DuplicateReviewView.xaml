@@ -99,6 +99,8 @@
                     Spacing="8">
             <ProgressBar x:Name="ScanProgress"
                          AutomationProperties.AutomationId="DuplicateScanProgress"
+                         Width="400"
+                         HorizontalAlignment="Left"
                          IsIndeterminate="False"
                          Minimum="0"
                          Maximum="1"

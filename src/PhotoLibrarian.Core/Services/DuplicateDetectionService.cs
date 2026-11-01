@@ -45,6 +45,7 @@ public sealed class DuplicateDetectionService
         var completed = 0;
         var cachedHashes = await _imageRepository.GetDuplicateHashesAsync(cancellationToken);
         var cacheUpdates = new List<DuplicateFileSnapshot>(128);
+        using var cacheWriteGate = new SemaphoreSlim(1, 1);
         var lastProgressTime = Environment.TickCount64 - 100;
         DuplicateScanStage? lastStage = null;
 
@@ -104,15 +105,19 @@ public sealed class DuplicateDetectionService
         await HashCandidatesAsync(exactHashCandidates, DuplicateScanStage.ExactHash);
 
         completed = 0;
-        foreach (var image in images)
+        await Parallel.ForEachAsync(images, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = 4,
+            CancellationToken = cancellationToken
+        }, async (image, workerToken) =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Report(new DuplicateScanProgress(
-                completed, images.Count, image.FilePath, DuplicateScanStage.PerceptualHash));
+            if (Volatile.Read(ref decodeTimeouts) >= 2)
+                return;
             if (!snapshotIndices.TryGetValue(image.FilePath, out var index))
             {
-                completed++;
-                continue;
+                Interlocked.Increment(ref completed);
+                return;
             }
 
             var snapshot = snapshots[index];
@@ -129,8 +134,8 @@ public sealed class DuplicateDetectionService
 
                 if (snapshot.PerceptualHash.HasValue)
                 {
-                    completed++;
-                    continue;
+                    Interlocked.Increment(ref completed);
+                    return;
                 }
                 using var decodeCancellation =
                     CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -154,12 +159,11 @@ public sealed class DuplicateDetectionService
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 AddDiagnostic(image.FilePath, "Windows image decoding exceeded the 15-second limit.");
-                if (++decodeTimeouts >= 2)
+                if (Interlocked.Increment(ref decodeTimeouts) >= 2)
                 {
                     incompleteDecode = true;
                     AddDiagnostic(image.FilePath,
                         "Similarity decoding stopped after two timeouts; remaining files were not decoded.");
-                    break;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -168,8 +172,10 @@ public sealed class DuplicateDetectionService
                 AddDiagnostic(image.FilePath, ex.Message);
             }
 
-            completed++;
-        }
+            var finished = Interlocked.Increment(ref completed);
+            Report(new DuplicateScanProgress(
+                finished, images.Count, image.FilePath, DuplicateScanStage.PerceptualHash));
+        });
 
         cancellationToken.ThrowIfCancellationRequested();
         Report(new DuplicateScanProgress(
@@ -199,9 +205,12 @@ public sealed class DuplicateDetectionService
 
         void AddDiagnostic(string path, string message)
         {
-            diagnosticCount++;
-            if (diagnostics.Count < MaximumDiagnostics)
-                diagnostics.Add(new DuplicateScanDiagnostic(path, message));
+            lock (diagnostics)
+            {
+                diagnosticCount++;
+                if (diagnostics.Count < MaximumDiagnostics)
+                    diagnostics.Add(new DuplicateScanDiagnostic(path, message));
+            }
         }
 
         async Task HashCandidatesAsync(
@@ -251,9 +260,17 @@ public sealed class DuplicateDetectionService
 
         async Task CacheUpdatedSnapshotAsync(DuplicateFileSnapshot snapshot)
         {
-            cacheUpdates.Add(snapshot);
-            if (cacheUpdates.Count >= 128)
-                await FlushCacheUpdatesAsync();
+            await cacheWriteGate.WaitAsync(cancellationToken);
+            try
+            {
+                cacheUpdates.Add(snapshot);
+                if (cacheUpdates.Count >= 128)
+                    await FlushCacheUpdatesAsync();
+            }
+            finally
+            {
+                cacheWriteGate.Release();
+            }
         }
 
         async Task FlushCacheUpdatesAsync()
@@ -266,14 +283,17 @@ public sealed class DuplicateDetectionService
 
         void Report(DuplicateScanProgress update)
         {
-            var now = Environment.TickCount64;
-            if (lastStage != update.Stage ||
-                update.CompletedFiles == update.TotalFiles ||
-                now - lastProgressTime >= 100)
+            lock (diagnostics)
             {
-                progress?.Report(update);
-                lastProgressTime = now;
-                lastStage = update.Stage;
+                var now = Environment.TickCount64;
+                if (lastStage != update.Stage ||
+                    update.CompletedFiles == update.TotalFiles ||
+                    now - lastProgressTime >= 100)
+                {
+                    progress?.Report(update);
+                    lastProgressTime = now;
+                    lastStage = update.Stage;
+                }
             }
         }
     }
@@ -504,6 +524,18 @@ public sealed class DuplicateDetectionService
         using var randomAccessStream = fileStream.AsRandomAccessStream();
         var decoder = await BitmapDecoder.CreateAsync(randomAccessStream)
             .AsTask(cancellationToken);
+        Windows.Graphics.Imaging.ImageStream? embeddedThumbnail = null;
+        try
+        {
+            embeddedThumbnail = await decoder.GetThumbnailAsync().AsTask(cancellationToken);
+        }
+        catch (Exception ex) when (ex.HResult == unchecked((int)0x88982F44))
+        {
+            // WIC reports CODECNOTHUMBNAIL for formats without an embedded preview.
+        }
+        using var thumbnail = embeddedThumbnail;
+        if (thumbnail is not null)
+            decoder = await BitmapDecoder.CreateAsync(thumbnail).AsTask(cancellationToken);
         var transform = new BitmapTransform
         {
             ScaledWidth = PerceptualHashDimension,

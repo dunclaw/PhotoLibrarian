@@ -6,8 +6,9 @@ filters, and search) as seeds, and looks for matching still photos anywhere in
 the indexed library. It does not depend on which tiles are highlighted. To
 review the full library, select the folder root and clear filters/search.
 The adjacent people-review icon reviews face candidates only in the displayed
-photos. Search shares this header with grouping, sorting and filters; these
-review actions are no longer in the status bar.
+photos. Grouping/sorting and review icons occupy the central header, followed by the
+right-aligned zoom slider and filter. Search fills the header over the right
+information pane. Review actions are no longer in the status bar.
 
 Duplicate scanning is local and cancellable, reports files that could not be
 read or changed, and excludes video. An empty grid starts no library scan.
@@ -34,7 +35,10 @@ matching, not disk reads or image decoding.
 SHA-256 and perceptual hashes are stored in the rebuildable SQLite cache,
 keyed by image, byte length, modified time and algorithm version. Unchanged
 files reuse these hashes, including across app restarts; a changed file is
-rehashable. No authoritative photo metadata is stored in this cache. The first
+rehashable on the next duplicate scan, not immediately by the watcher.
+The table is `duplicate_hash_cache` in the existing
+`%LOCALAPPDATA%\PhotoLibrarian\cache.db`; it joins images by ID and is deleted
+with those image records. No authoritative photo metadata is stored in this cache. The first
 uncached similarity scan still needs to decode library images to discover
 outside-folder matches and can take time on large collections. Subsequent
 scans reuse the cache. Progress distinguishes file inspection, exact hashing,
@@ -42,6 +46,16 @@ similarity hashing, comparison and content verification, with updates limited
 to about ten per second. A decode times out after 15 seconds; after two decode
 timeouts the scan stops new decoding and explicitly reports incomplete near
 results rather than starting an unbounded number of stalled decode jobs.
+Similarity hashing now uses up to four workers and prefers the embedded WIC
+image thumbnail when present, falling back to a scaled decode otherwise.
+The algorithm version is bumped so old full-image hashes aren't mixed with
+embedded-preview hashes. This causes a one-time rebuild of the earlier cache.
+The face/automatic-tag recognition pipeline is stopped before each duplicate
+scan (including rescans), prevented from restarting during it, and restored
+after completion or cancellation without changing the user's enabled stages.
+Large images without previews still require decoding; synthetic thumbnail
+tests are not a guarantee of throughput for RAWs, network disks, or a real
+hundred-thousand-photo collection.
 
 Review each group and select the photo to keep. No photo is selected as the
 keeper automatically. Only after explicit confirmation are the other files

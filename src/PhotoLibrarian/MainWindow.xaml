@@ -60,7 +60,31 @@
                                    HorizontalAlignment="Stretch" />
 
             <!-- Right: Metadata Panel -->
-            <views:MetadataPanel x:Name="MetadataDetailPanel" Grid.Column="4" />
+            <Grid Grid.Column="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Padding="8,4"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                    <AutoSuggestBox x:Name="LibrarySearchBox"
+                                    AutomationProperties.AutomationId="LibrarySearchBox"
+                                    AutomationProperties.Name="Search current photos"
+                                    PlaceholderText="Search current photos"
+                                    QueryIcon="Find"
+                                    TextMemberPath="FileName"
+                                    DisplayMemberPath="FileName"
+                                    ToolTipService.ToolTip="Search the current left-pane selection and filters"
+                                    ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
+                                    TextChanged="LibrarySearchBox_TextChanged"
+                                    QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
+                    <InfoBar AutomationProperties.AutomationId="LibrarySearchError"
+                             IsOpen="{x:Bind ViewModel.Search.IsError, Mode=TwoWay}"
+                             Message="{x:Bind ViewModel.Search.ErrorMessage, Mode=OneWay}"
+                             Severity="Error" />
+                </StackPanel>
+                <views:MetadataPanel x:Name="MetadataDetailPanel" Grid.Row="1" />
+            </Grid>
         </Grid>
 
         <!-- Overlay: Image Editor -->

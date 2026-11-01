@@ -83,6 +83,8 @@ public partial class DuplicateReviewViewModel : ObservableObject
     private readonly Services.PhotoOperationsService _photoOperations;
     private CancellationTokenSource? _scanCancellation;
     private IReadOnlySet<string> _seedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    public Func<Task>? BeforeScanAsync { get; set; }
+    public Action? AfterScan { get; set; }
 
     public ObservableCollection<DuplicateReviewGroupViewModel> Groups { get; } = [];
 
@@ -156,6 +158,8 @@ public partial class DuplicateReviewViewModel : ObservableObject
 
         try
         {
+            if (BeforeScanAsync is not null)
+                await BeforeScanAsync();
             var progress = new Progress<DuplicateScanProgress>(UpdateProgress);
             var result = await Task.Run(
                 () => _service.ScanAsync(progress, cancellationToken, _seedPaths),
@@ -219,6 +223,7 @@ public partial class DuplicateReviewViewModel : ObservableObject
             _scanCancellation?.Dispose();
             _scanCancellation = null;
             IsBusy = false;
+            AfterScan?.Invoke();
         }
     }
 

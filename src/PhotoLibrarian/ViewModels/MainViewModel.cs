@@ -32,6 +32,7 @@ public partial class MainViewModel : ObservableObject
     private bool _faceDetectionEnabled = true;
     private bool _autoTaggingEnabled;
     private bool _recognitionRescanRequested;
+    private bool _duplicateScanActive;
     private int _lastAutoTagTreeRefresh;
     private volatile bool _isShuttingDown;
 
@@ -149,6 +150,8 @@ public partial class MainViewModel : ObservableObject
         DuplicateReview = new DuplicateReviewViewModel(
             new DuplicateDetectionService(imageRepo),
             PhotoOps);
+        DuplicateReview.BeforeScanAsync = PauseRecognitionForDuplicateScanAsync;
+        DuplicateReview.AfterScan = ResumeRecognitionAfterDuplicateScan;
 
         _indexingService.Progress += OnIndexingProgress;
         _recognitionPipeline.Progress += OnRecognitionProgress;
@@ -419,7 +422,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void StartRecognitionProcessing()
     {
-        if (_isShuttingDown || TotalImages == 0)
+        if (_isShuttingDown || _duplicateScanActive || TotalImages == 0)
         {
             return;
         }
@@ -572,7 +575,7 @@ public partial class MainViewModel : ObservableObject
 
     public void StartBackgroundFaceDetection()
     {
-        if (_isShuttingDown || !_faceDetectionEnabled || TotalImages == 0)
+        if (_isShuttingDown || _duplicateScanActive || !_faceDetectionEnabled || TotalImages == 0)
         {
             return;
         }
@@ -593,6 +596,18 @@ public partial class MainViewModel : ObservableObject
         _faceDetectionEnabled = false;
         await StopRecognitionAsync();
         return shouldResume;
+    }
+
+    private async Task PauseRecognitionForDuplicateScanAsync()
+    {
+        _duplicateScanActive = true;
+        await StopRecognitionAsync();
+    }
+
+    private void ResumeRecognitionAfterDuplicateScan()
+    {
+        _duplicateScanActive = false;
+        StartRecognitionProcessing();
     }
 
     public void ResumeFaceDetection(bool shouldResume)
