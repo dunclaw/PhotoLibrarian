@@ -226,72 +226,68 @@ public partial class DuplicateReviewViewModel : ObservableObject
             ?? throw new InvalidOperationException(
                 DuplicateReviewStrings.Get("DuplicateKeeperRequired"));
         var filesToRemove = group.Files.Where(file => !ReferenceEquals(file, keeper)).ToArray();
-        var removed = 0;
-        var errors = new List<string>();
         IsBusy = true;
         CanRemoveSelectedGroup = false;
 
         try
         {
-            try
-            {
-                await _photoOperations.ValidateDuplicateCandidateAsync(
-                    keeper.Snapshot,
-                    cancellationToken);
-            }
-            catch (DuplicateCandidateValidationException ex)
-            {
-                StatusMessage = DuplicateReviewStrings.GetExceptionMessage(ex);
-                return;
-            }
+            var result = await _photoOperations.DeleteDuplicateCandidatesToRecycleBinAsync(
+                keeper.Snapshot,
+                filesToRemove.Select(file => file.Snapshot).ToArray(),
+                cancellationToken);
 
-            foreach (var file in filesToRemove)
+            foreach (var recycled in result.RecycledFiles)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    var wasRemoved = await _photoOperations.DeleteDuplicateCandidateToRecycleBinAsync(
-                        file.Snapshot,
-                        cancellationToken);
-                    if (!wasRemoved)
-                    {
-                        errors.Add(
-                            DuplicateReviewStrings.Format(
-                                "DuplicateRecycleCanceled",
-                                file.FileName));
-                        continue;
-                    }
-                    removed++;
+                var file = filesToRemove.FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.FilePath,
+                        recycled.Entry.FilePath,
+                        StringComparison.OrdinalIgnoreCase));
+                if (file is not null)
                     group.Files.Remove(file);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    errors.Add(DuplicateReviewStrings.Format(
-                        "DuplicateRecycleErrorItem",
-                        file.FileName,
-                        DuplicateReviewStrings.GetExceptionMessage(ex)));
-                }
             }
 
-            if (group.Files.Count <= 1)
+            if (result.WasCanceled)
+            {
+                StatusMessage = DuplicateReviewStrings.Format(
+                    "DuplicateRecycleInterrupted",
+                    result.RecycledFiles.Count,
+                    filesToRemove.Length);
+            }
+            else if (group.Files.Count <= 1)
             {
                 Groups.Remove(group);
                 SelectedGroup = Groups.FirstOrDefault();
-                StatusMessage = DuplicateReviewStrings.Format("DuplicateRecycleComplete", removed);
+                StatusMessage = DuplicateReviewStrings.Format(
+                    "DuplicateRecycleComplete",
+                    result.RecycledFiles.Count);
             }
             else
             {
                 StatusMessage = DuplicateReviewStrings.Format(
                     "DuplicateRecyclePartial",
-                    removed,
+                    result.RecycledFiles.Count,
                     filesToRemove.Length);
             }
 
-            if (errors.Count > 0)
+            if (result.Failures.Count > 0)
             {
-                DiagnosticsMessage = string.Join(Environment.NewLine, errors);
+                DiagnosticsMessage = string.Join(
+                    Environment.NewLine,
+                    result.Failures.Select(failure =>
+                        DuplicateReviewStrings.Format(
+                            "DuplicateRecycleErrorItem",
+                            Path.GetFileName(failure.FilePath),
+                            failure.ResourceKey is not null
+                                ? DuplicateReviewStrings.Get(failure.ResourceKey)
+                                : failure.Message ?? "")));
                 HasDiagnostics = true;
             }
+        }
+        catch (DuplicateCandidateValidationException ex)
+        {
+            StatusMessage = DuplicateReviewStrings.GetExceptionMessage(ex);
+            return;
         }
         finally
         {

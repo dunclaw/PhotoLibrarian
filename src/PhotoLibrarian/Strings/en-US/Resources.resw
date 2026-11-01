@@ -25,8 +25,10 @@
   <data name="DuplicatePreviewFailed" xml:space="preserve"><value>A preview could not be loaded for {0}: {1}</value></data>
   <data name="DuplicatePreviewMissing" xml:space="preserve"><value>Windows did not provide a thumbnail preview.</value></data>
   <data name="DuplicateRecycleCanceled" xml:space="preserve"><value>{0}: the file was not recycled; the operation may have been canceled.</value></data>
+  <data name="DuplicateSidecarRecycleFailed" xml:space="preserve"><value>The photo was recycled, but its metadata sidecar could not be moved to the Recycle Bin.</value></data>
   <data name="DuplicateRecycleComplete" xml:space="preserve"><value>Moved {0} duplicate photo(s) to the Recycle Bin.</value></data>
   <data name="DuplicateRecyclePartial" xml:space="preserve"><value>Moved {0} of {1} photo(s) to the Recycle Bin.</value></data>
+  <data name="DuplicateRecycleInterrupted" xml:space="preserve"><value>Recycling was canceled after moving {0} of {1} photo(s). Remaining candidates were left untouched.</value></data>
   <data name="DuplicateRecycleErrorItem" xml:space="preserve"><value>{0}: {1}</value></data>
   <data name="DuplicateProgressStatus" xml:space="preserve"><value>Scanning photo {0:N0} of {1:N0}: {2}</value></data>
   <data name="DuplicateFileDetails" xml:space="preserve"><value>{0:N0} bytes · {1} × {2} · {3}</value></data>

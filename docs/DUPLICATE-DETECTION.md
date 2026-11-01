@@ -23,6 +23,10 @@ scan only; the SQLite library cache is not extended with duplicate data.
 Review each group and select the photo to keep. No photo is selected as the
 keeper automatically. Only after explicit confirmation are the other files
 sent through the app's existing Recycle Bin operation, together with any
-associated XMP sidecar. Before each removal, the app verifies the scan-time
-file size, modified time, and full SHA-256 content hash; changed or missing
-files are left untouched and reported.
+associated XMP sidecar. The selected keeper is verified and held read-only
+while the operation runs so it cannot be replaced or removed mid-cleanup.
+Before each candidate removal, the app verifies the scan-time file size,
+modified time, and full SHA-256 content hash; changed or missing files are
+left untouched and reported. A candidate is counted as moved only after the
+Recycle Bin operation confirms that its original path is gone. Sidecar recycle
+failures are reported separately from successful photo moves.

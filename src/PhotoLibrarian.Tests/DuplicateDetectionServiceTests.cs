@@ -97,6 +97,27 @@ public sealed class DuplicateDetectionServiceTests
     }
 
     [Fact]
+    public void FindGroups_ReportsThresholdFalsePositivesAsSeparateNearSuggestions()
+    {
+        var files = new[]
+        {
+            Snapshot("baseline.jpg", "baseline", 0),
+            Snapshot("possible-edit.jpg", "different-content", 0xFF),
+            Snapshot("unrelated.jpg", "unrelated-content", 0x1FF00)
+        };
+
+        var groups = DuplicateDetectionService.FindGroups(files, out var limitReached);
+
+        Assert.False(limitReached);
+        var near = Assert.Single(groups);
+        Assert.Equal(DuplicateMatchKind.Near, near.Kind);
+        Assert.Equal(8, near.HammingDistance);
+        Assert.Contains(near.Files, file => file.Entry.FileName == "baseline.jpg");
+        Assert.Contains(near.Files, file => file.Entry.FileName == "possible-edit.jpg");
+        Assert.DoesNotContain(near.Files, file => file.Entry.FileName == "unrelated.jpg");
+    }
+
+    [Fact]
     public async Task ScanAsync_ReportsMissingPhotosAndHonorsCancellation()
     {
         var directory = CreateTestDirectory();
@@ -175,6 +196,295 @@ public sealed class DuplicateDetectionServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteDuplicateCandidatesToRecycleBinAsync_LeavesCandidatesWhenKeeperIsMissingOrReplaced(
+        bool replaceKeeper)
+    {
+        var directory = CreateTestDirectory();
+        var keeperPath = Path.Combine(directory, "keeper.jpg");
+        var candidatePath = Path.Combine(directory, "candidate.jpg");
+        var originalKeeper = new byte[] { 1, 2, 3, 4 };
+        await File.WriteAllBytesAsync(keeperPath, originalKeeper);
+        await File.WriteAllBytesAsync(candidatePath, originalKeeper);
+        var keeper = CreateSnapshot(keeperPath);
+        var candidate = CreateSnapshot(candidatePath);
+        var recycleBin = new TestRecycleBinService();
+
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var operations = new PhotoOperationsService(
+                new ImageRepository(database),
+                new OriginalBackupService(Path.Combine(directory, "backups")),
+                recycleBin);
+
+            if (replaceKeeper)
+            {
+                await File.WriteAllBytesAsync(keeperPath, new byte[] { 4, 3, 2, 1 });
+                File.SetLastWriteTimeUtc(keeperPath, keeper.LastWriteTimeUtc);
+            }
+            else
+            {
+                File.Delete(keeperPath);
+            }
+
+            var exception = await Assert.ThrowsAsync<DuplicateCandidateValidationException>(
+                () => operations.DeleteDuplicateCandidatesToRecycleBinAsync(
+                    keeper,
+                    [candidate]));
+
+            Assert.Empty(recycleBin.RecycledPaths);
+            Assert.True(File.Exists(candidatePath));
+            Assert.Equal(
+                replaceKeeper ? "DuplicateContentChanged" : "DuplicateFileChanged",
+                exception.ResourceKey);
+            if (replaceKeeper)
+                Assert.Equal(new byte[] { 4, 3, 2, 1 }, await File.ReadAllBytesAsync(keeperPath));
+            else
+                Assert.False(File.Exists(keeperPath));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteDuplicateCandidatesToRecycleBinAsync_LeavesMissingOrReplacedCandidate(
+        bool replaceCandidate)
+    {
+        var directory = CreateTestDirectory();
+        var keeperPath = Path.Combine(directory, "keeper.jpg");
+        var candidatePath = Path.Combine(directory, "candidate.jpg");
+        var original = new byte[] { 1, 2, 3, 4 };
+        await File.WriteAllBytesAsync(keeperPath, original);
+        await File.WriteAllBytesAsync(candidatePath, original);
+        var keeper = CreateSnapshot(keeperPath);
+        var candidate = CreateSnapshot(candidatePath);
+        var recycleBin = new TestRecycleBinService();
+
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var operations = new PhotoOperationsService(
+                new ImageRepository(database),
+                new OriginalBackupService(Path.Combine(directory, "backups")),
+                recycleBin);
+
+            if (replaceCandidate)
+            {
+                await File.WriteAllBytesAsync(candidatePath, new byte[] { 4, 3, 2, 1 });
+                File.SetLastWriteTimeUtc(candidatePath, candidate.LastWriteTimeUtc);
+            }
+            else
+            {
+                File.Delete(candidatePath);
+            }
+
+            var result = await operations.DeleteDuplicateCandidatesToRecycleBinAsync(
+                keeper,
+                [candidate]);
+
+            Assert.Empty(recycleBin.RecycledPaths);
+            Assert.Empty(result.RecycledFiles);
+            Assert.Equal(
+                replaceCandidate ? "DuplicateContentChanged" : "DuplicateFileChanged",
+                Assert.Single(result.Failures).ResourceKey);
+            if (replaceCandidate)
+                Assert.Equal(new byte[] { 4, 3, 2, 1 }, await File.ReadAllBytesAsync(candidatePath));
+            else
+                Assert.False(File.Exists(candidatePath));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteDuplicateCandidatesToRecycleBinAsync_ReportsMixedRecycleFailuresWithoutSuccessForFailedFile()
+    {
+        var directory = CreateTestDirectory();
+        var keeperPath = Path.Combine(directory, "keeper.jpg");
+        var removedPath = Path.Combine(directory, "removed.jpg");
+        var failedPath = Path.Combine(directory, "failed.jpg");
+        var canceledPath = Path.Combine(directory, "canceled.jpg");
+        var content = new byte[] { 1, 2, 3, 4 };
+        foreach (var path in new[] { keeperPath, removedPath, failedPath, canceledPath })
+            await File.WriteAllBytesAsync(path, content);
+        var snapshots = new[] { keeperPath, removedPath, failedPath, canceledPath }
+            .Select(CreateSnapshot)
+            .ToArray();
+        var recycleBin = new TestRecycleBinService
+        {
+            ThrowPath = failedPath,
+            FailedPath = canceledPath
+        };
+
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var repository = new ImageRepository(database);
+            var operations = new PhotoOperationsService(
+                repository,
+                new OriginalBackupService(Path.Combine(directory, "backups")),
+                recycleBin);
+
+            var result = await operations.DeleteDuplicateCandidatesToRecycleBinAsync(
+                snapshots[0],
+                snapshots[1..]);
+
+            Assert.False(File.Exists(removedPath));
+            Assert.True(File.Exists(keeperPath));
+            Assert.True(File.Exists(failedPath));
+            Assert.True(File.Exists(canceledPath));
+            Assert.Single(recycleBin.RecycledPaths);
+            Assert.Single(result.RecycledFiles);
+            Assert.Equal(2, result.Failures.Count);
+            var failure = Assert.Single(result.Failures.Where(item => item.FilePath == failedPath));
+            Assert.Equal("Synthetic recycle failure.", failure.Message);
+            var canceled = Assert.Single(result.Failures.Where(item => item.FilePath == canceledPath));
+            Assert.Equal("DuplicateRecycleCanceled", canceled.ResourceKey);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteDuplicateCandidatesToRecycleBinAsync_CancellationKeepsKeeperAndReportsPartialProgress()
+    {
+        var directory = CreateTestDirectory();
+        var keeperPath = Path.Combine(directory, "keeper.jpg");
+        var firstPath = Path.Combine(directory, "first.jpg");
+        var secondPath = Path.Combine(directory, "second.jpg");
+        var content = new byte[] { 1, 2, 3, 4 };
+        foreach (var path in new[] { keeperPath, firstPath, secondPath })
+            await File.WriteAllBytesAsync(path, content);
+        var snapshots = new[] { keeperPath, firstPath, secondPath }
+            .Select(CreateSnapshot)
+            .ToArray();
+        using var cancellation = new CancellationTokenSource();
+        var keeperLockedDuringRemoval = false;
+        var recycleBin = new TestRecycleBinService
+        {
+            AfterRecycle = _ =>
+            {
+                Assert.Throws<IOException>(() =>
+                {
+                    using var write = new FileStream(
+                        keeperPath,
+                        FileMode.Open,
+                        FileAccess.Write,
+                        FileShare.Read);
+                });
+                keeperLockedDuringRemoval = true;
+                cancellation.Cancel();
+            }
+        };
+
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var repository = new ImageRepository(database);
+            var operations = new PhotoOperationsService(
+                repository,
+                new OriginalBackupService(Path.Combine(directory, "backups")),
+                recycleBin);
+
+            var result = await operations.DeleteDuplicateCandidatesToRecycleBinAsync(
+                snapshots[0],
+                snapshots[1..],
+                cancellation.Token);
+
+            Assert.True(keeperLockedDuringRemoval);
+            Assert.True(File.Exists(keeperPath));
+            Assert.False(File.Exists(firstPath));
+            Assert.True(File.Exists(secondPath));
+            Assert.Single(result.RecycledFiles);
+            Assert.True(result.WasCanceled);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task DeleteDuplicateCandidateToRecycleBinAsync_ReportsSidecarRecycleResult(
+        bool failSidecar,
+        bool throwOnSidecar)
+    {
+        var directory = CreateTestDirectory();
+        var path = Path.Combine(directory, "photo.jpg");
+        await File.WriteAllBytesAsync(path, new byte[] { 1, 2, 3, 4 });
+        var sidecar = FaceMetadataStore.GetSidecarPathForImage(path);
+        await File.WriteAllTextAsync(sidecar, "synthetic metadata");
+        var snapshot = CreateSnapshot(path);
+        var recycleBin = new TestRecycleBinService
+        {
+            FailedPath = failSidecar ? sidecar : null,
+            ThrowPath = throwOnSidecar ? sidecar : null
+        };
+
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var operations = new PhotoOperationsService(
+                new ImageRepository(database),
+                new OriginalBackupService(Path.Combine(directory, "backups")),
+                recycleBin);
+
+            var result = await operations.DeleteDuplicateCandidateToRecycleBinAsync(snapshot);
+
+            Assert.True(result.PhotoRecycled);
+            Assert.Equal(
+                failSidecar || throwOnSidecar
+                    ? new[] { path }
+                    : new[] { path, sidecar },
+                recycleBin.RecycledPaths);
+            Assert.False(File.Exists(path));
+            Assert.Equal(failSidecar || throwOnSidecar, File.Exists(sidecar));
+            if (failSidecar)
+            {
+                Assert.Equal(sidecar, result.SidecarFailure?.FilePath);
+                Assert.Equal("DuplicateSidecarRecycleFailed", result.SidecarFailure?.ResourceKey);
+            }
+            else if (throwOnSidecar)
+            {
+                Assert.Equal(sidecar, result.SidecarFailure?.FilePath);
+                Assert.Equal("Synthetic recycle failure.", result.SidecarFailure?.Message);
+            }
+            else
+            {
+                Assert.Null(result.SidecarFailure);
+                Assert.False(File.Exists(sidecar));
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static string CreateTestDirectory()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-Duplicate-{Guid.NewGuid():N}");
@@ -208,6 +518,39 @@ public sealed class DuplicateDetectionServiceTests
             DateModified = DateTime.UnixEpoch
         };
         return new DuplicateFileSnapshot(entry, 1, DateTime.UnixEpoch, sha256, perceptualHash);
+    }
+
+    private static DuplicateFileSnapshot CreateSnapshot(string path)
+    {
+        var entry = CreateEntry(path);
+        var bytes = File.ReadAllBytes(path);
+        return new DuplicateFileSnapshot(
+            entry,
+            bytes.Length,
+            File.GetLastWriteTimeUtc(path),
+            Convert.ToHexString(SHA256.HashData(bytes)),
+            0);
+    }
+
+    private sealed class TestRecycleBinService : IRecycleBinService
+    {
+        public List<string> RecycledPaths { get; } = [];
+        public string? FailedPath { get; init; }
+        public string? ThrowPath { get; init; }
+        public Action<string>? AfterRecycle { get; init; }
+
+        public bool RecycleFile(string filePath)
+        {
+            if (string.Equals(filePath, ThrowPath, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Synthetic recycle failure.");
+            if (string.Equals(filePath, FailedPath, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            File.Delete(filePath);
+            RecycledPaths.Add(filePath);
+            AfterRecycle?.Invoke(filePath);
+            return true;
+        }
     }
 
     private static (byte B, byte G, byte R) SmoothPhotoColor(uint x, uint y, uint width, uint height)
