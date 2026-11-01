@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -678,6 +680,18 @@ public sealed partial class ImageViewerOverlay : UserControl
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
         // Kept for backwards compatibility, but not used with new zoom controller
+    }
+
+    private void OnCopyContextMenuOpening(object sender, object e)
+    {
+        StopFocusGuard();
+        CopyViewerFullPathItem.IsEnabled = !string.IsNullOrWhiteSpace(ViewModel?.CurrentEntry?.FilePath);
+    }
+
+    private void OnCopyFullPathClick(object sender, RoutedEventArgs e)
+    {
+        App.ViewModel.StatusText = PhotoClipboardService.CopyText(
+            ViewModel?.CurrentEntry?.FilePath, "full path");
     }
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)

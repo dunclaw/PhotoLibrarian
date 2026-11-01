@@ -307,19 +307,35 @@
                     <TextBlock Text="Information" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" />
 
                     <StackPanel Spacing="6">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid ColumnSpacing="4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Filename:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoFileName" Style="{StaticResource InfoValueStyle}"
                                        TextTrimming="CharacterEllipsis"
                                        ToolTipService.ToolTip="{x:Bind InfoFileName.Text, Mode=OneWay}" />
+                            <Button x:Name="CopyFileNameButton" Grid.Column="2"
+                                    AutomationProperties.AutomationId="CopyFileName"
+                                    AutomationProperties.Name="Copy filename with extension"
+                                    ToolTipService.ToolTip="Copy filename with extension"
+                                    Click="OnCopyFileNameClick"
+                                    IsEnabled="False" Padding="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
                         </Grid>
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid ColumnSpacing="4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Folder:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoFolder" Style="{StaticResource InfoValueStyle}"
                                        TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                        ToolTipService.ToolTip="{x:Bind InfoFolder.Text, Mode=OneWay}" />
+                            <Button x:Name="CopyFolderPathButton" Grid.Column="2"
+                                    AutomationProperties.AutomationId="CopyFolderPath"
+                                    AutomationProperties.Name="Copy folder path"
+                                    ToolTipService.ToolTip="Copy folder path"
+                                    Click="OnCopyFolderPathClick"
+                                    IsEnabled="False" Padding="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
                         </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -405,13 +421,21 @@
                             <TextBlock Grid.Column="0" Text="Longitude:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoLongitude" Style="{StaticResource InfoValueStyle}" />
                         </Grid>
-                        <Grid Margin="0,4,0,0">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid Margin="0,4,0,0" ColumnSpacing="4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Path:" Style="{StaticResource InfoLabelStyle}"
                                        VerticalAlignment="Top" />
                             <TextBlock Grid.Column="1" x:Name="InfoFilePath" Style="{StaticResource InfoValueStyle}"
                                        FontSize="11" IsTextSelectionEnabled="True"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Button x:Name="CopyFullPathButton" Grid.Column="2"
+                                    AutomationProperties.AutomationId="CopyFullPath"
+                                    AutomationProperties.Name="Copy full path"
+                                    ToolTipService.ToolTip="Copy full path including filename"
+                                    Click="OnCopyFullPathClick"
+                                    IsEnabled="False" Padding="8" VerticalAlignment="Top">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
                         </Grid>
                     </StackPanel>
                 </StackPanel>
