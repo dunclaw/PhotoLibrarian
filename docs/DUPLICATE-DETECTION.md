@@ -1,12 +1,19 @@
 # Duplicate photo review
 
-Click **Find duplicates** in the bottom status bar, immediately to the left of
-the Settings gear, to open duplicate review and scan all indexed still photos
-locally. It is cancellable and reports files that could not be read or
-changed during the scan. Video files are excluded.
+Hover the overlapping-photos icon in the grid header for the **Find duplicates**
+tooltip. It uses all photos currently shown in the grid (after folder selection,
+filters, and search) as seeds, and looks for matching still photos anywhere in
+the indexed library. It does not depend on which tiles are highlighted. To
+review the full library, select the folder root and clear filters/search.
+The adjacent people-review icon reviews face candidates only in the displayed
+photos. Search shares this header with grouping, sorting and filters; these
+review actions are no longer in the status bar.
+
+Duplicate scanning is local and cancellable, reports files that could not be
+read or changed, and excludes video. An empty grid starts no library scan.
 
 Exact candidates are grouped by a full SHA-256 content hash, calculated only
-for files whose byte lengths match another indexed photo. This avoids reading
+for files whose byte lengths match a displayed seed photo. This avoids reading
 every large original solely for exact matching. Near-match candidates use a
 63-bit perceptual hash built from a Windows Imaging Component thumbnail-size
 decode; pairs with a Hamming distance of 8 bits or fewer are shown separately.
@@ -15,11 +22,26 @@ positives. Near matching is available only when Windows can decode the still
 image; unsupported RAW/HEIC codecs and damaged files appear in scan diagnostics.
 Exact matching does not require image decoding.
 
-The comparison uses nine perceptual-hash bands to avoid an all-pairs scan.
+The comparison indexes only seed hashes into nine perceptual-hash bands and
+queries the remaining library against those seeds, avoiding unrelated
+outside-folder comparisons. Exact groups and near pairs must include a seed.
 Work is capped at 2,000,000 hash comparisons, 50,000 candidates per image, and
 100,000 near-match results. If a cap is reached, the review reports that
-near-match results may be incomplete. Hashes are calculated for the current
-scan only; the SQLite library cache is not extended with duplicate data.
+near-match results may be incomplete. A synthetic one-seed/200,000-candidate
+comparison regression took 334 ms on the development machine; this measures
+matching, not disk reads or image decoding.
+
+SHA-256 and perceptual hashes are stored in the rebuildable SQLite cache,
+keyed by image, byte length, modified time and algorithm version. Unchanged
+files reuse these hashes, including across app restarts; a changed file is
+rehashable. No authoritative photo metadata is stored in this cache. The first
+uncached similarity scan still needs to decode library images to discover
+outside-folder matches and can take time on large collections. Subsequent
+scans reuse the cache. Progress distinguishes file inspection, exact hashing,
+similarity hashing, comparison and content verification, with updates limited
+to about ten per second. A decode times out after 15 seconds; after two decode
+timeouts the scan stops new decoding and explicitly reports incomplete near
+results rather than starting an unbounded number of stalled decode jobs.
 
 Review each group and select the photo to keep. No photo is selected as the
 keeper automatically. Only after explicit confirmation are the other files

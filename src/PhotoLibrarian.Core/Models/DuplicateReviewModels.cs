@@ -21,7 +21,20 @@ public sealed record DuplicateCandidateGroup(
 
 public sealed record DuplicateScanDiagnostic(string FilePath, string Message);
 
-public sealed record DuplicateScanProgress(int CompletedFiles, int TotalFiles, string FilePath);
+public enum DuplicateScanStage
+{
+    Inspecting,
+    ExactHash,
+    PerceptualHash,
+    Comparing,
+    Verifying
+}
+
+public sealed record DuplicateScanProgress(
+    int CompletedFiles,
+    int TotalFiles,
+    string FilePath,
+    DuplicateScanStage Stage = DuplicateScanStage.Inspecting);
 
 public sealed record DuplicateScanResult(
     IReadOnlyList<DuplicateCandidateGroup> Groups,

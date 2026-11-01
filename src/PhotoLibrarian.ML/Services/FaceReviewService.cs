@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
@@ -36,8 +37,11 @@ public sealed class FaceReviewService
     }
 
     public async Task<IReadOnlyList<FaceSuggestionGroup>> GetSuggestionGroupsAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlySet<long>? imageIds = null)
     {
+        if (imageIds is { Count: 0 })
+            return [];
         var faces = (await _faceRepository.GetAllFacesWithEmbeddingsAsync(cancellationToken))
             .Where(face => face.Embedding is not null)
             .ToList();
@@ -61,6 +65,7 @@ public sealed class FaceReviewService
             .ToList();
         var unassignedFaces = faces
             .Where(face => !face.PersonId.HasValue &&
+                           (imageIds is null || imageIds.Contains(face.ImageId)) &&
                            !hiddenFaceIds.Contains(face.Id) &&
                            imagePaths.ContainsKey(face.ImageId))
             .ToList();
@@ -195,11 +200,14 @@ public sealed class FaceReviewService
     }
 
     public async Task<PeopleManagementSnapshot> GetPeopleManagementAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlySet<long>? imageIds = null)
     {
         var people = await _faceRepository.GetAllPersonsAsync();
-        var faces = await _faceRepository
-            .GetFaceRegionsForManagementAsync(cancellationToken);
+        var faces = (await _faceRepository
+            .GetFaceRegionsForManagementAsync(cancellationToken))
+            .Where(face => imageIds is null || imageIds.Contains(face.ImageId))
+            .ToList();
         var hiddenFaceIds = await _faceRepository
             .GetHiddenFaceSuggestionIdsAsync(cancellationToken);
         var imagePaths = await _faceRepository.GetFaceImagePathsAsync(

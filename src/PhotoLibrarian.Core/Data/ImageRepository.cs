@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Models;
 using System.Globalization;
@@ -7,7 +8,7 @@ namespace PhotoLibrarian.Core.Data;
 /// <summary>
 /// Repository for image CRUD operations against the SQLite cache.
 /// </summary>
-public sealed class ImageRepository
+public sealed partial class ImageRepository
 {
     private readonly CacheDatabase _db;
 

@@ -99,19 +99,6 @@ public sealed partial class MainWindow : Window
         _slideshowReturnFocus = null;
     }
 
-    private async void LibrarySearchBox_TextChanged(
-        AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
-    {
-        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
-            await ViewModel.Search.UpdateSuggestionsAsync(sender.Text);
-    }
-
-    private async void LibrarySearchBox_QuerySubmitted(
-        AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
-    {
-        await ViewModel.Search.SubmitAsync(args.QueryText);
-    }
-
     public async Task RefreshMetadataTreesAsync()
     {
         await FolderNavPanel.RefreshMetadataTreesAsync();
@@ -192,12 +179,6 @@ public sealed partial class MainWindow : Window
         catch { /* Icon is cosmetic — never block startup */ }
 
         // Bind status bar to ViewModel
-        AutomationProperties.SetName(
-            DuplicateReviewButton,
-            DuplicateReviewStrings.Get("DuplicateMainButtonName"));
-        ToolTipService.SetToolTip(
-            DuplicateReviewButton,
-            DuplicateReviewStrings.Get("DuplicateMainButtonName"));
         ViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
         ViewModel.DuplicateReview.PropertyChanged += OnDuplicateReviewPropertyChanged;
@@ -215,6 +196,8 @@ public sealed partial class MainWindow : Window
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
+        ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
+        ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
@@ -686,7 +669,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            await ViewModel.PeopleReview.OpenAsync();
+            await ViewModel.PeopleReview.OpenForImagesAsync(ViewModel.ImageGrid.DisplayedEntries);
         }
         catch (Exception ex)
         {
@@ -704,8 +687,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnDuplicateReviewClick(object sender, RoutedEventArgs e)
     {
-        ViewModel.DuplicateReview.IsOpen = true;
-        await ViewModel.DuplicateReview.ScanCommand.ExecuteAsync(null);
+        await ViewModel.DuplicateReview.OpenForImagesAsync(ViewModel.ImageGrid.DisplayedEntries);
     }
 
     private void UpdateDuplicateReviewVisibility()

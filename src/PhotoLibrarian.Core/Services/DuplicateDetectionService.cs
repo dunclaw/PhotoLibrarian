@@ -17,6 +17,7 @@ public sealed class DuplicateDetectionService
     private const int MaximumCandidatesPerImage = 50_000;
     private const int MaximumNearMatchResults = 100_000;
     private const int MaximumDiagnostics = 50;
+    private static readonly double[,] DctCosines = CreateDctCosines();
     private readonly ImageRepository _imageRepository;
 
     public DuplicateDetectionService(ImageRepository imageRepository)
@@ -26,8 +27,12 @@ public sealed class DuplicateDetectionService
 
     public async Task<DuplicateScanResult> ScanAsync(
         IProgress<DuplicateScanProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlySet<string>? seedPaths = null)
     {
+        if (seedPaths is { Count: 0 })
+            return new DuplicateScanResult([], [], 0, false);
+
         var images = (await _imageRepository.GetAllAsync(cancellationToken: cancellationToken))
             .Where(image => image.MediaType == MediaType.Image)
             .ToList();
@@ -35,7 +40,13 @@ public sealed class DuplicateDetectionService
         var snapshotIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var diagnostics = new List<DuplicateScanDiagnostic>();
         var diagnosticCount = 0;
+        var decodeTimeouts = 0;
+        var incompleteDecode = false;
         var completed = 0;
+        var cachedHashes = await _imageRepository.GetDuplicateHashesAsync(cancellationToken);
+        var cacheUpdates = new List<DuplicateFileSnapshot>(128);
+        var lastProgressTime = Environment.TickCount64 - 100;
+        DuplicateScanStage? lastStage = null;
 
         foreach (var image in images)
         {
@@ -47,38 +58,57 @@ public sealed class DuplicateDetectionService
                     throw new FileNotFoundException("The file is missing.", image.FilePath);
 
                 var index = snapshots.Count;
-                snapshots.Add(new DuplicateFileSnapshot(
+                var snapshot = new DuplicateFileSnapshot(
                     image,
                     before.Length,
                     before.LastWriteTimeUtc,
                     null,
-                    null));
+                    null);
+                if (cachedHashes.TryGetValue(image.FilePath, out var cached) &&
+                    cached.FileSize == snapshot.FileSize &&
+                    cached.ModifiedTicks == snapshot.LastWriteTimeUtc.Ticks)
+                {
+                    snapshot = snapshot with
+                    {
+                        Sha256 = cached.Sha256,
+                        PerceptualHash = cached.PerceptualHash
+                    };
+                }
+                snapshots.Add(snapshot);
                 snapshotIndices.Add(image.FilePath, index);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 AddDiagnostic(image.FilePath, ex.Message);
             }
+            completed++;
+            if (completed % 128 == 0 || completed == images.Count)
+                Report(new DuplicateScanProgress(
+                    completed, images.Count, image.FilePath, DuplicateScanStage.Inspecting));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        if (seedPaths is not null && !snapshots.Any(file => seedPaths.Contains(file.Entry.FilePath)))
+            return new DuplicateScanResult([], diagnostics, diagnosticCount, false);
         var exactSizeCandidates = snapshots
             .GroupBy(file => file.FileSize)
-            .Where(group => group.Count() > 1)
+            .Where(group => group.Count() > 1 &&
+                (seedPaths is null || group.Any(file => seedPaths.Contains(file.Entry.FilePath))))
             .SelectMany(group => group)
             .Select(file => file.Entry.FilePath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var exactHashCandidates = snapshots
             .Where(file => exactSizeCandidates.Contains(file.Entry.FilePath))
+            .Where(file => file.Sha256 is null)
             .ToArray();
-        var total = (images.Count * 2) + exactHashCandidates.Length;
-        progress?.Report(new DuplicateScanProgress(images.Count, total, ""));
-        completed = images.Count;
-        await HashCandidatesAsync(exactHashCandidates, total);
+        await HashCandidatesAsync(exactHashCandidates, DuplicateScanStage.ExactHash);
 
+        completed = 0;
         foreach (var image in images)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Report(new DuplicateScanProgress(
+                completed, images.Count, image.FilePath, DuplicateScanStage.PerceptualHash));
             if (!snapshotIndices.TryGetValue(image.FilePath, out var index))
             {
                 completed++;
@@ -93,37 +123,59 @@ public sealed class DuplicateDetectionService
                     before.Length != snapshot.FileSize ||
                     before.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
                 {
+                    snapshots[index] = snapshot with { Sha256 = null, PerceptualHash = null };
                     throw new IOException("The file changed while it was being scanned.");
                 }
 
-                var perceptualHash = await ComputePerceptualHashAsync(
-                    image.FilePath,
-                    cancellationToken);
+                if (snapshot.PerceptualHash.HasValue)
+                {
+                    completed++;
+                    continue;
+                }
+                using var decodeCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                decodeCancellation.CancelAfter(TimeSpan.FromSeconds(15));
+                var perceptualHash = await Task.Run(
+                    () => ComputePerceptualHashAsync(image.FilePath, decodeCancellation.Token),
+                    decodeCancellation.Token)
+                    .WaitAsync(decodeCancellation.Token);
                 var after = new FileInfo(image.FilePath);
                 if (!after.Exists ||
                     after.Length != snapshot.FileSize ||
                     after.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
                 {
+                    snapshots[index] = snapshot with { Sha256 = null, PerceptualHash = null };
                     throw new IOException("The file changed while it was being scanned.");
                 }
 
                 snapshots[index] = snapshot with { PerceptualHash = perceptualHash };
+                await CacheUpdatedSnapshotAsync(snapshots[index]);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                AddDiagnostic(image.FilePath, "Windows image decoding exceeded the 15-second limit.");
+                if (++decodeTimeouts >= 2)
+                {
+                    incompleteDecode = true;
+                    AddDiagnostic(image.FilePath,
+                        "Similarity decoding stopped after two timeouts; remaining files were not decoded.");
+                    break;
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                snapshots[index] = snapshots[index] with { PerceptualHash = null };
                 AddDiagnostic(image.FilePath, ex.Message);
             }
 
             completed++;
-            if (completed % 16 == 0 || completed == total)
-                progress?.Report(new DuplicateScanProgress(
-                    completed,
-                    total,
-                    image.FilePath));
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var provisionalGroups = FindGroups(snapshots, out var nearMatchLimitReached);
+        Report(new DuplicateScanProgress(
+            0, 0, "", DuplicateScanStage.Comparing));
+        var provisionalGroups = FindGroups(
+            snapshots, out var nearMatchLimitReached, seedPaths, cancellationToken);
         var nearHashCandidates = provisionalGroups
             .Where(group => group.Kind == DuplicateMatchKind.Near)
             .SelectMany(group => group.Files)
@@ -132,13 +184,13 @@ public sealed class DuplicateDetectionService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(path => snapshots[snapshotIndices[path]])
             .ToArray();
-        total += nearHashCandidates.Length;
-        await HashCandidatesAsync(nearHashCandidates, total);
+        await HashCandidatesAsync(nearHashCandidates, DuplicateScanStage.Verifying);
 
         var groups = FindGroups(
             snapshots.Where(snapshot => snapshot.Sha256 is not null).ToArray(),
-            out var finalNearMatchLimitReached);
-        nearMatchLimitReached |= finalNearMatchLimitReached;
+            out var finalNearMatchLimitReached, seedPaths, cancellationToken);
+        await FlushCacheUpdatesAsync();
+        nearMatchLimitReached |= finalNearMatchLimitReached || incompleteDecode;
         return new DuplicateScanResult(
             groups,
             diagnostics,
@@ -154,11 +206,14 @@ public sealed class DuplicateDetectionService
 
         async Task HashCandidatesAsync(
             IReadOnlyList<DuplicateFileSnapshot> candidates,
-            int currentTotal)
+            DuplicateScanStage stage)
         {
+            completed = 0;
             foreach (var candidate in candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                Report(new DuplicateScanProgress(
+                    completed, candidates.Count, candidate.Entry.FilePath, stage));
                 try
                 {
                     var before = new FileInfo(candidate.Entry.FilePath);
@@ -182,6 +237,7 @@ public sealed class DuplicateDetectionService
 
                     var index = snapshotIndices[candidate.Entry.FilePath];
                     snapshots[index] = snapshots[index] with { Sha256 = hash };
+                    await CacheUpdatedSnapshotAsync(snapshots[index]);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -189,25 +245,50 @@ public sealed class DuplicateDetectionService
                 }
 
                 completed++;
-                if (completed % 16 == 0 || completed == currentTotal)
-                {
-                    progress?.Report(new DuplicateScanProgress(
-                        completed,
-                        currentTotal,
-                        candidate.Entry.FilePath));
-                }
+            }
+            Report(new DuplicateScanProgress(completed, candidates.Count, "", stage));
+        }
+
+        async Task CacheUpdatedSnapshotAsync(DuplicateFileSnapshot snapshot)
+        {
+            cacheUpdates.Add(snapshot);
+            if (cacheUpdates.Count >= 128)
+                await FlushCacheUpdatesAsync();
+        }
+
+        async Task FlushCacheUpdatesAsync()
+        {
+            if (cacheUpdates.Count == 0)
+                return;
+            await _imageRepository.SaveDuplicateHashesAsync(cacheUpdates, cancellationToken);
+            cacheUpdates.Clear();
+        }
+
+        void Report(DuplicateScanProgress update)
+        {
+            var now = Environment.TickCount64;
+            if (lastStage != update.Stage ||
+                update.CompletedFiles == update.TotalFiles ||
+                now - lastProgressTime >= 100)
+            {
+                progress?.Report(update);
+                lastProgressTime = now;
+                lastStage = update.Stage;
             }
         }
     }
 
     internal static IReadOnlyList<DuplicateCandidateGroup> FindGroups(
         IReadOnlyList<DuplicateFileSnapshot> files,
-        out bool nearMatchLimitReached)
+        out bool nearMatchLimitReached,
+        IReadOnlySet<string>? seedPaths = null,
+        CancellationToken cancellationToken = default)
     {
         var groups = files
             .Where(file => file.Sha256 is not null)
             .GroupBy(file => file.Sha256!, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
+            .Where(group => group.Count() > 1 &&
+                (seedPaths is null || group.Any(file => seedPaths.Contains(file.Entry.FilePath))))
             .Select(group => new DuplicateCandidateGroup(
                 DuplicateMatchKind.Exact,
                 group.OrderBy(file => file.Entry.FilePath, StringComparer.OrdinalIgnoreCase).ToArray(),
@@ -222,8 +303,10 @@ public sealed class DuplicateDetectionService
                     : $"sha:{file.Sha256}",
                 StringComparer.OrdinalIgnoreCase)
             .Select(group => group
-                .OrderBy(file => file.Entry.FilePath, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(file => seedPaths is null || seedPaths.Contains(file.Entry.FilePath))
+                .ThenBy(file => file.Entry.FilePath, StringComparer.OrdinalIgnoreCase)
                 .First())
+            .OrderByDescending(file => seedPaths is null || seedPaths.Contains(file.Entry.FilePath))
             .ToList();
         var buckets = new Dictionary<(int Segment, ulong Value), List<int>>();
         var pairDistances = new List<(int First, int Second, int Distance)>();
@@ -232,6 +315,7 @@ public sealed class DuplicateDetectionService
 
         for (var currentIndex = 0; currentIndex < nearFiles.Count; currentIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var currentHash = nearFiles[currentIndex].PerceptualHash!.Value;
             var possibleMatches = new HashSet<int>();
             foreach (var (segment, value) in GetSegments(currentHash))
@@ -241,6 +325,7 @@ public sealed class DuplicateDetectionService
 
                 foreach (var candidateIndex in candidates)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     possibleMatches.Add(candidateIndex);
                     if (possibleMatches.Count > MaximumCandidatesPerImage)
                     {
@@ -257,6 +342,7 @@ public sealed class DuplicateDetectionService
 
             foreach (var candidateIndex in possibleMatches)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (++comparisons > MaximumNearMatchComparisons)
                 {
                     nearMatchLimitReached = true;
@@ -278,6 +364,9 @@ public sealed class DuplicateDetectionService
 
             if (nearMatchLimitReached)
                 break;
+
+            if (seedPaths is not null && !seedPaths.Contains(nearFiles[currentIndex].Entry.FilePath))
+                continue;
 
             foreach (var (segment, value) in GetSegments(currentHash))
             {
@@ -338,9 +427,7 @@ public sealed class DuplicateDetectionService
                 var sum = 0d;
                 for (var x = 0; x < PerceptualHashDimension; x++)
                 {
-                    sum += grayscale[y * PerceptualHashDimension + x] *
-                        Math.Cos((2 * x + 1) * frequency * Math.PI /
-                            (2 * PerceptualHashDimension));
+                    sum += grayscale[y * PerceptualHashDimension + x] * DctCosines[frequency, x];
                 }
                 rowDct[y * 8 + frequency] = sum;
             }
@@ -357,9 +444,7 @@ public sealed class DuplicateDetectionService
                 var sum = 0d;
                 for (var y = 0; y < PerceptualHashDimension; y++)
                 {
-                    sum += rowDct[y * 8 + xFrequency] *
-                        Math.Cos((2 * y + 1) * yFrequency * Math.PI /
-                            (2 * PerceptualHashDimension));
+                    sum += rowDct[y * 8 + xFrequency] * DctCosines[yFrequency, y];
                 }
                 coefficients.Add(sum);
             }
@@ -374,6 +459,20 @@ public sealed class DuplicateDetectionService
                 hash |= 1UL << index;
         }
         return hash;
+    }
+
+    private static double[,] CreateDctCosines()
+    {
+        var cosines = new double[8, PerceptualHashDimension];
+        for (var frequency = 0; frequency < 8; frequency++)
+        {
+            for (var coordinate = 0; coordinate < PerceptualHashDimension; coordinate++)
+            {
+                cosines[frequency, coordinate] = Math.Cos(
+                    (2 * coordinate + 1) * frequency * Math.PI / (2 * PerceptualHashDimension));
+            }
+        }
+        return cosines;
     }
 
     private static async Task<string> ComputeSha256Async(

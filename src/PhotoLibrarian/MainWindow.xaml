@@ -18,23 +18,6 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0">
-            <AutoSuggestBox x:Name="LibrarySearchBox"
-                            AutomationProperties.AutomationId="LibrarySearchBox"
-                            AutomationProperties.Name="Search current photos"
-                            MinWidth="280" MaxWidth="480"
-                            Margin="12,8" HorizontalAlignment="Right"
-                            PlaceholderText="Search current photos"
-                            ToolTipService.ToolTip="Search within the left-pane selection and header filters. Select all photos and clear filters to search the whole library."
-                            QueryIcon="Find"
-                            TextMemberPath="FileName"
-                            DisplayMemberPath="FileName"
-                            ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
-                            TextChanged="LibrarySearchBox_TextChanged"
-                            QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
-            <InfoBar AutomationProperties.AutomationId="LibrarySearchError"
-                     IsOpen="{x:Bind ViewModel.Search.IsError, Mode=TwoWay}"
-                     Message="{x:Bind ViewModel.Search.ErrorMessage, Mode=OneWay}"
-                     Severity="Error" />
             <views:TopRibbon x:Name="TopRibbon" Visibility="Collapsed" />
         </StackPanel>
 
@@ -131,8 +114,6 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="StatusBarText" 
                        Text="Ready"
@@ -146,7 +127,7 @@
             <Button x:Name="SettingsButton" 
                     AutomationProperties.AutomationId="SettingsButton"
                     AutomationProperties.Name="Settings"
-                    Grid.Column="6"
+                    Grid.Column="4"
                     Click="OnSettingsClick"
                     Padding="8,4"
                     ToolTipService.ToolTip="Settings">
@@ -172,23 +153,6 @@
                     ToolTipService.ToolTip="Stop face detection">
                 <FontIcon x:Name="FaceDetectionIcon" Glyph="&#xE769;" FontSize="14" />
             </Button>
-            <Button x:Name="PeopleReviewButton"
-                    AutomationProperties.AutomationId="PeopleReviewButton"
-                    AutomationProperties.Name="Review people suggestions"
-                    Grid.Column="4"
-                    Margin="0,0,8,0"
-                    Click="OnPeopleReviewClick"
-                    Padding="8,4"
-                    ToolTipService.ToolTip="Review people suggestions">
-                <FontIcon Glyph="&#xE716;" FontSize="14" />
-            </Button>
-            <Button x:Name="DuplicateReviewButton"
-                    x:Uid="DuplicateMainButton"
-                    AutomationProperties.AutomationId="DuplicateReviewButton"
-                    Grid.Column="5"
-                    Margin="0,0,8,0"
-                    Click="OnDuplicateReviewClick"
-                    Padding="8,4" />
         </Grid>
     </Grid>
 </Window>

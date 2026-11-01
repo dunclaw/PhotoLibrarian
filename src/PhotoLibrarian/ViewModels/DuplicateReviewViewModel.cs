@@ -82,6 +82,7 @@ public partial class DuplicateReviewViewModel : ObservableObject
     private readonly DuplicateDetectionService _service;
     private readonly Services.PhotoOperationsService _photoOperations;
     private CancellationTokenSource? _scanCancellation;
+    private IReadOnlySet<string> _seedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public ObservableCollection<DuplicateReviewGroupViewModel> Groups { get; } = [];
 
@@ -121,6 +122,22 @@ public partial class DuplicateReviewViewModel : ObservableObject
         _photoOperations = photoOperations;
     }
 
+    public async Task OpenForImagesAsync(IReadOnlyList<ImageEntry> images)
+    {
+        if (IsBusy)
+        {
+            IsOpen = true;
+            return;
+        }
+
+        _seedPaths = images
+            .Where(image => image.MediaType == MediaType.Image)
+            .Select(image => image.FilePath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        IsOpen = true;
+        await ScanAsync();
+    }
+
     [RelayCommand]
     public async Task ScanAsync()
     {
@@ -141,11 +158,18 @@ public partial class DuplicateReviewViewModel : ObservableObject
         {
             var progress = new Progress<DuplicateScanProgress>(UpdateProgress);
             var result = await Task.Run(
-                () => _service.ScanAsync(progress, cancellationToken),
+                () => _service.ScanAsync(progress, cancellationToken, _seedPaths),
                 cancellationToken);
+            SelectedGroup = null;
             Groups.Clear();
+            var added = 0;
             foreach (var group in result.Groups)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 Groups.Add(new DuplicateReviewGroupViewModel(group));
+                if (++added % 128 == 0)
+                    await Task.Yield();
+            }
             SelectedGroup = Groups.FirstOrDefault();
 
             var exactCount = result.Groups.Count(group => group.Kind == DuplicateMatchKind.Exact);
@@ -161,8 +185,6 @@ public partial class DuplicateReviewViewModel : ObservableObject
 
             if (result.DiagnosticCount > 0)
             {
-                var first = result.Diagnostics.FirstOrDefault();
-                var omitted = result.DiagnosticCount - result.Diagnostics.Count;
                 var sampleCount = Math.Min(10, result.Diagnostics.Count);
                 var samples = result.Diagnostics
                     .Take(sampleCount)
@@ -298,11 +320,16 @@ public partial class DuplicateReviewViewModel : ObservableObject
 
     private void UpdateProgress(DuplicateScanProgress progress)
     {
+        if (!IsBusy)
+            return;
         ProgressMaximum = progress.TotalFiles;
         ProgressValue = progress.CompletedFiles;
         StatusMessage =
-            DuplicateReviewStrings.Format(
+            progress.TotalFiles == 0
+                ? DuplicateReviewStrings.Get($"DuplicateStage{progress.Stage}")
+                : DuplicateReviewStrings.Format(
                 "DuplicateProgressStatus",
+                DuplicateReviewStrings.Get($"DuplicateStage{progress.Stage}"),
                 progress.CompletedFiles,
                 progress.TotalFiles,
                 Path.GetFileName(progress.FilePath));

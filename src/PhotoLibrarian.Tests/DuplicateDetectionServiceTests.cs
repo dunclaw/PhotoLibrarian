@@ -13,6 +13,93 @@ namespace PhotoLibrarian.Tests;
 public sealed class DuplicateDetectionServiceTests
 {
     [Fact]
+    public async Task ScanAsync_SeedScopeFindsOutsideMatchesAndReusesOnlyUnchangedCacheEntries()
+    {
+        var directory = CreateTestDirectory();
+        try
+        {
+            var seedPath = Path.Combine(directory, "seed.png");
+            var outsidePath = Path.Combine(directory, "outside.png");
+            var otherPath = Path.Combine(directory, "unrelated.png");
+            var otherCopyPath = Path.Combine(directory, "unrelated-copy.png");
+            await WicTestImage.CreateAsync(seedPath, 96, 64, jpeg: false,
+                color: (x, y) => SmoothPhotoColor(x, y, 96, 64));
+            File.Copy(seedPath, outsidePath);
+            await WicTestImage.CreateAsync(otherPath, 96, 64, jpeg: false,
+                color: (x, y) => UnrelatedPhotoColor(x, y, 96, 64));
+            File.Copy(otherPath, otherCopyPath);
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var repository = new ImageRepository(database);
+            foreach (var path in new[] { seedPath, outsidePath, otherPath, otherCopyPath })
+                await repository.UpsertImageAsync(CreateEntry(path));
+
+            var seeds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { seedPath };
+            var result = await new DuplicateDetectionService(repository).ScanAsync(seedPaths: seeds);
+            var exact = Assert.Single(result.Groups.Where(group => group.Kind == DuplicateMatchKind.Exact));
+            Assert.Contains(exact.Files, file => file.Entry.FilePath == outsidePath);
+            Assert.All(result.Groups, group =>
+                Assert.Contains(group.Files, file => seeds.Contains(file.Entry.FilePath)));
+            var cache = await repository.GetDuplicateHashesAsync(default);
+            Assert.NotNull(cache[seedPath].PerceptualHash);
+            Assert.NotNull(cache[seedPath].Sha256);
+
+            // An exclusive handle proves the warm scan does not reopen unchanged files.
+            using (var lockedSeed = new FileStream(seedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (var lockedOutside = new FileStream(outsidePath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var warmResult = await new DuplicateDetectionService(repository).ScanAsync(seedPaths: seeds);
+                Assert.Empty(warmResult.Diagnostics);
+                Assert.Single(warmResult.Groups.Where(group => group.Kind == DuplicateMatchKind.Exact));
+            }
+
+            await File.WriteAllBytesAsync(outsidePath, [1, 2, 3]);
+            var changedResult = await new DuplicateDetectionService(repository).ScanAsync(seedPaths: seeds);
+            Assert.DoesNotContain(changedResult.Groups, group =>
+                group.Kind == DuplicateMatchKind.Exact &&
+                group.Files.Any(file => file.Entry.FilePath == outsidePath));
+            Assert.Contains(changedResult.Diagnostics, item => item.FilePath == outsidePath);
+            Assert.Empty((await new DuplicateDetectionService(repository).ScanAsync(
+                seedPaths: new HashSet<string>())).Groups);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindGroups_SeededSearchScalesToTwoHundredThousandCandidates()
+    {
+        const int count = 200_000;
+        var files = new List<DuplicateFileSnapshot>(count + 1)
+        {
+            Snapshot("seed.jpg", "seed", 0)
+        };
+        var random = new Random(41);
+        for (var index = 0; index < count; index++)
+        {
+            var hash = (ulong)random.NextInt64() | 0xFFFF000000000000UL;
+            files.Add(Snapshot($"outside-{index}.jpg", $"sha-{index}", hash));
+        }
+        var seeds = new HashSet<string> { "seed.jpg" };
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var groups = DuplicateDetectionService.FindGroups(files, out var limited, seeds);
+        stopwatch.Stop();
+
+        Assert.Empty(groups);
+        Assert.False(limited);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+            $"Seeded comparison took {stopwatch.Elapsed} for {count:N0} candidates.");
+        Console.WriteLine($"Seeded duplicate comparison: {count:N0} candidates in {stopwatch.Elapsed.TotalMilliseconds:N0} ms.");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() =>
+            DuplicateDetectionService.FindGroups(files.Take(100).ToArray(), out _, seeds, cancellation.Token));
+    }
+
+    [Fact]
     public void ReviewViewModel_LoadsLocalizedStartupStringsWithoutPackageIdentity()
     {
         var directory = CreateTestDirectory();

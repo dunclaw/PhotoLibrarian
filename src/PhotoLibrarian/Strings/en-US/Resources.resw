@@ -5,7 +5,7 @@
   <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
   <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
   <data name="DuplicateTitle.Text" xml:space="preserve"><value>Duplicate photos</value></data>
-  <data name="DuplicateSubtitle.Text" xml:space="preserve"><value>Review exact copies and possible resized or re-encoded matches.</value></data>
+  <data name="DuplicateSubtitle.Text" xml:space="preserve"><value>Matches to the displayed photos, including copies elsewhere in the library.</value></data>
   <data name="DuplicateScanButton.Content" xml:space="preserve"><value>Scan library</value></data>
   <data name="DuplicateCancelButton.Content" xml:space="preserve"><value>Cancel scan</value></data>
   <data name="DuplicateKeepPhoto.Content" xml:space="preserve"><value>Keep this photo</value></data>
@@ -16,7 +16,7 @@
   <data name="DuplicateScanningStatus" xml:space="preserve"><value>Scanning indexed photos…</value></data>
   <data name="DuplicateNoCandidates" xml:space="preserve"><value>No duplicate candidates were found.</value></data>
   <data name="DuplicateScanSummary" xml:space="preserve"><value>{0} exact groups and {1} near-match candidates found.</value></data>
-  <data name="DuplicateLimitWarning" xml:space="preserve"><value>Near-match comparisons reached the safety limit; results may be incomplete.</value></data>
+  <data name="DuplicateLimitWarning" xml:space="preserve"><value>A comparison or decoding safety limit was reached; near-match results may be incomplete.</value></data>
   <data name="DuplicateDiagnosticsSummary" xml:space="preserve"><value>{0} photo(s) could not be fully scanned:{1}</value></data>
   <data name="DuplicateDiagnosticItem" xml:space="preserve"><value>{0}: {1}</value></data>
   <data name="DuplicateAdditionalDiagnostics" xml:space="preserve"><value>{0} additional diagnostic(s) omitted.</value></data>
@@ -30,7 +30,12 @@
   <data name="DuplicateRecyclePartial" xml:space="preserve"><value>Moved {0} of {1} photo(s) to the Recycle Bin.</value></data>
   <data name="DuplicateRecycleInterrupted" xml:space="preserve"><value>Recycling was canceled after moving {0} of {1} photo(s). Remaining candidates were left untouched.</value></data>
   <data name="DuplicateRecycleErrorItem" xml:space="preserve"><value>{0}: {1}</value></data>
-  <data name="DuplicateProgressStatus" xml:space="preserve"><value>Scanning photo {0:N0} of {1:N0}: {2}</value></data>
+  <data name="DuplicateProgressStatus" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} · {3}</value></data>
+  <data name="DuplicateStageInspecting" xml:space="preserve"><value>Checking library files and cached hashes</value></data>
+  <data name="DuplicateStageExactHash" xml:space="preserve"><value>Hashing possible exact copies of the displayed photos</value></data>
+  <data name="DuplicateStagePerceptualHash" xml:space="preserve"><value>Building or reusing similarity hashes</value></data>
+  <data name="DuplicateStageComparing" xml:space="preserve"><value>Comparing against the displayed photos</value></data>
+  <data name="DuplicateStageVerifying" xml:space="preserve"><value>Verifying matched file contents</value></data>
   <data name="DuplicateFileDetails" xml:space="preserve"><value>{0:N0} bytes · {1} × {2} · {3}</value></data>
   <data name="DuplicateKeepAutomationName" xml:space="preserve"><value>Keep {0}</value></data>
   <data name="DuplicateExactKind" xml:space="preserve"><value>Exact match (same file contents)</value></data>
@@ -43,7 +48,10 @@
   <data name="DuplicateCloseButtonName" xml:space="preserve"><value>Close duplicate review</value></data>
   <data name="DuplicateRecycleButtonName" xml:space="preserve"><value>Move non-kept duplicate photos to Recycle Bin</value></data>
   <data name="DuplicateMainButtonName" xml:space="preserve"><value>Find duplicate photos</value></data>
-  <data name="DuplicateMainButton.Content" xml:space="preserve"><value>Find duplicates</value></data>
+  <data name="GridDuplicateReviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Find duplicates</value></data>
+  <data name="GridDuplicateReviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Find duplicates of the displayed photos, including matches elsewhere in the library</value></data>
+  <data name="GridPeopleReviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Review people suggestions</value></data>
+  <data name="GridPeopleReviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Review people suggestions in the displayed photos</value></data>
   <data name="DuplicateNearRecycleWarning" xml:space="preserve"><value>This is a perceptual near-match suggestion and may be a false positive. Only continue if you have compared the photos and want the non-kept file recycled.</value></data>
   <data name="DuplicateExactRecycleWarning" xml:space="preserve"><value>The selected photo will remain. The other exact copies will be sent to the Recycle Bin.</value></data>
   <data name="DuplicateRecycleDialogTitle" xml:space="preserve"><value>Move duplicate photos to the Recycle Bin?</value></data>
