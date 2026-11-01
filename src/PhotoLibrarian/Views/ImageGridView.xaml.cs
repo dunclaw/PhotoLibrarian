@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -33,7 +34,7 @@ public sealed partial class ImageGridView : UserControl
         if (ViewModel is null || _isInitialized) return;
         _isInitialized = true;
 
-        System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] OnLoaded - Images.Count={ViewModel.Images.Count}, GroupedImages.Count={ViewModel.GroupedImages.Count}");
+        DebugLog.WriteDebugLine($"[GRIDVIEW] OnLoaded - Images.Count={ViewModel.Images.Count}, GroupedImages.Count={ViewModel.GroupedImages.Count}");
 
         // Listen for viewport changes to request thumbnail loading
         PhotoGrid.VisibleItemsChanged += OnVisibleItemsChanged;
@@ -65,7 +66,7 @@ public sealed partial class ImageGridView : UserControl
         ViewModel.Images.CollectionChanged += (s, e) =>
         {
             var shouldShow = ViewModel.Images.Count == 0;
-            System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] Images changed, EmptyState visibility={shouldShow}");
+            DebugLog.WriteDebugLine($"[GRIDVIEW] Images changed, EmptyState visibility={shouldShow}");
             EmptyState.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
         };
         
@@ -448,7 +449,7 @@ public sealed partial class ImageGridView : UserControl
     private void OnVisibleItemsChanged(object? sender, List<ImageThumbnailViewModel> visibleItems)
     {
         // Request thumbnails for visible items
-        System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] OnVisibleItemsChanged: {visibleItems.Count} items");
+        DebugLog.WriteDebugLine($"[GRIDVIEW] OnVisibleItemsChanged: {visibleItems.Count} items");
         ViewModel?.OnViewportChangedGrouped(visibleItems);
     }
     
@@ -818,7 +819,7 @@ public sealed partial class ImageGridView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[EXPORT] {ex}");
+            DebugLog.WriteDebugLine($"[EXPORT] {ex}");
             App.ViewModel.StatusText = $"Resize and export failed: {ex.Message}";
         }
         finally
@@ -854,7 +855,7 @@ public sealed partial class ImageGridView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[OPS] OpenWith enumeration failed: {ex.Message}");
+            DebugLog.WriteDebugLine($"[OPS] OpenWith enumeration failed: {ex.Message}");
         }
 
         if (subFlyout.Items.Count > 0)
@@ -897,7 +898,7 @@ public sealed partial class ImageGridView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[OPS] Batch rename failed: {ex}");
+            DebugLog.WriteDebugLine($"[OPS] Batch rename failed: {ex}");
             await new ContentDialog
             {
                 Title = "Rename failed",
