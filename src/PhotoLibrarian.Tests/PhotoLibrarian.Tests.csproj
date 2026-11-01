@@ -48,6 +48,8 @@
   <ItemGroup>
     <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso"
                       LogicalName="PhotoLibrarian.Tests.WaveletNoiseReductionExperiment.cso" />
+    <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso"
+                      LogicalName="PhotoLibrarian.Tests.MultiscaleLocalContrastExperiment.cso" />
   </ItemGroup>
 
   <Target Name="CompileWaveletNoiseReductionExperimentShader" BeforeTargets="PrepareResources"
@@ -69,6 +71,27 @@
     <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso&quot; &quot;$(MSBuildProjectDirectory)\Assets\WaveletNoiseReductionExperiment.hlsl&quot;" />
     <ItemGroup>
       <FileWrites Include="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso" />
+    </ItemGroup>
+  </Target>
+  <Target Name="CompileMultiscaleLocalContrastExperimentShader" BeforeTargets="PrepareResources"
+          Inputs="Assets\MultiscaleLocalContrastExperiment.hlsl;$(MSBuildProjectFullPath)"
+          Outputs="$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso">
+    <PropertyGroup>
+      <_ShaderSdkRoot Condition="'$(WindowsSdkDir)' != ''">$(WindowsSdkDir)</_ShaderSdkRoot>
+      <_ShaderSdkRoot Condition="'$(_ShaderSdkRoot)' == ''">$(MSBuildProgramFiles32)\Windows Kits\10\</_ShaderSdkRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ShaderCompiler Include="$(_ShaderSdkRoot)\bin\*\$(WindowsSDKBuildToolsArchFolder)\fxc.exe" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_ShaderCompilerPaths>@(_ShaderCompiler)</_ShaderCompilerPaths>
+      <FxcPath Condition="'$(FxcPath)' == '' AND '$(_ShaderCompilerPaths)' != ''">$(_ShaderCompilerPaths.Split(';')[0])</FxcPath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(FxcPath)')" Text="Install the Windows SDK shader compiler (fxc.exe), or set FxcPath to its location." />
+    <MakeDir Directories="$(IntermediateOutputPath)Shaders" />
+    <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso&quot; &quot;$(MSBuildProjectDirectory)\Assets\MultiscaleLocalContrastExperiment.hlsl&quot;" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso" />
     </ItemGroup>
   </Target>
 </Project>

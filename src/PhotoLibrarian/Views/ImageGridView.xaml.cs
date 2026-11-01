@@ -72,7 +72,7 @@ public sealed partial class ImageGridView : UserControl
         EmptyState.Visibility = ViewModel.Images.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
             
-        // Initialize UI controls to match ViewModel defaults
+        // Initialize UI controls to match the restored layout.
         UpdateGroupByCombo();
         UpdateSortByCombo();
         UpdateSortOrderIcon();
@@ -479,7 +479,7 @@ public sealed partial class ImageGridView : UserControl
     // Group By / Sort handlers
     private void OnGroupByChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel is null || GroupByCombo.SelectedItem is not ComboBoxItem item) return;
+        if (!_isInitialized || ViewModel is null || GroupByCombo.SelectedItem is not ComboBoxItem item) return;
         
         if (Enum.TryParse<GroupByOption>(item.Tag?.ToString(), out var groupBy))
         {
@@ -489,7 +489,7 @@ public sealed partial class ImageGridView : UserControl
     
     private void OnSortByChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel is null || SortByCombo.SelectedItem is not ComboBoxItem item) return;
+        if (!_isInitialized || ViewModel is null || SortByCombo.SelectedItem is not ComboBoxItem item) return;
         
         if (Enum.TryParse<SortByOption>(item.Tag?.ToString(), out var sortBy))
         {

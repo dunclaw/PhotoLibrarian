@@ -524,8 +524,16 @@ public sealed partial class ImageViewerOverlay : UserControl
             await dialog.ShowAsync();
             if (dialog.ExportedPath is { } exportedPath)
             {
-                ViewModel.OpenExportedVideo(exportedPath);
-                App.ViewModel!.StatusText = $"Opened stabilized copy: {exportedPath}";
+                try
+                {
+                    await App.ViewModel!.OpenStabilizedVideoAsync(exportedPath);
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.WriteLine($"Could not add stabilized copy to the library: {ex}");
+                    App.ViewModel!.StatusText =
+                        $"Saved stabilized copy at {exportedPath}, but could not show it in the library: {ex.Message}";
+                }
             }
         }
         catch (Exception ex)

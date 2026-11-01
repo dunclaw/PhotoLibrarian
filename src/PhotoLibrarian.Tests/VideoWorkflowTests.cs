@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Reflection;
 using System.Xml.Linq;
 using PhotoLibrarian.Core.Models;
@@ -17,7 +18,11 @@ public sealed class VideoWorkflowTests
         var viewer = new ImageViewerViewModel();
         viewer.OpenImage(original, [original, next]);
 
-        viewer.OpenExportedVideo(@"D:\elsewhere\result.mp4");
+        var copy = new ImageEntry
+        {
+            Id = 3, FilePath = @"D:\elsewhere\result.mp4", FileName = "result.mp4", MediaType = MediaType.Video
+        };
+        viewer.OpenExportedVideo(copy);
 
         Assert.True(viewer.IsOpen);
         Assert.True(viewer.IsVideo);
@@ -26,12 +31,22 @@ public sealed class VideoWorkflowTests
         Assert.Equal(viewer.CurrentEntry, viewer.Images[1]);
         Assert.Equal(original, viewer.Images[0]);
         Assert.Equal(next, viewer.Images[2]);
+        Assert.Same(copy, viewer.CurrentEntry);
+        Assert.Equal(3, viewer.CurrentEntry!.Id);
 
         // A watcher refresh must not jump playback back to the original while indexing catches up.
         viewer.UpdateLibraryImages([original, next]);
         Assert.Equal(@"D:\elsewhere\result.mp4", viewer.CurrentEntry!.FilePath);
         Assert.Equal(@"D:\elsewhere\result.mp4", viewer.VideoPath);
-        viewer.OpenExportedVideo(@"D:\elsewhere\result.mp4");
+        viewer.OpenExportedVideo(copy);
+        Assert.Equal(3, viewer.Images.Count);
+        var refreshed = new ImageEntry
+        {
+            Id = 3, FilePath = copy.FilePath, FileName = copy.FileName, MediaType = MediaType.Video,
+            Caption = "Indexed caption"
+        };
+        viewer.OpenExportedVideo(refreshed);
+        Assert.Same(refreshed, viewer.CurrentEntry);
         Assert.Equal(3, viewer.Images.Count);
     }
 

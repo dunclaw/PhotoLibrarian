@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Services;
@@ -11,6 +12,7 @@ public partial class App : Application
     private Window? _window;
 
     public static MainViewModel ViewModel { get; private set; } = null!;
+    public static Task LibraryInitialization { get; private set; } = Task.CompletedTask;
 
     /// <summary>
     /// Global logging control. Set to false to disable debug logging.
@@ -112,11 +114,12 @@ public partial class App : Application
             activityGate);
 
         _window = new MainWindow();
+        LibraryInitialization = ViewModel.InitializeAsync();
         _window.Activate();
 
-        await ViewModel.InitializeAsync();
+        await LibraryInitialization;
     }
 
     public static new App Current => (App)Application.Current;
-    public static Window? MainWindow => ((App)Application.Current)._window;
+    public static Window? MainWindow => Application.Current is App app ? app._window : null;
 }
