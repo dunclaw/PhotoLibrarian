@@ -146,7 +146,11 @@ public partial class MainViewModel : ObservableObject
             db,
             autoTaggingSettingsStore,
             autoTagModelManager,
-            autoTagBenchmarkProcessor);
+            autoTagBenchmarkProcessor,
+            new LibraryIndexMaintenanceService(
+                db,
+                imageRepo,
+                indexingService));
         _autoTaggingEnabled =
             Settings.CurrentAutoTaggingSettings.CanRun;
         PhotoOps = new Services.PhotoOperationsService(imageRepo, backupService);

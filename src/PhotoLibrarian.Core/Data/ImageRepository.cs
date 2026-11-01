@@ -200,28 +200,71 @@ public sealed partial class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<int> DeleteMissingInDirectoryAsync(string directoryPath)
+    public async Task<bool> TryRelocateAsync(
+        long imageId,
+        string newFilePath,
+        long fileSize,
+        DateTime lastWriteTimeUtc,
+        string? sidecarPath,
+        long? sidecarSize,
+        DateTime? sidecarModifiedUtc,
+        CancellationToken cancellationToken = default)
     {
-        var prefix = Path.TrimEndingDirectorySeparator(directoryPath) + Path.DirectorySeparatorChar;
         using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
-            SELECT file_path FROM images
-            WHERE substr(file_path, 1, length($prefix)) = $prefix COLLATE NOCASE
+            UPDATE images
+            SET file_path = $path,
+                file_name = $name,
+                file_size = $size,
+                date_modified = $modified,
+                face_sidecar_path = $sidecar_path,
+                face_sidecar_size = $sidecar_size,
+                face_sidecar_modified = $sidecar_modified
+            WHERE id = $id
+              AND NOT EXISTS (
+                  SELECT 1 FROM images WHERE file_path = $path
+              )
+            RETURNING id
             """;
-        cmd.Parameters.AddWithValue("$prefix", prefix);
-        var missing = new List<string>();
-        using (var reader = await cmd.ExecuteReaderAsync())
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$path", newFilePath);
+        cmd.Parameters.AddWithValue("$name", Path.GetFileName(newFilePath));
+        cmd.Parameters.AddWithValue("$size", fileSize);
+        cmd.Parameters.AddWithValue("$modified", lastWriteTimeUtc.ToString("O"));
+        cmd.Parameters.AddWithValue(
+            "$sidecar_path",
+            (object?)sidecarPath ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(
+            "$sidecar_size",
+            (object?)sidecarSize ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(
+            "$sidecar_modified",
+            (object?)sidecarModifiedUtc?.ToString("O") ?? DBNull.Value);
+
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        if (result is null)
         {
-            while (await reader.ReadAsync())
-            {
-                var path = reader.GetString(0);
-                if (!File.Exists(path)) missing.Add(path);
-            }
+            transaction.Rollback();
+            return false;
         }
-        foreach (var path in missing)
-            await DeleteByPathAsync(path);
-        return missing.Count;
+
+        using var hashCommand = conn.CreateCommand();
+        hashCommand.Transaction = transaction;
+        hashCommand.CommandText = """
+            UPDATE duplicate_hash_cache
+            SET file_size = $size, modified_ticks = $ticks
+            WHERE image_id = $id
+            """;
+        hashCommand.Parameters.AddWithValue("$id", imageId);
+        hashCommand.Parameters.AddWithValue("$size", fileSize);
+        hashCommand.Parameters.AddWithValue("$ticks", lastWriteTimeUtc.Ticks);
+        await hashCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     public async Task UpdateRatingAsync(long imageId, int? rating)
