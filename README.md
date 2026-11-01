@@ -203,8 +203,7 @@ Microsoft signs the Store-distributed package; CI does not need a certificate.
 3. Automatic content tagging is off by default. The recommended RAM++ profile
    requires `ram_plus_swin_large_14m.onnx` and
    `ram_plus_swin_large_14m_labels.txt`. Settings supports version-pinned,
-   verified downloads for RAM++ and TinyCLIP when their releases are published;
-   initial Azure publication is still on hold. Settings links to
+   verified downloads for RAM++ and TinyCLIP. Settings links to
    [compatible model setup instructions](MODEL-ASSETS.md)
    and each upstream model/license page. **Import model assets** remains
    available offline to verify and copy

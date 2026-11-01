@@ -30,6 +30,22 @@ function Assert-ModelEvidenceReceipt {
     }
 }
 
+function Assert-ModelSourceRevisionSet {
+    param($SourceRevisions, $ExpectedRevisions)
+
+    $actual = @($SourceRevisions.PSObject.Properties)
+    $expected = @($ExpectedRevisions.PSObject.Properties)
+    if ($actual.Count -ne $expected.Count) {
+        throw 'Manifest source revision set does not match the release catalog.'
+    }
+    foreach ($revision in $expected) {
+        $value = $SourceRevisions.PSObject.Properties[$revision.Name]
+        if ($null -eq $value -or $value.Value -cne $revision.Value) {
+            throw "Manifest source revision mismatch for '$($revision.Name)'."
+        }
+    }
+}
+
 function Test-TinyClipReleaseEvidence {
     param([string]$BundleDirectory, $Profile)
 
