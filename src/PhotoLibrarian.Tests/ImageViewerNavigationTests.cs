@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using Xunit;
@@ -6,6 +8,48 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class ImageViewerNavigationTests
 {
+    [Fact]
+    public async Task InformationPanePreference_SurvivesNavigationAndReopenButDoesNotHideGridPane()
+    {
+        var first = Video("first");
+        var second = Video("second");
+        var viewer = new ImageViewerViewModel();
+        Assert.True(viewer.IsInformationPaneVisible);
+        Assert.True(viewer.ShouldShowInformationPane);
+        viewer.OpenImage(first, [first, second]);
+        viewer.ToggleInformationPaneCommand.Execute(null);
+        Assert.False(viewer.ShouldShowInformationPane);
+
+        await viewer.NextImageCommand.ExecuteAsync(null);
+        viewer.UpdateLibraryImages([second]);
+        Assert.False(viewer.ShouldShowInformationPane);
+        viewer.CloseCommand.Execute(null);
+        Assert.True(viewer.ShouldShowInformationPane);
+        Assert.False(viewer.IsInformationPaneVisible);
+
+        viewer.OpenImage(first, [first]);
+        Assert.False(viewer.ShouldShowInformationPane);
+        viewer.ToggleInformationPaneCommand.Execute(null);
+        Assert.True(viewer.ShouldShowInformationPane);
+        Assert.True(new ImageViewerViewModel().IsInformationPaneVisible);
+    }
+
+    [Fact]
+    public void InformationPaneLayout_NotifiesOnToggleOpenAndClose()
+    {
+        var viewer = new ImageViewerViewModel();
+        var visibility = new List<bool>();
+        viewer.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ImageViewerViewModel.ShouldShowInformationPane))
+                visibility.Add(viewer.ShouldShowInformationPane);
+        };
+        viewer.OpenImage(Video("first"), [Video("first")]);
+        viewer.ToggleInformationPaneCommand.Execute(null);
+        viewer.CloseCommand.Execute(null);
+        Assert.Equal(new[] { true, false, true }, visibility);
+    }
+
     [Fact]
     public async Task Navigation_NotifiesSelectionAndWrapsInBothDirections()
     {

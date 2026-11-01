@@ -116,6 +116,25 @@
                         Click="OnZoomIn" ToolTipService.ToolTip="Zoom in" Padding="8">
                     <FontIcon Glyph="&#xE8A3;" FontSize="14" Foreground="White" />
                 </Button>
+                <Button x:Name="ZoomActualSizeButton"
+                        x:Uid="ViewerActualSize"
+                        AutomationProperties.AutomationId="ViewerActualSize"
+                        AutomationProperties.Name="Actual size"
+                        IsEnabled="False"
+                        Content="1:1"
+                        Click="OnZoomActualSize"
+                        ToolTipService.ToolTip="Actual size (A)"
+                        Padding="8" />
+                <ToggleButton x:Name="InformationPaneButton"
+                              x:Uid="ViewerInformationPane"
+                              AutomationProperties.AutomationId="ViewerInformationPane"
+                              AutomationProperties.Name="Show information pane"
+                              IsChecked="{x:Bind ViewModel.IsInformationPaneVisible, Mode=OneWay}"
+                              Command="{x:Bind ViewModel.ToggleInformationPaneCommand}"
+                              ToolTipService.ToolTip="Show or hide information pane (I)"
+                              Padding="8">
+                    <FontIcon Glyph="&#xE946;" FontSize="14" />
+                </ToggleButton>
                 <Button x:Name="CancelManualFaceTaggingButton"
                         AutomationProperties.AutomationId="CancelManualFaceTagging"
                         AutomationProperties.Name="Cancel adding a people tag"

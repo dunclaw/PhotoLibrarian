@@ -76,4 +76,16 @@
   <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
     <value>Not tagged</value>
   </data>
+  <data name="ViewerActualSize.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Actual size</value>
+  </data>
+  <data name="ViewerActualSize.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Actual size: one image pixel per display pixel (A)</value>
+  </data>
+  <data name="ViewerInformationPane.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Show information pane</value>
+  </data>
+  <data name="ViewerInformationPane.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Show or hide the tag and caption information pane (I)</value>
+  </data>
 </root>

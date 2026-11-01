@@ -28,7 +28,7 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="300" MinWidth="200" />
+                <ColumnDefinition x:Name="InformationPaneColumn" Width="300" MinWidth="200" />
             </Grid.ColumnDefinitions>
 
             <!-- Left: Folder Navigation -->
@@ -52,7 +52,7 @@
             </Grid>
 
             <!-- Resizable splitter -->
-            <controls:GridSplitter Grid.Column="3" 
+            <controls:GridSplitter x:Name="InformationPaneSplitter" Grid.Column="3"
                                    Width="12"
                                    ResizeBehavior="BasedOnAlignment"
                                    ResizeDirection="Auto"
@@ -60,7 +60,7 @@
                                    HorizontalAlignment="Stretch" />
 
             <!-- Right: Metadata Panel -->
-            <Grid Grid.Column="4">
+            <Grid x:Name="InformationPane" Grid.Column="4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
