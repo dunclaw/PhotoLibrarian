@@ -4,7 +4,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -15,15 +17,32 @@ public partial class SettingsViewModel : ObservableObject
     private readonly AutoTaggingSettingsStore _autoTaggingSettingsStore;
     private readonly AutoTagModelManager _autoTagModelManager;
     private readonly AutoTagBenchmarkProcessor _benchmarkProcessor;
+    private readonly LibraryIndexMaintenanceService _indexMaintenanceService;
     private Dictionary<string, AutoTagQualityStatus> _qualityStatuses = [];
     private bool _isInitializing;
     private CancellationTokenSource? _modelDownloadCancellation;
+    private CancellationTokenSource? _indexMaintenanceCancellation;
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
 
     [ObservableProperty]
     public partial int ThumbnailCacheSizeMB { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsIndexMaintenanceRunning { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsIndexMaintenanceProgressIndeterminate { get; set; }
+
+    [ObservableProperty]
+    public partial double IndexMaintenanceProgress { get; set; }
+
+    [ObservableProperty]
+    public partial string IndexMaintenanceStatus { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string IndexMaintenanceDiagnostics { get; set; } = "";
 
     [ObservableProperty]
     public partial string CacheLocation { get; set; } = "";
@@ -122,12 +141,14 @@ public partial class SettingsViewModel : ObservableObject
         CacheDatabase db,
         AutoTaggingSettingsStore autoTaggingSettingsStore,
         AutoTagModelManager autoTagModelManager,
-        AutoTagBenchmarkProcessor benchmarkProcessor)
+        AutoTagBenchmarkProcessor benchmarkProcessor,
+        LibraryIndexMaintenanceService indexMaintenanceService)
     {
         _db = db;
         _autoTaggingSettingsStore = autoTaggingSettingsStore;
         _autoTagModelManager = autoTagModelManager;
         _benchmarkProcessor = benchmarkProcessor;
+        _indexMaintenanceService = indexMaintenanceService;
 
         _isInitializing = true;
         var settings = _autoTaggingSettingsStore.Load();
@@ -200,18 +221,94 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task RebuildCacheAsync()
+    private async Task RepairLibraryIndexAsync()
     {
-        using var conn = _db.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM thumbnails";
-        await cmd.ExecuteNonQueryAsync();
+        if (IsIndexMaintenanceRunning)
+        {
+            return;
+        }
 
-        using var vacuum = conn.CreateCommand();
-        vacuum.CommandText = "VACUUM";
-        await vacuum.ExecuteNonQueryAsync();
+        using var cancellation = new CancellationTokenSource();
+        _indexMaintenanceCancellation = cancellation;
+        IsIndexMaintenanceRunning = true;
+        IsIndexMaintenanceProgressIndeterminate = true;
+        IndexMaintenanceProgress = 0;
+        IndexMaintenanceDiagnostics = "";
+        IndexMaintenanceStatus =
+            LibraryIndexMaintenanceStrings.Get("IndexMaintenanceStarting");
+        try
+        {
+            var progress = new Progress<LibraryIndexMaintenanceProgress>(
+                update =>
+                {
+                    IsIndexMaintenanceProgressIndeterminate =
+                        update.Stage is
+                            LibraryIndexMaintenanceStage.ScanningFolders or
+                            LibraryIndexMaintenanceStage.VerifyingMoves;
+                    IndexMaintenanceProgress = update.Total > 0
+                        ? 100d * update.Current / update.Total
+                        : 0;
+                    IndexMaintenanceStatus =
+                        LibraryIndexMaintenanceStrings.Format(
+                            "IndexMaintenanceProgress",
+                            LibraryIndexMaintenanceStrings.GetStageName(
+                                update.Stage),
+                            update.Current,
+                            update.Total,
+                            update.Path);
+                });
+            var result = await Task.Run(
+                () => _indexMaintenanceService.ReconcileAsync(
+                    progress,
+                    cancellation.Token));
+            var diagnostics = result.Issues.Take(10).Select(
+                LibraryIndexMaintenanceStrings.FormatIssue).ToList();
+            if (result.Issues.Count > diagnostics.Count)
+            {
+                diagnostics.Add(
+                    LibraryIndexMaintenanceStrings.Format(
+                        "IndexMaintenanceAdditionalDiagnostics",
+                        result.Issues.Count - diagnostics.Count));
+            }
+            IndexMaintenanceDiagnostics = string.Join(
+                Environment.NewLine,
+                diagnostics);
 
-        LoadSettings();
+            var resultKey = result.Cancelled
+                ? "IndexMaintenanceCancelled"
+                : result.Succeeded
+                    ? "IndexMaintenanceCompleted"
+                    : "IndexMaintenanceCompletedWithIssues";
+            IndexMaintenanceStatus =
+                LibraryIndexMaintenanceStrings.Format(
+                    resultKey,
+                    result.UpdatedFiles,
+                    result.RepairedMoves,
+                    result.ConfirmedMissingFiles,
+                    result.Issues.Count);
+        }
+        catch (Exception exception)
+        {
+            PhotoLibrarian.Core.Diagnostics.DebugLog.WriteLine(
+                $"Library index maintenance failed: {exception}");
+            IndexMaintenanceStatus =
+                LibraryIndexMaintenanceStrings.Format(
+                    "IndexMaintenanceFailed",
+                    exception.Message);
+        }
+        finally
+        {
+            _indexMaintenanceCancellation = null;
+            IsIndexMaintenanceRunning = false;
+            IsIndexMaintenanceProgressIndeterminate = false;
+            LoadSettings();
+        }
+    }
+
+    [RelayCommand]
+    private void CancelIndexMaintenance()
+    {
+        _indexMaintenanceCancellation?.Cancel();
     }
 
     public void SelectProfile(string profileId)

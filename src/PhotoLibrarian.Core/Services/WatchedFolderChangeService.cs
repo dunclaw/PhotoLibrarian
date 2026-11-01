@@ -90,7 +90,7 @@ public sealed class WatchedFolderChangeService : IDisposable
                     }
                     else
                     {
-                        changed |= await _images.DeleteMissingInDirectoryAsync(directory) > 0;
+                        changed = true;
                     }
                 }
                 catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -151,10 +151,7 @@ public sealed class WatchedFolderChangeService : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (!File.Exists(path))
         {
-            if (await _images.GetByPathAsync(path) is null) return false;
-            cancellationToken.ThrowIfCancellationRequested();
-            await _images.DeleteByPathAsync(path);
-            return true;
+            return await _images.GetByPathAsync(path) is not null;
         }
 
         // A large Explorer copy may still be in progress when its first notification arrives.

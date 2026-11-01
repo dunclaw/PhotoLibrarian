@@ -76,4 +76,33 @@
   <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
     <value>Not tagged</value>
   </data>
+  <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
+  <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Reconcile files in watched folders without resetting the database. Missing items and database-only tags, flags, and people data are retained; photos are never changed. Moves are repaired only when an existing SHA-256 uniquely identifies the file.</value></data>
+  <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>
+  <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
+  <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>
+  <data name="IndexMaintenanceConfirmTitle" xml:space="preserve"><value>Repair the library index?</value></data>
+  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This scans watched folders and indexes available files. It repairs a moved file only when one unique SHA-256 match is available. Missing files and unavailable locations are reported but retained with their database data. No photos or database records are deleted.</value></data>
+  <data name="IndexMaintenanceConfirmPrimary" xml:space="preserve"><value>Repair index</value></data>
+  <data name="IndexMaintenanceStarting" xml:space="preserve"><value>Preparing a safe library index scan…</value></data>
+  <data name="IndexMaintenanceProgress" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} — {3}</value></data>
+  <data name="IndexMaintenanceCompleted" xml:space="preserve"><value>Completed. Updated {0:N0} file(s), repaired {1:N0} move(s), and found {2:N0} confirmed missing file(s), which were preserved. No records were deleted.</value></data>
+  <data name="IndexMaintenanceCompletedWithIssues" xml:space="preserve"><value>Completed with {3:N0} issue(s). Updated {0:N0} file(s), repaired {1:N0} move(s), and preserved {2:N0} confirmed missing file(s). Review the diagnostics below; no records were deleted.</value></data>
+  <data name="IndexMaintenanceCancelled" xml:space="preserve"><value>Cancelled after updating {0:N0} file(s) and repairing {1:N0} move(s). {2:N0} confirmed missing file(s) remain preserved. Completed work is retained and can be safely retried.</value></data>
+  <data name="IndexMaintenanceFailed" xml:space="preserve"><value>Library index maintenance failed: {0}. No records were intentionally deleted; retry after resolving the reported problem.</value></data>
+  <data name="IndexMaintenanceStageScanning" xml:space="preserve"><value>Scanning folders</value></data>
+  <data name="IndexMaintenanceStageVerifyingMoves" xml:space="preserve"><value>Verifying exact file identity</value></data>
+  <data name="IndexMaintenanceStageIndexing" xml:space="preserve"><value>Indexing files</value></data>
+  <data name="IndexMaintenanceStageComplete" xml:space="preserve"><value>Complete</value></data>
+  <data name="IndexMaintenanceIssue" xml:space="preserve"><value>{0} — {1}: {2}</value></data>
+  <data name="IndexMaintenanceIssueNoWatchedFolders" xml:space="preserve"><value>No watched folders</value></data>
+  <data name="IndexMaintenanceIssueFolderUnavailable" xml:space="preserve"><value>Folder unavailable; existing records were retained</value></data>
+  <data name="IndexMaintenanceIssueAccessDenied" xml:space="preserve"><value>Access denied; existing records were retained</value></data>
+  <data name="IndexMaintenanceIssueFolderScanFailed" xml:space="preserve"><value>Could not scan folder; existing records were retained</value></data>
+  <data name="IndexMaintenanceIssueFileReadFailed" xml:space="preserve"><value>Could not read file</value></data>
+  <data name="IndexMaintenanceIssueFileIndexFailed" xml:space="preserve"><value>Could not update file index</value></data>
+  <data name="IndexMaintenanceIssuePendingMetadataExport" xml:space="preserve"><value>People metadata export is pending; skipped to avoid writing sidecar data</value></data>
+  <data name="IndexMaintenanceIssueReparsePointSkipped" xml:space="preserve"><value>Symbolic link or reparse point skipped; its contents were not traversed or indexed</value></data>
+  <data name="IndexMaintenanceAdditionalDiagnostics" xml:space="preserve"><value>{0:N0} additional diagnostic(s) omitted.</value></data>
+  <data name="IndexMaintenanceProgressBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Library index maintenance progress</value></data>
 </root>
