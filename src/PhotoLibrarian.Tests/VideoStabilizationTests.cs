@@ -1,4 +1,7 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices.WindowsRuntime;
+using PhotoLibrarian.Core.Data;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using Windows.Graphics.Imaging;
 using Windows.Media.Core;
@@ -607,12 +610,14 @@ public sealed class VideoStabilizationTests : IDisposable
         await MetadataWriterService.WriteDateTakenAsync(Source, dateTaken);
         await TagWriterService.WriteTagsToSidecarAsync(Source, ["family", "vacation"]);
         var sourceSidecar = Path.ChangeExtension(Source, ".xmp");
+        var originalSidecar = File.ReadAllBytes(sourceSidecar);
 
         await new VideoStabilizationService().StabilizeAsync(Source, Output,
             cancellationToken: TestContext.Current.CancellationToken);
 
         var outputSidecar = Path.ChangeExtension(Output, ".xmp");
-        Assert.Equal(File.ReadAllBytes(sourceSidecar), File.ReadAllBytes(outputSidecar));
+        Assert.Equal(originalSidecar, File.ReadAllBytes(sourceSidecar));
+        Assert.True(File.Exists(outputSidecar));
         var metadata = new MetadataReaderService();
         var entry = metadata.ReadMetadata(Output);
         Assert.Equal(4, entry.Rating);
@@ -620,6 +625,67 @@ public sealed class VideoStabilizationTests : IDisposable
         Assert.Equal("A tagged video", entry.Caption);
         Assert.Equal(dateTaken, entry.DateTaken);
         Assert.Equal(["family", "vacation"], metadata.ReadTags(Output));
+        AssertNoTemporaryFiles();
+    }
+
+    [Fact]
+    public async Task WindowsExportCollectsEmbeddedDescriptionsWithoutSourceSidecar()
+    {
+        await CreateFixtureAsync(false);
+        var sourceFile = await StorageFile.GetFileFromPathAsync(Source);
+        await sourceFile.Properties.SavePropertiesAsync(new Dictionary<string, object>
+        {
+            ["System.Title"] = "Embedded title",
+            ["System.Comment"] = "Embedded caption",
+            ["System.Keywords"] = new[] { "family", "holiday" }
+        });
+        Assert.False(File.Exists(Path.ChangeExtension(Source, ".xmp")));
+        var original = File.ReadAllBytes(Source);
+
+        await new VideoStabilizationService().StabilizeAsync(Source, Output,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(original, File.ReadAllBytes(Source));
+        using var database = new CacheDatabase(Path.Combine(_directory, "cache.db"));
+        await database.InitializeAsync();
+        var images = new ImageRepository(database);
+        var tags = new TagRepository(database);
+        using var scanner = new FolderScannerService();
+        var indexer = new LibraryIndexingService(database, images, tags, new FaceRepository(database),
+            scanner, new MetadataReaderService(), new FaceMetadataStore());
+        Assert.True(await indexer.IndexFileAsync(Output));
+        var copy = await images.GetByPathAsync(Output);
+        Assert.NotNull(copy);
+        Assert.True(copy.Id > 0);
+        Assert.Equal(MediaType.Video, copy.MediaType);
+        Assert.Equal("Embedded title", copy.Title);
+        Assert.Equal("Embedded caption", copy.Caption);
+        Assert.Equal(new FileInfo(Output).Length, copy.FileSize);
+        Assert.Equal(["family", "holiday"], new MetadataReaderService().ReadTags(Output));
+        var outputProperties = await (await StorageFile.GetFileFromPathAsync(Output)).Properties.GetVideoPropertiesAsync();
+        Assert.Equal(640u, outputProperties.Width);
+        Assert.Equal(480u, outputProperties.Height);
+        Assert.InRange(outputProperties.Duration.TotalSeconds, 2.95, 3.1);
+        AssertNoTemporaryFiles();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+    }
+
+    [Fact]
+    public async Task WindowsExportRejectsMalformedMetadataWithoutPublishingCopy()
+    {
+        await CreateFixtureAsync(false);
+        var original = File.ReadAllBytes(Source);
+        var sidecar = Path.ChangeExtension(Source, ".xmp");
+        File.WriteAllText(sidecar, "<invalid");
+
+        await Assert.ThrowsAsync<XmpCore.XmpException>(() =>
+            new VideoStabilizationService().StabilizeAsync(Source, Output,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(original, File.ReadAllBytes(Source));
+        Assert.Equal("<invalid", File.ReadAllText(sidecar));
+        Assert.False(File.Exists(Output));
+        Assert.False(File.Exists(Path.ChangeExtension(Output, ".xmp")));
         AssertNoTemporaryFiles();
     }
 
