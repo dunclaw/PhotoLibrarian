@@ -80,6 +80,10 @@ public partial class App : Application
         var autoTaggingService = new AutoTaggingService(
             sessionManager,
             autoTagModelManager);
+        var selectedPhotoAutoTagReviewProcessor =
+            new SelectedPhotoAutoTagReviewProcessor(
+                autoTagModelManager,
+                autoTaggingService);
         var recognitionPipeline = new RecognitionPipeline(
             faceRepo,
             tagRepo,
@@ -111,6 +115,7 @@ public partial class App : Application
             autoTaggingSettingsStore,
             autoTagModelManager,
             autoTagBenchmarkProcessor,
+            selectedPhotoAutoTagReviewProcessor,
             activityGate);
 
         _window = new MainWindow();

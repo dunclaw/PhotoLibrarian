@@ -259,6 +259,70 @@ public sealed class TagRepository : IAutoTagStore
         return true;
     }
 
+    /// <summary>
+    /// Adds explicitly approved automatic tags without removing existing generated or
+    /// user-created tags. The scan version records that this image was reviewed.
+    /// </summary>
+    public async Task<bool> TryAddReviewedAutoTagsAsync(
+        ImageEntry expectedImage,
+        IReadOnlyCollection<GeneratedImageTag> tags,
+        string scanVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+
+        using (var mark = conn.CreateCommand())
+        {
+            mark.Transaction = transaction;
+            mark.CommandText = """
+                UPDATE images
+                SET auto_tag_scan_version = $scanVersion
+                WHERE id = $id
+                  AND file_size = $fileSize
+                  AND date_modified = $dateModified
+                """;
+            mark.Parameters.AddWithValue("$scanVersion", scanVersion);
+            mark.Parameters.AddWithValue("$id", expectedImage.Id);
+            mark.Parameters.AddWithValue("$fileSize", expectedImage.FileSize);
+            mark.Parameters.AddWithValue(
+                "$dateModified",
+                expectedImage.DateModified.ToString("O"));
+            if (await mark.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                transaction.Rollback();
+                return false;
+            }
+        }
+
+        var normalizedTags = tags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Tag))
+            .Select(tag => new GeneratedImageTag(
+                tag.Tag.Trim().Trim('/'),
+                Math.Clamp(tag.Confidence, 0, 1)))
+            .Where(tag => tag.Tag.Length > 0)
+            .SelectMany(tag => GetTagPaths(
+                    $"{ImageTag.AutomaticRootTag}/{tag.Tag}")
+                .Select(path => new GeneratedImageTag(path, tag.Confidence)))
+            .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.MaxBy(tag => tag.Confidence)!)
+            .ToList();
+
+        foreach (var tag in normalizedTags)
+        {
+            await InsertAutoTagAsync(
+                conn,
+                transaction,
+                expectedImage.Id,
+                tag.Tag,
+                tag.Confidence,
+                cancellationToken);
+        }
+
+        transaction.Commit();
+        return true;
+    }
+
     public async Task<AutoTagRemovalResult> RemoveAllAutoTagsAsync(
         CancellationToken cancellationToken = default)
     {
@@ -324,6 +388,32 @@ public sealed class TagRepository : IAutoTagStore
         insert.Parameters.AddWithValue("$source", (int)TagSource.AutoML);
         insert.Parameters.AddWithValue("$confidence", confidence);
         await insert.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Imports file keywords without replacing a tag's existing source, such as a
+    /// manually-created or reviewed automatic tag.
+    /// </summary>
+    public async Task AddMetadataTagAsync(
+        long imageId,
+        string tag,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        foreach (var tagPath in GetTagPaths(tag))
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO tags (image_id, tag, source, confidence)
+                VALUES ($id, $tag, $source, $confidence)
+                ON CONFLICT(image_id, tag) DO NOTHING
+                """;
+            cmd.Parameters.AddWithValue("$id", imageId);
+            cmd.Parameters.AddWithValue("$tag", tagPath);
+            cmd.Parameters.AddWithValue("$source", (int)TagSource.Metadata);
+            cmd.Parameters.AddWithValue("$confidence", 1.0f);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     /// <summary>

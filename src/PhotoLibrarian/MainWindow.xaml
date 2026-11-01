@@ -122,6 +122,14 @@
             <views:DuplicateReviewView />
         </Border>
 
+        <Border x:Name="AutoTagReviewOverlay"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                Visibility="Collapsed">
+            <views:AutoTagReviewView />
+        </Border>
+
         <InfoBar x:Name="MetadataFallbackInfoBar"
                  AutomationProperties.AutomationId="MetadataFallbackInfoBar"
                  Grid.Row="2"

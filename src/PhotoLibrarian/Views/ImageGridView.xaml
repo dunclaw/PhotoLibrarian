@@ -323,6 +323,12 @@
                     Padding="8,4">
                 <SymbolIcon Symbol="Copy" />
             </Button>
+            <Button x:Name="AutoTagReviewButton"
+                    AutomationProperties.AutomationId="AutoTagReviewButton"
+                    x:Uid="GridAutoTagReviewButton"
+                    Grid.Column="4"
+                    Click="OnAutoTagReviewClick"
+                    Padding="8,4" />
         </Grid>
 
         <StackPanel Grid.Row="1">

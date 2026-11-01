@@ -76,4 +76,91 @@
   <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
     <value>Not tagged</value>
   </data>
+  <data name="GridAutoTagReviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Review automatic tags for selected photos</value>
+  </data>
+  <data name="GridAutoTagReviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Generate and review local tag suggestions for the selected photos</value>
+  </data>
+  <data name="GridAutoTagReviewButton.Content" xml:space="preserve">
+    <value>Review tags</value>
+  </data>
+  <data name="AutoTagReviewTitle.Text" xml:space="preserve">
+    <value>Review automatic tags</value>
+  </data>
+  <data name="AutoTagReviewSubtitle.Text" xml:space="preserve">
+    <value>Suggestions are generated locally for the selected photos. Select the tags to keep; unchecked suggestions are rejected.</value>
+  </data>
+  <data name="AutoTagReviewCancelButton.Content" xml:space="preserve">
+    <value>Stop generating</value>
+  </data>
+  <data name="AutoTagReviewCloseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Close automatic tag review</value>
+  </data>
+  <data name="AutoTagReviewCloseButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Close automatic tag review</value>
+  </data>
+  <data name="AutoTagReviewApplyButton.Content" xml:space="preserve">
+    <value>Apply accepted tags</value>
+  </data>
+  <data name="AutoTagReviewSafetyNotice.Message" xml:space="preserve">
+    <value>Nothing is saved while suggestions are generated. Only checked tags are saved after you choose Apply accepted tags.</value>
+  </data>
+  <data name="AutoTagReviewNoSuggestions.Text" xml:space="preserve">
+    <value>No suggestions for this photo.</value>
+  </data>
+  <data name="AutoTagReviewEmptyTitle.Text" xml:space="preserve">
+    <value>No photos to review</value>
+  </data>
+  <data name="AutoTagReviewEmptySubtitle.Text" xml:space="preserve">
+    <value>Select photos in the grid, then generate suggestions with an approved local profile.</value>
+  </data>
+  <data name="AutoTagReviewProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Automatic tag suggestion progress</value>
+  </data>
+  <data name="AutoTagReviewPhotos.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Selected photos and automatic tag suggestions</value>
+  </data>
+  <data name="AutoTagReviewInitialStatus" xml:space="preserve">
+    <value>Preparing selected photos.</value>
+  </data>
+  <data name="AutoTagReviewNoSelection" xml:space="preserve">
+    <value>Select one or more photos before reviewing automatic tags.</value>
+  </data>
+  <data name="AutoTagReviewProgressStatus" xml:space="preserve">
+    <value>{0:N0} of {1:N0} photos processed — {2}</value>
+  </data>
+  <data name="AutoTagReviewReadyStatus" xml:space="preserve">
+    <value>{0:N0} photos processed; {1:N0} suggestions. Check the tags you want to keep.</value>
+  </data>
+  <data name="AutoTagReviewCanceledStatus" xml:space="preserve">
+    <value>Stopped after {0:N0} of {1:N0} photos. Completed suggestions are shown; nothing has been saved yet.</value>
+  </data>
+  <data name="AutoTagReviewGenerationFailed" xml:space="preserve">
+    <value>Suggestions could not be generated. No tags were saved.</value>
+  </data>
+  <data name="AutoTagReviewSuggestion" xml:space="preserve">
+    <value>{0} — {1} confidence</value>
+  </data>
+  <data name="AutoTagReviewSuggestionAutomationName" xml:space="preserve">
+    <value>Accept {0} tag suggestion with {1} confidence</value>
+  </data>
+  <data name="AutoTagReviewIssuesSummary" xml:space="preserve">
+    <value>{0:N0} photo(s) need attention. See the messages on each photo.</value>
+  </data>
+  <data name="AutoTagReviewPhotoChanged" xml:space="preserve">
+    <value>The photo or its indexed file details changed before the tags could be saved. Refresh the library and review it again.</value>
+  </data>
+  <data name="AutoTagReviewMetadataSkipped" xml:space="preserve">
+    <value>Tags were saved in the library, but photo metadata was not updated because {0}</value>
+  </data>
+  <data name="AutoTagReviewSaveFailed" xml:space="preserve">
+    <value>Could not finish saving these tags: {0}. Retry is safe; existing tags are preserved.</value>
+  </data>
+  <data name="AutoTagReviewRefreshFailed" xml:space="preserve">
+    <value>Tags were saved, but the tag lists could not be refreshed: {0}</value>
+  </data>
+  <data name="AutoTagReviewApplyStatus" xml:space="preserve">
+    <value>Saved {0:N0} accepted tag(s) across {1:N0} photo(s); {2:N0} photo(s) need attention.</value>
+  </data>
 </root>

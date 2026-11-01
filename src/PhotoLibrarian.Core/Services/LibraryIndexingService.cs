@@ -167,13 +167,7 @@ public sealed class LibraryIndexingService
         var tags = _metadataReader.ReadTags(filePath);
         foreach (var tag in tags)
         {
-            await _tagRepo.AddTagAsync(new ImageTag
-            {
-                ImageId = imageId,
-                Tag = tag,
-                Source = TagSource.Metadata,
-                Confidence = 1.0f
-            });
+            await _tagRepo.AddMetadataTagAsync(imageId, tag, ct);
         }
         return true;
     }
