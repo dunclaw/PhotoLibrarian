@@ -4,6 +4,7 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Xml.Linq;
+using System.Security.Cryptography;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
 using MetadataExtractor.Formats.Icc;
@@ -50,6 +51,42 @@ public sealed class RawDerivativeExportTests : IDisposable
     }
 
     private void NoStaging() => Assert.Empty(Directory.GetFiles(_root, ".photolibrarian-raw-*.tmp", SearchOption.AllDirectories));
+
+    [Fact]
+    public async Task ProfessionalResolutionRawOpensPreviewsAndExportsAboveFormer24MegapixelLimit()
+    {
+        var path = Path.Combine(_root, "professional-resolution.dng");
+        await File.WriteAllBytesAsync(path,
+            RawDevelopmentTests.SyntheticDngFixture.Create(false, 6, 8256, 5504),
+            TestContext.Current.CancellationToken);
+        byte[] originalHash;
+        await using (var file = File.OpenRead(path))
+            originalHash = await SHA256.HashDataAsync(file, TestContext.Current.CancellationToken);
+        using var session = new RawPreviewSession();
+        var parameters = new EditParameters { RawExposureEv = -1 };
+        var preview = await session.RenderAsync(path, parameters, TestContext.Current.CancellationToken);
+        Assert.Equal(5496, preview.Width);
+        Assert.Equal(8248, preview.Height);
+        Assert.True((long)preview.Width * preview.Height > 45_000_000);
+        byte[] previewHash;
+        using (var device = new CanvasDevice())
+        {
+            var pixels = preview.ToPreviewBgra8(TestContext.Current.CancellationToken);
+            previewHash = SHA256.HashData(pixels);
+            using var bitmap = CanvasBitmap.CreateFromBytes(device, pixels, preview.Width, preview.Height,
+                Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+            Assert.Equal((uint)preview.Width, bitmap.SizeInPixels.Width);
+            Assert.Equal((uint)preview.Height, bitmap.SizeInPixels.Height);
+        }
+        var result = await RawDerivativeExportService.ExportAsync(
+            path, _root, RawDerivativeFormat.Png, parameters, session.RenderAsync, TestContext.Current.CancellationToken);
+        Assert.Equal(preview.Width, result.Width);
+        Assert.Equal(preview.Height, result.Height);
+        Assert.Equal(previewHash, SHA256.HashData(await ReopenAsync(result.FilePath)));
+        await using (var file = File.OpenRead(path))
+            Assert.Equal(originalHash, await SHA256.HashDataAsync(file, TestContext.Current.CancellationToken));
+        NoStaging();
+    }
 
     [Fact]
     public void ExplicitAccessibleExportAndCancellationAreSeparateFromOverwriteSave()

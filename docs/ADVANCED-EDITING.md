@@ -277,8 +277,12 @@ exposure that is inverted into float output. Black/white levels, camera
 identity, sensor and active-area dimensions, EXIF orientation, and the
 reference exposure are returned separately. ActiveArea crop and orientation
 are applied by LibRaw before the pixels are returned. The original file is
-read-only. Input and LibRaw raw-memory limits are each 512 MiB; decode geometry
-is bounded at 24 MP. Work runs off the UI thread, supports cancellation, owns the native
+read-only. There is no application-imposed megapixel, input-file-size, or
+RAW-memory cap. LibRaw opens the Unicode file path directly while the managed
+service holds a read-only file lock; it no longer copies/pins the entire input
+in a managed byte array. LibRaw's configurable raw-memory budget is set to its
+maximum representable value, retaining its allocation and corrupt-file checks.
+Work runs off the UI thread, supports cancellation, owns the native
 buffer through a safe handle, and reports unsupported/corrupt input as errors
 without thumbnail fallback.
 
@@ -293,7 +297,8 @@ dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Rel
 The synthetic DNG fixtures cover Bayer and X-Trans, active-area crop,
 orientation 1 and 6, deterministic repeated output, finite float values,
 headroom above 1.0, immutable input bytes, unsupported/corrupt input, a
-512-MiB input rejection, and pre-cancelled work. The X-Trans fixture is a
+valid input larger than the former 512-MiB limit, Unicode paths, empty-file
+errors, and pre-cancelled work. The X-Trans fixture is a
 synthetic 528 × 528 DNG, sized for LibRaw's 512-pixel demosaic tile; it is not
 a camera sample. One isolated x64 synthetic Bayer benchmark at 1024 × 768
 (1,573,314 input bytes) measured 46.8 ms and 16.6 MiB sampled process
@@ -419,8 +424,15 @@ whole-photo decode-to-screen times. x64 and ARM64 Release builds pass, but
 ARM64 runtime, integrated/discrete GPU memory, camera samples, and interactive
 visual review of RAW controls are unverified.
 
-The current native/source limit remains 24 MP (including the native sensor
-geometry check), not an unlimited-resolution promise. Preview requests debounce
+There is no megapixel cutoff in the native sensor/developed geometry checks,
+tone mapping, preview, or export. Buffer geometry must still be valid; actual
+runtime array/address-space, codec and GPU texture limits and available memory
+remain physical constraints, not a replacement camera-resolution policy.
+Allocation failures report actionable errors rather than claiming that the
+camera exceeds a preset megapixel budget. The current pipeline still uses
+full-resolution buffers; removing the artificial cap is not a guarantee of
+constant memory, tiled processing, or compatibility with every camera.
+Preview requests debounce
 for 80 ms, reuse one developed source per photo, serialize decode/map work,
 cancel superseded work, and check cancellation before publishing a result.
 CPU map/encode checks every 4096 pixels. Closing/unloading or changing photos
@@ -573,10 +585,23 @@ miss instantaneous peaks; the serial process retains allocator/earlier-case
 memory. The first case includes JIT/startup costs. The measurement does not
 include a live editor's cached preview/Win2D/GPU allocations, interactive
 responsiveness, other devices, or slow/full destinations. Memory is
-substantial at the 24 MP limit; this is evidence, not a low-memory guarantee.
-The combined regression run passes 122 tests without skips, including
+substantial even at the measured 24 MP size; this is evidence, not a low-memory guarantee.
+The original combined regression run passed 122 tests without skips, including
 index/search integration. x64 and ARM64 Release builds pass; the x64 WinUI
 analyzer review reports only existing warnings outside this feature.
+
+**High-resolution regression.** The subsequent removal of the artificial
+24 MP ceiling is covered end-to-end with an 8256x5504 synthetic Bayer DNG
+(45.44 MP sensor). With EXIF orientation 6 and the fixture's active-area crop,
+preview and PNG export are 5496x8248 (45.33 MP), including actual Win2D
+source-resolution bitmap upload. Reopened PNG bytes match the
+full-resolution preview SHA-256 exactly, and source RAW bytes remain unchanged.
+A valid DNG extended beyond 512 MiB also decodes successfully through the
+direct-file path. These are synthetic regression fixtures, not evidence of
+universal camera support, calibrated color, or interactive performance at
+arbitrary sizes. The previous 24 MP cost measurements remain historical
+measurements, not a resolution limit. The updated combined regression suite
+passes 124 tests without skips.
 
 Reproduce in a serial x64 Release process:
 

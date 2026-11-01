@@ -13,7 +13,6 @@ namespace PhotoLibrarian.Core.Services;
 /// </summary>
 public static class RawToneMappingService
 {
-    public const int MaximumPixels = 24_000_000;
     public const double DefaultWhitePoint = 4;
     public const string OutputColorSpace = "Linear sRGB D65";
     public const string OutputTransfer = "IEC 61966-2-1 sRGB";
@@ -36,9 +35,9 @@ public static class RawToneMappingService
     {
         ArgumentNullException.ThrowIfNull(parameters);
         ValidateRecipe(parameters);
-        if (width <= 0 || height <= 0 || (long)width * height > MaximumPixels ||
-            (long)width * height * 3 != linearProPhotoRgb.Length)
-            throw new ArgumentException("RAW render geometry must match RGB samples and be at most 24 MP.");
+        if (width <= 0 || height <= 0 ||
+            linearProPhotoRgb.Length % 3 != 0 || (long)width * height != linearProPhotoRgb.Length / 3)
+            throw new ArgumentException("RAW render dimensions must be positive and match the RGB sample buffer.");
 
         var exposureEv = parameters.RawExposureEv;
         var whitePoint = parameters.RawWhitePoint;
@@ -63,7 +62,12 @@ public static class RawToneMappingService
         double exposureEv, double whitePoint, CancellationToken cancellationToken)
     {
         var input = source.Span;
-        var output = new float[input.Length];
+        float[] output;
+        try { output = new float[input.Length]; }
+        catch (OutOfMemoryException)
+        {
+            throw new InvalidOperationException("Not enough memory to tone-map this RAW photo. Close other photos or applications and retry.");
+        }
         var exposureScale = Math.Pow(2, exposureEv);
         for (var i = 0; i < input.Length; i += 3)
         {
@@ -112,7 +116,15 @@ public sealed class RawSdrImage
     public byte[] ToPreviewBgra8(CancellationToken cancellationToken = default)
     {
         var input = LinearRgb.Span;
-        var output = new byte[checked(Width * Height * 4)];
+        var byteCount = (long)LinearRgb.Length / 3 * 4;
+        if (byteCount > Array.MaxLength)
+            throw new InvalidOperationException("The SDR byte buffer cannot be represented by this runtime. No megapixel cap is applied.");
+        byte[] output;
+        try { output = new byte[(int)byteCount]; }
+        catch (OutOfMemoryException)
+        {
+            throw new InvalidOperationException("Not enough memory for the SDR preview or export. Close other photos or applications and retry.");
+        }
         for (var i = 0; i < Width * Height; i++)
         {
             if (i % 4096 == 0) cancellationToken.ThrowIfCancellationRequested();

@@ -45,9 +45,8 @@ enum RawDecoderStatus : int32_t
 
 extern "C"
 {
-    RAWDECODER_API int32_t RAWDECODER_CALL raw_decoder_decode(
-        const void* input,
-        uint64_t inputLength,
+    RAWDECODER_API int32_t RAWDECODER_CALL raw_decoder_decode_file(
+        const wchar_t* path,
         const volatile int32_t* cancellationFlag,
         RawDecodedImage** result,
         RawDecoderMetadata* metadata,

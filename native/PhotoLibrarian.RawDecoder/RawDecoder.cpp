@@ -14,9 +14,6 @@
 
 namespace
 {
-    constexpr uint64_t MaximumInputBytes = 512ull * 1024 * 1024;
-    constexpr uint64_t MaximumPixels = 24ull * 1024 * 1024;
-    constexpr int MaximumRawMemoryMegabytes = 512;
     constexpr float ReferenceExposureScale = 0.25f;
 
     void SetError(char* destination, uint32_t capacity, const char* message)
@@ -47,9 +44,13 @@ namespace
         return cancellationFlag != nullptr && *cancellationFlag != 0 ? 1 : 0;
     }
 
-    bool HasExceededPixelLimit(uint64_t width, uint64_t height)
+    int32_t GetFailureStatus(int errorCode)
     {
-        return width == 0 || height == 0 || width > MaximumPixels / height;
+        if (errorCode == LIBRAW_CANCELLED_BY_CALLBACK)
+            return RawDecoderCancelled;
+        if (errorCode == LIBRAW_UNSUFFICIENT_MEMORY || errorCode == LIBRAW_TOO_BIG)
+            return RawDecoderTooLarge;
+        return errorCode == LIBRAW_FILE_UNSUPPORTED ? RawDecoderUnsupported : RawDecoderCorrupt;
     }
 
     uint32_t GetExifOrientation(int rawFlip)
@@ -94,9 +95,8 @@ struct RawDecodedImage
     std::vector<float> pixels;
 };
 
-extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
-    const void* input,
-    uint64_t inputLength,
+extern "C" int32_t RAWDECODER_CALL raw_decoder_decode_file(
+    const wchar_t* path,
     const volatile int32_t* cancellationFlag,
     RawDecodedImage** result,
     RawDecoderMetadata* metadata,
@@ -109,16 +109,10 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
     if (metadata != nullptr)
         std::memset(metadata, 0, sizeof(*metadata));
 
-    if (input == nullptr || inputLength == 0 || result == nullptr || metadata == nullptr)
+    if (path == nullptr || *path == L'\0' || result == nullptr || metadata == nullptr)
     {
         SetError(errorMessage, errorMessageCapacity, "The RAW input or output pointer is invalid.");
         return RawDecoderFailed;
-    }
-
-    if (inputLength > MaximumInputBytes)
-    {
-        SetError(errorMessage, errorMessageCapacity, "The RAW file exceeds the 512 MiB input limit.");
-        return RawDecoderTooLarge;
     }
 
     if (cancellationFlag != nullptr && *cancellationFlag != 0)
@@ -130,14 +124,16 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
     try
     {
         LibRaw decoder;
-        decoder.imgdata.rawparams.max_raw_memory_mb = MaximumRawMemoryMegabytes;
+        // No application-imposed memory budget. LibRaw retains its allocation/format
+        // validation; genuine allocation failure is reported below.
+        decoder.imgdata.rawparams.max_raw_memory_mb = std::numeric_limits<unsigned>::max();
         decoder.set_progress_handler(CancelIfRequested, const_cast<int32_t*>(cancellationFlag));
 
-        int status = decoder.open_buffer(input, static_cast<size_t>(inputLength));
+        int status = decoder.open_file(path);
         if (status != LIBRAW_SUCCESS)
         {
-            SetLibRawError(errorMessage, errorMessageCapacity, "LibRaw open_buffer", status);
-            return status == LIBRAW_FILE_UNSUPPORTED ? RawDecoderUnsupported : RawDecoderCorrupt;
+            SetLibRawError(errorMessage, errorMessageCapacity, "LibRaw open_file", status);
+            return GetFailureStatus(status);
         }
 
         const auto& sourceSizes = decoder.imgdata.sizes;
@@ -147,10 +143,10 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
             return RawDecoderUnsupported;
         }
 
-        if (HasExceededPixelLimit(sourceSizes.raw_width, sourceSizes.raw_height))
+        if (sourceSizes.raw_width == 0 || sourceSizes.raw_height == 0)
         {
-            SetError(errorMessage, errorMessageCapacity, "The sensor dimensions exceed the 24-megapixel decode limit.");
-            return RawDecoderTooLarge;
+            SetError(errorMessage, errorMessageCapacity, "The RAW sensor dimensions are invalid.");
+            return RawDecoderCorrupt;
         }
 
         metadata->rawWidth = sourceSizes.raw_width;
@@ -165,7 +161,7 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
         if (status != LIBRAW_SUCCESS)
         {
             SetLibRawError(errorMessage, errorMessageCapacity, "LibRaw unpack", status);
-            return status == LIBRAW_CANCELLED_BY_CALLBACK ? RawDecoderCancelled : RawDecoderCorrupt;
+            return GetFailureStatus(status);
         }
         if (cancellationFlag != nullptr && *cancellationFlag != 0)
         {
@@ -197,7 +193,7 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
         if (status != LIBRAW_SUCCESS)
         {
             SetLibRawError(errorMessage, errorMessageCapacity, "LibRaw dcraw_process", status);
-            return status == LIBRAW_CANCELLED_BY_CALLBACK ? RawDecoderCancelled : RawDecoderCorrupt;
+            return GetFailureStatus(status);
         }
         if (cancellationFlag != nullptr && *cancellationFlag != 0)
         {
@@ -211,7 +207,7 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
         if (imageError != LIBRAW_SUCCESS || processed == nullptr)
         {
             SetLibRawError(errorMessage, errorMessageCapacity, "LibRaw dcraw_make_mem_image", imageError);
-            return RawDecoderCorrupt;
+            return GetFailureStatus(imageError);
         }
 
         if (processed->type != LIBRAW_IMAGE_BITMAP || processed->bits != 16 || processed->colors != 3)
@@ -222,10 +218,10 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
 
         const uint64_t width = processed->width;
         const uint64_t height = processed->height;
-        if (HasExceededPixelLimit(width, height))
+        if (width == 0 || height == 0)
         {
-            SetError(errorMessage, errorMessageCapacity, "The developed image exceeds the 24-megapixel decode limit.");
-            return RawDecoderTooLarge;
+            SetError(errorMessage, errorMessageCapacity, "The developed RAW dimensions are invalid.");
+            return RawDecoderCorrupt;
         }
 
         const uint64_t sampleCount = width * height * 3;
@@ -242,7 +238,14 @@ extern "C" int32_t RAWDECODER_CALL raw_decoder_decode(
         const auto* samples = reinterpret_cast<const uint16_t*>(processed->data);
         constexpr float inverseScale = 1.0f / (65535.0f * ReferenceExposureScale);
         for (uint64_t index = 0; index < sampleCount; ++index)
+        {
+            if (index % 12288 == 0 && cancellationFlag != nullptr && *cancellationFlag != 0)
+            {
+                SetError(errorMessage, errorMessageCapacity, "RAW decoding was cancelled.");
+                return RawDecoderCancelled;
+            }
             image->pixels[static_cast<size_t>(index)] = samples[index] * inverseScale;
+        }
 
         metadata->width = processed->width;
         metadata->height = processed->height;

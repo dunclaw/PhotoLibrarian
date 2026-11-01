@@ -60,7 +60,6 @@ public static class RawDevelopmentService
     // output_color=4 uses LibRaw's ProPhoto D65 matrix, not an ICC D50 ProPhoto buffer.
     public const string WorkingWhitePoint = "D65 (LibRaw output_color=4)";
 
-    private const long MaximumInputBytes = 512L * 1024 * 1024;
     private const int ErrorMessageCapacity = 1024;
 
     public static async Task<RawDevelopedImage> DecodeAsync(
@@ -77,24 +76,22 @@ public static class RawDevelopmentService
             FileShare.Read,
             bufferSize: 64 * 1024,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        if (stream.Length is <= 0 or > MaximumInputBytes)
+        if (stream.Length == 0)
         {
             throw new RawDecodeException(
-                RawDecodeFailure.TooLarge,
-                $"The RAW input must be between 1 byte and {MaximumInputBytes / (1024 * 1024)} MiB.");
+                RawDecodeFailure.Corrupt, "The RAW file is empty.");
         }
 
-        var input = new byte[checked((int)stream.Length)];
-        await stream.ReadExactlyAsync(input, cancellationToken);
+        // Hold a read-only lock while LibRaw streams the file, rather than allocating
+        // and pinning a second complete copy of potentially large camera input.
         return await Task.Run(
-            () => Decode(input, cancellationToken),
+            () => Decode(Path.GetFullPath(path), cancellationToken),
             cancellationToken);
     }
 
-    private static RawDevelopedImage Decode(byte[] input, CancellationToken cancellationToken)
+    private static RawDevelopedImage Decode(string path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var pinnedInput = GCHandle.Alloc(input, GCHandleType.Pinned);
         var cancellationFlag = Marshal.AllocHGlobal(sizeof(int));
         var errorMessage = Marshal.AllocHGlobal(ErrorMessageCapacity);
         try
@@ -106,8 +103,7 @@ public static class RawDevelopmentService
                 cancellationFlag);
 
             var status = NativeMethods.Decode(
-                pinnedInput.AddrOfPinnedObject(),
-                (ulong)input.LongLength,
+                path,
                 cancellationFlag,
                 out var imageHandle,
                 out var nativeMetadata,
@@ -133,8 +129,11 @@ public static class RawDevelopmentService
             using (imageHandle)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var sampleCount = checked((int)((long)nativeMetadata.Width * nativeMetadata.Height * 3));
-                var rgbValues = new float[sampleCount];
+                var sampleCount = (long)nativeMetadata.Width * nativeMetadata.Height * 3;
+                if (sampleCount <= 0 || sampleCount > Array.MaxLength)
+                    throw new RawDecodeException(RawDecodeFailure.TooLarge,
+                        "The developed RAW buffer cannot be represented by this runtime. No megapixel cap is applied.");
+                var rgbValues = new float[(int)sampleCount];
                 Marshal.Copy(NativeMethods.GetPixels(imageHandle), rgbValues, 0, rgbValues.Length);
                 var metadata = new RawDevelopmentMetadata(
                     nativeMetadata.Make ?? string.Empty,
@@ -158,11 +157,15 @@ public static class RawDevelopmentService
                 return new RawDevelopedImage(rgbValues, metadata);
             }
         }
+        catch (OutOfMemoryException)
+        {
+            throw new RawDecodeException(RawDecodeFailure.TooLarge,
+                "Not enough memory to develop this RAW photo. Close other photos or applications and retry.");
+        }
         finally
         {
             Marshal.FreeHGlobal(errorMessage);
             Marshal.FreeHGlobal(cancellationFlag);
-            pinnedInput.Free();
         }
     }
 
@@ -215,10 +218,10 @@ public static class RawDevelopmentService
 
         private const string LibraryName = "PhotoLibrarian.RawDecoder.dll";
 
-        [DllImport(LibraryName, EntryPoint = "raw_decoder_decode", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(LibraryName, EntryPoint = "raw_decoder_decode_file", CharSet = CharSet.Unicode,
+            CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Decode(
-            IntPtr input,
-            ulong inputLength,
+            string path,
             IntPtr cancellationFlag,
             out RawDecodedImageHandle image,
             out NativeMetadata metadata,
