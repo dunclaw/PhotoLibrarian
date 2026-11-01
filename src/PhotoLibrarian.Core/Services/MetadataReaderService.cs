@@ -54,25 +54,8 @@ public sealed class MetadataReaderService
         if (!File.Exists(sidecarPath)) return;
         try
         {
-            const string dcNs = "http://purl.org/dc/elements/1.1/";
             var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
-            if (string.IsNullOrWhiteSpace(entry.Caption))
-                entry.Caption = xmp.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value;
-            if (string.IsNullOrWhiteSpace(entry.Title))
-                entry.Title = xmp.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value;
-            const string xapNs = "http://ns.adobe.com/xap/1.0/";
-            if (!entry.Rating.HasValue && xmp.DoesPropertyExist(xapNs, "xmp:Rating"))
-                entry.Rating = Math.Clamp(xmp.GetPropertyInteger(xapNs, "xmp:Rating"), 0, 5);
-
-            if (!entry.DateTaken.HasValue)
-            {
-                const string exifNs = "http://ns.adobe.com/exif/1.0/";
-                var date = xmp.GetPropertyString(exifNs, "exif:DateTimeOriginal")
-                    ?? xmp.GetPropertyString(xapNs, "xmp:CreateDate");
-                if (DateTime.TryParse(date, System.Globalization.CultureInfo.InvariantCulture,
-                        System.Globalization.DateTimeStyles.RoundtripKind, out var dateTaken))
-                    entry.DateTaken = dateTaken;
-            }
+            ReadXmpData(xmp, entry, replaceText: false);
         }
         catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
         {
@@ -157,42 +140,69 @@ public sealed class MetadataReaderService
     {
         var xmp = directories.OfType<XmpDirectory>().FirstOrDefault();
         if (xmp?.XmpMeta is null) return;
+        ReadXmpData(xmp.XmpMeta, entry, replaceText: true);
+    }
+
+    private static void ReadXmpData(IXmpMeta xmp, ImageEntry entry, bool replaceText)
+    {
 
         const string dcNs = "http://purl.org/dc/elements/1.1/";
         const string tiffNs = "http://ns.adobe.com/tiff/1.0/";
         const string exifNs = "http://ns.adobe.com/exif/1.0/";
         const string xapNs = "http://ns.adobe.com/xap/1.0/";
-        entry.CameraMake ??= xmp.XmpMeta.GetPropertyString(tiffNs, "Make");
-        entry.CameraModel ??= xmp.XmpMeta.GetPropertyString(tiffNs, "Model");
-        if (entry.Width == 0 && xmp.XmpMeta.DoesPropertyExist(tiffNs, "ImageWidth"))
-            entry.Width = xmp.XmpMeta.GetPropertyInteger(tiffNs, "ImageWidth");
-        if (entry.Height == 0 && xmp.XmpMeta.DoesPropertyExist(tiffNs, "ImageLength"))
-            entry.Height = xmp.XmpMeta.GetPropertyInteger(tiffNs, "ImageLength");
+        entry.CameraMake ??= xmp.GetPropertyString(tiffNs, "Make");
+        entry.CameraModel ??= xmp.GetPropertyString(tiffNs, "Model");
+        if (entry.Width == 0 && xmp.DoesPropertyExist(tiffNs, "ImageWidth"))
+            entry.Width = xmp.GetPropertyInteger(tiffNs, "ImageWidth");
+        if (entry.Height == 0 && xmp.DoesPropertyExist(tiffNs, "ImageLength"))
+            entry.Height = xmp.GetPropertyInteger(tiffNs, "ImageLength");
         if (!entry.DateTaken.HasValue)
         {
-            var date = xmp.XmpMeta.GetPropertyString(exifNs, "DateTimeOriginal")
-                ?? xmp.XmpMeta.GetPropertyString(xapNs, "CreateDate");
+            var date = xmp.GetPropertyString(exifNs, "DateTimeOriginal")
+                ?? xmp.GetPropertyString(xapNs, "CreateDate");
             if (DateTime.TryParse(date, System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.RoundtripKind, out var dateTaken))
                 entry.DateTaken = dateTaken;
         }
-        entry.Title = xmp.XmpMeta.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value
-            ?? entry.Title;
-        entry.Caption = xmp.XmpMeta.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value
-            ?? entry.Caption;
+        if (replaceText || string.IsNullOrWhiteSpace(entry.Title))
+            entry.Title = xmp.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value ?? entry.Title;
+        if (replaceText || string.IsNullOrWhiteSpace(entry.Caption))
+            entry.Caption = xmp.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value ?? entry.Caption;
+        entry.GpsLatitude ??= ReadCoordinate(xmp.GetPropertyString(exifNs, "GPSLatitude"));
+        entry.GpsLongitude ??= ReadCoordinate(xmp.GetPropertyString(exifNs, "GPSLongitude"));
         // Read rating from XMP if not already set
-        if (xmp.XmpMeta.DoesPropertyExist(xapNs, "xmp:Rating"))
+        if (xmp.DoesPropertyExist(xapNs, "xmp:Rating"))
         {
-            var ratingProp = xmp.XmpMeta.GetPropertyInteger(xapNs, "xmp:Rating");
+            var ratingProp = xmp.GetPropertyInteger(xapNs, "xmp:Rating");
             entry.Rating ??= Math.Clamp(ratingProp, 0, 5);
         }
 
         // PhotoLibrarian user flag (custom namespace — see MetadataWriterService)
-        if (xmp.XmpMeta.DoesPropertyExist(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged"))
+        if (xmp.DoesPropertyExist(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged"))
         {
-            var flag = xmp.XmpMeta.GetPropertyString(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged");
+            var flag = xmp.GetPropertyString(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged");
             entry.IsFlagged = string.Equals(flag, "True", StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    private static double? ReadCoordinate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var direction = char.ToUpperInvariant(value[^1]);
+        if (direction is not ('N' or 'S' or 'E' or 'W')) return null;
+        var parts = value[..^1].Split(',');
+        if (parts.Length is not (2 or 3)) return null;
+        double coordinate = 0;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (!double.TryParse(parts[i], System.Globalization.CultureInfo.InvariantCulture, out var part) ||
+                !double.IsFinite(part) || part < 0 || (i > 0 && part >= 60))
+                return null;
+            coordinate += part / Math.Pow(60, i);
+        }
+        return coordinate <= (direction is 'N' or 'S' ? 90 : 180)
+            ? (direction is 'S' or 'W' ? -coordinate : coordinate)
+            : null;
     }
 
     /// <summary>

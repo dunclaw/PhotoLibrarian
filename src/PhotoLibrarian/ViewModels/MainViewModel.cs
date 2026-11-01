@@ -1051,6 +1051,20 @@ public partial class MainViewModel : ObservableObject
         await RefreshAfterIndexAsync();
     }
 
+    public async Task OpenStabilizedVideoAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
+        ImageViewer.OpenExportedVideo(copy);
+        StatusText = $"Opened stabilized copy: {path}";
+    }
+
     public async Task MakeCopyForEditingAsync(ImageEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);

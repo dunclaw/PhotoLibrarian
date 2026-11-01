@@ -29,6 +29,7 @@ public sealed class VideoStabilizationService
             {
                 var source = await StorageFile.GetFileFromPathAsync(sourcePath).AsTask(cancellationToken);
                 var inputProfile = await MediaEncodingProfile.CreateFromFileAsync(source).AsTask(cancellationToken);
+                var metadata = await VideoDerivativeMetadata.ReadAsync(source, cancellationToken);
                 var profile = CreateOutputProfile(inputProfile);
                 var properties = await source.Properties.GetVideoPropertiesAsync().AsTask(cancellationToken);
                 profile.Video.Properties[VideoRotationKey] = (uint)properties.Orientation;
@@ -66,8 +67,9 @@ public sealed class VideoStabilizationService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (new FileInfo(temporaryPath).Length == 0)
                     throw new IOException("Windows did not produce a video.");
-                PublishOutput(sourcePath, temporaryPath, destinationPath);
-                await WaitUntilReadableAsync(destinationPath);
+                await WaitUntilReadableAsync(temporaryPath, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                PublishOutput(metadata, temporaryPath, destinationPath);
                 DebugLog.WriteLine($"Stabilize: finished {destinationPath} ({new FileInfo(destinationPath).Length:N0} bytes) " +
                     $"in {stopwatch.Elapsed.TotalSeconds:F1}s");
             }
@@ -134,25 +136,24 @@ public sealed class VideoStabilizationService
         }
     }
 
-    // The export is already published here, so cancellation no longer applies. Waiting until no
-    // writer holds the file and its container parses avoids handing playback a still-settling file.
-    private static async Task WaitUntilReadableAsync(string path)
+    // Validate the completed container before publishing either the video or its metadata.
+    private static async Task WaitUntilReadableAsync(string path, CancellationToken token)
     {
         for (int attempt = 0; attempt < 20; attempt++)
         {
             try
             {
                 using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)) { }
-                var file = await StorageFile.GetFileFromPathAsync(path);
-                await MediaEncodingProfile.CreateFromFileAsync(file);
-                break;
+                var file = await StorageFile.GetFileFromPathAsync(path).AsTask(token);
+                await MediaEncodingProfile.CreateFromFileAsync(file).AsTask(token);
+                await Task.Delay(500, token);
+                return;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException)
+            catch (Exception ex) when (attempt < 19 && (ex is IOException or UnauthorizedAccessException or COMException))
             {
-                await Task.Delay(250);
+                await Task.Delay(250, token);
             }
         }
-        await Task.Delay(500);
     }
 
     internal static void ValidatePaths(string sourcePath, string destinationPath)
@@ -170,18 +171,11 @@ public sealed class VideoStabilizationService
             throw new IOException("The output's metadata sidecar already exists. Choose a new filename; files are never overwritten.");
     }
 
-    private static void PublishOutput(string sourcePath, string temporaryPath, string destinationPath)
+    internal static void PublishOutput(string metadata, string temporaryPath, string destinationPath)
     {
-        var sourceSidecar = FaceMetadataStore.GetSidecarPathForImage(sourcePath);
         var destinationSidecar = FaceMetadataStore.GetSidecarPathForDestinationImage(destinationPath);
         if (File.Exists(destinationSidecar))
             throw new IOException("The output's metadata sidecar already exists. Choose a new filename; files are never overwritten.");
-
-        if (!File.Exists(sourceSidecar))
-        {
-            File.Move(temporaryPath, destinationPath, overwrite: false);
-            return;
-        }
 
         var temporarySidecar = Path.Combine(
             Path.GetDirectoryName(destinationPath)!,
@@ -189,7 +183,9 @@ public sealed class VideoStabilizationService
         var sidecarPublished = false;
         try
         {
-            File.Copy(sourceSidecar, temporarySidecar, overwrite: false);
+            using (var writer = new StreamWriter(
+                       new FileStream(temporarySidecar, FileMode.CreateNew, FileAccess.Write, FileShare.None)))
+                writer.Write(metadata);
             File.Move(temporarySidecar, destinationSidecar, overwrite: false);
             sidecarPublished = true;
             try

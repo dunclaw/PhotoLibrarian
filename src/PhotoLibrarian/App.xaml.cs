@@ -118,5 +118,5 @@ public partial class App : Application
     }
 
     public static new App Current => (App)Application.Current;
-    public static Window? MainWindow => ((App)Application.Current)._window;
+    public static Window? MainWindow => Application.Current is App app ? app._window : null;
 }

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -77,6 +78,7 @@ public partial class ImageGridViewModel : ObservableObject
     private CancellationTokenSource? _loadCts;
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
     private string? _primarySelectedPath;
+    private string? _revealedExportPath;
     
     // Queue management for viewport-aware loading
     private readonly Queue<ImageThumbnailViewModel> _loadQueue = new();
@@ -96,8 +98,11 @@ public partial class ImageGridViewModel : ObservableObject
     public event EventHandler? ResultsChanged;
     public event EventHandler? SelectionRestoreRequested;
 
+    /// <summary>Keep a newly exported copy visible until the user changes the browsing filters.</summary>
+    public void RevealExportedVideo(string path) => _revealedExportPath = path;
+
     public List<ImageEntry> GetViewerImages() =>
-        GroupedImages.SelectMany(group => group.Items).Select(item => item.Entry).ToList();
+        DisplayedEntries.ToList();
 
     [ObservableProperty]
     private GroupByOption _groupBy = GroupByOption.None;
@@ -239,7 +244,7 @@ public partial class ImageGridViewModel : ObservableObject
 
         // If no filters active, show nothing
         if (!hasFolderFilter && !hasDateFilter && !hasPeopleFilter &&
-            !hasTagFilter && !hasFlagFilter)
+            !hasTagFilter && !hasFlagFilter && _revealedExportPath is null)
         {
             _searchScope = [];
             DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
@@ -370,6 +375,11 @@ public partial class ImageGridViewModel : ObservableObject
             }
             if (ct.IsCancellationRequested) return;
         }
+        var revealed = allImages.FirstOrDefault(image =>
+            string.Equals(image.FilePath, _revealedExportPath, StringComparison.OrdinalIgnoreCase));
+        if (revealed is not null && !displayedImages.Any(image =>
+                string.Equals(image.FilePath, revealed.FilePath, StringComparison.OrdinalIgnoreCase)))
+            displayedImages = displayedImages.Append(revealed).ToList();
         foreach (var image in displayedImages)
         {
             previousImages.TryGetValue(image.FilePath, out var previous);
@@ -918,6 +928,7 @@ public partial class ImageGridViewModel : ObservableObject
 
     public async Task FilterByFoldersAsync(List<string>? folderPaths)
     {
+        _revealedExportPath = null;
         var sw = System.Diagnostics.Stopwatch.StartNew();
         DebugLog.WriteLine($"FilterByFoldersAsync: folderPaths={{{(folderPaths != null ? string.Join(", ", folderPaths.Select(p => $"'{p}'")) : "null")}}}");
         
@@ -948,6 +959,7 @@ public partial class ImageGridViewModel : ObservableObject
         List<string>? tags,
         bool flaggedSelected = false)
     {
+        _revealedExportPath = null;
         var sw = System.Diagnostics.Stopwatch.StartNew();
         DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, people={personIds?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}");
         
@@ -980,6 +992,7 @@ public partial class ImageGridViewModel : ObservableObject
 
     public async Task ApplyRefinementAsync(ImageRefinementFilter refinement)
     {
+        _revealedExportPath = null;
         Refinement = refinement ?? ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));
         await LoadImagesAsync();
@@ -1290,6 +1303,7 @@ public partial class ImageGridViewModel : ObservableObject
 
     public async Task ApplySearchAsync(string text)
     {
+        _revealedExportPath = null;
         _searchText = text;
         await LoadImagesAsync();
     }
@@ -1307,6 +1321,7 @@ public partial class ImageGridViewModel : ObservableObject
     [RelayCommand]
     private async Task ClearFilter()
     {
+        _revealedExportPath = null;
         _currentFolderFilters = null;
         _currentDateRootSelected = false;
         _currentYearFilters = null;
