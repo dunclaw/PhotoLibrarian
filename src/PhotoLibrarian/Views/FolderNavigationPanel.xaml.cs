@@ -1,8 +1,10 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Core.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,11 +19,175 @@ public sealed partial class FolderNavigationPanel : UserControl
     private readonly SemaphoreSlim _tagRefreshGate = new(1, 1);
     private bool _isRefreshingTagTree;
     private bool _isRefreshingPeopleTree;
+    private readonly NavigationPaneStateStore _stateStore = new();
+    private readonly NavigationPaneState _paneState;
+    private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private readonly HashSet<TreeView> _initializedTrees = [];
+    private bool _isRebuildingTree;
+    private bool _isInitializing = true;
+    private bool _hasLoaded;
+    private bool _savePending;
+    private bool _libraryRefreshQueued;
 
     public FolderNavigationPanel()
     {
         this.InitializeComponent();
+        _paneState = _stateStore.Load();
+        _saveTimer.Tick += OnSaveTimerTick;
+        foreach (var tree in NavigationTrees)
+        {
+            tree.Expanding += OnTreeExpanding;
+            tree.Collapsed += OnTreeCollapsed;
+        }
         this.Loaded += OnLoaded;
+        this.Unloaded += OnUnloaded;
+    }
+
+    private TreeView[] NavigationTrees => [LibraryTree, DateTree, PeopleTree, TagsTree, FlagsTree];
+
+    private static string GetNodeKey(TreeViewNode node) => node.Content switch
+    {
+        FolderNodeWrapper wrapper => GetFolderKey(node, wrapper.FolderNode.Path),
+        DateNodeWrapper wrapper => GetDateNodeKey(wrapper.DateNode),
+        PersonNodeWrapper { PersonNode.IsRoot: true } => "root",
+        PersonNodeWrapper wrapper => $"person:{wrapper.PersonNode.PersonId}",
+        TagNodeWrapper { TagNode.IsRoot: true } => "root",
+        TagNodeWrapper wrapper => $"tag:{wrapper.TagNode.FullPath}",
+        FlagNavigationViewModel => "flagged",
+        _ => "root"
+    };
+
+    private static string GetFolderKey(TreeViewNode node, string path)
+    {
+        var watchedRoot = node;
+        while (watchedRoot.Parent?.Content is FolderNodeWrapper)
+            watchedRoot = watchedRoot.Parent;
+
+        var rootPath = ((FolderNodeWrapper)watchedRoot.Content).FolderNode.Path;
+        // Scope duplicate physical folders to their watched root; Windows paths are case-insensitive.
+        return $"{rootPath.TrimEnd('\\')}|{path.TrimEnd('\\')}".ToUpperInvariant();
+    }
+
+    private void CaptureTreeState(TreeView tree)
+    {
+        if (!_initializedTrees.Contains(tree)) return;
+        CaptureNodes(tree, tree.RootNodes, tree.SelectedNodes.ToHashSet());
+    }
+
+    private void CaptureNodes(TreeView tree, IList<TreeViewNode> nodes, HashSet<TreeViewNode> selected)
+    {
+        foreach (var node in nodes)
+        {
+            _paneState.SetNode(tree.Name, GetNodeKey(node),
+                new NavigationNodeState(node.IsExpanded, selected.Contains(node)));
+            CaptureNodes(tree, node.Children, selected);
+        }
+    }
+
+    private void RebuildTree(TreeView tree, Action build)
+    {
+        CaptureTreeState(tree);
+        _isRebuildingTree = true;
+        try
+        {
+            tree.SelectedNodes.Clear();
+            tree.RootNodes.Clear();
+            build();
+            RestoreNodes(tree, tree.RootNodes);
+            _initializedTrees.Add(tree);
+        }
+        finally
+        {
+            _isRebuildingTree = false;
+        }
+    }
+
+    private void RestoreNodes(TreeView tree, IList<TreeViewNode> nodes)
+    {
+        // Realize every saved folder route before checking parents, so selection can cascade consistently.
+        RestoreExpansion(tree, nodes);
+        RestoreChecks(tree, nodes);
+    }
+
+    private void RestoreExpansion(TreeView tree, IList<TreeViewNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            var key = GetNodeKey(node);
+            var state = _paneState.GetNode(tree.Name, key);
+            if (node.Content is FolderNodeWrapper &&
+                (state?.Expanded == true || _paneState.HasFolderDescendant(tree.Name, key)))
+            {
+                RealizeFolderChildren(node);
+            }
+
+            if (state is not null) node.IsExpanded = state.Expanded;
+            RestoreExpansion(tree, node.Children);
+        }
+    }
+
+    private void RestoreChecks(TreeView tree, IList<TreeViewNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            var state = _paneState.GetNode(tree.Name, GetNodeKey(node));
+            if (state?.Checked == true && !tree.SelectedNodes.Contains(node))
+                tree.SelectedNodes.Add(node);
+            RestoreChecks(tree, node.Children);
+        }
+    }
+
+    private void OnTreeExpanding(TreeView sender, TreeViewExpandingEventArgs args) => ScheduleSave();
+
+    private void OnTreeCollapsed(TreeView sender, TreeViewCollapsedEventArgs args) => ScheduleSave();
+
+    private void ScheduleSave()
+    {
+        if (_isInitializing || _isRebuildingTree) return;
+        _savePending = true;
+        _saveTimer.Stop();
+        _saveTimer.Start();
+    }
+
+    private void OnSaveTimerTick(object? sender, object e) => SaveState();
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) => SaveState();
+
+    public void SaveState()
+    {
+        _saveTimer.Stop();
+        if (!_savePending || _isInitializing) return;
+        foreach (var tree in NavigationTrees) CaptureTreeState(tree);
+        try
+        {
+            _stateStore.Save(_paneState);
+            _savePending = false;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            DebugLog.WriteLine($"Could not save navigation preferences: {exception.Message}");
+            if (App.ViewModel is not null)
+                App.ViewModel.StatusText = "Could not save Browse preferences.";
+        }
+    }
+
+    private Task RunOnDispatcherAsync(Action action)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                action();
+                completion.SetResult();
+            }
+            catch (Exception exception)
+            {
+                completion.SetException(exception);
+            }
+        }))
+            completion.SetException(new InvalidOperationException("The navigation tree could not be refreshed."));
+        return completion.Task;
     }
 
     public async Task RefreshAllTreesAsync()
@@ -30,7 +196,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         await RefreshDateTreeAsync();
         await RefreshPeopleTreeAsync();
         await RefreshTagsTreeAsync();
-        RefreshFlagTree();
+        await RunOnDispatcherAsync(RefreshFlagTreeCore);
     }
 
     public async Task RefreshMetadataTreesAsync()
@@ -47,53 +213,82 @@ public sealed partial class FolderNavigationPanel : UserControl
     /// </summary>
     public void RefreshFlagTree()
     {
+        DispatcherQueue.TryEnqueue(RefreshFlagTreeCore);
+    }
+
+    private void RefreshFlagTreeCore()
+    {
         var flagNav = App.ViewModel?.FlagNav;
         if (flagNav is null) return;
 
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            // Never rebuild the node: clearing RootNodes would drop (and re-fire) the selection,
-            // which would momentarily clear an active flag filter.
-            if (FlagsTree.RootNodes.Any(n => n.Content is FlagNavigationViewModel)) return;
+        // Never rebuild an existing flag node: its label is bound to the live count.
+        if (FlagsTree.RootNodes.Any(n => n.Content is FlagNavigationViewModel)) return;
 
-            FlagsTree.RootNodes.Add(new TreeViewNode { Content = flagNav });
-        });
+        RebuildTree(FlagsTree, () => FlagsTree.RootNodes.Add(new TreeViewNode { Content = flagNav }));
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (ViewModel is null) return;
-        ViewModel.RootFolders.CollectionChanged += (s, args) => RefreshLibraryTree();
-        RefreshLibraryTree();
-        
-        // Initial metadata trees load (don't bind to CollectionChanged to avoid recursion)
-        _ = RefreshDateTreeAsync();
-        _ = RefreshPeopleTreeAsync();
-        _ = RefreshTagsTreeAsync();
-        RefreshFlagTree();
+        if (ViewModel is null || _hasLoaded) return;
+        _hasLoaded = true;
+        try
+        {
+            await App.LibraryInitialization;
+            ViewModel.RootFolders.CollectionChanged += OnRootFoldersChanged;
+            await RefreshAllTreesAsync();
+        }
+        catch (Exception exception)
+        {
+            DebugLog.WriteLine($"Could not restore Browse preferences: {exception}");
+            App.ViewModel!.StatusText = "Could not restore Browse preferences.";
+        }
+        finally
+        {
+            _isInitializing = false;
+        }
+
+        if (NavigationTrees.Any(tree => tree.SelectedNodes.Count > 0))
+            UpdateGridFromSelection();
+        ScheduleSave();
+    }
+
+    private void OnRootFoldersChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        // Coalesce the clear/add sequence: rebuild from the complete watched-folder collection.
+        if (_libraryRefreshQueued) return;
+        _libraryRefreshQueued = true;
+        if (!DispatcherQueue.TryEnqueue(() =>
+        {
+            _libraryRefreshQueued = false;
+            RefreshLibraryTree();
+            if (!_isInitializing) UpdateGridFromSelection();
+        }))
+        {
+            _libraryRefreshQueued = false;
+            DebugLog.WriteLine("The library tree could not be refreshed: the dispatcher is unavailable.");
+        }
     }
 
     private void RefreshLibraryTree()
     {
         if (ViewModel is null) return;
 
-        LibraryTree.RootNodes.Clear();
-
-        // Create "Photo Library" root node
-        var photoLibraryRoot = new TreeViewNode
+        RebuildTree(LibraryTree, () =>
         {
-            Content = "📚 Photo Library",
-            IsExpanded = true
-        };
+            var photoLibraryRoot = new TreeViewNode
+            {
+                Content = "📚 Photo Library",
+                IsExpanded = true
+            };
 
-        // Add root folders under Photo Library
-        foreach (var rootFolder in ViewModel.RootFolders)
-        {
-            var rootNode = BuildFolderNode(rootFolder, isRootFolder: true);
-            photoLibraryRoot.Children.Add(rootNode);
-        }
+            foreach (var rootFolder in ViewModel.RootFolders)
+            {
+                var rootNode = BuildFolderNode(rootFolder, isRootFolder: true);
+                photoLibraryRoot.Children.Add(rootNode);
+            }
 
-        LibraryTree.RootNodes.Add(photoLibraryRoot);
+            LibraryTree.RootNodes.Add(photoLibraryRoot);
+        });
     }
 
     private async Task RefreshDateTreeAsync()
@@ -103,23 +298,19 @@ public sealed partial class FolderNavigationPanel : UserControl
         await App.ViewModel.DateNav.LoadDatesAsync();
         
         // Must update UI on dispatcher queue
-        DispatcherQueue.TryEnqueue(() =>
+        await RunOnDispatcherAsync(() =>
         {
             // Snapshot expansion + selection so editing date taken (or any other refresh trigger)
             // doesn't collapse the user's open year/month and doesn't drop the active filter.
-            var expandedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var selectedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            CollectDateTreeState(DateTree.RootNodes, expandedKeys, selectedKeys);
-
-            DateTree.RootNodes.Clear();
-
-            foreach (var rootNode in App.ViewModel.DateNav.RootNodes)
+            RebuildTree(DateTree, () =>
             {
-                var treeNode = BuildDateNode(rootNode);
-                DateTree.RootNodes.Add(treeNode);
-            }
-
-            RestoreDateTreeState(DateTree.RootNodes, expandedKeys, selectedKeys);
+                foreach (var rootNode in App.ViewModel.DateNav.RootNodes)
+                {
+                    var treeNode = BuildDateNode(rootNode);
+                    DateTree.RootNodes.Add(treeNode);
+                }
+            });
+            if (!_isInitializing) UpdateGridFromSelection();
         });
     }
 
@@ -128,44 +319,6 @@ public sealed partial class FolderNavigationPanel : UserControl
         if (n.IsRoot) return "__root__";
         if (n.Month.HasValue) return $"{n.Year:D4}-{n.Month.Value:D2}";
         return $"{n.Year:D4}";
-    }
-
-    private void CollectDateTreeState(
-        IList<TreeViewNode> nodes,
-        HashSet<string> expanded,
-        HashSet<string> selected)
-    {
-        foreach (var n in nodes)
-        {
-            if (n.Content is DateNodeWrapper w)
-            {
-                var key = GetDateNodeKey(w.DateNode);
-                if (n.IsExpanded) expanded.Add(key);
-                if (DateTree.SelectedNodes.Contains(n)) selected.Add(key);
-            }
-            if (n.Children.Count > 0)
-                CollectDateTreeState(n.Children, expanded, selected);
-        }
-    }
-
-    private void RestoreDateTreeState(
-        IList<TreeViewNode> nodes,
-        HashSet<string> expanded,
-        HashSet<string> selected)
-    {
-        foreach (var n in nodes)
-        {
-            if (n.Content is DateNodeWrapper w)
-            {
-                var key = GetDateNodeKey(w.DateNode);
-                if (expanded.Contains(key))
-                    n.IsExpanded = true;
-                if (selected.Contains(key))
-                    DateTree.SelectedNodes.Add(n);
-            }
-            if (n.Children.Count > 0)
-                RestoreDateTreeState(n.Children, expanded, selected);
-        }
     }
 
     private TreeViewNode BuildDateNode(DateNode dateNode)
@@ -190,52 +343,25 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         await App.ViewModel.PeopleNav.LoadPeopleAsync();
 
-        DispatcherQueue.TryEnqueue(() =>
+        await RunOnDispatcherAsync(() =>
         {
             _isRefreshingPeopleTree = true;
-            bool rootSelected = false;
-            HashSet<long?> selectedIds = [];
             try
             {
-                selectedIds = PeopleTree.SelectedNodes
-                    .Select(node => node.Content)
-                    .OfType<PersonNodeWrapper>()
-                    .Select(wrapper => wrapper.PersonNode.PersonId)
-                    .ToHashSet();
-                rootSelected = PeopleTree.SelectedNodes.Any(
-                    node => node.Content is PersonNodeWrapper { PersonNode.IsRoot: true });
-
-                PeopleTree.SelectedNodes.Clear();
-                PeopleTree.RootNodes.Clear();
-                foreach (var personNode in App.ViewModel.PeopleNav.RootNodes)
+                RebuildTree(PeopleTree, () =>
                 {
-                    PeopleTree.RootNodes.Add(BuildPersonNode(personNode));
-                }
-
-                foreach (var rootNode in PeopleTree.RootNodes)
-                {
-                    if (rootSelected &&
-                        rootNode.Content is PersonNodeWrapper { PersonNode.IsRoot: true })
+                    foreach (var personNode in App.ViewModel.PeopleNav.RootNodes)
                     {
-                        PeopleTree.SelectedNodes.Add(rootNode);
+                        PeopleTree.RootNodes.Add(BuildPersonNode(personNode));
                     }
-
-                    foreach (var child in rootNode.Children)
-                    {
-                        if (child.Content is PersonNodeWrapper wrapper &&
-                            selectedIds.Contains(wrapper.PersonNode.PersonId))
-                        {
-                            PeopleTree.SelectedNodes.Add(child);
-                        }
-                    }
-                }
+                });
             }
             finally
             {
                 _isRefreshingPeopleTree = false;
             }
 
-            if (rootSelected || selectedIds.Any(id => id.HasValue))
+            if (!_isInitializing)
                 UpdateGridFromSelection();
         });
     }
@@ -264,92 +390,29 @@ public sealed partial class FolderNavigationPanel : UserControl
         try
         {
             await App.ViewModel.TagNav.LoadTagsAsync();
-            var completion =
-                new TaskCompletionSource(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!DispatcherQueue.TryEnqueue(() =>
+            await RunOnDispatcherAsync(() =>
             {
                 _isRefreshingTagTree = true;
                 try
                 {
-                    var expandedPaths = new HashSet<string>(
-                        StringComparer.OrdinalIgnoreCase);
-                    var selectedPaths = new HashSet<string>(
-                        StringComparer.OrdinalIgnoreCase);
-                    CollectTagTreeState(
-                        TagsTree.RootNodes,
-                        expandedPaths,
-                        selectedPaths);
-
-                    TagsTree.SelectedNodes.Clear();
-                    TagsTree.RootNodes.Clear();
-                    foreach (var tagNode in App.ViewModel.TagNav.RootTags)
+                    RebuildTree(TagsTree, () =>
                     {
-                        TagsTree.RootNodes.Add(BuildTagNode(tagNode));
-                    }
-
-                    RestoreTagTreeState(
-                        TagsTree.RootNodes,
-                        expandedPaths,
-                        selectedPaths);
-                    completion.SetResult();
-                }
-                catch (Exception exception)
-                {
-                    completion.SetException(exception);
+                        foreach (var tagNode in App.ViewModel.TagNav.RootTags)
+                        {
+                            TagsTree.RootNodes.Add(BuildTagNode(tagNode));
+                        }
+                    });
                 }
                 finally
                 {
                     _isRefreshingTagTree = false;
                 }
-            }))
-            {
-                throw new InvalidOperationException(
-                    "The tag tree could not be refreshed.");
-            }
-
-            await completion.Task;
+                if (!_isInitializing) UpdateGridFromSelection();
+            });
         }
         finally
         {
             _tagRefreshGate.Release();
-        }
-    }
-
-    private void CollectTagTreeState(
-        IList<TreeViewNode> nodes,
-        HashSet<string> expanded,
-        HashSet<string> selected)
-    {
-        foreach (var n in nodes)
-        {
-            if (n.Content is TagNodeWrapper w)
-            {
-                if (n.IsExpanded) expanded.Add(w.TagNode.FullPath);
-                if (TagsTree.SelectedNodes.Contains(n))
-                    selected.Add(w.TagNode.FullPath);
-            }
-            if (n.Children.Count > 0)
-                CollectTagTreeState(n.Children, expanded, selected);
-        }
-    }
-
-    private void RestoreTagTreeState(
-        IList<TreeViewNode> nodes,
-        HashSet<string> expanded,
-        HashSet<string> selected)
-    {
-        foreach (var n in nodes)
-        {
-            if (n.Content is TagNodeWrapper w)
-            {
-                if (expanded.Contains(w.TagNode.FullPath))
-                    n.IsExpanded = true;
-                if (selected.Contains(w.TagNode.FullPath))
-                    TagsTree.SelectedNodes.Add(n);
-            }
-            if (n.Children.Count > 0)
-                RestoreTagTreeState(n.Children, expanded, selected);
         }
     }
 
@@ -495,7 +558,27 @@ public sealed partial class FolderNavigationPanel : UserControl
 
     private void OnLibraryExpanding(TreeView sender, TreeViewExpandingEventArgs args)
     {
-        if (args.Node.Content is not FolderNodeWrapper wrapper || wrapper.FolderNode is null) return;
+        if (!_isRebuildingTree) CaptureTreeState(sender);
+        RealizeFolderChildren(args.Node);
+        if (_isRebuildingTree) return;
+
+        var selectedCount = sender.SelectedNodes.Count;
+        _isRebuildingTree = true;
+        try
+        {
+            RestoreExpansion(sender, args.Node.Children);
+            RestoreChecks(sender, [args.Node]);
+        }
+        finally
+        {
+            _isRebuildingTree = false;
+        }
+        if (selectedCount != sender.SelectedNodes.Count) UpdateGridFromSelection();
+    }
+
+    private static void RealizeFolderChildren(TreeViewNode node)
+    {
+        if (node.Content is not FolderNodeWrapper wrapper) return;
 
         var folderNode = wrapper.FolderNode;
 
@@ -509,12 +592,12 @@ public sealed partial class FolderNavigationPanel : UserControl
             FolderNavigationViewModel.BuildChildNodes(folderNode);
 
             // Rebuild the TreeViewNode children
-            args.Node.Children.Clear();
-            args.Node.HasUnrealizedChildren = false;
+            node.Children.Clear();
+            node.HasUnrealizedChildren = false;
 
             foreach (var child in folderNode.Children)
             {
-                args.Node.Children.Add(BuildFolderNode(child, isRootFolder: false));
+                node.Children.Add(BuildFolderNode(child, isRootFolder: false));
             }
         }
     }
@@ -570,7 +653,9 @@ public sealed partial class FolderNavigationPanel : UserControl
 
     private void UpdateGridFromSelection()
     {
+        if (_isInitializing || _isRebuildingTree) return;
         if (App.ViewModel?.ImageGrid is null) return;
+        ScheduleSave();
 
         // Collect all selected folder paths
         var selectedFolders = new List<string>();
