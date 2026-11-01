@@ -77,6 +77,99 @@ production camera coverage, or an enabled RAW editor is available.
 | Wiener / Richardson-Lucy deconvolution | Inverts an assumed blur kernel, not arbitrary blur. Wiener needs noise regularization; Richardson-Lucy needs iteration limits and noise/ringing control. A line kernel models uniform camera motion; a disk approximates uniform defocus. Moving subjects and depth-varying focus need different kernels/masks. | #78 should first test known-kernel fixtures and bounded iterations. GPU iteration requires intermediate targets and cancellation; FFT-based Wiener adds implementation/dependency cost. Do not relabel a sharpen slider as deblur or infer a universal kernel from it. |
 | Multiscale local contrast | Separate broad illumination from fine detail, then apply bounded gains by scale/tonal range. Can increase halos, noise, and unnatural texture. | Existing clarity is the baseline. A future independent design needs multiple source-space buffers and tonal masks; not equivalent to RAW highlight recovery. No copying of ON1 implementation or UI. |
 
+### #115 bounded multiscale local-contrast comparison: no-go
+
+The test-only prototype does not replace Clarity or add an editor control.
+It cascades source-resolution Gaussian high-pass corrections at 2, 8, and 24
+source pixels, with per-scale gains of 0.15, 0.10, and 0.05 multiplied by a
+bounded 0–1 strength. Each pass adds a bounded detail residual to the current
+image; it is a deliberately small GPU prototype, not a production-quality
+Gaussian/Laplacian pyramid. The residual is computed in the decoded raster's
+normalized, gamma-encoded RGB channels. Rec. 709 luma weights define a smooth
+shadow/highlight gate, while each RGB channel receives its own residual and is
+clamped to [0, 1]. Win2D hard borders are cropped to the input extent. The
+source alpha is passed through unchanged. This raster operation is not RAW
+highlight recovery and does not access unclipped sensor data.
+
+On Windows, run the focused comparison and emit side-by-side PNGs plus metric
+text files with:
+
+```powershell
+$env:PHOTO_LIBRARIAN_LOCAL_CONTRAST_OUTPUT_DIR = Join-Path $env:TEMP 'PhotoLibrarian-LocalContrast'
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.MultiscaleLocalContrastExperimentTests -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests -parallelMode none
+```
+
+The reproducible test compares existing `HighlightsAndShadowsEffect` Clarity
+at 0.50 with the candidate at its maximum bounded strength (1.00), deliberately
+favoring the candidate for detail response. Inputs are generated 192×128
+fixtures: flat noise, color noise, a step edge, fine colored texture, a smooth
+gradient, a four-panel synthetic scene (skin-like smooth shading, hair-like
+strands, foliage-like texture, and text-like strokes), and clipped highlights.
+These are not real photographic crops. The test records a 4-pixel box
+high-pass luminance RMS, flat-region luminance standard deviation, edge
+overshoot, RGB chroma-change proxy, and the number of clipped RGB channels.
+The chroma proxy is the mean absolute change in the two channel differences
+(R−G and G−B), in byte-value units; it is diagnostic, not a perceptual color
+difference. Composite input/Clarity/candidate images were also inspected at
+1:1 for the noise, texture, detail, gradient, and highlight fixtures.
+
+| Generated fixture / measurement | Input | Clarity 0.50 | Candidate 1.00 |
+| --- | ---: | ---: | ---: |
+| Flat-noise high-pass RMS | — | 0.042 | 0.042 |
+| Flat-noise luminance standard deviation (byte scale) | 7.99 | 10.81 | 10.62 |
+| Color-noise high-pass RMS | — | 0.052 | 0.050 |
+| Step-edge high-pass RMS | — | 0.059 | 0.060 |
+| Step-edge maximum overshoot (byte scale) | 0 | 0 | 0 |
+| Fine-texture high-pass RMS | — | 0.077 | 0.074 |
+| Fine-texture mean chroma change | — | 2.006 | 28.528 |
+| Fine-texture clipped RGB channels | 0 | 0 | 12,286 |
+| Synthetic detail-scene high-pass RMS | — | 0.127 | 0.135 |
+| Smooth / strands / foliage / text high-pass RMS | — | 0.025 / 0.076 / 0.094 / 0.225 | 0.026 / 0.078 / 0.099 / 0.240 |
+| Detail-scene mean chroma change | — | 0.385 | 1.561 |
+| Gradient clipped RGB channels | 1 | 1 | 280 |
+| Clipped-highlight high-pass RMS | — | 0.021 | 0.024 |
+| Clipped-highlight clipped RGB channels | 9,644 | 9,066 | 10,170 |
+
+The candidate's small high-pass increase on the synthetic scene comes with
+substantially more channel divergence, clipping, and visible color changes in
+the colored texture and highlight fixtures. Increasing strength does not
+reveal texture hidden by clipped channels. At 1:1, the synthetic face/strand/
+foliage/text collage showed no convincing broad improvement over Clarity;
+fine texture and gradient/highlight changes were less controlled. The noise
+fixture also shows that both methods raise measured luminance variation over
+the input, with no meaningful candidate advantage. Alpha delta was zero on
+the generated transparent fixture.
+
+Warm full-resolution draw-plus-readback medians were measured in three
+separate test invocations. Each invocation warmed once and timed three renders
+per graph; the table reports the median of those three per-invocation
+medians. Measurements used Windows 11 Pro build 26300, .NET SDK 10.0.403,
+Win2D 1.4.0, AMD Ryzen 9 9950X3D, and a system with NVIDIA GeForce RTX 5080
+plus AMD integrated graphics. `CanvasDevice.GetSharedDevice` was used, but
+the selected adapter was not recorded. These measurements do not include
+decoding, graph/target construction, or encoding.
+
+| Source size | Clarity 0.50 | Candidate 0.50 | Process working set after render, Clarity / candidate |
+| ---: | ---: | ---: | ---: |
+| 1024 × 1024 (1.05 MP) | 1.6 ms | 1.8 ms | 133 / 130 MB |
+| 4000 × 3000 (12 MP) | 13.8 ms | 15.4 ms | 276 / 277 MB |
+| 6000 × 4000 (24 MP) | 27.1 ms | 29.4 ms | 624 / 577 MB |
+
+Working set is a post-render process snapshot, not peak memory or GPU
+allocation; the variation is not evidence of lower candidate memory use. The
+candidate's median was about 13% slower at 1 MP, 12% slower at 12 MP, and 9%
+slower at 24 MP. Individual run medians varied, so this is a directional
+single-machine, single-shared-device comparison, not a latency guarantee; it
+does not establish integrated-GPU or ARM64 behavior.
+
+**Decision:** no-go. The generated-screen comparison does not show a robust
+quality advantage over Clarity. The candidate's narrow detail response is
+paired with markedly worse color/clipping behavior and higher full-resolution
+cost, and no real-photo crop review is available to justify a new user-facing
+control. Keep the existing Clarity behavior unchanged; the prototype remains
+test-only and is not included in the application pipeline or package. No app
+recipe, XMP, history, default, RAW, or renderer behavior is changed.
+
 The intended RGB order for the first implementations is decode/orient,
 denoise/deblur, existing tone/color controls, sharpening, then rotation.
 New detail stages need explicit neutral bypasses. Existing edits with no new

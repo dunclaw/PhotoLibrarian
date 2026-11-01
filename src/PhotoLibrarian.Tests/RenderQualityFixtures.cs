@@ -12,7 +12,9 @@ internal enum RenderQualityFixtureKind
     Edge,
     FineTexture,
     Gradient,
-    KnownBlur
+    KnownBlur,
+    DetailScene,
+    ClippedHighlight
 }
 
 internal static class RenderQualityFixtures
@@ -47,6 +49,14 @@ internal static class RenderQualityFixtures
                         Scale((uint)y, height),
                         Scale((uint)(x + y), width + height - 2)),
                     RenderQualityFixtureKind.KnownBlur => (0, 0, 0),
+                    RenderQualityFixtureKind.DetailScene =>
+                        DetailScenePixel(x, y, (int)width, (int)height),
+                    RenderQualityFixtureKind.ClippedHighlight =>
+                        x < width / 2
+                            ? Noisy(random, 251, 247, 239, 18)
+                            : (Scale((uint)(x - width / 2), Math.Max(1, width - width / 2)) / 5 + 204,
+                               Scale((uint)(x - width / 2), Math.Max(1, width - width / 2)) / 5 + 204,
+                               Scale((uint)(x - width / 2), Math.Max(1, width - width / 2)) / 5 + 204),
                     _ => throw new ArgumentOutOfRangeException(nameof(kind))
                 };
 
@@ -121,6 +131,35 @@ internal static class RenderQualityFixtures
 
     private static int Scale(uint value, uint maximum) =>
         maximum == 0 ? 0 : (int)(255L * value / maximum);
+
+    private static (int R, int G, int B) DetailScenePixel(int x, int y, int width, int height)
+    {
+        var sectionWidth = Math.Max(1, width / 4);
+        var section = Math.Min(3, x / sectionWidth);
+        var localX = x - section * sectionWidth;
+        var localY = y;
+        switch (section)
+        {
+            case 0:
+                var skinWave = (int)(7 * Math.Sin(localX * 0.08) + 5 * Math.Sin(localY * 0.11));
+                return (Clamp(187 + skinWave), Clamp(132 + skinWave), Clamp(105 + skinWave));
+            case 1:
+                var strand = Math.Sin(localX * 0.32 + Math.Sin(localY * 0.04) * 2);
+                var hair = strand > 0.18 ? 96 : 45;
+                return (Clamp(hair + 18), Clamp(hair + 4), Clamp(hair));
+            case 2:
+                var leaf = Math.Sin(localX * 0.17) * Math.Cos(localY * 0.19) +
+                           Math.Sin((localX + localY) * 0.31) * 0.35;
+                return leaf > 0.25 ? (86, 143, 57) : (37, 82, 39);
+            default:
+                var cellX = localX % 24;
+                var cellY = localY % 30;
+                var textStroke = cellX is >= 4 and <= 6 &&
+                                 (cellY is >= 5 and <= 24 || cellY is >= 5 and <= 7 ||
+                                  cellY is >= 14 and <= 16 || cellY is >= 22 and <= 24);
+                return textStroke ? (31, 31, 31) : (230, 222, 201);
+        }
+    }
 
     private static int Clamp(int value) => Math.Clamp(value, 0, 255);
 
