@@ -345,8 +345,16 @@ public sealed partial class MainWindow : Window
     /// While the full viewer is open, route its shortcuts to it even if keyboard focus is
     /// still on the (hidden) grid, so navigation works immediately after opening.
     /// </summary>
-    private void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
+        {
+            var editorFocus = Content?.XamlRoot is { } editorRoot
+                ? FocusManager.GetFocusedElement(editorRoot) as DependencyObject
+                : null;
+            await EditorOverlay.HandleEditorKeyAsync(e, editorFocus);
+            return;
+        }
         if (!ViewModel.ImageViewer.IsOpen
             || ViewModel.Settings.IsOpen
             || ViewModel.PeopleReview.IsOpen

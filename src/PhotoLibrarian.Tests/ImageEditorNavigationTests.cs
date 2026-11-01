@@ -5,6 +5,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ML.Services;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
 using System.Xml.Linq;
 using Xunit;
 
@@ -451,5 +452,23 @@ public sealed class ImageEditorNavigationTests : IDisposable
             Assert.False(string.IsNullOrEmpty((string?)button.Attribute("AutomationProperties.Name")));
             Assert.NotNull(button.Attribute("Click"));
         }
+    }
+
+    [Theory]
+    [InlineData(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.None, false, -1)]
+    [InlineData(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.None, false, 1)]
+    [InlineData(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.None, true, 0)]
+    [InlineData(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.None, true, 0)]
+    [InlineData(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.Control, false, 0)]
+    [InlineData(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.Shift, false, 0)]
+    [InlineData(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.Menu, false, 0)]
+    [InlineData(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.Windows, false, 0)]
+    [InlineData(Windows.System.VirtualKey.Up, Windows.System.VirtualKeyModifiers.None, false, 0)]
+    [InlineData(Windows.System.VirtualKey.Down, Windows.System.VirtualKeyModifiers.None, false, 0)]
+    public void ArrowNavigation_MatchesViewerDirectionsButPreservesInputsAndModifiedKeys(
+        Windows.System.VirtualKey key, Windows.System.VirtualKeyModifiers modifiers, bool isEditingControl,
+        int expectedDirection)
+    {
+        Assert.Equal(expectedDirection, ImageEditorView.GetArrowNavigationDirection(key, modifiers, isEditingControl));
     }
 }

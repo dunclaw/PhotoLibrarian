@@ -86,6 +86,51 @@ public sealed partial class ImageEditorView : UserControl
         });
     }
 
+    public static int GetArrowNavigationDirection(Windows.System.VirtualKey key,
+        Windows.System.VirtualKeyModifiers modifiers, bool isEditingControl)
+    {
+        if (isEditingControl || modifiers != Windows.System.VirtualKeyModifiers.None) return 0;
+        return key switch
+        {
+            Windows.System.VirtualKey.Left => -1,
+            Windows.System.VirtualKey.Right => 1,
+            _ => 0
+        };
+    }
+
+    public async Task HandleEditorKeyAsync(KeyRoutedEventArgs args, DependencyObject? focused)
+    {
+        if (Visibility != Visibility.Visible || ViewModel?.IsOpen != true) return;
+        if (args.Key is not (Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)) return;
+        var isEditingControl = false;
+        for (var current = focused; current is not null; current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current))
+        {
+            if (current is Slider or TextBox or PasswordBox or AutoSuggestBox or ComboBox or NumberBox or ContentDialog)
+            {
+                isEditingControl = true;
+                break;
+            }
+        }
+        var modifiers = Windows.System.VirtualKeyModifiers.None;
+        foreach (var (modifierKey, modifier) in new[]
+        {
+            (Windows.System.VirtualKey.Control, Windows.System.VirtualKeyModifiers.Control),
+            (Windows.System.VirtualKey.Shift, Windows.System.VirtualKeyModifiers.Shift),
+            (Windows.System.VirtualKey.Menu, Windows.System.VirtualKeyModifiers.Menu),
+            (Windows.System.VirtualKey.LeftWindows, Windows.System.VirtualKeyModifiers.Windows),
+            (Windows.System.VirtualKey.RightWindows, Windows.System.VirtualKeyModifiers.Windows)
+        })
+        {
+            if ((InputKeyboardSource.GetKeyStateForCurrentThread(modifierKey) &
+                Windows.UI.Core.CoreVirtualKeyStates.Down) != 0)
+                modifiers |= modifier;
+        }
+        var direction = GetArrowNavigationDirection(args.Key, modifiers, isEditingControl);
+        if (direction == 0) return;
+        args.Handled = true;
+        await NavigateAsync(direction);
+    }
+
     private void AddZoomAccelerator(Windows.System.VirtualKey key, Action action)
     {
         var accelerator = new KeyboardAccelerator
