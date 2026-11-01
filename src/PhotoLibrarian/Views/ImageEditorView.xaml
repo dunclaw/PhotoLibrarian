@@ -33,6 +33,17 @@
                            TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <Button x:Name="PreviousBtn" Click="OnPrevious" Padding="8"
+                            AutomationProperties.Name="Previous photo" AutomationProperties.AutomationId="EditorPrevious"
+                            ToolTipService.ToolTip="Previous photo (Left arrow; Ctrl+Page Up)">
+                        <FontIcon Glyph="&#xE76B;" FontSize="14" />
+                    </Button>
+                    <Button x:Name="NextBtn" Click="OnNext" Padding="8"
+                            AutomationProperties.Name="Next photo" AutomationProperties.AutomationId="EditorNext"
+                            ToolTipService.ToolTip="Next photo (Right arrow; Ctrl+Page Down)">
+                        <FontIcon Glyph="&#xE76C;" FontSize="14" />
+                    </Button>
+                    <AppBarSeparator />
                     <SplitButton x:Name="UndoBtn" Click="OnUndo" IsEnabled="False"
                                  AutomationProperties.Name="Undo edit" AutomationProperties.AutomationId="EditorUndo"
                                  ToolTipService.ToolTip="Undo edit">

@@ -295,6 +295,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void TryFocusViewer()
     {
+        if (App.ViewModel?.ImageEditor.IsOpen == true) return;
         if (ViewModel?.IsOpen != true || Visibility != Visibility.Visible) return;
         if (HasFocusWithin()) return;
         Focus(FocusState.Programmatic);
