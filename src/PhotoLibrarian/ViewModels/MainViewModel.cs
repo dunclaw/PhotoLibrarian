@@ -40,6 +40,7 @@ public partial class MainViewModel : ObservableObject
     public PeopleNavigationViewModel PeopleNav { get; }
     public TagNavigationViewModel TagNav { get; }
     public FlagNavigationViewModel FlagNav { get; }
+    public NotTaggedNavigationViewModel NotTaggedNav { get; }
     public ImageGridViewModel ImageGrid { get; }
     public ImageViewerViewModel ImageViewer { get; }
     public ImageEditorViewModel ImageEditor { get; }
@@ -122,6 +123,7 @@ public partial class MainViewModel : ObservableObject
         PeopleNav = new PeopleNavigationViewModel(faceRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
         FlagNav = new FlagNavigationViewModel(imageRepo);
+        NotTaggedNav = new NotTaggedNavigationViewModel(tagRepo);
         var searchRepo = new ImageSearchRepository(db);
         ImageGrid = new ImageGridViewModel(
             imageRepo,
@@ -209,6 +211,7 @@ public partial class MainViewModel : ObservableObject
         await _db.InitializeAsync();
         await FolderNav.LoadWatchedFoldersAsync();
         await FlagNav.LoadAsync();
+        await NotTaggedNav.LoadAsync();
         
         // Don't load images on startup - wait for user to select a folder
         // This prevents showing all 535 indexed images in random order
@@ -888,7 +891,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task RefreshTagsTreeAsync()
     {
-        if (ImageGrid.Refinement.RequiresTags)
+        if (ImageGrid.RequiresTagData)
             await ImageGrid.LoadImagesAsync();
 
         if (App.MainWindow is MainWindow window)
@@ -898,6 +901,7 @@ public partial class MainViewModel : ObservableObject
         else
         {
             await TagNav.LoadTagsAsync();
+            await NotTaggedNav.LoadAsync();
         }
     }
 
@@ -1107,6 +1111,7 @@ public partial class MainViewModel : ObservableObject
         await PeopleNav.LoadPeopleAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
+        await NotTaggedNav.LoadAsync();
         StartBackgroundFaceDetection();
         StartBackgroundAutoTagging();
         

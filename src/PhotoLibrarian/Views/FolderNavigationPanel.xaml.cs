@@ -43,7 +43,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         this.Unloaded += OnUnloaded;
     }
 
-    private TreeView[] NavigationTrees => [LibraryTree, DateTree, PeopleTree, TagsTree, FlagsTree];
+    private TreeView[] NavigationTrees => [LibraryTree, DateTree, PeopleTree, TagsTree, NotTaggedTree, FlagsTree];
 
     private static string GetNodeKey(TreeViewNode node) => node.Content switch
     {
@@ -54,6 +54,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         TagNodeWrapper { TagNode.IsRoot: true } => "root",
         TagNodeWrapper wrapper => $"tag:{wrapper.TagNode.FullPath}",
         FlagNavigationViewModel => "flagged",
+        NotTaggedNavigationViewModel => NotTaggedNavigationViewModel.NodeKey,
         _ => "root"
     };
 
@@ -390,6 +391,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         try
         {
             await App.ViewModel.TagNav.LoadTagsAsync();
+            await App.ViewModel.NotTaggedNav.LoadAsync();
             await RunOnDispatcherAsync(() =>
             {
                 _isRefreshingTagTree = true;
@@ -402,6 +404,7 @@ public sealed partial class FolderNavigationPanel : UserControl
                             TagsTree.RootNodes.Add(BuildTagNode(tagNode));
                         }
                     });
+                    RefreshNotTaggedTreeCore();
                 }
                 finally
                 {
@@ -414,6 +417,17 @@ public sealed partial class FolderNavigationPanel : UserControl
         {
             _tagRefreshGate.Release();
         }
+    }
+
+    private void RefreshNotTaggedTreeCore()
+    {
+        var notTaggedNav = App.ViewModel?.NotTaggedNav;
+        if (notTaggedNav is null ||
+            NotTaggedTree.RootNodes.Any(n => n.Content is NotTaggedNavigationViewModel))
+            return;
+
+        RebuildTree(NotTaggedTree, () =>
+            NotTaggedTree.RootNodes.Add(new TreeViewNode { Content = notTaggedNav }));
     }
 
     private static TreeViewNode BuildTagNode(TagNode tagNode)
@@ -737,10 +751,12 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         // Flagged working set
         bool flaggedSelected = FlagsTree.SelectedNodes.Any(n => n.Content is FlagNavigationViewModel);
+        bool notTaggedSelected = NotTaggedTree.SelectedNodes.Any(
+            n => n.Content is NotTaggedNavigationViewModel);
 
         // If nothing selected anywhere, clear filters to show empty grid
         if (!photoLibraryRootSelected && !dateRootSelected && !peopleRootSelected &&
-            !tagRootSelected && !flaggedSelected &&
+            !tagRootSelected && !flaggedSelected && !notTaggedSelected &&
             selectedFolders.Count == 0 && selectedYears.Count == 0 && 
             selectedMonths.Count == 0 && selectedPeople.Count == 0 &&
             selectedTags.Count == 0)
@@ -767,7 +783,8 @@ public sealed partial class FolderNavigationPanel : UserControl
             selectedPeople.Count > 0 ? selectedPeople : null,
             tagRootSelected,
             selectedTags.Count > 0 ? selectedTags : null,
-            flaggedSelected);
+            flaggedSelected,
+            notTaggedSelected);
     }
 
     // ============================================================================

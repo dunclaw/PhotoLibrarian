@@ -74,6 +74,7 @@ public partial class ImageGridViewModel : ObservableObject
     private bool _currentTagRootSelected; // Root "Tags" node selected (show all tagged images)
     private List<string>? _currentTagFilters;
     private bool _currentFlaggedSelected; // "Flagged" node selected (show flagged working set)
+    private bool _currentNotTaggedSelected;
     private string _searchText = "";
     private IReadOnlyList<ImageEntry> _searchScope = [];
     private int _groupingVersion;
@@ -97,6 +98,7 @@ public partial class ImageGridViewModel : ObservableObject
     public ObservableCollection<ImageThumbnailViewModel> Images { get; } = [];
     public ObservableCollection<PhotoGroup> GroupedImages { get; } = [];
     public ImageRefinementFilter Refinement { get; private set; } = ImageRefinementFilter.Empty;
+    public bool RequiresTagData => Refinement.RequiresTags || _currentNotTaggedSelected;
 
     public event EventHandler? ResultsChanged;
     public event EventHandler? SelectionRestoreRequested;
@@ -245,7 +247,7 @@ public partial class ImageGridViewModel : ObservableObject
         var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending);
         if (ct.IsCancellationRequested) return;
         var searchText = _searchText;
-        var tagsByImageId = Refinement.RequiresTags
+        var tagsByImageId = RequiresTagData
             ? await _tagRepo.GetTagsByImageIdAsync()
             : null;
         bool hasPeopleFilter = _currentPeopleRootSelected ||
@@ -279,7 +281,8 @@ public partial class ImageGridViewModel : ObservableObject
 
         // If no filters active, show nothing
         if (!hasFolderFilter && !hasDateFilter && !hasPeopleFilter &&
-            !hasTagFilter && !hasFlagFilter && _revealedExportPath is null)
+            !hasTagFilter && !hasFlagFilter && !_currentNotTaggedSelected &&
+            _revealedExportPath is null)
         {
             _searchScope = [];
             DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
@@ -308,7 +311,7 @@ public partial class ImageGridViewModel : ObservableObject
         DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {allImages.Count}, FolderFilters: {folderFilters?.Count ?? 0}, DateFilters: {hasDateFilter}, TagFilters: {hasTagFilter}");
         DebugLog.WriteLine(
             "  UNION logic: Show images matching ANY filter " +
-            "(folder OR date OR people OR tag OR flag)");
+            "(folder OR date OR people OR tag OR flag OR not tagged)");
 
         int matchCount = 0;
         int skipCount = 0;
@@ -382,8 +385,8 @@ public partial class ImageGridViewModel : ObservableObject
             tagsByImageId?.TryGetValue(img.Id, out imageTags);
             personIdsByImageId?.TryGetValue(img.Id, out imagePersonIds);
 
-            if (matchesAnyFilter &&
-                Refinement.Matches(img, imageTags, imagePersonIds))
+            if (MatchesNavigationAndRefinement(img, matchesAnyFilter,
+                _currentNotTaggedSelected, Refinement, imageTags, imagePersonIds))
             {
                 searchScope.Add(img);
                 matchCount++;
@@ -983,6 +986,19 @@ public partial class ImageGridViewModel : ObservableObject
         // });
     }
 
+    internal static bool MatchesNavigationAndRefinement(
+        ImageEntry image,
+        bool matchesOtherNavigation,
+        bool notTaggedSelected,
+        ImageRefinementFilter refinement,
+        IReadOnlyCollection<string>? tags,
+        IReadOnlyCollection<long>? personIds = null)
+    {
+        bool matchesNavigation = matchesOtherNavigation ||
+            (notTaggedSelected && ImageRefinementFilter.IsUntagged(tags));
+        return matchesNavigation && refinement.Matches(image, tags, personIds);
+    }
+
     public async Task FilterByMultipleCriteriaAsync(
         List<string>? folderPaths,
         bool dateRootSelected,
@@ -992,11 +1008,12 @@ public partial class ImageGridViewModel : ObservableObject
         List<long>? personIds,
         bool tagRootSelected,
         List<string>? tags,
-        bool flaggedSelected = false)
+        bool flaggedSelected = false,
+        bool notTaggedSelected = false)
     {
         _revealedExportPath = null;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, people={personIds?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}");
+        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, people={personIds?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}, notTagged={notTaggedSelected}");
         
         // Pause background indexing while user is browsing
         _main.PauseBackgroundIndexing();
@@ -1010,6 +1027,7 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagRootSelected = tagRootSelected;
         _currentTagFilters = tags;
         _currentFlaggedSelected = flaggedSelected;
+        _currentNotTaggedSelected = notTaggedSelected;
         
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
         await LoadImagesAsync();
@@ -1366,6 +1384,7 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagRootSelected = false;
         _currentTagFilters = null;
         _currentFlaggedSelected = false;
+        _currentNotTaggedSelected = false;
         _searchScope = [];
         Refinement = ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));
