@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.Core.Models;
 
 public enum RatingFilterMode
@@ -142,7 +143,7 @@ public sealed record ImageRefinementFilter
             }
         }
 
-        if (MissingMetadata.HasFlag(MissingMetadataFilter.Tags) && tags.Count > 0)
+        if (MissingMetadata.HasFlag(MissingMetadataFilter.Tags) && !IsUntagged(tags))
             return false;
 
         if (MissingMetadata.HasFlag(MissingMetadataFilter.Rating) &&
@@ -166,6 +167,9 @@ public sealed record ImageRefinementFilter
 
         return true;
     }
+
+    public static bool IsUntagged(IReadOnlyCollection<string>? tags) =>
+        tags is null || tags.Count == 0;
 
     public static string NormalizeExtension(string extension)
     {

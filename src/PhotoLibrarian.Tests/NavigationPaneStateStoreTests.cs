@@ -22,6 +22,8 @@ public sealed class NavigationPaneStateStoreTests : IDisposable
         state.SetNode("PeopleTree", "person:42", new(false, true));
         state.SetNode("TagsTree", "tag:Places/Beach", new(true, false));
         state.SetNode("FlagsTree", "flagged", new(false, true));
+        state.SetNode("NotTaggedTree", PhotoLibrarian.ViewModels.NotTaggedNavigationViewModel.NodeKey,
+            new(false, true));
         store.Save(state);
 
         var reloaded = new NavigationPaneStateStore(SettingsPath).Load();
@@ -43,6 +45,8 @@ public sealed class NavigationPaneStateStoreTests : IDisposable
         Assert.Empty(state.Trees);
         Assert.Null(state.GetNode("LibraryTree", "root"));
         Assert.Null(state.GetNode("PeopleTree", "root"));
+        Assert.Null(state.GetNode("NotTaggedTree",
+            PhotoLibrarian.ViewModels.NotTaggedNavigationViewModel.NodeKey));
     }
 
     [Theory]

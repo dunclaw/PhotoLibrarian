@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Models;
 
@@ -144,6 +145,21 @@ public sealed class TagRepository : IAutoTagStore
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Library-wide count of items with no tag rows, regardless of tag source or hierarchy.
+    /// This is the indexed equivalent of ImageRefinementFilter.IsUntagged.
+    /// </summary>
+    public async Task<int> GetNotTaggedCountAsync()
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*) FROM images
+            WHERE NOT EXISTS (SELECT 1 FROM tags WHERE tags.image_id = images.id)
+            """;
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
 
     public async Task<List<ImageEntry>> GetImagesNeedingAutoTagsAsync(
