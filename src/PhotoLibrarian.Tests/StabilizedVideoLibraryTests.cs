@@ -114,7 +114,9 @@ public sealed class StabilizedVideoLibraryTests
             Main = new MainViewModel(_database, Images, tags, faces, scanner, reader, _indexer,
                 new OriginalBackupService(Path.Combine(Root, "backups")), pipeline, review, sessions,
                 new AutoTaggingSettingsStore(Path.Combine(Root, "settings.json")), models,
-                new AutoTagBenchmarkProcessor(models, tagger), activity);
+                new AutoTagBenchmarkProcessor(models, tagger),
+                new SelectedPhotoAutoTagReviewProcessor(models, tagger),
+                activity);
         }
 
         public static async Task<LibraryFixture> CreateAsync()

@@ -17,6 +17,7 @@ public sealed partial class ImageGridView : UserControl
     private ImageGridViewModel? ViewModel => App.ViewModel?.ImageGrid;
     public event RoutedEventHandler? PeopleReviewRequested;
     public event RoutedEventHandler? DuplicateReviewRequested;
+    public event RoutedEventHandler? AutoTagReviewRequested;
     private bool _isInitialized;
     private bool _isExporting;
 
@@ -31,6 +32,9 @@ public sealed partial class ImageGridView : UserControl
 
     private void OnDuplicateReviewClick(object sender, RoutedEventArgs e) =>
         DuplicateReviewRequested?.Invoke(sender, e);
+
+    private void OnAutoTagReviewClick(object sender, RoutedEventArgs e) =>
+        AutoTagReviewRequested?.Invoke(sender, e);
 
     /// <summary>Highlights the given face's rectangle over its image's grid thumbnail, if
     /// currently rendered. Pass null to clear. Forwarded from the Browse panel on hover.</summary>
@@ -88,6 +92,7 @@ public sealed partial class ImageGridView : UserControl
         ViewModel.ResultsChanged += OnResultsChanged;
         ViewModel.SelectionRestoreRequested += OnSelectionRestoreRequested;
         InitializeRefinementControls(ViewModel.Refinement);
+        UpdateAutoTagReviewButton();
         await RefreshPeopleAsync();
         UpdateActiveFilterChips();
     }
@@ -159,7 +164,17 @@ public sealed partial class ImageGridView : UserControl
                 ViewModel.SelectedImages,
                 ViewModel.SelectedImage,
                 scrollIntoView);
+            UpdateAutoTagReviewButton();
         });
+    }
+
+    private void UpdateAutoTagReviewButton()
+    {
+        AutoTagReviewButton.IsEnabled =
+            ViewModel is { } viewModel &&
+            (viewModel.SelectedImages.Any(
+                 image => image.Entry.MediaType == MediaType.Image) ||
+             viewModel.SelectedImage?.Entry.MediaType == MediaType.Image);
     }
 
     private void OnDatePresetChanged(object sender, SelectionChangedEventArgs e)
@@ -478,6 +493,7 @@ public sealed partial class ImageGridView : UserControl
     {
         if (ViewModel is null) return;
         ViewModel.UpdateSelection(selected, PhotoGrid.PrimaryItem);
+        UpdateAutoTagReviewButton();
     }
 
     private void OnFlagToggleRequested(object? sender, EventArgs e)

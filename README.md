@@ -36,6 +36,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - **Grid-header review actions** use the photos currently displayed: people review limits face candidates to that set; **Find duplicates** finds exact and possible resized/re-encoded matches to those photos anywhere in the library. Hover the icon buttons for tooltips. Duplicate hashes are cached for repeat scans, and every removal requires an explicit keeper choice and confirmation. See [duplicate detection limits and review safety](docs/DUPLICATE-DETECTION.md).
 - 🔄 **Watched-folder updates** detect Explorer copies, edits, and deletions automatically; filesystem events are batched and only affected files are re-indexed.
 - 🧠 **Opt-in local automatic content tags** with pluggable, checksum-pinned ONNX model profiles. A profile must be benchmarked and explicitly approved before generated labels can enter the distinct `Auto` tag hierarchy.
+- **Review automatic tags for selected photos** from the grid toolbar. Suggestions run locally for the captured selection; check or uncheck each suggestion, then choose **Apply accepted tags** to save. Generating suggestions does not change the library or photo metadata, and the background auto-tagging setting remains off unless you enable it separately.
 
 ---
 
