@@ -307,6 +307,12 @@
                     <TextBlock Text="Information" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" />
 
                     <StackPanel Spacing="6">
+                        <InfoBar x:Name="VideoMetadataErrorBar"
+                                 x:Uid="MetadataVideoErrorBar"
+                                 AutomationProperties.AutomationId="MetadataVideoErrorBar"
+                                 IsOpen="False"
+                                 IsClosable="False"
+                                 Severity="Error" />
                         <Grid ColumnSpacing="4">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Filename:" Style="{StaticResource InfoLabelStyle}" />
@@ -379,6 +385,46 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Dimensions:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoDimensions" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoTitleRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoTitleLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoTitle" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoDurationRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoDurationLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoDuration" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoBitrateRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoBitrateLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoBitrate" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoFrameRateRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoFrameRateLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoFrameRate" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoCodecRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoCodecLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoCodec" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoAlbumRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoAlbumLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoAlbum" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoYearRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoYearLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoYear" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoDateEncodedRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoDateEncodedLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoDateEncoded" Style="{StaticResource InfoValueStyle}" />
                         </Grid>
                         <Grid x:Name="InfoCameraRow">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>

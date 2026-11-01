@@ -65,6 +65,22 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.FolderPath):
                 DispatcherQueue.TryEnqueue(UpdateDisplay);
                 break;
+            case nameof(MetadataPanelViewModel.VideoTitle):
+            case nameof(MetadataPanelViewModel.VideoDuration):
+            case nameof(MetadataPanelViewModel.VideoBitrate):
+            case nameof(MetadataPanelViewModel.VideoFrameRate):
+            case nameof(MetadataPanelViewModel.VideoCodec):
+            case nameof(MetadataPanelViewModel.VideoAlbum):
+            case nameof(MetadataPanelViewModel.VideoYear):
+            case nameof(MetadataPanelViewModel.VideoDateEncoded):
+            case nameof(MetadataPanelViewModel.VideoMetadataError):
+            case nameof(MetadataPanelViewModel.Dimensions):
+            case nameof(MetadataPanelViewModel.Author):
+            case nameof(MetadataPanelViewModel.Camera):
+            case nameof(MetadataPanelViewModel.GpsLatitude):
+            case nameof(MetadataPanelViewModel.GpsLongitude):
+                DispatcherQueue.TryEnqueue(UpdateVideoDetailsDisplay);
+                break;
             case nameof(MetadataPanelViewModel.CommonDateTaken):
             case nameof(MetadataPanelViewModel.IsDateMixed):
                 DispatcherQueue.TryEnqueue(RefreshDateDisplay);
@@ -158,7 +174,6 @@ public sealed partial class MetadataPanel : UserControl
         InfoFileName.Text = ViewModel.FileName;
         InfoFolder.Text = !string.IsNullOrEmpty(ViewModel.FolderPath) ? ViewModel.FolderPath : "—";
         InfoFileSize.Text = ViewModel.FileSize;
-        InfoDimensions.Text = !string.IsNullOrEmpty(ViewModel.Dimensions) ? ViewModel.Dimensions : "—";
         InfoCamera.Text = !string.IsNullOrEmpty(ViewModel.Camera) ? ViewModel.Camera : "—";
         InfoAuthor.Text = !string.IsNullOrEmpty(ViewModel.Author) ? ViewModel.Author : "Add an author";
         InfoExposure.Text = ViewModel.Exposure;
@@ -183,10 +198,45 @@ public sealed partial class MetadataPanel : UserControl
         InfoIsoRow.Visibility = string.IsNullOrEmpty(ViewModel.Iso) ? Visibility.Collapsed : Visibility.Visible;
         InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
         InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
-        InfoDimensionsRow.Visibility = string.IsNullOrEmpty(ViewModel.Dimensions) ? Visibility.Collapsed : Visibility.Visible;
+        UpdateVideoDetailsDisplay();
 
         UpdateStars();
         UpdateFlag();
+    }
+
+    private void UpdateVideoDetailsDisplay()
+    {
+        if (ViewModel is null) return;
+
+        InfoDimensions.Text = !string.IsNullOrEmpty(ViewModel.Dimensions) ? ViewModel.Dimensions : "—";
+        InfoDimensionsRow.Visibility = string.IsNullOrEmpty(ViewModel.Dimensions) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoTitle.Text = ViewModel.VideoTitle;
+        InfoVideoTitleRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoTitle) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoDuration.Text = ViewModel.VideoDuration;
+        InfoVideoDurationRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoDuration) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoBitrate.Text = ViewModel.VideoBitrate;
+        InfoVideoBitrateRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoBitrate) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoFrameRate.Text = ViewModel.VideoFrameRate;
+        InfoVideoFrameRateRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoFrameRate) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoCodec.Text = ViewModel.VideoCodec;
+        InfoVideoCodecRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoCodec) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoAlbum.Text = ViewModel.VideoAlbum;
+        InfoVideoAlbumRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoAlbum) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoYear.Text = ViewModel.VideoYear;
+        InfoVideoYearRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoYear) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoDateEncoded.Text = ViewModel.VideoDateEncoded;
+        InfoVideoDateEncodedRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoDateEncoded) ? Visibility.Collapsed : Visibility.Visible;
+        InfoAuthor.Text = !string.IsNullOrEmpty(ViewModel.Author) ? ViewModel.Author : "Add an author";
+        InfoCamera.Text = !string.IsNullOrEmpty(ViewModel.Camera) ? ViewModel.Camera : "—";
+        InfoCameraRow.Visibility = string.IsNullOrEmpty(ViewModel.Camera) ? Visibility.Collapsed : Visibility.Visible;
+        InfoLatitude.Text = ViewModel.GpsLatitude;
+        InfoLongitude.Text = ViewModel.GpsLongitude;
+        InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
+        InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
+        if (!string.IsNullOrEmpty(ViewModel.GpsLatitude) && ViewModel.GpsLatitude != "Multiple values")
+            GeotagText.Text = $"{ViewModel.GpsLatitude}, {ViewModel.GpsLongitude}";
+        VideoMetadataErrorBar.Message = ViewModel.VideoMetadataError;
+        VideoMetadataErrorBar.IsOpen = !string.IsNullOrEmpty(ViewModel.VideoMetadataError);
     }
 
     private void OnCopyFileNameClick(object sender, RoutedEventArgs e) =>
@@ -354,6 +404,9 @@ public sealed partial class MetadataPanel : UserControl
     private void RefreshDateDisplay()
     {
         if (ViewModel is null) return;
+        if (DateTakenBox.FocusState != FocusState.Unfocused &&
+            !string.Equals(DateTakenBox.Text, _lastLoadedDateText, StringComparison.Ordinal))
+            return;
 
         _suppressDateBoxLostFocus = true;
         if (ViewModel.IsDateMixed)
