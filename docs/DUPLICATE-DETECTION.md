@@ -12,6 +12,10 @@ information pane. Review actions are no longer in the status bar.
 
 Duplicate scanning is local and cancellable, reports files that could not be
 read or changed, and excludes video. An empty grid starts no library scan.
+Diagnostics refer to the exact indexed path, including locations outside the
+displayed folder. Expand **Scan diagnostic paths** to inspect or copy paths;
+a same-named file in another folder is not the same indexed entry. Missing
+files, unavailable folders/drives, and access errors are distinguished.
 
 Exact candidates are grouped by a full SHA-256 content hash, calculated only
 for files whose byte lengths match a displayed seed photo. This avoids reading

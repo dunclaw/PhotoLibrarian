@@ -17,7 +17,8 @@
   <data name="DuplicateNoCandidates" xml:space="preserve"><value>No duplicate candidates were found.</value></data>
   <data name="DuplicateScanSummary" xml:space="preserve"><value>{0} exact groups and {1} near-match candidates found.</value></data>
   <data name="DuplicateLimitWarning" xml:space="preserve"><value>A comparison or decoding safety limit was reached; near-match results may be incomplete.</value></data>
-  <data name="DuplicateDiagnosticsSummary" xml:space="preserve"><value>{0} photo(s) could not be fully scanned:{1}</value></data>
+  <data name="DuplicateDiagnosticsSummary" xml:space="preserve"><value>{0} indexed path(s) could not be fully scanned. These include library locations outside the displayed folder. Expand details to check the exact paths; no files were removed.</value></data>
+  <data name="DuplicateDiagnosticDetails.Header" xml:space="preserve"><value>Scan diagnostic paths</value></data>
   <data name="DuplicateDiagnosticItem" xml:space="preserve"><value>{0}: {1}</value></data>
   <data name="DuplicateAdditionalDiagnostics" xml:space="preserve"><value>{0} additional diagnostic(s) omitted.</value></data>
   <data name="DuplicateScanCanceled" xml:space="preserve"><value>Duplicate scan canceled.</value></data>

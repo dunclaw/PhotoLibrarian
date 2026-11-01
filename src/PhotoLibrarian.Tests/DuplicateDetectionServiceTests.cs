@@ -13,6 +13,46 @@ namespace PhotoLibrarian.Tests;
 public sealed class DuplicateDetectionServiceTests
 {
     [Fact]
+    public async Task ScanDiagnostics_DistinguishSameNameAtDifferentIndexedPaths()
+    {
+        var directory = CreateTestDirectory();
+        try
+        {
+            var existing = Path.Combine(directory, "photo.png");
+            var missing = Path.Combine(directory, "old-folder", "photo.png");
+            await WicTestImage.CreateAsync(existing, 32, 24);
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var repository = new ImageRepository(database);
+            var entry = CreateEntry(existing);
+            await repository.UpsertImageAsync(entry);
+            await repository.UpsertImageAsync(new ImageEntry
+            {
+                FilePath = missing,
+                FileName = "photo.png",
+                FileSize = entry.FileSize,
+                DateModified = entry.DateModified
+            });
+            var review = new DuplicateReviewViewModel(
+                new DuplicateDetectionService(repository),
+                new PhotoOperationsService(repository,
+                    new OriginalBackupService(Path.Combine(directory, "backups"))));
+            await review.OpenForImagesAsync([entry]);
+
+            Assert.True(review.HasDiagnostics);
+            Assert.Contains(missing, review.DiagnosticsDetails, StringComparison.Ordinal);
+            Assert.DoesNotContain(existing + ":", review.DiagnosticsDetails, StringComparison.Ordinal);
+            Assert.Contains("outside", review.DiagnosticsMessage, StringComparison.Ordinal);
+            Assert.True(File.Exists(existing));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ScanAsync_MeasuresColdAndWarmSyntheticThumbnailThroughput()
     {
         var directory = CreateTestDirectory();

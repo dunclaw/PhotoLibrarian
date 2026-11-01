@@ -115,6 +115,16 @@
                      Message="{x:Bind ViewModel.DiagnosticsMessage, Mode=OneWay}"
                      Severity="Warning"
                      IsClosable="False" />
+            <Expander x:Uid="DuplicateDiagnosticDetails"
+                      AutomationProperties.AutomationId="DuplicateDiagnosticDetails"
+                      HorizontalAlignment="Stretch"
+                      Visibility="{x:Bind BoolToVisibility(ViewModel.HasDiagnostics), Mode=OneWay}">
+                <ScrollViewer MaxHeight="200">
+                    <TextBlock Text="{x:Bind ViewModel.DiagnosticsDetails, Mode=OneWay}"
+                               IsTextSelectionEnabled="True"
+                               TextWrapping="Wrap" />
+                </ScrollViewer>
+            </Expander>
         </StackPanel>
 
         <Grid Grid.Row="2"

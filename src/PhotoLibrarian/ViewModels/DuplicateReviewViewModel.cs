@@ -111,6 +111,9 @@ public partial class DuplicateReviewViewModel : ObservableObject
     public partial string DiagnosticsMessage { get; set; } = "";
 
     [ObservableProperty]
+    public partial string DiagnosticsDetails { get; set; } = "";
+
+    [ObservableProperty]
     public partial bool HasDiagnostics { get; set; }
 
     [ObservableProperty]
@@ -153,6 +156,7 @@ public partial class DuplicateReviewViewModel : ObservableObject
         ProgressMaximum = 0;
         StatusMessage = DuplicateReviewStrings.Get("DuplicateScanningStatus");
         DiagnosticsMessage = "";
+        DiagnosticsDetails = "";
         HasDiagnostics = false;
         CanRemoveSelectedGroup = false;
 
@@ -189,12 +193,12 @@ public partial class DuplicateReviewViewModel : ObservableObject
 
             if (result.DiagnosticCount > 0)
             {
-                var sampleCount = Math.Min(10, result.Diagnostics.Count);
+                var sampleCount = result.Diagnostics.Count;
                 var samples = result.Diagnostics
                     .Take(sampleCount)
                     .Select(diagnostic => DuplicateReviewStrings.Format(
                         "DuplicateDiagnosticItem",
-                        Path.GetFileName(diagnostic.FilePath),
+                        diagnostic.FilePath,
                         diagnostic.Message));
                 var additionalCount = result.DiagnosticCount - sampleCount;
                 var additional = additionalCount > 0
@@ -202,11 +206,12 @@ public partial class DuplicateReviewViewModel : ObservableObject
                         "DuplicateAdditionalDiagnostics",
                         additionalCount)
                     : "";
+                DiagnosticsDetails =
+                    string.Join(Environment.NewLine + Environment.NewLine, samples) + additional;
                 DiagnosticsMessage =
                     DuplicateReviewStrings.Format(
                         "DuplicateDiagnosticsSummary",
-                        result.DiagnosticCount,
-                        string.Join(Environment.NewLine, samples)) + additional;
+                        result.DiagnosticCount);
                 HasDiagnostics = true;
             }
         }
@@ -309,6 +314,7 @@ public partial class DuplicateReviewViewModel : ObservableObject
                                 ? DuplicateReviewStrings.Get(failure.ResourceKey)
                                 : failure.Message ?? "")));
                 HasDiagnostics = true;
+                DiagnosticsDetails = DiagnosticsMessage;
             }
         }
         catch (DuplicateCandidateValidationException ex)

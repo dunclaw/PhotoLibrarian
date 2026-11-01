@@ -13,6 +13,9 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class DuplicateReviewView : UserControl
 {
+    public Visibility BoolToVisibility(bool value) =>
+        value ? Visibility.Visible : Visibility.Collapsed;
+
     private readonly Dictionary<Image, CancellationTokenSource> _previewLoads = [];
 
     public DuplicateReviewViewModel ViewModel => App.ViewModel.DuplicateReview;

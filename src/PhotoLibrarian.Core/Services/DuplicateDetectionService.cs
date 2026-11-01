@@ -54,9 +54,9 @@ public sealed class DuplicateDetectionService
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                // Unlike FileInfo.Exists, this preserves access and drive errors.
+                File.GetAttributes(image.FilePath);
                 var before = new FileInfo(image.FilePath);
-                if (!before.Exists)
-                    throw new FileNotFoundException("The file is missing.", image.FilePath);
 
                 var index = snapshots.Count;
                 var snapshot = new DuplicateFileSnapshot(
@@ -77,6 +77,14 @@ public sealed class DuplicateDetectionService
                 }
                 snapshots.Add(snapshot);
                 snapshotIndices.Add(image.FilePath, index);
+            }
+            catch (FileNotFoundException)
+            {
+                AddDiagnostic(image.FilePath, "No file exists at this indexed path.");
+            }
+            catch (DirectoryNotFoundException)
+            {
+                AddDiagnostic(image.FilePath, "The indexed folder or drive is unavailable.");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
