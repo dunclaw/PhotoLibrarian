@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
 using MetadataExtractor.Formats.Iptc;
@@ -158,12 +159,28 @@ public sealed class MetadataReaderService
         if (xmp?.XmpMeta is null) return;
 
         const string dcNs = "http://purl.org/dc/elements/1.1/";
+        const string tiffNs = "http://ns.adobe.com/tiff/1.0/";
+        const string exifNs = "http://ns.adobe.com/exif/1.0/";
+        const string xapNs = "http://ns.adobe.com/xap/1.0/";
+        entry.CameraMake ??= xmp.XmpMeta.GetPropertyString(tiffNs, "Make");
+        entry.CameraModel ??= xmp.XmpMeta.GetPropertyString(tiffNs, "Model");
+        if (entry.Width == 0 && xmp.XmpMeta.DoesPropertyExist(tiffNs, "ImageWidth"))
+            entry.Width = xmp.XmpMeta.GetPropertyInteger(tiffNs, "ImageWidth");
+        if (entry.Height == 0 && xmp.XmpMeta.DoesPropertyExist(tiffNs, "ImageLength"))
+            entry.Height = xmp.XmpMeta.GetPropertyInteger(tiffNs, "ImageLength");
+        if (!entry.DateTaken.HasValue)
+        {
+            var date = xmp.XmpMeta.GetPropertyString(exifNs, "DateTimeOriginal")
+                ?? xmp.XmpMeta.GetPropertyString(xapNs, "CreateDate");
+            if (DateTime.TryParse(date, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var dateTaken))
+                entry.DateTaken = dateTaken;
+        }
         entry.Title = xmp.XmpMeta.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value
             ?? entry.Title;
         entry.Caption = xmp.XmpMeta.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value
             ?? entry.Caption;
         // Read rating from XMP if not already set
-        const string xapNs = "http://ns.adobe.com/xap/1.0/";
         if (xmp.XmpMeta.DoesPropertyExist(xapNs, "xmp:Rating"))
         {
             var ratingProp = xmp.XmpMeta.GetPropertyInteger(xapNs, "xmp:Rating");

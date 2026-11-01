@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PhotoLibrarian.Core.Data;
@@ -1040,6 +1041,14 @@ public partial class MainViewModel : ObservableObject
             System.Diagnostics.Debug.WriteLine($"[EDIT] RefreshAfterPixelEditAsync failed: {ex.Message}");
             StatusText = $"Refresh failed: {ex.Message}";
         }
+    }
+
+    public async Task IndexRawDerivativeAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        if (await _imageRepo.GetByPathAsync(path) is null)
+            throw new InvalidOperationException($"The derivative at '{path}' could not be added to the library.");
+        await RefreshAfterIndexAsync();
     }
 
     public async Task MakeCopyForEditingAsync(ImageEntry entry)

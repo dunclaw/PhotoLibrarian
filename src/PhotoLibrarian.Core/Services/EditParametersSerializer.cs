@@ -23,6 +23,7 @@ public static class EditParametersSerializer
         SetDouble(xmp, "RawExposureEv", p.RawExposureEv);
         SetDouble(xmp, "RawWhitePoint", p.RawWhitePoint);
         xmp.SetProperty(Ns, $"{Pre}:RawToneMapping", RawToneMappingService.RecipeVersion);
+        xmp.SetProperty(Ns, $"{Pre}:RawDevelopment", RawDevelopmentService.RecipeVersion);
         SetDouble(xmp, "Highlights", p.Highlights);
         SetDouble(xmp, "Shadows", p.Shadows);
         SetDouble(xmp, "Saturation", p.Saturation);
@@ -79,6 +80,7 @@ public static class EditParametersSerializer
             DeleteProp(xmp, "RawExposureEv");
             DeleteProp(xmp, "RawWhitePoint");
             DeleteProp(xmp, "RawToneMapping");
+            DeleteProp(xmp, "RawDevelopment");
         }
     }
 

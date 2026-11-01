@@ -61,16 +61,27 @@ public sealed class RawDevelopmentTests : IDisposable
     }
 
     [Fact]
-    public async Task RejectsOversizedFilesBeforeAllocatingOrCallingNativeDecoder()
+    public async Task StreamsFilesBeyondFormerInputLimitWithUnicodePaths()
     {
-        var path = Path.Combine(_directory, "oversized.dng");
-        await using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        var path = Path.Combine(_directory, "camera-\u00e9.dng");
+        await File.WriteAllBytesAsync(path, SyntheticDngFixture.Create(false, 1), TestContext.Current.CancellationToken);
+        await using (var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None))
             stream.SetLength(512L * 1024 * 1024 + 1);
 
-        var exception = await Assert.ThrowsAsync<RawDecodeException>(
-            () => RawDevelopmentService.DecodeAsync(path));
+        var result = await RawDevelopmentService.DecodeAsync(path, TestContext.Current.CancellationToken);
+        Assert.Equal(56u, result.Metadata.OutputWidth);
+        Assert.Equal(40u, result.Metadata.OutputHeight);
+        Assert.Equal(512L * 1024 * 1024 + 1, new FileInfo(path).Length);
+    }
 
-        Assert.Equal(RawDecodeFailure.TooLarge, exception.Failure);
+    [Fact]
+    public async Task EmptyFilesReportCorruptInput()
+    {
+        var path = Path.Combine(_directory, "empty.dng");
+        await File.WriteAllBytesAsync(path, [], TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<RawDecodeException>(
+            () => RawDevelopmentService.DecodeAsync(path, TestContext.Current.CancellationToken));
+        Assert.Equal(RawDecodeFailure.Corrupt, exception.Failure);
     }
 
     [Fact]

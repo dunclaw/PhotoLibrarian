@@ -106,16 +106,13 @@
                 <!-- Quick actions -->
                 <StackPanel Orientation="Horizontal" Spacing="4">
                     <Button x:Name="AutoBtn" Content="Auto" Click="OnAutoEnhance" Padding="8,4" />
-                    <Button Content="Reset" Click="OnReset" Padding="8,4"
+                    <Button x:Name="ResetBtn" Content="Reset" Click="OnReset" Padding="8,4"
                             AutomationProperties.AutomationId="EditorReset" />
                     <Button x:Name="RevertBtn" Content="Revert" Click="OnRevert" Padding="8,4"
                             Visibility="Collapsed" />
                 </StackPanel>
 
                 <StackPanel x:Name="RawPreviewPanel" Spacing="12" Visibility="Collapsed">
-                    <InfoBar IsOpen="True" IsClosable="False" Severity="Warning"
-                             Title="Experimental RAW preview"
-                             Message="Fixed SDR reference. Real-camera color accuracy is not yet validated. Decoder channels have a finite ceiling near 4; fully saturated detail cannot be recovered. Save is disabled; derivative export is unavailable." />
                     <TextBlock x:Name="RawPreviewStatus" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="EditorRawPreviewStatus"
                                AutomationProperties.LiveSetting="Polite" />
@@ -137,6 +134,12 @@
                     <Button x:Name="KeepRecipeBtn" Content="Keep preview recipe" Click="OnKeepRawRecipe"
                             AutomationProperties.Name="Keep RAW preview recipe in an XMP sidecar"
                             AutomationProperties.AutomationId="EditorKeepRawRecipe" />
+                    <Button x:Name="ExportRawBtn" Content="Export SDR derivative..." Click="OnExportRaw"
+                            AutomationProperties.Name="Export RAW development as a separate SDR JPEG or PNG"
+                            AutomationProperties.AutomationId="EditorExportRawDerivative" />
+                    <Button x:Name="CancelRawExportBtn" Content="Cancel export" Click="OnCancelRawExport"
+                            Visibility="Collapsed" AutomationProperties.Name="Cancel RAW derivative export"
+                            AutomationProperties.AutomationId="EditorCancelRawExport" />
                     <TextBlock Text="Only these RAW controls apply. Existing raster adjustments are retained in the recipe but not applied to RAW."
                                TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
                 </StackPanel>

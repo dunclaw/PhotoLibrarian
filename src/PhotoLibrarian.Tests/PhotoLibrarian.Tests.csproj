@@ -28,6 +28,9 @@
     <None Include="..\PhotoLibrarian\Views\ImageEditorView.xaml"
           Link="TestAssets\ImageEditorView.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\RawDerivativeExportDialog.xaml"
+          Link="TestAssets\RawDerivativeExportDialog.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml"
           Link="TestAssets\ImageViewerOverlay.xaml"
           CopyToOutputDirectory="PreserveNewest" />

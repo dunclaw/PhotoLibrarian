@@ -37,6 +37,7 @@ public sealed partial class ImageEditorView : UserControl
     private Slider? _draggedSlider;
     private readonly RawPreviewSession _rawPreview = new();
     private CancellationTokenSource? _previewRequest;
+    private bool _exportingRaw;
 
     public ImageEditorView()
     {
@@ -81,6 +82,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        ViewModel?.CancelRawExport();
         _previewRequest?.Cancel();
         _rawPreview.Invalidate();
         if (ViewModel is not null)
@@ -159,8 +161,15 @@ public sealed partial class ImageEditorView : UserControl
         RawPreviewPanel.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
         RasterAdjustmentsPanel.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
         AutoBtn.IsEnabled = !isRaw && !isSaving;
+        ResetBtn.IsEnabled = !isSaving;
         RevertBtn.Visibility = !isRaw && ViewModel?.HasBackup == true ? Visibility.Visible : Visibility.Collapsed;
         KeepRecipeBtn.IsEnabled = isRaw && !isSaving;
+        ExportRawBtn.IsEnabled = ViewModel?.CanExportRawDerivative == true;
+        CancelRawExportBtn.Visibility = _exportingRaw ? Visibility.Visible : Visibility.Collapsed;
+        // Cancellation stays available while all recipe controls are frozen.
+        AdjustmentsPanel.IsEnabled = !isSaving || _exportingRaw;
+        RawExposureSlider.IsEnabled = !isSaving;
+        RawWhitePointSlider.IsEnabled = !isSaving;
     }
 
     private void OnUndo(SplitButton sender, SplitButtonClickEventArgs args) =>
@@ -781,6 +790,65 @@ public sealed partial class ImageEditorView : UserControl
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => ViewModel?.CloseCommand.Execute(null);
+
+    private void OnCancelRawExport(object sender, RoutedEventArgs e)
+    {
+        ViewModel?.CancelRawExport();
+        RawPreviewStatus.Text = "Cancelling export; private staging files will be removed.";
+    }
+
+    private async void OnExportRaw(object sender, RoutedEventArgs e)
+    {
+        var vm = ViewModel;
+        if (vm?.CanExportRawDerivative != true || vm.ImagePath is null) return;
+        var sourcePath = vm.ImagePath;
+        var dialog = new RawDerivativeExportDialog(System.IO.Path.GetDirectoryName(sourcePath)!)
+        {
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme
+        };
+        try
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            if (vm.ImagePath != sourcePath || !vm.CanExportRawDerivative) return;
+            _previewRequest?.Cancel();
+            _exportingRaw = true;
+            RawPreviewStatus.Text = "Exporting full-resolution SDR development and keeping the source recipe...";
+            UpdateHistoryControls();
+            var result = await vm.ExportRawDerivativeAsync(dialog.OutputFolder, dialog.Format, _rawPreview.RenderAsync);
+            RawPreviewStatus.Text = $"Exported {result.FilePath} ({result.Width} x {result.Height}). RAW unchanged; recipe kept.";
+            SetStatus(RawPreviewStatus.Text);
+            if (App.ViewModel is { } main)
+            {
+                try
+                {
+                    await main.IndexRawDerivativeAsync(result.FilePath);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[RAW EXPORT INDEX] {ex}");
+                    RawPreviewStatus.Text = $"Export saved at {result.FilePath}, but library refresh failed: {ex.Message}. Refresh the destination folder.";
+                    SetStatus(RawPreviewStatus.Text);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            RawPreviewStatus.Text = "Export cancelled. No derivative was published; RAW original unchanged.";
+            SetStatus(RawPreviewStatus.Text);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[RAW EXPORT] {ex}");
+            RawPreviewStatus.Text = $"Export failed: {ex.Message}. RAW unchanged. Check folder permissions/free space and the source XMP, then retry.";
+            SetStatus(RawPreviewStatus.Text);
+        }
+        finally
+        {
+            _exportingRaw = false;
+            UpdateHistoryControls();
+        }
+    }
 
     private void SyncSlidersFromViewModel()
     {

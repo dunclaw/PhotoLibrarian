@@ -14,6 +14,7 @@ namespace PhotoLibrarian.Core.Services;
 public sealed class ImageEditService
 {
     private readonly OriginalBackupService _backupService;
+    private static readonly SemaphoreSlim RawRecipeWrites = new(1, 1);
 
     /// <summary>
     /// Bakes <paramref name="parameters"/> into the pixels of the file at the given path,
@@ -38,7 +39,7 @@ public sealed class ImageEditService
     {
         ArgumentNullException.ThrowIfNull(renderer);
         if (RawToneMappingService.IsRaw(filePath))
-            throw new NotSupportedException("RAW is preview-only. Overwriting sensor originals is not supported; derivative export is unavailable.");
+            throw new NotSupportedException("Overwriting RAW originals is not supported. Use Export SDR derivative.");
 
         await _backupService.BackupOriginalAsync(filePath);
         var size = await renderer(filePath, parameters);
@@ -64,41 +65,49 @@ public sealed class ImageEditService
     }
 
     /// <summary>Atomically keeps a portable RAW preview recipe without touching sensor bytes.</summary>
-    public static async Task SaveRawPreviewRecipeAsync(string filePath, EditParameters parameters)
+    public static async Task SaveRawPreviewRecipeAsync(string filePath, EditParameters parameters,
+        CancellationToken cancellationToken = default)
     {
         if (!RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("A RAW preview recipe requires a RAW source.");
         RawToneMappingService.ValidateRecipe(parameters);
         var snapshot = parameters.Clone();
-        await Task.Run(() =>
+        await RawRecipeWrites.WaitAsync(cancellationToken);
+        try
         {
-            var sidecar = GetSidecarPath(filePath);
-            // Never replace an unreadable sidecar with an empty packet.
-            IXmpMeta xmp;
-            if (File.Exists(sidecar))
+            await Task.Run(() =>
             {
-                using var stream = File.OpenRead(sidecar);
-                xmp = XmpMetaFactory.Parse(stream);
-            }
-            else
-            {
-                xmp = ReadXmp(filePath);
-            }
-            EditParametersSerializer.WriteToXmp(xmp, snapshot);
-            var temporary = sidecar + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                File.WriteAllText(temporary, XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
+                cancellationToken.ThrowIfCancellationRequested();
+                var sidecar = GetSidecarPath(filePath);
+                // Never replace an unreadable sidecar with an empty packet.
+                IXmpMeta xmp;
                 if (File.Exists(sidecar))
-                    File.Replace(temporary, sidecar, sidecar + "." + Guid.NewGuid().ToString("N") + ".bak");
+                {
+                    using var stream = File.OpenRead(sidecar);
+                    xmp = XmpMetaFactory.Parse(stream);
+                }
                 else
-                    File.Move(temporary, sidecar);
-            }
-            finally
-            {
-                if (File.Exists(temporary)) File.Delete(temporary);
-            }
-        });
+                {
+                    xmp = ReadXmp(filePath);
+                }
+                EditParametersSerializer.WriteToXmp(xmp, snapshot);
+                var temporary = sidecar + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    File.WriteAllText(temporary, XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (File.Exists(sidecar))
+                        File.Replace(temporary, sidecar, sidecar + "." + Guid.NewGuid().ToString("N") + ".bak");
+                    else
+                        File.Move(temporary, sidecar);
+                }
+                finally
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                }
+            }, cancellationToken);
+        }
+        finally { RawRecipeWrites.Release(); }
     }
 
     /// <summary>
@@ -148,6 +157,10 @@ public sealed class ImageEditService
             xmp.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:RawToneMapping") &&
             xmp.GetPropertyString(EditParameters.XmpNamespace, "pledit:RawToneMapping") != RawToneMappingService.RecipeVersion)
             throw new NotSupportedException("The RAW preview recipe uses an unsupported tone-mapping version.");
+        if (RawToneMappingService.IsRaw(filePath) &&
+            xmp.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:RawDevelopment") &&
+            xmp.GetPropertyString(EditParameters.XmpNamespace, "pledit:RawDevelopment") != RawDevelopmentService.RecipeVersion)
+            throw new NotSupportedException("The RAW recipe uses an unsupported development version.");
         var parameters = EditParametersSerializer.ReadFromXmp(xmp);
         if (RawToneMappingService.IsRaw(filePath)) RawToneMappingService.ValidateRecipe(parameters);
         return parameters;

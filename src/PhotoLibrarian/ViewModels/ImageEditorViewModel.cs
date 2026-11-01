@@ -23,6 +23,7 @@ public partial class ImageEditorViewModel : ObservableObject
     private string _editLabel = "";
     private bool _restoring;
     private CropRect? _crop;
+    private CancellationTokenSource? _rawExport;
 
     private sealed record HistoryEntry(string Label, EditParameters Before, EditParameters After);
 
@@ -45,14 +46,17 @@ public partial class ImageEditorViewModel : ObservableObject
 
     public bool IsRawPreview => ImagePath is not null && RawToneMappingService.IsRaw(ImagePath);
     public bool CanSavePixels => IsOpen && !IsSaving && !IsRawPreview;
+    public bool CanExportRawDerivative => IsOpen && !IsSaving && IsRawPreview;
     public string SaveDisabledReason => IsRawPreview
-        ? "RAW is preview-only. Save is disabled until safe derivative export is available."
+        ? "RAW originals cannot be overwritten. Use Export SDR derivative to create a separate JPEG or PNG."
         : "";
 
     partial void OnImagePathChanged(string? value)
     {
+        _rawExport?.Cancel();
         OnPropertyChanged(nameof(IsRawPreview));
         OnPropertyChanged(nameof(CanSavePixels));
+        OnPropertyChanged(nameof(CanExportRawDerivative));
         OnPropertyChanged(nameof(SaveDisabledReason));
     }
 
@@ -259,6 +263,38 @@ public partial class ImageEditorViewModel : ObservableObject
         finally { IsSaving = false; }
     }
 
+    public async Task<RawDerivativeResult> ExportRawDerivativeAsync(string folder, RawDerivativeFormat format,
+        Func<string, EditParameters, CancellationToken, Task<RawSdrImage>> render,
+        CancellationToken cancellationToken = default)
+    {
+        if (!CanExportRawDerivative || _currentEntry is null)
+            throw new InvalidOperationException("Open a RAW photo and finish the current operation before exporting.");
+        EndEdit();
+        var entry = _currentEntry;
+        var snapshot = GetCurrentParameters();
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _rawExport = request;
+        IsSaving = true;
+        try
+        {
+            var result = await RawDerivativeExportService.ExportAsync(
+                entry.FilePath, folder, format, snapshot, render, request.Token);
+            if (ReferenceEquals(entry, _currentEntry))
+            {
+                _baseline = snapshot.Clone();
+                HasChanges = !ParametersEqual(GetCurrentParameters(), _baseline);
+            }
+            return result;
+        }
+        finally
+        {
+            if (_rawExport == request) _rawExport = null;
+            IsSaving = false;
+        }
+    }
+
+    public void CancelRawExport() => _rawExport?.Cancel();
+
     [RelayCommand]
     private void ResetAll()
     {
@@ -456,6 +492,7 @@ public partial class ImageEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
         OnPropertyChanged(nameof(CanSavePixels));
+        OnPropertyChanged(nameof(CanExportRawDerivative));
         UndoCommand.NotifyCanExecuteChanged();
         RedoCommand.NotifyCanExecuteChanged();
     }
