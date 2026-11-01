@@ -37,7 +37,6 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <!-- ===== Viewer mode (default) ===== -->
@@ -219,19 +218,6 @@
                            Visibility="Collapsed"
                            Text="" />
             </StackPanel>
-
-            <!-- Right-side actions -->
-            <Button x:Name="CloseViewerButton" Grid.Column="2"
-                    Click="OnCloseViewerClick"
-                    Style="{StaticResource RibbonCommandStyle}"
-                    AutomationProperties.AutomationId="RibbonCloseViewer"
-                    AutomationProperties.Name="Back to grid"
-                    ToolTipService.ToolTip="Back to grid (Esc)">
-                <StackPanel Spacing="4">
-                    <FontIcon Glyph="&#xE71D;" Style="{StaticResource RibbonIconStyle}" />
-                    <TextBlock Text="Close" Style="{StaticResource RibbonCaptionStyle}" />
-                </StackPanel>
-            </Button>
         </Grid>
     </Border>
 </UserControl>
