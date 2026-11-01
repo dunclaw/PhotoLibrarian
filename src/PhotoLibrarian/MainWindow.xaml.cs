@@ -194,6 +194,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
+        ViewModel.ImageEditor.PropertyChanged += OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
         MetadataWriterService.SidecarFallback += OnMetadataSidecarFallback;
 
@@ -272,6 +273,22 @@ public sealed partial class MainWindow : Window
     {
         if (!_isClosing && e.PropertyName == nameof(ViewModel.PeopleReview.IsOpen))
             UpdatePeopleReviewVisibility();
+    }
+
+    private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isClosing || e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosing) return;
+            if (ViewModel.ImageEditor.IsOpen)
+            {
+                ViewerOverlay.StopFocusGuard();
+                EditorOverlay.FocusEditor();
+            }
+            else if (ViewModel.ImageViewer.IsOpen)
+                ViewerOverlay.FocusViewer();
+        });
     }
 
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -384,6 +401,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
+        ViewModel.ImageEditor.PropertyChanged -= OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
         MetadataWriterService.SidecarFallback -= OnMetadataSidecarFallback;
         ViewModel.ImageGrid.Cleanup();
@@ -504,6 +522,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            ViewModel.ImageEditor.UpdateLibraryImages(ViewModel.ImageGrid.GetViewerImages());
             await ViewModel.ImageEditor.OpenForEditAsync(entry);
         }
         catch (Exception ex)

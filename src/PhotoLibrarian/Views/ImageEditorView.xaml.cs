@@ -54,6 +54,36 @@ public sealed partial class ImageEditorView : UserControl
         AddZoomAccelerator((Windows.System.VirtualKey)189, () => ZoomBy(zoomIn: false)); // OEM '-'
         AddZoomAccelerator(Windows.System.VirtualKey.Number0, ZoomFit);
         AddZoomAccelerator(Windows.System.VirtualKey.Number1, ZoomActual);
+        AddNavigationAccelerator(Windows.System.VirtualKey.PageUp);
+        AddNavigationAccelerator(Windows.System.VirtualKey.PageDown);
+    }
+
+    private void AddNavigationAccelerator(Windows.System.VirtualKey key)
+    {
+        var accelerator = new KeyboardAccelerator
+        {
+            Key = key,
+            Modifiers = Windows.System.VirtualKeyModifiers.Control
+        };
+        accelerator.Invoked += OnNavigationAcceleratorInvoked;
+        KeyboardAccelerators.Add(accelerator);
+    }
+
+    private async void OnNavigationAcceleratorInvoked(KeyboardAccelerator sender,
+        KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (Visibility != Visibility.Visible || ViewModel?.IsOpen != true) return;
+        args.Handled = true;
+        await NavigateAsync(sender.Key == Windows.System.VirtualKey.PageUp ? -1 : 1);
+    }
+
+    public void FocusEditor()
+    {
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (ViewModel?.IsOpen == true && !ViewModel.IsBusy)
+                CloseBtn.Focus(FocusState.Programmatic);
+        });
     }
 
     private void AddZoomAccelerator(Windows.System.VirtualKey key, Action action)
@@ -130,6 +160,8 @@ public sealed partial class ImageEditorView : UserControl
                 case nameof(ImageEditorViewModel.CanUndo):
                 case nameof(ImageEditorViewModel.CanRedo):
                 case nameof(ImageEditorViewModel.IsSaving):
+                case nameof(ImageEditorViewModel.IsBusy):
+                case nameof(ImageEditorViewModel.CanNavigate):
                     UpdateHistoryControls();
                     break;
             }
@@ -152,7 +184,9 @@ public sealed partial class ImageEditorView : UserControl
     {
         UndoBtn.IsEnabled = ViewModel?.CanUndo == true;
         RedoBtn.IsEnabled = ViewModel?.CanRedo == true;
-        var isSaving = ViewModel?.IsSaving == true;
+        var isSaving = ViewModel?.IsBusy == true;
+        PreviousBtn.IsEnabled = ViewModel?.CanNavigate == true;
+        NextBtn.IsEnabled = ViewModel?.CanNavigate == true;
         AdjustmentsPanel.IsEnabled = !isSaving;
         CloseBtn.IsEnabled = !isSaving;
         var isRaw = ViewModel?.IsRawPreview == true;
@@ -393,9 +427,11 @@ public sealed partial class ImageEditorView : UserControl
             _sourceBitmap = null;
             _sourcePixels = null;
             _loadedPath = path;
+            _draggedSlider = null;
             _viewport.Fit();
             UpdateZoomText();
             EditCanvas.Invalidate();
+            HistogramCanvas.Invalidate();
         }
         try
         {
@@ -742,7 +778,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private async void OnSave(object sender, RoutedEventArgs e)
     {
-        if (ViewModel is null || ViewModel.IsSaving) return;
+        if (ViewModel is null || ViewModel.IsBusy) return;
         if (ViewModel.IsRawPreview)
         {
             SetStatus(ViewModel.SaveDisabledReason);
@@ -759,13 +795,7 @@ public sealed partial class ImageEditorView : UserControl
         SetStatus("Applying adjustments…");
         try
         {
-            // Release our handle on the file before the renderer rewrites it.
-            _sourceBitmap?.Dispose();
-            _sourceBitmap = null;
-
-            var device = EditCanvas.Device;
-            var saved = await ViewModel.SaveAsync(
-                (path, parameters) => ImageEditRenderer.RenderToFileAsync(path, parameters, device));
+            var saved = await ViewModel.SaveAsync(RenderForSaveAsync);
             SyncSlidersFromViewModel();
 
             // Reload from disk so the preview shows the baked pixels.
@@ -789,7 +819,87 @@ public sealed partial class ImageEditorView : UserControl
         if (App.ViewModel is not null) App.ViewModel.StatusText = text;
     }
 
-    private void OnClose(object sender, RoutedEventArgs e) => ViewModel?.CloseCommand.Execute(null);
+    private Task<(uint Width, uint Height)> RenderForSaveAsync(string path, EditParameters parameters)
+    {
+        // Cancel old loads and release our handle before the renderer rewrites the file.
+        _previewRequest?.Cancel();
+        _sourceBitmap?.Dispose();
+        _sourceBitmap = null;
+        _sourcePixels = null;
+        return ImageEditRenderer.RenderToFileAsync(path, parameters, EditCanvas.Device);
+    }
+
+    private async Task<PendingEditDecision> ConfirmPendingEditsAsync()
+    {
+        var isRaw = ViewModel?.IsRawPreview == true;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme,
+            Title = isRaw ? "Keep RAW preview changes?" : "Save changes?",
+            Content = isRaw
+                ? "Keep the preview recipe in the photo's XMP sidecar before leaving? The RAW original will not be changed."
+                : "Save your adjustments before leaving this photo?",
+            PrimaryButtonText = isRaw ? "Keep recipe" : "Save",
+            SecondaryButtonText = "Discard",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        return (await dialog.ShowAsync()) switch
+        {
+            ContentDialogResult.Primary => PendingEditDecision.Save,
+            ContentDialogResult.Secondary => PendingEditDecision.Discard,
+            _ => PendingEditDecision.Cancel
+        };
+    }
+
+    private async void OnPrevious(object sender, RoutedEventArgs e) => await NavigateAsync(-1);
+    private async void OnNext(object sender, RoutedEventArgs e) => await NavigateAsync(1);
+
+    private async Task NavigateAsync(int direction)
+    {
+        var vm = ViewModel;
+        if (vm?.CanNavigate != true) return;
+        var path = vm.ImagePath;
+        try
+        {
+            await vm.NavigateAsync(direction, ConfirmPendingEditsAsync, RenderForSaveAsync);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Unable to move to another photo: {ex.Message}");
+        }
+        finally
+        {
+            if (vm.ImagePath == path && _sourceBitmap is null)
+                await LoadImageAsync(path);
+            SyncSlidersFromViewModel();
+            if (vm.IsOpen && vm.CanNavigate)
+                (direction > 0 ? NextBtn : PreviousBtn).Focus(FocusState.Programmatic);
+            else if (vm.IsOpen)
+                FocusEditor();
+        }
+    }
+
+    private async void OnClose(object sender, RoutedEventArgs e)
+    {
+        var vm = ViewModel;
+        if (vm is null || vm.IsBusy) return;
+        try
+        {
+            await vm.TryCloseAsync(ConfirmPendingEditsAsync, RenderForSaveAsync);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Unable to close editor: {ex.Message}");
+        }
+        finally
+        {
+            if (vm.IsOpen && _sourceBitmap is null) await LoadImageAsync(vm.ImagePath);
+            UpdateHistoryControls();
+            if (vm.IsOpen) CloseBtn.Focus(FocusState.Programmatic);
+        }
+    }
 
     private void OnCancelRawExport(object sender, RoutedEventArgs e)
     {

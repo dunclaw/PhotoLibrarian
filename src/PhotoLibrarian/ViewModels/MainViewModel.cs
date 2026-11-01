@@ -153,6 +153,7 @@ public partial class MainViewModel : ObservableObject
         ImageGrid.ResultsChanged += OnGridResultsChanged;
         ImageEditor.EditsApplied += OnEditsApplied;
         ImageEditor.Reverted += OnEditsReverted;
+        ImageEditor.CurrentEntryChanged += OnEditorEntryChanged;
     }
 
     private async void OnEditsReverted(object? sender, string filePath)
@@ -188,6 +189,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void OnViewerEntryChanged(ImageEntry? entry)
     {
+        if (ImageEditor.IsOpen) entry = ImageEditor.CurrentEntry;
         if (entry is not null)
         {
             ImageGrid.SelectViewerEntry(entry);
@@ -199,8 +201,21 @@ public partial class MainViewModel : ObservableObject
 
     private void OnGridResultsChanged(object? sender, EventArgs e)
     {
-        if (ImageViewer.IsOpen)
+        ImageEditor.UpdateLibraryImages(ImageGrid.GetViewerImages());
+        if (ImageViewer.IsOpen && !ImageEditor.IsOpen)
             ImageViewer.UpdateLibraryImages(ImageGrid.GetViewerImages());
+    }
+
+    private void OnEditorEntryChanged(ImageEntry? entry)
+    {
+        if (entry is not null)
+            ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
+        else
+        {
+            if (ImageViewer.IsOpen)
+                ImageViewer.UpdateLibraryImages(ImageGrid.GetViewerImages());
+            ImageGrid.RefreshMetadataFromSelection();
+        }
     }
 
     public async Task InitializeAsync()

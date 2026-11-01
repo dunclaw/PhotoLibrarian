@@ -21,6 +21,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Noise reduction / Clarity / Sharpness / Levels / Rotation.
 - **Editor undo/redo** with split-button history menus. A slider or histogram drag, Auto enhance, and Reset each form one step; selecting a history entry undoes or redoes through that step. History covers pending adjustments only and clears on save, Revert, close, or opening another photo.
+- **Previous/Next while editing** follows the grid's current filters, sort, and grouping, skipping videos and unsupported editing formats and wrapping at either end. Use the editor toolbar or Ctrl+Page Up / Ctrl+Page Down. Navigation and Close offer Save (Keep recipe for RAW), Discard, or Cancel for pending changes; failed saves leave the current photo and edits open. RAW saves keep the XMP preview recipe, never overwrite the original. Each photo starts with its own adjustments and empty undo history. Filter changes do not discard an open edit: if the current photo is excluded, Next starts at the first eligible result and Previous at the last; with no eligible results navigation is disabled.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
 - **Simple video stabilization** in the video editing ribbon exports a separate H.264/AAC MP4 and opens it immediately in the player, with no downloads or additional installs. The integrated stabilizer reduces small shakes and rotations with mirrored edges, using Windows' video codecs. Progress and cancellation are available; originals are never overwritten. See [usage, limitations and open-source options](docs/VIDEO-STABILIZATION.md).
 - **Synchronized photo navigation** follows the grid's current filters, sort, and grouping. Returning from full view selects and reveals the displayed item. If a filter removes it, full view moves to the first matching item (or closes when no items match).
@@ -590,6 +591,7 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Open viewer | Double-click |
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
 | Next / previous in viewer | ←  →  arrow keys |
+| Previous / next while editing | Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
 | Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
