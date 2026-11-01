@@ -36,6 +36,7 @@ public sealed partial class MainWindow : Window
 
     private bool CanStartSlideshow() =>
         !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+          ViewModel.DuplicateReview.IsOpen ||
           ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
           ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
           ViewerOverlay.IsManualFaceTagging);
@@ -98,6 +99,12 @@ public sealed partial class MainWindow : Window
         _slideshowReturnFocus = null;
     }
 
+    public async Task RefreshMetadataTreesAsync()
+    {
+        await FolderNavPanel.RefreshMetadataTreesAsync();
+        await ImageGridPanel.RefreshPeopleAsync();
+    }
+
     private async void LibrarySearchBox_TextChanged(
         AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
@@ -106,16 +113,8 @@ public sealed partial class MainWindow : Window
     }
 
     private async void LibrarySearchBox_QuerySubmitted(
-        AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
-    {
+        AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args) =>
         await ViewModel.Search.SubmitAsync(args.QueryText);
-    }
-
-    public async Task RefreshMetadataTreesAsync()
-    {
-        await FolderNavPanel.RefreshMetadataTreesAsync();
-        await ImageGridPanel.RefreshPeopleAsync();
-    }
 
     public async Task RefreshPeopleFiltersAsync()
     {
@@ -193,6 +192,7 @@ public sealed partial class MainWindow : Window
         // Bind status bar to ViewModel
         ViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
+        ViewModel.DuplicateReview.PropertyChanged += OnDuplicateReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
         ViewModel.ImageEditor.PropertyChanged += OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
@@ -207,6 +207,8 @@ public sealed partial class MainWindow : Window
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
+        ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
+        ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
@@ -272,6 +274,12 @@ public sealed partial class MainWindow : Window
     {
         if (!_isClosing && e.PropertyName == nameof(ViewModel.PeopleReview.IsOpen))
             UpdatePeopleReviewVisibility();
+    }
+
+    private void OnDuplicateReviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_isClosing && e.PropertyName == nameof(ViewModel.DuplicateReview.IsOpen))
+            UpdateDuplicateReviewVisibility();
     }
 
     private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -407,6 +415,8 @@ public sealed partial class MainWindow : Window
         _slideshow?.Close();
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
+        ViewModel.DuplicateReview.PropertyChanged -= OnDuplicateReviewPropertyChanged;
+        ViewModel.DuplicateReview.Close();
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
         ViewModel.ImageEditor.PropertyChanged -= OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
@@ -696,7 +706,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            await ViewModel.PeopleReview.OpenAsync();
+            await ViewModel.PeopleReview.OpenForImagesAsync(ViewModel.ImageGrid.DisplayedEntries);
         }
         catch (Exception ex)
         {
@@ -710,6 +720,18 @@ public sealed partial class MainWindow : Window
             };
             await dialog.ShowAsync();
         }
+    }
+
+    private async void OnDuplicateReviewClick(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.DuplicateReview.OpenForImagesAsync(ViewModel.ImageGrid.DisplayedEntries);
+    }
+
+    private void UpdateDuplicateReviewVisibility()
+    {
+        DuplicateReviewOverlay.Visibility = ViewModel.DuplicateReview.IsOpen
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void UpdatePeopleReviewVisibility()

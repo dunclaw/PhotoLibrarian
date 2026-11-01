@@ -17,37 +17,9 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-
+        <StackPanel Grid.Row="0">
             <views:TopRibbon x:Name="TopRibbon" Visibility="Collapsed" />
-
-            <AutoSuggestBox x:Name="LibrarySearchBox" Grid.Column="1"
-                            AutomationProperties.AutomationId="LibrarySearchBox"
-                            AutomationProperties.Name="Search current photos"
-                            MinWidth="280" MaxWidth="480"
-                            Margin="12,8" HorizontalAlignment="Right" VerticalAlignment="Center"
-                            PlaceholderText="Search current photos"
-                            ToolTipService.ToolTip="Search within the left-pane selection and header filters. Select all photos and clear filters to search the whole library."
-                            QueryIcon="Find"
-                            TextMemberPath="FileName"
-                            DisplayMemberPath="FileName"
-                            ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
-                            TextChanged="LibrarySearchBox_TextChanged"
-                            QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
-            <InfoBar Grid.Row="1" Grid.ColumnSpan="2"
-                     AutomationProperties.AutomationId="LibrarySearchError"
-                     IsOpen="{x:Bind ViewModel.Search.IsError, Mode=TwoWay}"
-                     Message="{x:Bind ViewModel.Search.ErrorMessage, Mode=OneWay}"
-                     Severity="Error" />
-        </Grid>
+        </StackPanel>
 
         <!-- Main 3-panel layout -->
         <Grid x:Name="MainLayout" Grid.Row="1">
@@ -88,7 +60,31 @@
                                    HorizontalAlignment="Stretch" />
 
             <!-- Right: Metadata Panel -->
-            <views:MetadataPanel x:Name="MetadataDetailPanel" Grid.Column="4" />
+            <Grid Grid.Column="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Padding="8,4"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                    <AutoSuggestBox x:Name="LibrarySearchBox"
+                                    AutomationProperties.AutomationId="LibrarySearchBox"
+                                    AutomationProperties.Name="Search current photos"
+                                    PlaceholderText="Search current photos"
+                                    QueryIcon="Find"
+                                    TextMemberPath="FileName"
+                                    DisplayMemberPath="FileName"
+                                    ToolTipService.ToolTip="Search the current left-pane selection and filters"
+                                    ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
+                                    TextChanged="LibrarySearchBox_TextChanged"
+                                    QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
+                    <InfoBar AutomationProperties.AutomationId="LibrarySearchError"
+                             IsOpen="{x:Bind ViewModel.Search.IsError, Mode=TwoWay}"
+                             Message="{x:Bind ViewModel.Search.ErrorMessage, Mode=OneWay}"
+                             Severity="Error" />
+                </StackPanel>
+                <views:MetadataPanel x:Name="MetadataDetailPanel" Grid.Row="1" />
+            </Grid>
         </Grid>
 
         <!-- Overlay: Image Editor -->
@@ -118,6 +114,14 @@
             <views:PeopleReviewView />
         </Border>
 
+        <Border x:Name="DuplicateReviewOverlay"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                Visibility="Collapsed">
+            <views:DuplicateReviewView />
+        </Border>
+
         <InfoBar x:Name="MetadataFallbackInfoBar"
                  AutomationProperties.AutomationId="MetadataFallbackInfoBar"
                  Grid.Row="2"
@@ -130,7 +134,6 @@
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -148,7 +151,7 @@
             <Button x:Name="SettingsButton" 
                     AutomationProperties.AutomationId="SettingsButton"
                     AutomationProperties.Name="Settings"
-                    Grid.Column="5"
+                    Grid.Column="4"
                     Click="OnSettingsClick"
                     Padding="8,4"
                     ToolTipService.ToolTip="Settings">
@@ -173,16 +176,6 @@
                     Command="{x:Bind ViewModel.ToggleFaceDetectionCommand}"
                     ToolTipService.ToolTip="Stop face detection">
                 <FontIcon x:Name="FaceDetectionIcon" Glyph="&#xE769;" FontSize="14" />
-            </Button>
-            <Button x:Name="PeopleReviewButton"
-                    AutomationProperties.AutomationId="PeopleReviewButton"
-                    AutomationProperties.Name="Review people suggestions"
-                    Grid.Column="4"
-                    Margin="0,0,8,0"
-                    Click="OnPeopleReviewClick"
-                    Padding="8,4"
-                    ToolTipService.ToolTip="Review people suggestions">
-                <FontIcon Glyph="&#xE716;" FontSize="14" />
             </Button>
         </Grid>
     </Grid>

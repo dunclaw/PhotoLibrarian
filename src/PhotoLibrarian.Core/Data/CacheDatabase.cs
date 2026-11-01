@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 
 namespace PhotoLibrarian.Core.Data;
@@ -96,6 +97,16 @@ public sealed class CacheDatabase : IDisposable
 
             -- Note: thumbnails table removed - we now use Windows thumbnail cache instead
             -- This eliminates storage duplication and leverages OS-level optimization
+
+            CREATE TABLE IF NOT EXISTS duplicate_hash_cache (
+                image_id INTEGER PRIMARY KEY,
+                file_size INTEGER NOT NULL,
+                modified_ticks INTEGER NOT NULL,
+                sha256 TEXT,
+                perceptual_hash TEXT,
+                hash_version INTEGER NOT NULL,
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
 
             CREATE TABLE IF NOT EXISTS tags (
                 image_id    INTEGER NOT NULL,

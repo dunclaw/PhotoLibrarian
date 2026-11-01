@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -9,6 +10,43 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class FaceReviewServiceTests
 {
+    [Fact]
+    public async Task SuggestionGroups_OnlyIncludeScopedImages()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var displayed = CreateImage();
+            displayed.Id = await images.UpsertImageAsync(displayed);
+            var outside = CreateImage();
+            outside.FilePath += ".outside.jpg";
+            outside.Id = await images.UpsertImageAsync(outside);
+            var token = TestContext.Current.CancellationToken;
+            foreach (var image in new[] { displayed, outside })
+            {
+                Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                    image.Id, image.FileSize, image.DateModified,
+                    [CreateFace(image.Id, 0.2, [1f, 0f])], "pipeline-v1", token));
+            }
+            var service = new FaceReviewService(
+                faces, images, new FaceClusteringService(), new FaceRecognitionService());
+            var groups = await service.GetSuggestionGroupsAsync(token, new HashSet<long> { displayed.Id });
+            Assert.Single(groups);
+            Assert.Equal(displayed.Id, Assert.Single(groups[0].Suggestions).ImageId);
+            Assert.Empty(await service.GetSuggestionGroupsAsync(token, new HashSet<long>()));
+            Assert.Equal(2, (await service.GetSuggestionGroupsAsync(token))
+                .Sum(group => group.Suggestions.Count));
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
     [Fact]
     public async Task AddManualFace_AssignsExistingPersonAndWritesFaceMetadata()
     {

@@ -15,6 +15,8 @@ namespace PhotoLibrarian.Views;
 public sealed partial class ImageGridView : UserControl
 {
     private ImageGridViewModel? ViewModel => App.ViewModel?.ImageGrid;
+    public event RoutedEventHandler? PeopleReviewRequested;
+    public event RoutedEventHandler? DuplicateReviewRequested;
     private bool _isInitialized;
     private bool _isExporting;
 
@@ -23,6 +25,12 @@ public sealed partial class ImageGridView : UserControl
         this.InitializeComponent();
         this.Loaded += OnLoaded;
     }
+
+    private void OnPeopleReviewClick(object sender, RoutedEventArgs e) =>
+        PeopleReviewRequested?.Invoke(sender, e);
+
+    private void OnDuplicateReviewClick(object sender, RoutedEventArgs e) =>
+        DuplicateReviewRequested?.Invoke(sender, e);
 
     /// <summary>Highlights the given face's rectangle over its image's grid thumbnail, if
     /// currently rendered. Pass null to clear. Forwarded from the Browse panel on hover.</summary>

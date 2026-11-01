@@ -1,11 +1,55 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 
 namespace PhotoLibrarian.Services;
+
+public interface IRecycleBinService
+{
+    bool RecycleFile(string filePath);
+}
+
+public sealed class WindowsRecycleBinService : IRecycleBinService
+{
+    public bool RecycleFile(string filePath)
+    {
+        Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+            filePath,
+            Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+            Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin,
+            Microsoft.VisualBasic.FileIO.UICancelOption.DoNothing);
+        return !File.Exists(filePath);
+    }
+}
+
+public sealed class DuplicateCandidateValidationException : IOException
+{
+    public string ResourceKey { get; }
+
+    public DuplicateCandidateValidationException(string resourceKey)
+    {
+        ResourceKey = resourceKey;
+    }
+}
+
+public sealed record DuplicateRecycleFailure(
+    string FilePath,
+    string? ResourceKey,
+    string? Message);
+
+public sealed record DuplicateRecycleOperationResult(
+    bool PhotoRecycled,
+    DuplicateRecycleFailure? SidecarFailure);
+
+public sealed record DuplicateRecycleBatchResult(
+    IReadOnlyList<DuplicateFileSnapshot> RecycledFiles,
+    IReadOnlyList<DuplicateRecycleFailure> Failures,
+    bool WasCanceled);
 
 /// <summary>
 /// Per-photo file operations driven by the grid context menu and drag-drop:
@@ -17,13 +61,16 @@ public sealed class PhotoOperationsService
     private readonly ImageRepository _imageRepo;
 
     private readonly OriginalBackupService _backupService;
+    private readonly IRecycleBinService _recycleBin;
 
     public PhotoOperationsService(
         ImageRepository imageRepo,
-        OriginalBackupService backupService)
+        OriginalBackupService backupService,
+        IRecycleBinService? recycleBin = null)
     {
         _imageRepo = imageRepo;
         _backupService = backupService;
+        _recycleBin = recycleBin ?? new WindowsRecycleBinService();
     }
 
     /// <summary>
@@ -241,22 +288,15 @@ public sealed class PhotoOperationsService
             {
                 var sidecar =
                     FaceMetadataStore.GetSidecarPathForImage(entry.FilePath);
-                Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
-                    entry.FilePath,
-                    Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                    Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin,
-                    Microsoft.VisualBasic.FileIO.UICancelOption.DoNothing);
+                if (!_recycleBin.RecycleFile(entry.FilePath))
+                    continue;
 
                 // Also delete any sidecar
                 if (File.Exists(sidecar))
                 {
                     try
                     {
-                        Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
-                            sidecar,
-                            Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                            Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin,
-                            Microsoft.VisualBasic.FileIO.UICancelOption.DoNothing);
+                        _recycleBin.RecycleFile(sidecar);
                     }
                     catch { }
                 }
@@ -271,6 +311,180 @@ public sealed class PhotoOperationsService
             }
         }
         return deleted;
+    }
+
+    /// <summary>
+    /// Rechecks a duplicate candidate's scan-time identity before using the existing
+    /// recoverable delete path. A changed or replaced file is never recycled.
+    /// </summary>
+    public async Task<DuplicateRecycleOperationResult> DeleteDuplicateCandidateToRecycleBinAsync(
+        DuplicateFileSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        await ValidateDuplicateCandidateAsync(snapshot, cancellationToken);
+        var sidecar = FaceMetadataStore.GetSidecarPathForImage(snapshot.Entry.FilePath);
+        if (!_recycleBin.RecycleFile(snapshot.Entry.FilePath))
+            return new DuplicateRecycleOperationResult(false, null);
+
+        DuplicateRecycleFailure? sidecarFailure = null;
+        if (File.Exists(sidecar))
+        {
+            try
+            {
+                if (!_recycleBin.RecycleFile(sidecar))
+                {
+                    sidecarFailure = new DuplicateRecycleFailure(
+                        sidecar,
+                        "DuplicateSidecarRecycleFailed",
+                        null);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[OPS] Sidecar recycle failed for {sidecar}: {ex.Message}");
+                sidecarFailure = new DuplicateRecycleFailure(sidecar, null, ex.Message);
+            }
+        }
+
+        if (snapshot.Entry.Id > 0)
+            await _imageRepo.DeleteByPathAsync(snapshot.Entry.FilePath);
+        return new DuplicateRecycleOperationResult(true, sidecarFailure);
+    }
+
+    public async Task<DuplicateRecycleBatchResult> DeleteDuplicateCandidatesToRecycleBinAsync(
+        DuplicateFileSnapshot keeper,
+        IReadOnlyList<DuplicateFileSnapshot> candidates,
+        CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new DuplicateRecycleBatchResult(
+                [],
+                [],
+                WasCanceled: true);
+        }
+
+        await using var keeperLease =
+            await OpenVerifiedDuplicateCandidateAsync(keeper, cancellationToken);
+        var recycled = new List<DuplicateFileSnapshot>();
+        var failures = new List<DuplicateRecycleFailure>();
+        var wasCanceled = false;
+
+        foreach (var candidate in candidates)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                wasCanceled = true;
+                break;
+            }
+
+            try
+            {
+                var operationResult = await DeleteDuplicateCandidateToRecycleBinAsync(
+                    candidate,
+                    cancellationToken);
+                if (operationResult.PhotoRecycled)
+                {
+                    recycled.Add(candidate);
+                    if (operationResult.SidecarFailure is not null)
+                        failures.Add(operationResult.SidecarFailure);
+                }
+                else
+                {
+                    failures.Add(new DuplicateRecycleFailure(
+                        candidate.Entry.FilePath,
+                        "DuplicateRecycleCanceled",
+                        null));
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                wasCanceled = true;
+                break;
+            }
+            catch (DuplicateCandidateValidationException ex)
+            {
+                failures.Add(new DuplicateRecycleFailure(
+                    candidate.Entry.FilePath,
+                    ex.ResourceKey,
+                    null));
+            }
+            catch (Exception ex)
+            {
+                failures.Add(new DuplicateRecycleFailure(
+                    candidate.Entry.FilePath,
+                    null,
+                    ex.Message));
+            }
+        }
+
+        return new DuplicateRecycleBatchResult(recycled, failures, wasCanceled);
+    }
+
+    public async Task ValidateDuplicateCandidateAsync(
+        DuplicateFileSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        await using var stream = await OpenVerifiedDuplicateCandidateAsync(
+            snapshot,
+            cancellationToken);
+    }
+
+    public async Task<FileStream> OpenVerifiedDuplicateCandidateAsync(
+        DuplicateFileSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        if (snapshot.Sha256 is null)
+            throw new DuplicateCandidateValidationException("DuplicateUnverifiedContent");
+
+        var file = new FileInfo(snapshot.Entry.FilePath);
+        if (!file.Exists ||
+            file.Length != snapshot.FileSize ||
+            file.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
+        {
+            throw new DuplicateCandidateValidationException("DuplicateFileChanged");
+        }
+
+        var stream = new FileStream(
+            snapshot.Entry.FilePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            128 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        try
+        {
+            file.Refresh();
+            if (!file.Exists ||
+                file.Length != snapshot.FileSize ||
+                file.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
+            {
+                throw new DuplicateCandidateValidationException("DuplicateFileChanged");
+            }
+
+            var currentHash = Convert.ToHexString(
+                await SHA256.HashDataAsync(stream, cancellationToken));
+            if (!string.Equals(currentHash, snapshot.Sha256, StringComparison.Ordinal))
+                throw new DuplicateCandidateValidationException("DuplicateContentChanged");
+
+            file.Refresh();
+            if (!file.Exists ||
+                file.Length != snapshot.FileSize ||
+                file.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
+            {
+                throw new DuplicateCandidateValidationException(
+                    "DuplicateChangedDuringVerification");
+            }
+
+            stream.Position = 0;
+            return stream;
+        }
+        catch
+        {
+            await stream.DisposeAsync();
+            throw;
+        }
     }
 
     // -----------------------------------------------------------------
