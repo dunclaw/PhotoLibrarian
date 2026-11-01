@@ -41,6 +41,7 @@ public partial class MainViewModel : ObservableObject
     public PeopleNavigationViewModel PeopleNav { get; }
     public TagNavigationViewModel TagNav { get; }
     public FlagNavigationViewModel FlagNav { get; }
+    public NotTaggedNavigationViewModel NotTaggedNav { get; }
     public ImageGridViewModel ImageGrid { get; }
     public ImageViewerViewModel ImageViewer { get; }
     public ImageEditorViewModel ImageEditor { get; }
@@ -124,6 +125,7 @@ public partial class MainViewModel : ObservableObject
         PeopleNav = new PeopleNavigationViewModel(faceRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
         FlagNav = new FlagNavigationViewModel(imageRepo);
+        NotTaggedNav = new NotTaggedNavigationViewModel(tagRepo);
         var searchRepo = new ImageSearchRepository(db);
         ImageGrid = new ImageGridViewModel(
             imageRepo,
@@ -132,7 +134,8 @@ public partial class MainViewModel : ObservableObject
             searchRepo,
             scanner,
             metadataReader,
-            this);
+            this,
+            new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
@@ -160,6 +163,7 @@ public partial class MainViewModel : ObservableObject
         ImageGrid.ResultsChanged += OnGridResultsChanged;
         ImageEditor.EditsApplied += OnEditsApplied;
         ImageEditor.Reverted += OnEditsReverted;
+        ImageEditor.CurrentEntryChanged += OnEditorEntryChanged;
     }
 
     private async void OnEditsReverted(object? sender, string filePath)
@@ -195,6 +199,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void OnViewerEntryChanged(ImageEntry? entry)
     {
+        if (ImageEditor.IsOpen) entry = ImageEditor.CurrentEntry;
         if (entry is not null)
         {
             ImageGrid.SelectViewerEntry(entry);
@@ -206,8 +211,21 @@ public partial class MainViewModel : ObservableObject
 
     private void OnGridResultsChanged(object? sender, EventArgs e)
     {
-        if (ImageViewer.IsOpen)
+        ImageEditor.UpdateLibraryImages(ImageGrid.GetViewerImages());
+        if (ImageViewer.IsOpen && !ImageEditor.IsOpen)
             ImageViewer.UpdateLibraryImages(ImageGrid.GetViewerImages());
+    }
+
+    private void OnEditorEntryChanged(ImageEntry? entry)
+    {
+        if (entry is not null)
+            ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
+        else
+        {
+            if (ImageViewer.IsOpen)
+                ImageViewer.UpdateLibraryImages(ImageGrid.GetViewerImages());
+            ImageGrid.RefreshMetadataFromSelection();
+        }
     }
 
     public async Task InitializeAsync()
@@ -215,6 +233,7 @@ public partial class MainViewModel : ObservableObject
         await _db.InitializeAsync();
         await FolderNav.LoadWatchedFoldersAsync();
         await FlagNav.LoadAsync();
+        await NotTaggedNav.LoadAsync();
         
         // Don't load images on startup - wait for user to select a folder
         // This prevents showing all 535 indexed images in random order
@@ -906,7 +925,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task RefreshTagsTreeAsync()
     {
-        if (ImageGrid.Refinement.RequiresTags)
+        if (ImageGrid.RequiresTagData)
             await ImageGrid.LoadImagesAsync();
 
         if (App.MainWindow is MainWindow window)
@@ -916,6 +935,7 @@ public partial class MainViewModel : ObservableObject
         else
         {
             await TagNav.LoadTagsAsync();
+            await NotTaggedNav.LoadAsync();
         }
     }
 
@@ -1070,6 +1090,20 @@ public partial class MainViewModel : ObservableObject
         await RefreshAfterIndexAsync();
     }
 
+    public async Task OpenStabilizedVideoAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
+        ImageViewer.OpenExportedVideo(copy);
+        StatusText = $"Opened stabilized copy: {path}";
+    }
+
     public async Task MakeCopyForEditingAsync(ImageEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -1111,6 +1145,7 @@ public partial class MainViewModel : ObservableObject
         await PeopleNav.LoadPeopleAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
+        await NotTaggedNav.LoadAsync();
         StartBackgroundFaceDetection();
         StartBackgroundAutoTagging();
         

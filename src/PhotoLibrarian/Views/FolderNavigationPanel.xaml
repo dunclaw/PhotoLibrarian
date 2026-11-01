@@ -71,6 +71,26 @@
                               AllowDrop="True"
                               DragOver="OnTagsTreeDragOver"
                               Drop="OnTagsTreeDrop" />
+                    <TreeView x:Name="NotTaggedTree"
+                              x:Uid="NotTaggedTree"
+                              AutomationProperties.AutomationId="NotTaggedTree"
+                              AutomationProperties.Name="Not tagged"
+                              SelectionMode="Multiple"
+                              ItemInvoked="OnTagsItemInvoked"
+                              SelectionChanged="OnTagsSelectionChanged">
+                        <TreeView.ItemTemplate>
+                            <DataTemplate x:DataType="TreeViewNode">
+                                <TreeViewItem x:Uid="NotTaggedNode"
+                                              AutomationProperties.AutomationId="NotTaggedNode"
+                                              AutomationProperties.Name="Not tagged">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock x:Uid="NotTaggedLabel" Text="Not tagged" />
+                                        <TextBlock Text="{Binding Content.CountLabel, Mode=OneWay}" />
+                                    </StackPanel>
+                                </TreeViewItem>
+                            </DataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
                 </StackPanel>
 
                 <!-- Flags Section -->

@@ -18,13 +18,33 @@ The dialog stays open until cancellation stops the export and removes its
 temporary output. A completed copy is published only after encoding succeeds;
 originals and existing output files are never overwritten. The suggested name
 is `<name>-stabilized.mp4`, or the first free `<name>-stabilized (1).mp4`,
-`(2)`, ... when that video or its metadata sidecar already exists. Output in a watched
-library folder appears through normal folder indexing. Before playback, the export
-waits until the published file can be opened and parsed, plus a short settle delay,
+`(2)`, ... when that video or its metadata sidecar already exists. The completed copy
+is indexed and revealed in the grid before playback, even when exported outside
+watched folders. Closing the viewer leaves the copy selected and scrolled into view;
+no manual refresh is needed. If the copy is outside the current filters, it stays
+visible alongside the filtered results until you change the browsing filters or search.
+Before publication, the export waits until the completed file can be opened and parsed, plus a short settle delay,
 so the player does not read a file that is still being finalized. On success the dialog
 closes and the copy opens immediately in the existing player, even when saved
-outside the library or before indexing finishes. The video ribbon shows video
+outside watched folders. If indexing fails, the saved copy is kept and its path and
+the error are shown in the status bar; the original remains open. The video ribbon shows video
 editing tools only; photo-only commands and image zoom controls are hidden.
+
+## Metadata
+
+Each copy has a same-name `.xmp` sidecar containing safe descriptive metadata from
+the source's embedded XMP, Windows video properties, and existing sidecar. Sidecar
+edits take priority, with missing fields filled from the source. Titles, captions,
+keywords, creators, copyright, ratings, capture dates, camera make/model, location,
+and the PhotoLibrarian flag are retained where available. Localized text and XMP
+arrays are preserved. Keep the MP4 and XMP together when moving the copy to another
+computer; Explorer and players that ignore XMP sidecars may not display these fields.
+
+Old duration, dimensions, orientation, codec/bitrate fields, face rectangles,
+thumbnails and live photo-edit recipes are not copied. The MP4's track properties
+come from the newly encoded video instead. Invalid sidecar metadata fails the export
+explicitly rather than publishing a copy with silently lost metadata. The original
+video and its sidecar are never modified.
 
 ## How it works
 
@@ -120,10 +140,8 @@ the source's even frame dimensions, nominal frame rate,
 pixel aspect ratio and rotation metadata. Audio is re-encoded to AAC at
 192 kbit/s and 48 kHz, mono or stereo. Subtitles, additional tracks, HDR fidelity,
 and arbitrary metadata embedded in the source container are not preserved.
-The source XMP sidecar is copied to the export, preserving PhotoLibrarian ratings,
-flags, captions, capture dates, tags and other XMP properties. The copy is
-re-indexed using those sidecar values when it is added to a library. Keep the
-original for archival purposes.
+Descriptive metadata is collected into a filtered XMP sidecar, as described above;
+unknown container-specific properties are not copied. Keep the original for archival purposes.
 
 ## Diagnostics log
 
@@ -215,7 +233,9 @@ errors and cancellation cleanup. Natural-texture coverage includes subpixel
 translation, rotation and an independently moving foreground. Planner tests
 cover a fast pan beyond the fine search window (followed without jumps),
 bridging short tracking dropouts, and preserving linear pans at clip ends. Workflow tests
-cover the separate video ribbon and immediate playback before library indexing.
+cover the separate video ribbon, descriptive metadata policy, immediate single-file
+indexing, grid reveal/selection after closing playback, refresh and navigation,
+and an export outside the current folder/search.
 
 Library refreshes retain thumbnails for unchanged files instead of clearing all
 video previews after an export. Thumbnail provider and UI-decode waits honor

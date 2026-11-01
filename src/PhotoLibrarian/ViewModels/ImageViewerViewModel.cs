@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -81,23 +82,21 @@ public partial class ImageViewerViewModel : ObservableObject
         _ = LoadCurrentImageAsync();
     }
 
-    public void OpenExportedVideo(string path)
+    public void OpenExportedVideo(ImageEntry exportedEntry)
     {
+        ArgumentNullException.ThrowIfNull(exportedEntry);
+        if (exportedEntry.MediaType != MediaType.Video)
+            throw new ArgumentException("The exported copy must be a video.", nameof(exportedEntry));
+        var path = exportedEntry.FilePath;
         var entries = _allImages.ToList();
-        var entry = entries.FirstOrDefault(image =>
+        var index = entries.FindIndex(image =>
             string.Equals(image.FilePath, path, StringComparison.OrdinalIgnoreCase));
-        if (entry is null)
-        {
-            entry = new ImageEntry
-            {
-                FilePath = path,
-                FileName = System.IO.Path.GetFileName(path),
-                MediaType = MediaType.Video
-            };
-            entries.Insert(Math.Min(_currentIndex + 1, entries.Count), entry);
-        }
-        OpenImage(entry, entries);
+        if (index >= 0)
+            entries[index] = exportedEntry;
+        else
+            entries.Insert(Math.Min(_currentIndex + 1, entries.Count), exportedEntry);
         _pendingExportPath = path;
+        OpenImage(exportedEntry, entries);
     }
 
     public void UpdateLibraryImages(List<ImageEntry> images)

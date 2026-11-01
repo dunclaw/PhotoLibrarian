@@ -11,7 +11,6 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
     public event EventHandler? RedEyeClicked;
-    public event EventHandler? CloseViewerClicked;
     public event EventHandler? SlideshowClicked;
     public event EventHandler? StabilizeVideoClicked;
     public event EventHandler? ApplyCropClicked;
@@ -41,7 +40,6 @@ public sealed partial class TopRibbon : UserControl
         VideoTools.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         CropTools.Visibility = Visibility.Collapsed;
         StraightenTools.Visibility = Visibility.Collapsed;
-        CloseViewerButton.Visibility = Visibility.Visible;
         SetContextSubLabel(null);
     }
 
@@ -50,7 +48,6 @@ public sealed partial class TopRibbon : UserControl
     {
         ViewerTools.Visibility = Visibility.Collapsed;
         CropTools.Visibility = Visibility.Visible;
-        CloseViewerButton.Visibility = Visibility.Collapsed;
         SetContextSubLabel("Drag the handles to set the crop (hold Ctrl to keep proportions), or drag on the photo to draw a new one");
     }
 
@@ -58,7 +55,6 @@ public sealed partial class TopRibbon : UserControl
     {
         ViewerTools.Visibility = Visibility.Visible;
         CropTools.Visibility = Visibility.Collapsed;
-        CloseViewerButton.Visibility = Visibility.Visible;
         SetContextSubLabel(null);
     }
 
@@ -67,7 +63,6 @@ public sealed partial class TopRibbon : UserControl
         ViewerTools.Visibility = Visibility.Collapsed;
         CropTools.Visibility = Visibility.Collapsed;
         StraightenTools.Visibility = Visibility.Visible;
-        CloseViewerButton.Visibility = Visibility.Collapsed;
         SetContextSubLabel("Drag along the horizon, fine-tune the angle, or use Auto");
     }
 
@@ -75,21 +70,18 @@ public sealed partial class TopRibbon : UserControl
     {
         ViewerTools.Visibility = Visibility.Visible;
         StraightenTools.Visibility = Visibility.Collapsed;
-        CloseViewerButton.Visibility = Visibility.Visible;
         SetContextSubLabel(null);
     }
 
     public void EnterRedEyeMode()
     {
         ViewerTools.Visibility = Visibility.Collapsed;
-        CloseViewerButton.Visibility = Visibility.Collapsed;
         SetContextSubLabel("Drag a rectangle around both eyes (Esc to cancel)");
     }
 
     public void ExitRedEyeMode()
     {
         ViewerTools.Visibility = Visibility.Visible;
-        CloseViewerButton.Visibility = Visibility.Visible;
         SetContextSubLabel(null);
     }
 
@@ -100,7 +92,6 @@ public sealed partial class TopRibbon : UserControl
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
-    private void OnCloseViewerClick(object sender, RoutedEventArgs e) => CloseViewerClicked?.Invoke(this, EventArgs.Empty);
     private void OnSlideshowClick(object sender, RoutedEventArgs e) => SlideshowClicked?.Invoke(this, EventArgs.Empty);
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
         StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);

@@ -3,8 +3,11 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Services;
 
 namespace PhotoLibrarian.ViewModels;
+
+public enum PendingEditDecision { Cancel, Save, Discard }
 
 /// <summary>
 /// ViewModel for the image editor with real-time adjustment sliders.
@@ -24,13 +27,97 @@ public partial class ImageEditorViewModel : ObservableObject
     private bool _restoring;
     private CropRect? _crop;
     private CancellationTokenSource? _rawExport;
+    private List<ImageEntry> _images = [];
+    private int _openVersion;
+
+    public ImageEntry? CurrentEntry => _currentEntry;
+    public event Action<ImageEntry?>? CurrentEntryChanged;
+    public bool IsBusy => IsSaving || IsTransitioning;
+    public bool CanNavigate => IsOpen && !IsBusy && FindNavigationTarget(1) is not null;
+
+    [ObservableProperty]
+    public partial bool IsTransitioning { get; set; }
+
+    partial void OnIsTransitioningChanged(bool value) => NotifyHistoryChanged();
+
+    public void UpdateLibraryImages(IEnumerable<ImageEntry> images)
+    {
+        _images = images.Where(entry => entry.MediaType == MediaType.Image &&
+            (ImageEditRenderer.IsSupported(entry.FilePath) || RawToneMappingService.IsRaw(entry.FilePath))).ToList();
+        OnPropertyChanged(nameof(CanNavigate));
+    }
+
+    private ImageEntry? FindNavigationTarget(int direction)
+    {
+        if (_currentEntry is null || _images.Count == 0) return null;
+        var index = _images.FindIndex(entry =>
+            string.Equals(entry.FilePath, _currentEntry.FilePath, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) return direction > 0 ? _images[0] : _images[^1];
+        if (_images.Count < 2) return null;
+        return _images[(index + direction + _images.Count) % _images.Count];
+    }
+
+    public async Task<bool> NavigateAsync(int direction, Func<Task<PendingEditDecision>> confirm,
+        ImageEditService.PixelRenderer renderer)
+    {
+        if (direction is not (1 or -1)) throw new ArgumentOutOfRangeException(nameof(direction));
+        if (!CanNavigate) return false;
+        IsTransitioning = true;
+        try
+        {
+            EndEdit();
+            var decision = HasChanges ? await confirm() : PendingEditDecision.Discard;
+            if (decision == PendingEditDecision.Cancel) return false;
+            // Resolve against the latest filtered order, not the order when the prompt opened.
+            var target = FindNavigationTarget(direction);
+            if (target is null) return false;
+            Task SaveBeforeMovingAsync() => decision == PendingEditDecision.Save
+                ? SavePendingEditsAsync(renderer) : Task.CompletedTask;
+            bool IsTargetCurrent() => string.Equals(FindNavigationTarget(direction)?.FilePath,
+                target.FilePath, StringComparison.OrdinalIgnoreCase);
+            return await OpenEntryAsync(target, SaveBeforeMovingAsync, IsTargetCurrent);
+        }
+        finally { IsTransitioning = false; }
+    }
+
+    public async Task<bool> TryCloseAsync(Func<Task<PendingEditDecision>> confirm,
+        ImageEditService.PixelRenderer renderer)
+    {
+        if (!IsOpen || IsBusy) return false;
+        IsTransitioning = true;
+        try
+        {
+            EndEdit();
+            if (HasChanges)
+            {
+                var decision = await confirm();
+                if (decision == PendingEditDecision.Cancel) return false;
+                if (decision == PendingEditDecision.Save)
+                    await SavePendingEditsAsync(renderer);
+            }
+            CloseCore();
+            return true;
+        }
+        finally { IsTransitioning = false; }
+    }
+
+    private async Task SavePendingEditsAsync(ImageEditService.PixelRenderer renderer)
+    {
+        if (IsRawPreview)
+        {
+            await KeepRawPreviewRecipeAsync();
+            return;
+        }
+        if (!await SaveAsync(renderer))
+            throw new InvalidOperationException("No raster adjustments could be saved. Choose Discard to leave this photo without keeping the pending changes.");
+    }
 
     private sealed record HistoryEntry(string Label, EditParameters Before, EditParameters After);
 
     public IReadOnlyList<string> UndoHistory => _undoHistory.AsEnumerable().Reverse().Select(x => x.Label).ToArray();
     public IReadOnlyList<string> RedoHistory => _redoHistory.AsEnumerable().Reverse().Select(x => x.Label).ToArray();
-    public bool CanUndo => IsOpen && !IsSaving && _undoHistory.Count > 0;
-    public bool CanRedo => IsOpen && !IsSaving && _redoHistory.Count > 0;
+    public bool CanUndo => IsOpen && !IsBusy && _undoHistory.Count > 0;
+    public bool CanRedo => IsOpen && !IsBusy && _redoHistory.Count > 0;
 
     partial void OnIsSavingChanged(bool value) => NotifyHistoryChanged();
     partial void OnIsOpenChanged(bool value) => NotifyHistoryChanged();
@@ -45,8 +132,8 @@ public partial class ImageEditorViewModel : ObservableObject
     public partial string? ImagePath { get; set; }
 
     public bool IsRawPreview => ImagePath is not null && RawToneMappingService.IsRaw(ImagePath);
-    public bool CanSavePixels => IsOpen && !IsSaving && !IsRawPreview;
-    public bool CanExportRawDerivative => IsOpen && !IsSaving && IsRawPreview;
+    public bool CanSavePixels => IsOpen && !IsBusy && !IsRawPreview;
+    public bool CanExportRawDerivative => IsOpen && !IsBusy && IsRawPreview;
     public string SaveDisabledReason => IsRawPreview
         ? "RAW originals cannot be overwritten. Use Export SDR derivative to create a separate JPEG or PNG."
         : "";
@@ -165,8 +252,32 @@ public partial class ImageEditorViewModel : ObservableObject
 
     public async Task OpenForEditAsync(ImageEntry entry)
     {
+        if (IsTransitioning || (IsSaving && _rawExport is null))
+            throw new InvalidOperationException("An editor operation is already in progress.");
+        // A programmatic replacement must still cancel a non-cooperative RAW export.
+        _rawExport?.Cancel();
+        IsTransitioning = true;
+        try { await OpenEntryAsync(entry); }
+        finally { IsTransitioning = false; }
+    }
+
+    private async Task<bool> OpenEntryAsync(ImageEntry entry, Func<Task>? beforeCommit = null,
+        Func<bool>? stillCurrent = null)
+    {
+        var version = ++_openVersion;
         var parameters = ImageEditService.ReadEditParameters(entry.FilePath);
+        var isRaw = RawToneMappingService.IsRaw(entry.FilePath);
+        if (isRaw) File.GetAttributes(entry.FilePath);
+        // Complete fallible I/O before replacing the current photo or its unsaved history.
+        var backupHash = isRaw ? null : await OriginalBackupService.ComputeFileHashAsync(entry.FilePath);
+        var hasBackup = !isRaw && await _backupService.HasBackupAsync(entry.FilePath);
+        if (version != _openVersion || stillCurrent?.Invoke() == false) return false;
+        if (beforeCommit is not null) await beforeCommit();
+        if (version != _openVersion || stillCurrent?.Invoke() == false) return false;
+
         _currentEntry = entry;
+        _backupHash = backupHash;
+        HasBackup = hasBackup;
         Title = entry.FileName;
         ImagePath = entry.FilePath;
         IsOpen = true;
@@ -174,18 +285,9 @@ public partial class ImageEditorViewModel : ObservableObject
         RestoreParameters(parameters);
         ClearHistory();
 
-        if (IsRawPreview)
-        {
-            _backupHash = null;
-            HasBackup = false;
-            return;
-        }
-
-        // Backups are keyed by the content hash of the file they were taken from, so remember
-        // the hash we opened with — after a save the file's own hash no longer finds it.
-        _backupHash = await OriginalBackupService.ComputeFileHashAsync(entry.FilePath);
-        HasBackup = await _backupService.HasBackupAsync(entry.FilePath);
-        HasChanges = false;
+        OnPropertyChanged(nameof(CurrentEntry));
+        CurrentEntryChanged?.Invoke(entry);
+        return true;
     }
 
     /// <summary>
@@ -298,7 +400,7 @@ public partial class ImageEditorViewModel : ObservableObject
     [RelayCommand]
     private void ResetAll()
     {
-        if (IsSaving) return;
+        if (IsBusy) return;
         BeginEdit("Reset adjustments");
         var parameters = IsRawPreview ? GetCurrentParameters() : new EditParameters();
         parameters.RawExposureEv = 0;
@@ -312,7 +414,7 @@ public partial class ImageEditorViewModel : ObservableObject
     {
         if (IsRawPreview)
             throw new NotSupportedException("RAW originals are immutable in the preview workflow. Reset the preview recipe instead.");
-        if (_currentEntry is null || IsSaving) return;
+        if (_currentEntry is null || IsBusy) return;
         EndEdit();
         IsSaving = true;
         try
@@ -334,17 +436,25 @@ public partial class ImageEditorViewModel : ObservableObject
     [RelayCommand]
     private void Close()
     {
-        if (IsSaving) return;
+        if (IsBusy) return;
+        CloseCore();
+    }
+
+    private void CloseCore()
+    {
+        _openVersion++;
         IsOpen = false;
         ImagePath = null;
         _currentEntry = null;
         ClearHistory();
+        OnPropertyChanged(nameof(CurrentEntry));
+        CurrentEntryChanged?.Invoke(null);
     }
 
     public void ApplyAutoEnhance(EditParameters adjustments)
     {
         ArgumentNullException.ThrowIfNull(adjustments);
-        if (IsSaving) return;
+        if (IsBusy) return;
         BeginEdit("Auto enhance");
         Exposure = adjustments.Exposure;
         Contrast = adjustments.Contrast;
@@ -442,7 +552,7 @@ public partial class ImageEditorViewModel : ObservableObject
 
     private void MoveHistory(List<HistoryEntry> source, List<HistoryEntry> target, int count, bool undo)
     {
-        if (!IsOpen || IsSaving) return;
+        if (!IsOpen || IsBusy) return;
         EndEdit();
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(count, source.Count);
@@ -493,6 +603,8 @@ public partial class ImageEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRedo));
         OnPropertyChanged(nameof(CanSavePixels));
         OnPropertyChanged(nameof(CanExportRawDerivative));
+        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(CanNavigate));
         UndoCommand.NotifyCanExecuteChanged();
         RedoCommand.NotifyCanExecuteChanged();
     }

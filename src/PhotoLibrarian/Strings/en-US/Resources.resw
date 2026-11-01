@@ -66,4 +66,14 @@
   <data name="DuplicateChangedDuringVerification" xml:space="preserve"><value>The photo changed during verification. Run the duplicate scan again.</value></data>
   <data name="DuplicateSelectionRequired" xml:space="preserve"><value>Select a duplicate candidate first.</value></data>
   <data name="DuplicateKeeperRequired" xml:space="preserve"><value>Choose which photo to keep first.</value></data>
+  <data name="NotTaggedLabel.Text" xml:space="preserve">
+    <value>Not tagged</value>
+    <comment>Browse node for library items with no tags.</comment>
+  </data>
+  <data name="NotTaggedTree.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Not tagged</value>
+  </data>
+  <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Not tagged</value>
+  </data>
 </root>

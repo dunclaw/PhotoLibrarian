@@ -194,6 +194,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
         ViewModel.DuplicateReview.PropertyChanged += OnDuplicateReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
+        ViewModel.ImageEditor.PropertyChanged += OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
         MetadataWriterService.SidecarFallback += OnMetadataSidecarFallback;
 
@@ -203,7 +204,6 @@ public sealed partial class MainWindow : Window
         TopRibbon.CropClicked += OnRibbonCropClicked;
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
-        TopRibbon.CloseViewerClicked += (_, _) => ViewModel.ImageViewer.CloseCommand.Execute(null);
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
@@ -282,6 +282,22 @@ public sealed partial class MainWindow : Window
             UpdateDuplicateReviewVisibility();
     }
 
+    private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isClosing || e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosing) return;
+            if (ViewModel.ImageEditor.IsOpen)
+            {
+                ViewerOverlay.StopFocusGuard();
+                EditorOverlay.FocusEditor();
+            }
+            else if (ViewModel.ImageViewer.IsOpen)
+                ViewerOverlay.FocusViewer();
+        });
+    }
+
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isClosing) return;
@@ -336,8 +352,16 @@ public sealed partial class MainWindow : Window
     /// While the full viewer is open, route its shortcuts to it even if keyboard focus is
     /// still on the (hidden) grid, so navigation works immediately after opening.
     /// </summary>
-    private void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
+        {
+            var editorFocus = Content?.XamlRoot is { } editorRoot
+                ? FocusManager.GetFocusedElement(editorRoot) as DependencyObject
+                : null;
+            await EditorOverlay.HandleEditorKeyAsync(e, editorFocus);
+            return;
+        }
         if (!ViewModel.ImageViewer.IsOpen
             || ViewModel.Settings.IsOpen
             || ViewModel.PeopleReview.IsOpen
@@ -394,6 +418,7 @@ public sealed partial class MainWindow : Window
         ViewModel.DuplicateReview.PropertyChanged -= OnDuplicateReviewPropertyChanged;
         ViewModel.DuplicateReview.Close();
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
+        ViewModel.ImageEditor.PropertyChanged -= OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
         MetadataWriterService.SidecarFallback -= OnMetadataSidecarFallback;
         ViewModel.ImageGrid.Cleanup();
@@ -514,6 +539,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            ViewModel.ImageEditor.UpdateLibraryImages(ViewModel.ImageGrid.GetViewerImages());
             await ViewModel.ImageEditor.OpenForEditAsync(entry);
         }
         catch (Exception ex)

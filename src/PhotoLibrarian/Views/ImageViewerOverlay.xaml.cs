@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -293,6 +295,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void TryFocusViewer()
     {
+        if (App.ViewModel?.ImageEditor.IsOpen == true) return;
         if (ViewModel?.IsOpen != true || Visibility != Visibility.Visible) return;
         if (HasFocusWithin()) return;
         Focus(FocusState.Programmatic);
@@ -522,8 +525,16 @@ public sealed partial class ImageViewerOverlay : UserControl
             await dialog.ShowAsync();
             if (dialog.ExportedPath is { } exportedPath)
             {
-                ViewModel.OpenExportedVideo(exportedPath);
-                App.ViewModel!.StatusText = $"Opened stabilized copy: {exportedPath}";
+                try
+                {
+                    await App.ViewModel!.OpenStabilizedVideoAsync(exportedPath);
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.WriteLine($"Could not add stabilized copy to the library: {ex}");
+                    App.ViewModel!.StatusText =
+                        $"Saved stabilized copy at {exportedPath}, but could not show it in the library: {ex.Message}";
+                }
             }
         }
         catch (Exception ex)
@@ -670,6 +681,18 @@ public sealed partial class ImageViewerOverlay : UserControl
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
         // Kept for backwards compatibility, but not used with new zoom controller
+    }
+
+    private void OnCopyContextMenuOpening(object sender, object e)
+    {
+        StopFocusGuard();
+        CopyViewerFullPathItem.IsEnabled = !string.IsNullOrWhiteSpace(ViewModel?.CurrentEntry?.FilePath);
+    }
+
+    private void OnCopyFullPathClick(object sender, RoutedEventArgs e)
+    {
+        App.ViewModel.StatusText = PhotoClipboardService.CopyText(
+            ViewModel?.CurrentEntry?.FilePath, "full path");
     }
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
