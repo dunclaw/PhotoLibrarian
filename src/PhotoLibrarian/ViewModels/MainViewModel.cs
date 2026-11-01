@@ -130,7 +130,8 @@ public partial class MainViewModel : ObservableObject
             searchRepo,
             scanner,
             metadataReader,
-            this);
+            this,
+            new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
