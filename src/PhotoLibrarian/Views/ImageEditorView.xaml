@@ -113,9 +113,6 @@
                 </StackPanel>
 
                 <StackPanel x:Name="RawPreviewPanel" Spacing="12" Visibility="Collapsed">
-                    <InfoBar IsOpen="True" IsClosable="False" Severity="Warning"
-                             Title="Experimental RAW development"
-                             Message="Fixed SDR reference. Real-camera color accuracy is not yet validated. Decoder channels have a finite ceiling near 4; fully saturated detail cannot be recovered. Export creates a separate 8-bit sRGB JPEG or PNG; RAW originals are never overwritten." />
                     <TextBlock x:Name="RawPreviewStatus" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="EditorRawPreviewStatus"
                                AutomationProperties.LiveSetting="Polite" />

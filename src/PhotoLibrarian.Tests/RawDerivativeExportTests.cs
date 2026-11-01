@@ -93,6 +93,8 @@ public sealed class RawDerivativeExportTests : IDisposable
     {
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
         var editor = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageEditorView.xaml"));
+        var rawPanel = editor.Descendants().Single(element => (string?)element.Attribute(xaml + "Name") == "RawPreviewPanel");
+        Assert.DoesNotContain(rawPanel.Descendants(), element => element.Name.LocalName == "InfoBar");
         var export = editor.Descendants().Single(element => (string?)element.Attribute(xaml + "Name") == "ExportRawBtn");
         Assert.Equal("OnExportRaw", (string?)export.Attribute("Click"));
         Assert.Equal("EditorExportRawDerivative", (string?)export.Attribute("AutomationProperties.AutomationId"));

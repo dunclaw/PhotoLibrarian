@@ -313,7 +313,7 @@ export does not remove the missing production camera-accuracy measurements.
 ### #113 experimental SDR reference preview
 
 **Entry and safety.** Open a recognized RAW through **Adjust**. The editor
-shows an experimental warning, RAW-only exposure/white-point controls, and
+shows RAW-only exposure/white-point controls and
 **Keep preview recipe**. Raster tone/color/detail/rotation controls and auto
 enhance are hidden/disabled; their pending recipe values (including crop)
 are retained, not interpreted as scene-linear controls. **Reset** resets only
