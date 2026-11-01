@@ -1,11 +1,22 @@
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using System.Security.Cryptography;
 using System.Runtime.InteropServices;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 
 namespace PhotoLibrarian.Services;
+
+public sealed class DuplicateCandidateValidationException : IOException
+{
+    public string ResourceKey { get; }
+
+    public DuplicateCandidateValidationException(string resourceKey)
+    {
+        ResourceKey = resourceKey;
+    }
+}
 
 /// <summary>
 /// Per-photo file operations driven by the grid context menu and drag-drop:
@@ -271,6 +282,62 @@ public sealed class PhotoOperationsService
             }
         }
         return deleted;
+    }
+
+    /// <summary>
+    /// Rechecks a duplicate candidate's scan-time identity before using the existing
+    /// recoverable delete path. A changed or replaced file is never recycled.
+    /// </summary>
+    public async Task<bool> DeleteDuplicateCandidateToRecycleBinAsync(
+        DuplicateFileSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        await ValidateDuplicateCandidateAsync(snapshot, cancellationToken);
+
+        var deleted = await DeleteToRecycleBinAsync([snapshot.Entry]);
+        return deleted.Contains(snapshot.Entry.FilePath, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task ValidateDuplicateCandidateAsync(
+        DuplicateFileSnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        if (snapshot.Sha256 is null)
+            throw new DuplicateCandidateValidationException("DuplicateUnverifiedContent");
+
+        var file = new FileInfo(snapshot.Entry.FilePath);
+        if (!file.Exists ||
+            file.Length != snapshot.FileSize ||
+            file.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
+        {
+            throw new DuplicateCandidateValidationException("DuplicateFileChanged");
+        }
+
+        string currentHash;
+        await using (var stream = new FileStream(
+            snapshot.Entry.FilePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            128 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
+            currentHash = Convert.ToHexString(
+                await SHA256.HashDataAsync(stream, cancellationToken));
+        }
+        if (!string.Equals(currentHash, snapshot.Sha256, StringComparison.Ordinal))
+        {
+            throw new DuplicateCandidateValidationException("DuplicateContentChanged");
+        }
+
+        file.Refresh();
+        if (!file.Exists ||
+            file.Length != snapshot.FileSize ||
+            file.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
+        {
+            throw new DuplicateCandidateValidationException(
+                "DuplicateChangedDuringVerification");
+        }
     }
 
     // -----------------------------------------------------------------

@@ -107,6 +107,14 @@
             <views:PeopleReviewView />
         </Border>
 
+        <Border x:Name="DuplicateReviewOverlay"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                Visibility="Collapsed">
+            <views:DuplicateReviewView />
+        </Border>
+
         <InfoBar x:Name="MetadataFallbackInfoBar"
                  AutomationProperties.AutomationId="MetadataFallbackInfoBar"
                  Grid.Row="2"
@@ -119,6 +127,7 @@
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -137,7 +146,7 @@
             <Button x:Name="SettingsButton" 
                     AutomationProperties.AutomationId="SettingsButton"
                     AutomationProperties.Name="Settings"
-                    Grid.Column="5"
+                    Grid.Column="6"
                     Click="OnSettingsClick"
                     Padding="8,4"
                     ToolTipService.ToolTip="Settings">
@@ -172,6 +181,14 @@
                     Padding="8,4"
                     ToolTipService.ToolTip="Review people suggestions">
                 <FontIcon Glyph="&#xE716;" FontSize="14" />
+            </Button>
+            <Button x:Name="DuplicateReviewButton"
+                    AutomationProperties.AutomationId="DuplicateReviewButton"
+                    Grid.Column="5"
+                    Margin="0,0,8,0"
+                    Click="OnDuplicateReviewClick"
+                    Padding="8,4">
+                <FontIcon Glyph="&#xE8D4;" FontSize="14" />
             </Button>
         </Grid>
     </Grid>

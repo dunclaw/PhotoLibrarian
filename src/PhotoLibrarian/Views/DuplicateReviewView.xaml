@@ -1,0 +1,193 @@
+<UserControl
+    x:Class="PhotoLibrarian.Views.DuplicateReviewView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:PhotoLibrarian.ViewModels">
+    <UserControl.Resources>
+        <DataTemplate x:Key="DuplicateFileTemplate"
+                      x:DataType="vm:DuplicateReviewFileViewModel">
+            <Grid ColumnSpacing="16"
+                  Padding="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Width="160"
+                        Height="120"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{ThemeResource ControlCornerRadius}">
+                    <Image AutomationProperties.Name="{x:Bind FileName, Mode=OneWay}"
+                           Stretch="Uniform"
+                           Loaded="OnPreviewLoaded"
+                           DataContextChanged="OnPreviewDataContextChanged" />
+                </Border>
+                <StackPanel Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Spacing="8">
+                    <TextBlock Text="{x:Bind FileName, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{x:Bind FileDetails, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{x:Bind FilePath, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+                <RadioButton Grid.Column="2"
+                             AutomationProperties.Name="{x:Bind KeepAutomationName, Mode=OneWay}"
+                             AutomationProperties.AutomationId="{x:Bind FilePath, Mode=OneWay}"
+                             x:Uid="DuplicateKeepPhoto"
+                             IsChecked="{x:Bind IsKeeper, Mode=OneWay}"
+                             Click="OnKeepClicked"
+                             VerticalAlignment="Center" />
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Padding="24"
+          RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center"
+                        Spacing="4">
+                <TextBlock x:Uid="DuplicateTitle"
+                           Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Uid="DuplicateSubtitle"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+            <Button x:Name="ScanButton"
+                    AutomationProperties.AutomationId="ScanDuplicatesButton"
+                    x:Uid="DuplicateScanButton"
+                    Grid.Column="1"
+                    Command="{x:Bind ViewModel.ScanCommand}" />
+            <Button x:Name="CancelButton"
+                    AutomationProperties.AutomationId="CancelDuplicateScanButton"
+                    x:Uid="DuplicateCancelButton"
+                    Grid.Column="2"
+                    Margin="8,0,0,0"
+                    Command="{x:Bind ViewModel.CancelScanCommand}" />
+            <Button x:Name="CloseButton"
+                    AutomationProperties.AutomationId="CloseDuplicateReviewButton"
+                    x:Uid="DuplicateCloseButton"
+                    Grid.Column="3"
+                    Margin="8,0,0,0"
+                    Command="{x:Bind ViewModel.CloseCommand}">
+                <FontIcon Glyph="&#xE711;" />
+            </Button>
+        </Grid>
+
+        <StackPanel Grid.Row="1"
+                    Spacing="8">
+            <ProgressBar x:Name="ScanProgress"
+                         AutomationProperties.AutomationId="DuplicateScanProgress"
+                         IsIndeterminate="False"
+                         Minimum="0"
+                         Maximum="1"
+                         Value="0" />
+            <TextBlock x:Name="StatusText"
+                       AutomationProperties.LiveSetting="Polite"
+                       Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                       TextWrapping="Wrap" />
+            <InfoBar x:Name="DiagnosticsInfoBar"
+                     AutomationProperties.AutomationId="DuplicateScanDiagnostics"
+                     IsOpen="{x:Bind ViewModel.HasDiagnostics, Mode=OneWay}"
+                     Message="{x:Bind ViewModel.DiagnosticsMessage, Mode=OneWay}"
+                     Severity="Warning"
+                     IsClosable="False" />
+        </StackPanel>
+
+        <Grid Grid.Row="2"
+              ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="340" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <ListView x:Name="GroupList"
+                      AutomationProperties.AutomationId="DuplicateCandidateGroups"
+                      AutomationProperties.Name="Duplicate candidate groups"
+                      ItemsSource="{x:Bind ViewModel.Groups, Mode=OneWay}"
+                      SelectionChanged="OnGroupSelectionChanged"
+                      SelectionMode="Single">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DuplicateReviewGroupViewModel">
+                        <StackPanel Padding="8"
+                                    Spacing="4">
+                            <TextBlock Text="{x:Bind Header, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Text="{x:Bind Summary, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextTrimming="CharacterEllipsis"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="MatchKindText"
+                           Style="{StaticResource SubtitleTextBlockStyle}"
+                           TextWrapping="Wrap" />
+                <ListView x:Name="CandidateList"
+                          AutomationProperties.AutomationId="DuplicateCandidatePhotos"
+                          AutomationProperties.Name="Photos in selected duplicate candidate"
+                          Grid.Row="1"
+                          ItemTemplate="{StaticResource DuplicateFileTemplate}"
+                          SelectionMode="None" />
+                <Button x:Name="RecycleButton"
+                        AutomationProperties.AutomationId="RecycleDuplicatePhotosButton"
+                        AutomationProperties.Name="Move non-kept duplicate photos to Recycle Bin"
+                        x:Uid="DuplicateRecycleButton"
+                        Grid.Row="2"
+                        HorizontalAlignment="Right"
+                        Margin="0,12,0,0"
+                        Click="OnRecycleClicked" />
+                <StackPanel x:Name="EmptyState"
+                            Grid.Row="1"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="8">
+                    <FontIcon Glyph="&#xE8D4;"
+                              FontSize="40" />
+                    <TextBlock x:Uid="DuplicateEmptyTitle"
+                               Style="{StaticResource SubtitleTextBlockStyle}"
+                               TextAlignment="Center" />
+                    <TextBlock x:Uid="DuplicateEmptySubtitle"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <InfoBar Grid.Row="3"
+                 IsOpen="True"
+                 IsClosable="False"
+                 x:Uid="DuplicateSafetyNotice"
+                 Severity="Informational" />
+    </Grid>
+</UserControl>

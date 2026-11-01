@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="DuplicateTitle.Text" xml:space="preserve"><value>Duplicate photos</value></data>
+  <data name="DuplicateSubtitle.Text" xml:space="preserve"><value>Review exact copies and possible resized or re-encoded matches.</value></data>
+  <data name="DuplicateScanButton.Content" xml:space="preserve"><value>Scan library</value></data>
+  <data name="DuplicateCancelButton.Content" xml:space="preserve"><value>Cancel scan</value></data>
+  <data name="DuplicateKeepPhoto.Content" xml:space="preserve"><value>Keep this photo</value></data>
+  <data name="DuplicateEmptyTitle.Text" xml:space="preserve"><value>No duplicate candidates to review.</value></data>
+  <data name="DuplicateEmptySubtitle.Text" xml:space="preserve"><value>Run a scan to compare the indexed still photos.</value></data>
+  <data name="DuplicateSafetyNotice.Message" xml:space="preserve"><value>Near matches are suggestions, not proof. Compare carefully; photos are only moved to the Recycle Bin after you choose a keeper and confirm.</value></data>
+  <data name="DuplicateInitialStatus" xml:space="preserve"><value>Run a scan to look for duplicate photos.</value></data>
+  <data name="DuplicateScanningStatus" xml:space="preserve"><value>Scanning indexed photos…</value></data>
+  <data name="DuplicateNoCandidates" xml:space="preserve"><value>No duplicate candidates were found.</value></data>
+  <data name="DuplicateScanSummary" xml:space="preserve"><value>{0} exact groups and {1} near-match candidates found.</value></data>
+  <data name="DuplicateLimitWarning" xml:space="preserve"><value>Near-match comparisons reached the safety limit; results may be incomplete.</value></data>
+  <data name="DuplicateDiagnosticsSummary" xml:space="preserve"><value>{0} photo(s) could not be fully scanned:{1}</value></data>
+  <data name="DuplicateDiagnosticItem" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="DuplicateAdditionalDiagnostics" xml:space="preserve"><value>{0} additional diagnostic(s) omitted.</value></data>
+  <data name="DuplicateScanCanceled" xml:space="preserve"><value>Duplicate scan canceled.</value></data>
+  <data name="DuplicateScanFailed" xml:space="preserve"><value>Duplicate scan failed: {0}</value></data>
+  <data name="DuplicatePreviewFailed" xml:space="preserve"><value>A preview could not be loaded for {0}: {1}</value></data>
+  <data name="DuplicatePreviewMissing" xml:space="preserve"><value>Windows did not provide a thumbnail preview.</value></data>
+  <data name="DuplicateRecycleCanceled" xml:space="preserve"><value>{0}: the file was not recycled; the operation may have been canceled.</value></data>
+  <data name="DuplicateRecycleComplete" xml:space="preserve"><value>Moved {0} duplicate photo(s) to the Recycle Bin.</value></data>
+  <data name="DuplicateRecyclePartial" xml:space="preserve"><value>Moved {0} of {1} photo(s) to the Recycle Bin.</value></data>
+  <data name="DuplicateRecycleErrorItem" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="DuplicateProgressStatus" xml:space="preserve"><value>Scanning photo {0:N0} of {1:N0}: {2}</value></data>
+  <data name="DuplicateFileDetails" xml:space="preserve"><value>{0:N0} bytes · {1} × {2} · {3}</value></data>
+  <data name="DuplicateKeepAutomationName" xml:space="preserve"><value>Keep {0}</value></data>
+  <data name="DuplicateExactKind" xml:space="preserve"><value>Exact match (same file contents)</value></data>
+  <data name="DuplicateNearKind" xml:space="preserve"><value>Near match (perceptual hash, {0}/63 bits differ)</value></data>
+  <data name="DuplicateExactHeader" xml:space="preserve"><value>{0} exact copies</value></data>
+  <data name="DuplicateNearHeader" xml:space="preserve"><value>Possible near match</value></data>
+  <data name="DuplicateNearSummary" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="DuplicateScanButtonName" xml:space="preserve"><value>Scan for duplicate photos</value></data>
+  <data name="DuplicateCancelButtonName" xml:space="preserve"><value>Cancel duplicate scan</value></data>
+  <data name="DuplicateCloseButtonName" xml:space="preserve"><value>Close duplicate review</value></data>
+  <data name="DuplicateRecycleButtonName" xml:space="preserve"><value>Move non-kept duplicate photos to Recycle Bin</value></data>
+  <data name="DuplicateMainButtonName" xml:space="preserve"><value>Find duplicate photos</value></data>
+  <data name="DuplicateNearRecycleWarning" xml:space="preserve"><value>This is a perceptual near-match suggestion and may be a false positive. Only continue if you have compared the photos and want the non-kept file recycled.</value></data>
+  <data name="DuplicateExactRecycleWarning" xml:space="preserve"><value>The selected photo will remain. The other exact copies will be sent to the Recycle Bin.</value></data>
+  <data name="DuplicateRecycleDialogTitle" xml:space="preserve"><value>Move duplicate photos to the Recycle Bin?</value></data>
+  <data name="DuplicateRecycleDialogContent" xml:space="preserve"><value>{0}&#x0a;&#x0a;Keep: {1}&#x0a;Move: {2} photo(s)</value></data>
+  <data name="DuplicateRecycleDialogPrimary" xml:space="preserve"><value>Move {0} to Recycle Bin</value></data>
+  <data name="DuplicateRecycleDialogCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="DuplicateRecycleFailed" xml:space="preserve"><value>Could not recycle duplicate photos: {0}</value></data>
+  <data name="DuplicateUnverifiedContent" xml:space="preserve"><value>The duplicate scan did not verify this photo's content.</value></data>
+  <data name="DuplicateFileChanged" xml:space="preserve"><value>The photo changed or is no longer available. Run the duplicate scan again.</value></data>
+  <data name="DuplicateContentChanged" xml:space="preserve"><value>The photo contents changed after the scan. Run the duplicate scan again.</value></data>
+  <data name="DuplicateChangedDuringVerification" xml:space="preserve"><value>The photo changed during verification. Run the duplicate scan again.</value></data>
+  <data name="DuplicateSelectionRequired" xml:space="preserve"><value>Select a duplicate candidate first.</value></data>
+  <data name="DuplicateKeeperRequired" xml:space="preserve"><value>Choose which photo to keep first.</value></data>
+</root>

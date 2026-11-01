@@ -101,7 +101,10 @@ public sealed class ImageRepository
         return ReadImageEntry(reader);
     }
 
-    public async Task<List<ImageEntry>> GetAllAsync(string? orderBy = "date_taken", bool descending = true)
+    public async Task<List<ImageEntry>> GetAllAsync(
+        string? orderBy = "date_taken",
+        bool descending = true,
+        CancellationToken cancellationToken = default)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -111,8 +114,8 @@ public sealed class ImageRepository
         cmd.CommandText = $"SELECT * FROM images ORDER BY {col} {dir}";
 
         var results = new List<ImageEntry>();
-        using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
         {
             results.Add(ReadImageEntry(reader));
         }

@@ -45,6 +45,7 @@ public partial class MainViewModel : ObservableObject
     public ImageEditorViewModel ImageEditor { get; }
     public MetadataPanelViewModel MetadataPanel { get; }
     public PeopleReviewViewModel PeopleReview { get; }
+    public DuplicateReviewViewModel DuplicateReview { get; }
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
     public OriginalBackupService BackupService => _backupService;
@@ -145,6 +146,9 @@ public partial class MainViewModel : ObservableObject
         _autoTaggingEnabled =
             Settings.CurrentAutoTaggingSettings.CanRun;
         PhotoOps = new Services.PhotoOperationsService(imageRepo, backupService);
+        DuplicateReview = new DuplicateReviewViewModel(
+            new DuplicateDetectionService(imageRepo),
+            PhotoOps);
 
         _indexingService.Progress += OnIndexingProgress;
         _recognitionPipeline.Progress += OnRecognitionProgress;

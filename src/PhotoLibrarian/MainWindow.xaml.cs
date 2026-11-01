@@ -36,6 +36,7 @@ public sealed partial class MainWindow : Window
 
     private bool CanStartSlideshow() =>
         !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+          ViewModel.DuplicateReview.IsOpen ||
           ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
           ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
           ViewerOverlay.IsManualFaceTagging);
@@ -191,8 +192,15 @@ public sealed partial class MainWindow : Window
         catch { /* Icon is cosmetic — never block startup */ }
 
         // Bind status bar to ViewModel
+        AutomationProperties.SetName(
+            DuplicateReviewButton,
+            DuplicateReviewStrings.Get("DuplicateMainButtonName"));
+        ToolTipService.SetToolTip(
+            DuplicateReviewButton,
+            DuplicateReviewStrings.Get("DuplicateMainButtonName"));
         ViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
+        ViewModel.DuplicateReview.PropertyChanged += OnDuplicateReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
         ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
         MetadataWriterService.SidecarFallback += OnMetadataSidecarFallback;
@@ -272,6 +280,12 @@ public sealed partial class MainWindow : Window
     {
         if (!_isClosing && e.PropertyName == nameof(ViewModel.PeopleReview.IsOpen))
             UpdatePeopleReviewVisibility();
+    }
+
+    private void OnDuplicateReviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_isClosing && e.PropertyName == nameof(ViewModel.DuplicateReview.IsOpen))
+            UpdateDuplicateReviewVisibility();
     }
 
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -383,6 +397,8 @@ public sealed partial class MainWindow : Window
         _slideshow?.Close();
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
+        ViewModel.DuplicateReview.PropertyChanged -= OnDuplicateReviewPropertyChanged;
+        ViewModel.DuplicateReview.Close();
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
         MetadataWriterService.SidecarFallback -= OnMetadataSidecarFallback;
@@ -684,6 +700,19 @@ public sealed partial class MainWindow : Window
             };
             await dialog.ShowAsync();
         }
+    }
+
+    private async void OnDuplicateReviewClick(object sender, RoutedEventArgs e)
+    {
+        ViewModel.DuplicateReview.IsOpen = true;
+        await ViewModel.DuplicateReview.ScanCommand.ExecuteAsync(null);
+    }
+
+    private void UpdateDuplicateReviewVisibility()
+    {
+        DuplicateReviewOverlay.Visibility = ViewModel.DuplicateReview.IsOpen
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void UpdatePeopleReviewVisibility()
