@@ -414,6 +414,51 @@ public sealed class AutoTagModelManifestTests
         }
     }
 
+    [Theory(Explicit = true)]
+    [InlineData(AutoTagModelCatalog.TinyClipProfileId)]
+    [InlineData(AutoTagModelCatalog.RamPlusProfileId)]
+    public async Task PublishedProfileDownloadsAndLoadsFromAzure(string profileId)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"live-model-install-{Guid.NewGuid():N}");
+        try
+        {
+            using var sessions = new OnnxSessionManager(root);
+            var manager = new AutoTagModelManager(sessions);
+            var profile = AutoTagModelCatalog.ForId(profileId);
+
+            await manager.DownloadProfileAssetsAsync(
+                profileId,
+                root,
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(
+                AutoTagDownloadState.Downloaded,
+                manager.GetDownloadStatus(profileId, root).State);
+            var profileDirectory = Path.GetDirectoryName(
+                manager.GetAssetPath(profileId, profile.ModelAsset, root))!;
+            foreach (var notice in profile.RequiredNoticeFiles!)
+            {
+                Assert.True(File.Exists(Path.Combine(profileDirectory, notice)));
+            }
+
+            await manager.EnsureModelAsync(
+                profileId,
+                root,
+                TestContext.Current.CancellationToken);
+            var tagger = new AutoTaggingService(sessions, manager);
+            tagger.LoadModel(profileId, root);
+            Assert.NotNull(sessions.LoadModelPath(
+                manager.GetAssetPath(profileId, profile.ModelAsset, root),
+                profile.UseCpuOnly));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     private static HttpClient CreateClient(AutoTagModelManifest manifest) =>
         new(new DelegateHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {

@@ -58,18 +58,7 @@ if ($null -eq $manifest.sourceRevisions -or
     $null -eq $manifest.legalNotices) {
     throw 'Manifest is missing source revisions, assets, or legal notices.'
 }
-foreach ($revision in $profile.sourceRevisions.PSObject.Properties) {
-    $manifestRevision =
-        $manifest.sourceRevisions.PSObject.Properties[$revision.Name]
-    if ($null -eq $manifestRevision -or
-        $manifestRevision.Value -ne $revision.Value) {
-        throw "Manifest source revision mismatch for '$($revision.Name)'."
-    }
-}
-if (@($manifest.sourceRevisions.PSObject.Properties).Count -ne
-    @($profile.sourceRevisions.PSObject.Properties).Count) {
-    throw 'Manifest contains an unexpected source revision set.'
-}
+Assert-ModelSourceRevisionSet $manifest.sourceRevisions $profile.sourceRevisions
 if (@($manifest.assets).Count -ne $profile.assets.Count) {
     throw 'Manifest asset count does not match the release catalog.'
 }
