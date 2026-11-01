@@ -1,15 +1,16 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
 using System.Collections;
 using System.Collections.Specialized;
-using System.Diagnostics;
 using System.Linq;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -184,7 +185,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     /// </summary>
     public void SetGroups(System.Collections.ObjectModel.ObservableCollection<PhotoGroup> groups)
     {
-        Debug.WriteLine($"[VIRTUAL] SetGroups called with {groups?.Count ?? 0} groups");
+        DebugLog.WriteDebugLine($"[VIRTUAL] SetGroups called with {groups?.Count ?? 0} groups");
         
         // Unsubscribe from old collection
         if (_groups != null)
@@ -214,7 +215,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             {
                 totalItems += g.Items?.Count ?? 0;
             }
-            Debug.WriteLine($"[VIRTUAL] Total items across all groups: {totalItems}");
+            DebugLog.WriteDebugLine($"[VIRTUAL] Total items across all groups: {totalItems}");
         }
         
         // Initial render
@@ -223,7 +224,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     
     private void OnGroupsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        Debug.WriteLine($"[VIRTUAL] OnGroupsCollectionChanged: {e.Action}");
+        DebugLog.WriteDebugLine($"[VIRTUAL] OnGroupsCollectionChanged: {e.Action}");
         // Data changed - recalculate layout
         RecalculateLayout();
     }
@@ -247,7 +248,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             _availableHeaderElements.Enqueue(CreateHeaderElement());
         }
         
-        Debug.WriteLine($"[VIRTUAL] Created pool of {InitialPoolSize} photo elements and 20 header elements");
+        DebugLog.WriteDebugLine($"[VIRTUAL] Created pool of {InitialPoolSize} photo elements and 20 header elements");
     }
     
     /// <summary>
@@ -493,7 +494,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             // Handle empty collection - clear everything
             if (_groups == null || _groups.Count == 0)
             {
-                Debug.WriteLine($"[VIRTUAL] Groups empty, clearing all elements");
+                DebugLog.WriteDebugLine($"[VIRTUAL] Groups empty, clearing all elements");
                 
                 // Release all active elements
                 var allActive = _activeElements.ToList();
@@ -523,7 +524,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             // Update visible elements
             UpdateViewport();
             
-            Debug.WriteLine($"[VIRTUAL] Layout updated: {_columnCount} columns, {_totalContentHeight:F0}px tall, ItemSize={ItemSize}");
+            DebugLog.WriteDebugLine($"[VIRTUAL] Layout updated: {_columnCount} columns, {_totalContentHeight:F0}px tall, ItemSize={ItemSize}");
         }
         finally
         {
@@ -567,7 +568,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         double viewportStart = scrollOffset - BufferZone;
         double viewportEnd = scrollOffset + viewportHeight + BufferZone;
         
-        Debug.WriteLine($"[VIRTUAL] Viewport: {viewportStart:F0} - {viewportEnd:F0}");
+        DebugLog.WriteDebugLine($"[VIRTUAL] Viewport: {viewportStart:F0} - {viewportEnd:F0}");
         
         // Calculate which items are visible
         var visibleItems = CalculateVisibleItems(viewportStart, viewportEnd);
@@ -585,7 +586,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             PositionItem(item);
         }
         
-        Debug.WriteLine($"[VIRTUAL] Rendered {_activeElements.Count} elements ({toRelease.Count} released, {visibleItems.Count} visible)");
+        DebugLog.WriteDebugLine($"[VIRTUAL] Rendered {_activeElements.Count} elements ({toRelease.Count} released, {visibleItems.Count} visible)");
         
         // Notify listeners of visible photo items (exclude headers)
         var photoItems = visibleItems
@@ -593,7 +594,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             .Select(vi => (ImageThumbnailViewModel)vi.dataContext)
             .ToList();
         
-        Debug.WriteLine($"[VIRTUAL] Notifying {photoItems.Count} visible photos for thumbnail loading");
+        DebugLog.WriteDebugLine($"[VIRTUAL] Notifying {photoItems.Count} visible photos for thumbnail loading");
         VisibleItemsChanged?.Invoke(this, photoItems);
     }
     
@@ -676,7 +677,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
                 else
                 {
                     element = CreateHeaderElement();
-                    Debug.WriteLine($"[VIRTUAL] Header pool exhausted, created new header");
+                    DebugLog.WriteDebugLine($"[VIRTUAL] Header pool exhausted, created new header");
                 }
             }
             else
@@ -688,7 +689,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
                 else
                 {
                     element = CreatePhotoElement();
-                    Debug.WriteLine($"[VIRTUAL] Photo pool exhausted, created new photo element");
+                    DebugLog.WriteDebugLine($"[VIRTUAL] Photo pool exhausted, created new photo element");
                 }
                 
                 // Size the photo element to current ItemSize

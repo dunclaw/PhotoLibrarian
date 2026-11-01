@@ -641,6 +641,13 @@ Photo Gallery features that depended on retired services — OneDrive/Facebook/F
 
 This is a personal project but PRs are welcome. Please keep changes scoped, run the existing build (`dotnet build`), and follow the existing style — small files, clear separation between `Core` services and UI viewmodels.
 
+Grid diagnostics (`[VIRTUAL]` and `[GRIDVIEW]`) are emitted only by Debug builds,
+through the shared background logger rather than directly from scroll/layout
+callbacks. They appear in debugger output and the local
+`%LOCALAPPDATA%\PhotoLibrarian\Logs\PhotoLibrarian.log`; disabling
+`App.EnableDebugLogging` disables these messages too. The bounded queue drops
+messages if the writer falls behind rather than blocking scrolling.
+
 ---
 
 ## License
