@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -694,6 +696,18 @@ public sealed partial class ImageGridView : UserControl
             await Services.PhotoOperationsService.CopyFilesToClipboardAsync(selected.Select(vm => vm.Entry.FilePath));
         };
         menu.Items.Add(copy);
+
+        var copyFullPath = new MenuFlyoutItem
+        {
+            Text = "Copy full path",
+            Icon = new FontIcon { Glyph = "\uE8C8" },
+            IsEnabled = !isMulti && !string.IsNullOrWhiteSpace(primary.Entry.FilePath)
+        };
+        AutomationProperties.SetAutomationId(copyFullPath, "GridCopyFullPath");
+        copyFullPath.Click += (_, _) =>
+            App.ViewModel.StatusText = Services.PhotoClipboardService.CopyText(
+                primary.Entry.FilePath, "full path");
+        menu.Items.Add(copyFullPath);
 
         // Delete
         var delete = new MenuFlyoutItem { Text = isMulti ? $"Delete ({selected.Count})" : "Delete" };

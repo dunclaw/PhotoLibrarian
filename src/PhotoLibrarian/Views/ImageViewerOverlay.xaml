@@ -7,6 +7,19 @@
     IsTabStop="True"
     KeyDown="OnKeyDown">
 
+    <UserControl.ContextFlyout>
+        <MenuFlyout Opening="OnCopyContextMenuOpening">
+            <MenuFlyoutItem x:Name="CopyViewerFullPathItem"
+                            AutomationProperties.AutomationId="ViewerCopyFullPath"
+                            Text="Copy full path"
+                            Click="OnCopyFullPathClick">
+                <MenuFlyoutItem.Icon>
+                    <FontIcon Glyph="&#xE8C8;" />
+                </MenuFlyoutItem.Icon>
+            </MenuFlyoutItem>
+        </MenuFlyout>
+    </UserControl.ContextFlyout>
+
     <Grid x:Name="RootGrid" Background="Black">
         <Grid.Resources>
             <Flyout x:Name="ManualFaceTagFlyout"
