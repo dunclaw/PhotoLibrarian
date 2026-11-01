@@ -1,8 +1,11 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Services;
 using System;
 using System.Globalization;
 
@@ -47,6 +50,7 @@ public sealed partial class MetadataPanel : UserControl
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         TagsList.ItemsSource = ViewModel.Tags;
         PeopleTagsList.ItemsSource = ViewModel.PeopleTags;
+        UpdateDisplay();
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -56,6 +60,9 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.HasImage):
             case nameof(MetadataPanelViewModel.FileName):
             case nameof(MetadataPanelViewModel.SelectionCount):
+            case nameof(MetadataPanelViewModel.IsMultiSelect):
+            case nameof(MetadataPanelViewModel.FilePath):
+            case nameof(MetadataPanelViewModel.FolderPath):
                 DispatcherQueue.TryEnqueue(UpdateDisplay);
                 break;
             case nameof(MetadataPanelViewModel.CommonDateTaken):
@@ -95,6 +102,9 @@ public sealed partial class MetadataPanel : UserControl
     {
         if (ViewModel is null || !ViewModel.HasImage)
         {
+            CopyFileNameButton.IsEnabled = false;
+            CopyFolderPathButton.IsEnabled = false;
+            CopyFullPathButton.IsEnabled = false;
             EmptyContent.Visibility = Visibility.Visible;
             DetailContent.Visibility = Visibility.Collapsed;
             return;
@@ -158,6 +168,9 @@ public sealed partial class MetadataPanel : UserControl
         InfoLatitude.Text = ViewModel.GpsLatitude;
         InfoLongitude.Text = ViewModel.GpsLongitude;
         InfoFilePath.Text = ViewModel.FilePath;
+        CopyFileNameButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FileName);
+        CopyFolderPathButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FolderPath);
+        CopyFullPathButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FilePath);
         AddPeopleTagsButton.Visibility = ViewModel.IsMultiSelect
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -174,6 +187,23 @@ public sealed partial class MetadataPanel : UserControl
 
         UpdateStars();
         UpdateFlag();
+    }
+
+    private void OnCopyFileNameClick(object sender, RoutedEventArgs e) =>
+        CopyDetail(ViewModel?.FileName, "filename");
+
+    private void OnCopyFolderPathClick(object sender, RoutedEventArgs e) =>
+        CopyDetail(ViewModel?.FolderPath, "folder path");
+
+    private void OnCopyFullPathClick(object sender, RoutedEventArgs e) =>
+        CopyDetail(ViewModel?.FilePath, "full path");
+
+    private void CopyDetail(string? value, string description)
+    {
+        if (ViewModel is not { HasImage: true, IsMultiSelect: false })
+            value = null;
+
+        App.ViewModel.StatusText = PhotoClipboardService.CopyText(value, description);
     }
 
     private void OnAddPeopleTagsClick(object sender, RoutedEventArgs e) =>

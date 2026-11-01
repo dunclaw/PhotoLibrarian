@@ -698,6 +698,18 @@ public sealed partial class ImageGridView : UserControl
         };
         menu.Items.Add(copy);
 
+        var copyFullPath = new MenuFlyoutItem
+        {
+            Text = "Copy full path",
+            Icon = new FontIcon { Glyph = "\uE8C8" },
+            IsEnabled = !isMulti && !string.IsNullOrWhiteSpace(primary.Entry.FilePath)
+        };
+        AutomationProperties.SetAutomationId(copyFullPath, "GridCopyFullPath");
+        copyFullPath.Click += (_, _) =>
+            App.ViewModel.StatusText = Services.PhotoClipboardService.CopyText(
+                primary.Entry.FilePath, "full path");
+        menu.Items.Add(copyFullPath);
+
         // Delete
         var delete = new MenuFlyoutItem { Text = isMulti ? $"Delete ({selected.Count})" : "Delete" };
         delete.Click += async (_, _) =>

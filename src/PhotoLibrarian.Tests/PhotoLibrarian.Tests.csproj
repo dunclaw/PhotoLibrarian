@@ -31,6 +31,9 @@
     <None Include="..\PhotoLibrarian\Views\ImageGridView.xaml.cs"
           Link="TestAssets\ImageGridView.xaml.cs"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\MetadataPanel.xaml"
+          Link="TestAssets\MetadataPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageEditorView.xaml"
           Link="TestAssets\ImageEditorView.xaml"
           CopyToOutputDirectory="PreserveNewest" />
