@@ -671,6 +671,84 @@ public sealed class VideoStabilizationTests : IDisposable
     }
 
     [Fact]
+    public async Task VideoMetadataReaderReturnsAvailableTrackPropertiesAndLeavesMissingDescriptionEmpty()
+    {
+        await CreateFixtureAsync(false);
+        var sourceFile = await StorageFile.GetFileFromPathAsync(Source);
+        var windowsProperties = await sourceFile.Properties.GetVideoPropertiesAsync();
+        var shellProperties = await sourceFile.Properties.RetrievePropertiesAsync(
+            ["System.Media.DateEncoded"]);
+        var encoding = await MediaEncodingProfile.CreateFromFileAsync(sourceFile);
+
+        var metadata = await VideoMetadataReaderService.ReadAsync(Source, TestContext.Current.CancellationToken);
+        uint? expectedBitrate = windowsProperties.Bitrate > 0 ? windowsProperties.Bitrate : null;
+        double? expectedFrameRate = encoding.Video.FrameRate.Denominator > 0
+            ? encoding.Video.FrameRate.Numerator / (double)encoding.Video.FrameRate.Denominator
+            : null;
+        var expectedEncodedDate = shellProperties.TryGetValue("System.Media.DateEncoded", out var encodedDateValue)
+            ? encodedDateValue switch
+            {
+                DateTimeOffset date => date,
+                DateTime date => new DateTimeOffset(date),
+                _ => (DateTimeOffset?)null
+            }
+            : null;
+
+        Assert.Equal(windowsProperties.Duration, metadata.Duration);
+        Assert.Equal(windowsProperties.Width, metadata.Width);
+        Assert.Equal(windowsProperties.Height, metadata.Height);
+        Assert.Equal(expectedBitrate, metadata.Bitrate);
+        Assert.Equal(expectedFrameRate, metadata.FrameRate);
+        Assert.Equal(encoding.Video.Subtype, metadata.Codec);
+        Assert.Null(metadata.Title);
+        Assert.Null(metadata.Artist);
+        Assert.Null(metadata.Album);
+        Assert.Null(metadata.Year);
+        Assert.Null(metadata.DateTaken);
+        Assert.Equal(expectedEncodedDate, metadata.DateEncoded);
+        Assert.Null(metadata.CameraMake);
+        Assert.Null(metadata.CameraModel);
+        Assert.Null(metadata.Latitude);
+        Assert.Null(metadata.Longitude);
+    }
+
+    [Fact]
+    public async Task VideoMetadataReaderReturnsDescriptiveWindowsProperties()
+    {
+        await CreateFixtureAsync(false);
+        var sourceFile = await StorageFile.GetFileFromPathAsync(Source);
+        await sourceFile.Properties.SavePropertiesAsync(new Dictionary<string, object>
+        {
+            ["System.Title"] = "Local video title"
+        });
+
+        var metadata = await VideoMetadataReaderService.ReadAsync(Source, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Local video title", metadata.Title);
+    }
+
+    [Fact]
+    public async Task VideoMetadataReaderPropagatesMissingAndUnreadableVideoErrors()
+    {
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            VideoMetadataReaderService.ReadAsync(
+                Path.Combine(_directory, "missing.mp4"),
+                TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            VideoMetadataReaderService.ReadAsync(Source, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task VideoMetadataReaderHonorsPreCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            VideoMetadataReaderService.ReadAsync(Source, cancellation.Token));
+    }
+
+    [Fact]
     public async Task WindowsExportRejectsMalformedMetadataWithoutPublishingCopy()
     {
         await CreateFixtureAsync(false);

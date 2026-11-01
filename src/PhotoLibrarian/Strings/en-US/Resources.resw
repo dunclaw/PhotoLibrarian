@@ -76,4 +76,46 @@
   <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
     <value>Not tagged</value>
   </data>
+  <data name="MetadataVideoErrorBar.Title" xml:space="preserve">
+    <value>Some video details unavailable</value>
+  </data>
+  <data name="MetadataVideoErrorMessage" xml:space="preserve">
+    <value>Couldn't read video details for {0}: {1}</value>
+  </data>
+  <data name="MetadataVideoTitleLabel.Text" xml:space="preserve">
+    <value>Title:</value>
+  </data>
+  <data name="MetadataVideoDurationLabel.Text" xml:space="preserve">
+    <value>Duration:</value>
+  </data>
+  <data name="MetadataVideoDurationUnderSecond" xml:space="preserve">
+    <value>Less than 1 second</value>
+  </data>
+  <data name="MetadataVideoKbpsFormat" xml:space="preserve">
+    <value>{0} kbps</value>
+  </data>
+  <data name="MetadataVideoMbpsFormat" xml:space="preserve">
+    <value>{0} Mbps</value>
+  </data>
+  <data name="MetadataVideoFrameRateFormat" xml:space="preserve">
+    <value>{0} fps</value>
+  </data>
+  <data name="MetadataVideoBitrateLabel.Text" xml:space="preserve">
+    <value>Bitrate:</value>
+  </data>
+  <data name="MetadataVideoFrameRateLabel.Text" xml:space="preserve">
+    <value>Frame rate:</value>
+  </data>
+  <data name="MetadataVideoCodecLabel.Text" xml:space="preserve">
+    <value>Codec:</value>
+  </data>
+  <data name="MetadataVideoAlbumLabel.Text" xml:space="preserve">
+    <value>Album:</value>
+  </data>
+  <data name="MetadataVideoYearLabel.Text" xml:space="preserve">
+    <value>Year:</value>
+  </data>
+  <data name="MetadataVideoDateEncodedLabel.Text" xml:space="preserve">
+    <value>Date encoded:</value>
+  </data>
 </root>

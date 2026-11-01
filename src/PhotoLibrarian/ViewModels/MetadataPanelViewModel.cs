@@ -1,11 +1,15 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.Windows.ApplicationModel.Resources;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace PhotoLibrarian.ViewModels;
@@ -79,6 +83,10 @@ public partial class MetadataPanelViewModel : ObservableObject
     private TagRepository? _tagRepo;
     private FaceRepository? _faceRepo;
     private MainViewModel? _main;
+    private CancellationTokenSource? _videoMetadataCancellation;
+    private static readonly ResourceLoader ResourceLoader = new(
+        Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.pri"),
+        "Resources");
 
     [ObservableProperty]
     public partial bool HasImage { get; set; }
@@ -177,6 +185,33 @@ public partial class MetadataPanelViewModel : ObservableObject
     [ObservableProperty]
     public partial string Author { get; set; } = "";
 
+    [ObservableProperty]
+    public partial string VideoTitle { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoDuration { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoBitrate { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoFrameRate { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoCodec { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoAlbum { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoYear { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoDateEncoded { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoMetadataError { get; set; } = "";
+
     private const string MixedMarker = "Multiple values";
 
     public MetadataPanelViewModel() { }
@@ -217,6 +252,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             return;
         }
 
+        CancelVideoMetadataRead();
+        ResetVideoMetadata();
         _entries = entries.ToList();
         HasImage = true;
         SelectionCount = _entries.Count;
@@ -330,6 +367,14 @@ public partial class MetadataPanelViewModel : ObservableObject
             }
         }
 
+        Task videoMetadataTask = Task.CompletedTask;
+        if (_entries.Count == 1 && _entries[0].MediaType == Core.Models.MediaType.Video)
+        {
+            var cancellation = new CancellationTokenSource();
+            _videoMetadataCancellation = cancellation;
+            videoMetadataTask = LoadVideoMetadataAsync(_entries[0], cancellation);
+        }
+
         // Tags — load from DB and compute union
         Tags.Clear();
         if (_tagRepo != null)
@@ -355,7 +400,116 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         await ReloadPeopleTagsAsync();
+        await videoMetadataTask;
     }
+
+    private async Task LoadVideoMetadataAsync(ImageEntry entry, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var metadata = await VideoMetadataReaderService.ReadAsync(entry.FilePath, cancellation.Token);
+            if (!IsCurrentVideoMetadataRequest(cancellation)) return;
+
+            if (metadata.Width.HasValue && metadata.Height.HasValue)
+                Dimensions = $"{metadata.Width} x {metadata.Height}";
+            VideoTitle = string.IsNullOrWhiteSpace(entry.Title) ? metadata.Title ?? "" : entry.Title;
+            Author = metadata.Artist ?? "";
+            VideoAlbum = metadata.Album ?? "";
+            VideoYear = metadata.Year?.ToString(CultureInfo.CurrentCulture) ?? "";
+            VideoDateEncoded = metadata.DateEncoded.HasValue
+                ? metadata.DateEncoded.Value.LocalDateTime.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture)
+                : "";
+            VideoDuration = metadata.Duration.HasValue ? FormatVideoDuration(metadata.Duration.Value) : "";
+            VideoBitrate = metadata.Bitrate.HasValue ? FormatVideoBitrate(metadata.Bitrate.Value) : "";
+            VideoFrameRate = metadata.FrameRate.HasValue
+                ? FormatVideoValue("MetadataVideoFrameRateFormat",
+                    metadata.FrameRate.Value.ToString("0.##", CultureInfo.CurrentCulture))
+                : "";
+            VideoCodec = metadata.Codec ?? "";
+            if (!entry.DateTaken.HasValue && metadata.DateTaken.HasValue)
+            {
+                CommonDateTaken = metadata.DateTaken.Value.DateTime;
+                DateTaken = metadata.DateTaken.Value.DateTime.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture);
+            }
+            if (string.IsNullOrWhiteSpace(Camera))
+                Camera = FormatCamera(metadata.CameraMake, metadata.CameraModel);
+            if (!entry.GpsLatitude.HasValue && metadata.Latitude.HasValue)
+                GpsLatitude = metadata.Latitude.Value.ToString("F4", CultureInfo.CurrentCulture);
+            if (!entry.GpsLongitude.HasValue && metadata.Longitude.HasValue)
+                GpsLongitude = metadata.Longitude.Value.ToString("F4", CultureInfo.CurrentCulture);
+            if (metadata.ExtractionError is not null)
+                VideoMetadataError = FormatVideoMetadataError(entry.FileName, metadata.ExtractionError);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or
+                                           UnauthorizedAccessException or NotSupportedException or
+                                           ArgumentException or COMException or InvalidOperationException)
+        {
+            if (!IsCurrentVideoMetadataRequest(cancellation)) return;
+
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read video details for {entry.FilePath}: {exception}");
+            VideoMetadataError = FormatVideoMetadataError(entry.FileName, exception.Message);
+        }
+        finally
+        {
+            if (ReferenceEquals(_videoMetadataCancellation, cancellation))
+                _videoMetadataCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private bool IsCurrentVideoMetadataRequest(CancellationTokenSource cancellation) =>
+        ReferenceEquals(_videoMetadataCancellation, cancellation) && !cancellation.IsCancellationRequested;
+
+    private void CancelVideoMetadataRead()
+    {
+        var cancellation = _videoMetadataCancellation;
+        _videoMetadataCancellation = null;
+        if (cancellation is null) return;
+        cancellation.Cancel();
+    }
+
+    private void ResetVideoMetadata()
+    {
+        VideoTitle = "";
+        VideoDuration = "";
+        VideoBitrate = "";
+        VideoFrameRate = "";
+        VideoCodec = "";
+        VideoAlbum = "";
+        VideoYear = "";
+        VideoDateEncoded = "";
+        VideoMetadataError = "";
+    }
+
+    private static string FormatVideoDuration(TimeSpan duration)
+    {
+        if (duration.TotalSeconds < 1)
+            return ResourceLoader.GetString("MetadataVideoDurationUnderSecond");
+        if (duration.TotalHours >= 1)
+            return $"{(long)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}";
+        return $"{(long)duration.TotalMinutes}:{duration.Seconds:00}";
+    }
+
+    private static string FormatVideoBitrate(uint bitrate) =>
+        bitrate >= 1_000_000
+            ? FormatVideoValue("MetadataVideoMbpsFormat",
+                (bitrate / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture))
+            : FormatVideoValue("MetadataVideoKbpsFormat",
+                (bitrate / 1_000d).ToString("N0", CultureInfo.CurrentCulture));
+
+    private static string FormatVideoValue(string key, string value) =>
+        string.Format(CultureInfo.CurrentCulture, ResourceLoader.GetString(key), value);
+
+    private static string FormatVideoMetadataError(string fileName, string message) =>
+        string.Format(
+            CultureInfo.CurrentCulture,
+            ResourceLoader.GetString("MetadataVideoErrorMessage"),
+            fileName,
+            message);
 
     [ObservableProperty]
     public partial bool IsManualFaceTaggingActive { get; set; }
@@ -431,6 +585,8 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public void Clear()
     {
+        CancelVideoMetadataRead();
+        ResetVideoMetadata();
         _entries = new();
         HasImage = false;
         IsMultiSelect = false;
