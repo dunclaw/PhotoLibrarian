@@ -183,13 +183,12 @@
                 <FontIcon Glyph="&#xE716;" FontSize="14" />
             </Button>
             <Button x:Name="DuplicateReviewButton"
+                    x:Uid="DuplicateMainButton"
                     AutomationProperties.AutomationId="DuplicateReviewButton"
                     Grid.Column="5"
                     Margin="0,0,8,0"
                     Click="OnDuplicateReviewClick"
-                    Padding="8,4">
-                <FontIcon Glyph="&#xE8D4;" FontSize="14" />
-            </Button>
+                    Padding="8,4" />
         </Grid>
     </Grid>
 </Window>

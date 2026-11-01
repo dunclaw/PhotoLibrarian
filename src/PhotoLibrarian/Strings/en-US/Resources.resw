@@ -43,6 +43,7 @@
   <data name="DuplicateCloseButtonName" xml:space="preserve"><value>Close duplicate review</value></data>
   <data name="DuplicateRecycleButtonName" xml:space="preserve"><value>Move non-kept duplicate photos to Recycle Bin</value></data>
   <data name="DuplicateMainButtonName" xml:space="preserve"><value>Find duplicate photos</value></data>
+  <data name="DuplicateMainButton.Content" xml:space="preserve"><value>Find duplicates</value></data>
   <data name="DuplicateNearRecycleWarning" xml:space="preserve"><value>This is a perceptual near-match suggestion and may be a false positive. Only continue if you have compared the photos and want the non-kept file recycled.</value></data>
   <data name="DuplicateExactRecycleWarning" xml:space="preserve"><value>The selected photo will remain. The other exact copies will be sent to the Recycle Bin.</value></data>
   <data name="DuplicateRecycleDialogTitle" xml:space="preserve"><value>Move duplicate photos to the Recycle Bin?</value></data>

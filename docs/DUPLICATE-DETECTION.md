@@ -1,7 +1,8 @@
 # Duplicate photo review
 
-The **Find duplicate photos** button in the status bar scans indexed still
-photos locally. It is cancellable and reports files that could not be read or
+Click **Find duplicates** in the bottom status bar, immediately to the left of
+the Settings gear, to open duplicate review and scan all indexed still photos
+locally. It is cancellable and reports files that could not be read or
 changed during the scan. Video files are excluded.
 
 Exact candidates are grouped by a full SHA-256 content hash, calculated only
