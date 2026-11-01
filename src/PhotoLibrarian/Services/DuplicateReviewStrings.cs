@@ -1,13 +1,14 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Globalization;
-using Windows.ApplicationModel.Resources;
+using Microsoft.Windows.ApplicationModel.Resources;
 
 namespace PhotoLibrarian.Services;
 
 internal static class DuplicateReviewStrings
 {
-    private static readonly ResourceLoader Loader =
-        ResourceLoader.GetForViewIndependentUse("Resources");
+    private static readonly ResourceLoader Loader = new(
+        Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.pri"),
+        "Resources");
 
     public static string Get(string key) => Loader.GetString(key);
 

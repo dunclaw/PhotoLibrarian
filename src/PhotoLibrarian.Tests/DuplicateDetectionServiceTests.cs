@@ -4,6 +4,7 @@ using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
+using PhotoLibrarian.ViewModels;
 using System.Security.Cryptography;
 using Xunit;
 
@@ -11,6 +12,28 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class DuplicateDetectionServiceTests
 {
+    [Fact]
+    public void ReviewViewModel_LoadsLocalizedStartupStringsWithoutPackageIdentity()
+    {
+        var directory = CreateTestDirectory();
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            var repository = new ImageRepository(database);
+            var viewModel = new DuplicateReviewViewModel(
+                new DuplicateDetectionService(repository),
+                new PhotoOperationsService(
+                    repository,
+                    new OriginalBackupService(Path.Combine(directory, "backups"))));
+
+            Assert.Equal("Run a scan to look for duplicate photos.", viewModel.StatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ScanAsync_FindsExactAndResizedReencodedPhotosButNotDissimilarImages()
     {
