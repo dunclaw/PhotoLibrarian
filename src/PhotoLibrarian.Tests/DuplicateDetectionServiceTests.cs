@@ -12,14 +12,19 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class DuplicateDetectionServiceTests
 {
-    [Fact]
-    public async Task ScanDiagnostics_DistinguishSameNameAtDifferentIndexedPaths()
+    [Theory]
+    [InlineData(false, "The indexed folder or drive is unavailable.")]
+    [InlineData(true, "No file exists at this indexed path.")]
+    public async Task ScanDiagnostics_DistinguishSameNameAtDifferentIndexedPaths(
+        bool indexedFolderExists, string expectedMessage)
     {
         var directory = CreateTestDirectory();
         try
         {
             var existing = Path.Combine(directory, "photo.png");
             var missing = Path.Combine(directory, "old-folder", "photo.png");
+            if (indexedFolderExists)
+                Directory.CreateDirectory(Path.GetDirectoryName(missing)!);
             await WicTestImage.CreateAsync(existing, 32, 24);
             using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
             await database.InitializeAsync();
@@ -41,6 +46,7 @@ public sealed class DuplicateDetectionServiceTests
 
             Assert.True(review.HasDiagnostics);
             Assert.Contains(missing, review.DiagnosticsDetails, StringComparison.Ordinal);
+            Assert.Contains(expectedMessage, review.DiagnosticsDetails, StringComparison.Ordinal);
             Assert.DoesNotContain(existing + ":", review.DiagnosticsDetails, StringComparison.Ordinal);
             Assert.Contains("outside", review.DiagnosticsMessage, StringComparison.Ordinal);
             Assert.True(File.Exists(existing));

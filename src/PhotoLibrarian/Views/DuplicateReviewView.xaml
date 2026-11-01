@@ -118,6 +118,7 @@
             <Expander x:Uid="DuplicateDiagnosticDetails"
                       AutomationProperties.AutomationId="DuplicateDiagnosticDetails"
                       HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
                       Visibility="{x:Bind BoolToVisibility(ViewModel.HasDiagnostics), Mode=OneWay}">
                 <ScrollViewer MaxHeight="200">
                     <TextBlock Text="{x:Bind ViewModel.DiagnosticsDetails, Mode=OneWay}"
