@@ -1,7 +1,10 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -31,7 +34,7 @@ public sealed partial class ImageGridView : UserControl
         if (ViewModel is null || _isInitialized) return;
         _isInitialized = true;
 
-        System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] OnLoaded - Images.Count={ViewModel.Images.Count}, GroupedImages.Count={ViewModel.GroupedImages.Count}");
+        DebugLog.WriteDebugLine($"[GRIDVIEW] OnLoaded - Images.Count={ViewModel.Images.Count}, GroupedImages.Count={ViewModel.GroupedImages.Count}");
 
         // Listen for viewport changes to request thumbnail loading
         PhotoGrid.VisibleItemsChanged += OnVisibleItemsChanged;
@@ -63,14 +66,14 @@ public sealed partial class ImageGridView : UserControl
         ViewModel.Images.CollectionChanged += (s, e) =>
         {
             var shouldShow = ViewModel.Images.Count == 0;
-            System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] Images changed, EmptyState visibility={shouldShow}");
+            DebugLog.WriteDebugLine($"[GRIDVIEW] Images changed, EmptyState visibility={shouldShow}");
             EmptyState.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
         };
         
         EmptyState.Visibility = ViewModel.Images.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
             
-        // Initialize UI controls to match ViewModel defaults
+        // Initialize UI controls to match the restored layout.
         UpdateGroupByCombo();
         UpdateSortByCombo();
         UpdateSortOrderIcon();
@@ -446,7 +449,7 @@ public sealed partial class ImageGridView : UserControl
     private void OnVisibleItemsChanged(object? sender, List<ImageThumbnailViewModel> visibleItems)
     {
         // Request thumbnails for visible items
-        System.Diagnostics.Debug.WriteLine($"[GRIDVIEW] OnVisibleItemsChanged: {visibleItems.Count} items");
+        DebugLog.WriteDebugLine($"[GRIDVIEW] OnVisibleItemsChanged: {visibleItems.Count} items");
         ViewModel?.OnViewportChangedGrouped(visibleItems);
     }
     
@@ -477,7 +480,7 @@ public sealed partial class ImageGridView : UserControl
     // Group By / Sort handlers
     private void OnGroupByChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel is null || GroupByCombo.SelectedItem is not ComboBoxItem item) return;
+        if (!_isInitialized || ViewModel is null || GroupByCombo.SelectedItem is not ComboBoxItem item) return;
         
         if (Enum.TryParse<GroupByOption>(item.Tag?.ToString(), out var groupBy))
         {
@@ -487,7 +490,7 @@ public sealed partial class ImageGridView : UserControl
     
     private void OnSortByChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel is null || SortByCombo.SelectedItem is not ComboBoxItem item) return;
+        if (!_isInitialized || ViewModel is null || SortByCombo.SelectedItem is not ComboBoxItem item) return;
         
         if (Enum.TryParse<SortByOption>(item.Tag?.ToString(), out var sortBy))
         {
@@ -695,6 +698,18 @@ public sealed partial class ImageGridView : UserControl
         };
         menu.Items.Add(copy);
 
+        var copyFullPath = new MenuFlyoutItem
+        {
+            Text = "Copy full path",
+            Icon = new FontIcon { Glyph = "\uE8C8" },
+            IsEnabled = !isMulti && !string.IsNullOrWhiteSpace(primary.Entry.FilePath)
+        };
+        AutomationProperties.SetAutomationId(copyFullPath, "GridCopyFullPath");
+        copyFullPath.Click += (_, _) =>
+            App.ViewModel.StatusText = Services.PhotoClipboardService.CopyText(
+                primary.Entry.FilePath, "full path");
+        menu.Items.Add(copyFullPath);
+
         // Delete
         var delete = new MenuFlyoutItem { Text = isMulti ? $"Delete ({selected.Count})" : "Delete" };
         delete.Click += async (_, _) =>
@@ -804,7 +819,7 @@ public sealed partial class ImageGridView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[EXPORT] {ex}");
+            DebugLog.WriteDebugLine($"[EXPORT] {ex}");
             App.ViewModel.StatusText = $"Resize and export failed: {ex.Message}";
         }
         finally
@@ -840,7 +855,7 @@ public sealed partial class ImageGridView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[OPS] OpenWith enumeration failed: {ex.Message}");
+            DebugLog.WriteDebugLine($"[OPS] OpenWith enumeration failed: {ex.Message}");
         }
 
         if (subFlyout.Items.Count > 0)
@@ -883,7 +898,7 @@ public sealed partial class ImageGridView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[OPS] Batch rename failed: {ex}");
+            DebugLog.WriteDebugLine($"[OPS] Batch rename failed: {ex}");
             await new ContentDialog
             {
                 Title = "Rename failed",

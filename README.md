@@ -14,6 +14,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 ## Highlights
 
 - 🚀 **Custom virtualized grid** that handles 18 000+ items per folder smoothly. No `ItemsRepeater` layout cycles, no per-item bindings — just a `Canvas` with a recycled element pool.
+- **Remembered grid layout** restores Group, Sort, and ascending/descending choices after restarting. Preferences stay local in `%LOCALAPPDATA%\PhotoLibrarian\grid-layout.json`; missing or invalid preferences use the existing defaults (no grouping, Date Taken, descending). Filters, search, and photo selection remain session-only.
 - 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **People**, **Tag**, and **Flag** trees; the sections combine as a union filter.
 - 🏷️ **Hierarchical tags** (`people/family/kids` indexes `people` + `people/family` + `people/family/kids` so you can filter at any level).
 - **Not tagged** under Browse > Tags shows indexed photos and videos with no tags, using the same definition as Filter > Missing metadata > Untagged. Its live count is library-wide (like other Browse counts), independent of selection, refinement, and search. Checking it adds these items to the navigation union; refinement and search still restrict the union. The check is remembered across restarts and tag-tree refreshes.
@@ -25,6 +26,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
 - **Simple video stabilization** in the video editing ribbon exports a separate H.264/AAC MP4 and opens it immediately in the player, with no downloads or additional installs. The integrated stabilizer reduces small shakes and rotations with mirrored edges, using Windows' video codecs. Progress and cancellation are available; originals are never overwritten. See [usage, limitations and open-source options](docs/VIDEO-STABILIZATION.md).
 - **Synchronized photo navigation** follows the grid's current filters, sort, and grouping. Returning from full view selects and reveals the displayed item. If a filter removes it, full view moves to the first matching item (or closes when no items match).
+- **Copy photo names and paths** using the copy buttons beside Filename (including extension), Folder, and Path (folder plus filename) in the information pane for a single selected item. Right-click a single grid item or the full-photo viewer and choose **Copy full path** to copy its path as plain text. The viewer menu also opens with Shift+F10 or the Menu key; detail buttons support Tab and Enter/Space. This does not copy or modify photo files; the existing grid **Copy** command still copies files.
 - **Remembered Browse state** restores expanded branches and checked folders, dates, people, tags, and flags when the app reopens. The same checked-node filters are reapplied after the trees load; unavailable or renamed paths/tags are ignored. Preferences stay local in `%LOCALAPPDATA%\PhotoLibrarian\navigation-pane.json` and do not change photo metadata.
 - **Batch resize and export** from the grid's right-click menu: export selected still images as JPEG copies using a maximum dimension or percentage, JPEG quality, an output folder and optional metadata stripping. Images are never enlarged; originals and existing files are never overwritten. Transparency is flattened onto white and only the first frame is exported. Unless stripped, common embedded captions, tags, ratings, capture date, author, copyright and camera name are retained; other metadata (including GPS and face regions) and sidecars are not copied. Progress, cancellation and per-file failures are shown.
 - **Batch rename with a live preview** from the grid's multi-select context menu. Use `Trip_{####}` for sequential names, `{original}` for the original basename, and `{yyyy}`, `{MM}`, `{dd}`, `{HH}`, `{mm}`, `{ss}` for capture-date parts (modified date when capture date is missing). Extensions are preserved, XMP sidecars move with their photos, and existing or duplicate photo/sidecar destinations block the operation.
@@ -641,6 +643,13 @@ Photo Gallery features that depended on retired services — OneDrive/Facebook/F
 ## Contributing
 
 This is a personal project but PRs are welcome. Please keep changes scoped, run the existing build (`dotnet build`), and follow the existing style — small files, clear separation between `Core` services and UI viewmodels.
+
+Grid diagnostics (`[VIRTUAL]` and `[GRIDVIEW]`) are emitted only by Debug builds,
+through the shared background logger rather than directly from scroll/layout
+callbacks. They appear in debugger output and the local
+`%LOCALAPPDATA%\PhotoLibrarian\Logs\PhotoLibrarian.log`; disabling
+`App.EnableDebugLogging` disables these messages too. The bounded queue drops
+messages if the writer falls behind rather than blocking scrolling.
 
 ---
 

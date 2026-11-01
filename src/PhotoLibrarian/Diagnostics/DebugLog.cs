@@ -17,4 +17,8 @@ public static class DebugLog
 
     public static void WriteLine(string format, params object[] args) =>
         Core.Diagnostics.DebugLog.WriteLine(format, args);
+
+    /// <summary>Queues verbose Debug-build diagnostics without blocking the calling thread.</summary>
+    [System.Diagnostics.Conditional("DEBUG")]
+    public static void WriteDebugLine(string message) => Core.Diagnostics.DebugLog.WriteLine(message);
 }

@@ -132,7 +132,8 @@ public partial class MainViewModel : ObservableObject
             searchRepo,
             scanner,
             metadataReader,
-            this);
+            this,
+            new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
@@ -1053,6 +1054,20 @@ public partial class MainViewModel : ObservableObject
         if (await _imageRepo.GetByPathAsync(path) is null)
             throw new InvalidOperationException($"The derivative at '{path}' could not be added to the library.");
         await RefreshAfterIndexAsync();
+    }
+
+    public async Task OpenStabilizedVideoAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
+        ImageViewer.OpenExportedVideo(copy);
+        StatusText = $"Opened stabilized copy: {path}";
     }
 
     public async Task MakeCopyForEditingAsync(ImageEntry entry)

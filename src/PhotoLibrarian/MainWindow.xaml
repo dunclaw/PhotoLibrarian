@@ -17,12 +17,23 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0">
-            <AutoSuggestBox x:Name="LibrarySearchBox"
+        <Grid Grid.Row="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <views:TopRibbon x:Name="TopRibbon" Visibility="Collapsed" />
+
+            <AutoSuggestBox x:Name="LibrarySearchBox" Grid.Column="1"
                             AutomationProperties.AutomationId="LibrarySearchBox"
                             AutomationProperties.Name="Search current photos"
                             MinWidth="280" MaxWidth="480"
-                            Margin="12,8" HorizontalAlignment="Right"
+                            Margin="12,8" HorizontalAlignment="Right" VerticalAlignment="Center"
                             PlaceholderText="Search current photos"
                             ToolTipService.ToolTip="Search within the left-pane selection and header filters. Select all photos and clear filters to search the whole library."
                             QueryIcon="Find"
@@ -31,12 +42,12 @@
                             ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
                             TextChanged="LibrarySearchBox_TextChanged"
                             QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
-            <InfoBar AutomationProperties.AutomationId="LibrarySearchError"
+            <InfoBar Grid.Row="1" Grid.ColumnSpan="2"
+                     AutomationProperties.AutomationId="LibrarySearchError"
                      IsOpen="{x:Bind ViewModel.Search.IsError, Mode=TwoWay}"
                      Message="{x:Bind ViewModel.Search.ErrorMessage, Mode=OneWay}"
                      Severity="Error" />
-            <views:TopRibbon x:Name="TopRibbon" Visibility="Collapsed" />
-        </StackPanel>
+        </Grid>
 
         <!-- Main 3-panel layout -->
         <Grid x:Name="MainLayout" Grid.Row="1">
