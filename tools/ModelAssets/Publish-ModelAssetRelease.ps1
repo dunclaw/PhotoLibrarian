@@ -66,8 +66,8 @@ foreach ($revision in $profile.sourceRevisions.PSObject.Properties) {
         throw "Manifest source revision mismatch for '$($revision.Name)'."
     }
 }
-if ($manifest.sourceRevisions.PSObject.Properties.Count -ne
-    $profile.sourceRevisions.PSObject.Properties.Count) {
+if (@($manifest.sourceRevisions.PSObject.Properties).Count -ne
+    @($profile.sourceRevisions.PSObject.Properties).Count) {
     throw 'Manifest contains an unexpected source revision set.'
 }
 if (@($manifest.assets).Count -ne $profile.assets.Count) {
