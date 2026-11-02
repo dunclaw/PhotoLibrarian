@@ -1181,6 +1181,40 @@ public sealed class FaceReviewServiceTests
         }
     }
 
+    [Fact]
+    public async Task PersonPicture_DoesNotUpdateCacheWhenMetadataWriteFails()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            var personId = await faces.CreatePersonAsync("Alex");
+            var ct = TestContext.Current.CancellationToken;
+            Assert.True(await faces.TryReplaceFaceRegionsAsync(
+                image.Id, image.FileSize, image.DateModified,
+                [CreateFace(image.Id, 0.2, [1f, 0f], personId, "Alex")],
+                "pipeline-v1", ct));
+            var face = Assert.Single(await faces.GetFacesForImageAsync(image.Id));
+            var service = new FaceReviewService(
+                faces, images, new FaceClusteringService(),
+                new FaceRecognitionService(), new FailingFaceMetadataStore());
+
+            await Assert.ThrowsAsync<IOException>(
+                () => service.SetPersonRepresentativeFaceAsync(personId, face.Id, ct));
+
+            Assert.Null(Assert.Single(await faces.GetAllPersonsAsync()).RepresentativeFaceRegionId);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
     private static FaceRegion CreateFace(
         long imageId,
         double x,

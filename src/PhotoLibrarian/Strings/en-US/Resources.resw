@@ -77,7 +77,7 @@
     <value>Not tagged</value>
   </data>
   <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
-  <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Reconcile files in watched folders without resetting the database. Missing items and database-only tags, flags, and people data are retained; photos are never changed. Moves are repaired only when an existing SHA-256 uniquely identifies the file.</value></data>
+  <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Reconcile files in watched folders without resetting the cache. Missing items and existing cached metadata are retained; photos are never changed. Moves are repaired only when an existing SHA-256 uniquely identifies the file. This repairs the existing index; it does not discard and rebuild it.</value></data>
   <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>
   <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
   <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>

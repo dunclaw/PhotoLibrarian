@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
@@ -335,7 +336,10 @@ public sealed class FaceRepository : IFaceScanStore
                         .Where(people.ContainsKey)
                         .Select(personId => people[personId].Name)
                         .ToArray() ??
-                    []))
+                    [],
+                    face.PersonId is long ownerId &&
+                    people.TryGetValue(ownerId, out var owner) &&
+                    owner.RepresentativeFaceRegionId == face.Id))
                 .ToList());
     }
 
@@ -625,6 +629,27 @@ public sealed class FaceRepository : IFaceScanStore
                     """;
                 clearReview.Parameters.AddWithValue("$faceId", faceId);
                 await clearReview.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            if (imported.IsPersonRepresentative.HasValue)
+            {
+                using var representative = conn.CreateCommand();
+                representative.Transaction = transaction;
+                representative.CommandText = """
+                    UPDATE persons
+                    SET representative_face_region_id = CASE
+                        WHEN id = $personId AND $selected = 1 THEN $faceId
+                        ELSE NULL
+                    END
+                    WHERE representative_face_region_id = $faceId
+                       OR (id = $personId AND $selected = 1)
+                    """;
+                representative.Parameters.AddWithValue("$faceId", faceId);
+                representative.Parameters.AddWithValue(
+                    "$personId", (object?)personId ?? DBNull.Value);
+                representative.Parameters.AddWithValue(
+                    "$selected", imported.IsPersonRepresentative.Value ? 1 : 0);
+                await representative.ExecuteNonQueryAsync(cancellationToken);
             }
 
             if (imported.SuggestionsHidden)
