@@ -5,9 +5,8 @@ namespace PhotoLibrarian.Core.Data;
 
 /// <summary>
 /// Manages the SQLite index/cache. Authoritative library information belongs in
-/// the media and associated metadata, not here. Do not discard an existing cache
-/// while legacy pending exports or other portability gaps remain unresolved;
-/// see docs/LIBRARY-INDEX-MAINTENANCE.md.
+/// the media and associated metadata, not here. Unique user decisions must be
+/// persisted by their writers before updating this cache.
 /// </summary>
 public sealed class CacheDatabase : IDisposable
 {

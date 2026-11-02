@@ -25,6 +25,8 @@ internal static class LibraryIndexMaintenanceStrings
                 "IndexMaintenanceStageVerifyingMoves",
             LibraryIndexMaintenanceStage.IndexingFiles =>
                 "IndexMaintenanceStageIndexing",
+            LibraryIndexMaintenanceStage.RemovingMissingFiles =>
+                "IndexMaintenanceStageRemoving",
             LibraryIndexMaintenanceStage.Complete =>
                 "IndexMaintenanceStageComplete",
             _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, null)
@@ -57,6 +59,8 @@ internal static class LibraryIndexMaintenanceStrings
                 "IndexMaintenanceIssuePendingMetadataExport",
             LibraryIndexMaintenanceIssueKind.ReparsePointSkipped =>
                 "IndexMaintenanceIssueReparsePointSkipped",
+            LibraryIndexMaintenanceIssueKind.CleanupFailed =>
+                "IndexMaintenanceIssueCleanupFailed",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         });
 }

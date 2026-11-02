@@ -77,22 +77,24 @@
     <value>Not tagged</value>
   </data>
   <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
-  <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Reconcile files in watched folders without resetting the cache. Missing items and existing cached metadata are retained; photos are never changed. Moves are repaired only when an existing SHA-256 uniquely identifies the file. This repairs the existing index; it does not discard and rebuild it.</value></data>
+  <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Repair moves and remove stale index entries for files verified missing from accessible watched folders. Unavailable locations are retained. Photos and sidecars are never changed. This repairs the existing index, not a clean rebuild.</value></data>
   <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>
   <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
   <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>
   <data name="IndexMaintenanceConfirmTitle" xml:space="preserve"><value>Repair the library index?</value></data>
-  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This scans watched folders and indexes available files. It repairs a moved file only when one unique SHA-256 match is available. Missing files and unavailable locations are reported but retained with their database data. No photos or database records are deleted.</value></data>
+  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes entries verified missing by repeated folder scans. Offline or unreadable locations are retained. No photos or sidecars are modified or deleted.</value></data>
   <data name="IndexMaintenanceConfirmPrimary" xml:space="preserve"><value>Repair index</value></data>
   <data name="IndexMaintenanceStarting" xml:space="preserve"><value>Preparing a safe library index scan…</value></data>
   <data name="IndexMaintenanceProgress" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} — {3}</value></data>
-  <data name="IndexMaintenanceCompleted" xml:space="preserve"><value>Completed. Updated {0:N0} file(s), repaired {1:N0} move(s), and found {2:N0} confirmed missing file(s), which were preserved. No records were deleted.</value></data>
-  <data name="IndexMaintenanceCompletedWithIssues" xml:space="preserve"><value>Completed with {3:N0} issue(s). Updated {0:N0} file(s), repaired {1:N0} move(s), and preserved {2:N0} confirmed missing file(s). Review the diagnostics below; no records were deleted.</value></data>
-  <data name="IndexMaintenanceCancelled" xml:space="preserve"><value>Cancelled after updating {0:N0} file(s) and repairing {1:N0} move(s). {2:N0} confirmed missing file(s) remain preserved. Completed work is retained and can be safely retried.</value></data>
-  <data name="IndexMaintenanceFailed" xml:space="preserve"><value>Library index maintenance failed: {0}. No records were intentionally deleted; retry after resolving the reported problem.</value></data>
+  <data name="IndexMaintenanceCompleted" xml:space="preserve"><value>Completed. Updated {0:N0} file(s), repaired {1:N0} move(s), and removed {4:N0} verified missing index entry/entries. Photos were not changed.</value></data>
+  <data name="IndexMaintenanceCompletedWithIssues" xml:space="preserve"><value>Completed with {3:N0} issue(s). Updated {0:N0} file(s), repaired {1:N0} move(s), and removed {4:N0} verified missing index entry/entries. Unavailable or unreadable locations were retained. Review the diagnostics below.</value></data>
+  <data name="IndexMaintenanceCancelled" xml:space="preserve"><value>Cancelled after updating {0:N0} file(s), repairing {1:N0} move(s), and removing {4:N0} verified missing index entry/entries. An incomplete cleanup batch is rolled back; completed work is retained. Retry to finish.</value></data>
+  <data name="IndexMaintenanceFailed" xml:space="preserve"><value>Library index maintenance failed: {0}. Completed indexing work is retained; an incomplete cleanup batch is rolled back. Retry after resolving the reported problem.</value></data>
   <data name="IndexMaintenanceStageScanning" xml:space="preserve"><value>Scanning folders</value></data>
   <data name="IndexMaintenanceStageVerifyingMoves" xml:space="preserve"><value>Verifying exact file identity</value></data>
   <data name="IndexMaintenanceStageIndexing" xml:space="preserve"><value>Indexing files</value></data>
+  <data name="IndexMaintenanceStageRemoving" xml:space="preserve"><value>Removing verified missing index entries</value></data>
+  <data name="IndexMaintenanceIssueCleanupFailed" xml:space="preserve"><value>Missing-entry cleanup failed; no entries were removed by this cleanup batch</value></data>
   <data name="IndexMaintenanceStageComplete" xml:space="preserve"><value>Complete</value></data>
   <data name="IndexMaintenanceIssue" xml:space="preserve"><value>{0} — {1}: {2}</value></data>
   <data name="IndexMaintenanceIssueNoWatchedFolders" xml:space="preserve"><value>No watched folders</value></data>

@@ -12,38 +12,43 @@ copied to move the photos. Tags, flags, and people assignments are written to
 the media or its XMP sidecar; duplicate hashes, thumbnails, and recognition
 embeddings are derived caches. Always move associated sidecars with the photos.
 
-The current implementation does not yet prove that every stored field can be
-reconstructed. In particular, keyword import does not restore tag provenance
-or confidence; these must not silently be treated as recovered values. Legacy
-pending metadata exports can also contain changes not yet saved to the files.
-Retaining those values until they are safely persisted is a compatibility
-safeguard, not permission to make SQLite authoritative. Maintenance retains database rows
-for confirmed missing files and for locations that cannot be accessed. The
-report distinguishes confirmed missing files from unavailable folders and
-access errors; it never removes a record just because a filesystem existence
-check returns false. Symbolic links and other reparse points are skipped and
-reported rather than followed.
+Repair removes stale entries for files verified missing from accessible watched
+folders, after attempting exact-identity move repair and indexing available
+files. A second folder scan confirms that candidates are still absent and
+storage is still accessible. The image rows and related tag, face, and hash
+cache rows are removed in one transaction; person face counts and representative
+references are updated consistently. No photos or sidecars are deleted.
+
+Entries on unavailable storage, in unreadable directories, or outside the
+watched scan scope remain indexed. A false filesystem existence check alone is
+never sufficient evidence for removal. Symbolic links and other reparse points
+are skipped and reported rather than followed.
 
 A move or rename is repaired only when an existing duplicate-scan SHA-256
 cache entry still matches the indexed file size and modification time, and
 exactly one newly found file has the same full content hash. Ambiguous matches,
-stale hashes, and files with sidecar state that cannot be verified are left
-unmatched and their original records remain available. No filename-only
-matching is used.
+stale hashes, and files with sidecar state that cannot be verified are not
+treated as moves. Available destination files are indexed independently, and
+the old missing paths are eligible for cleanup. No filename-only matching is
+used.
 
-Canceling or encountering an error keeps already completed per-file work.
-Retrying scans the same watched folders and safely resumes; incomplete or
-unavailable locations are reported rather than presented as a successful
+Canceling or encountering an error keeps already completed per-file indexing
+and relocation work. Cancellation or failure during missing-entry cleanup rolls
+back the entire cleanup batch, including cascaded rows and person updates.
+The result reports only committed removal counts and includes any cleanup
+failure. Retrying scans the same watched folders and safely resumes; incomplete
+or unavailable locations are reported rather than presented as a successful
 complete scan. Filesystem watcher delete and missing-directory notifications
-also retain index records so transient storage loss cannot cascade-delete
-database-only information.
+retain entries until explicit repair can verify absence; a transient storage
+loss must not empty the library.
 
 The maintenance action never modifies or deletes photo originals or writes
 sidecars. Files with a pending people-metadata export are reported and skipped
-so maintenance cannot cause a sidecar write. Any database-only data remains
-attached to its original image record unless a unique exact-hash move is
-safely repaired, in which case the same record and its related data follow
-the new path.
+so maintenance cannot cause a sidecar write. A unique exact-hash move retains
+the image ID and its associated cache rows. Confirmed deletions remove cache
+rows regardless of whether an old development database contains unexported
+values. There is no legacy-export prerequisite or automatic whole-cache backup
+for this cleanup.
 
 ## Person picture portability
 
@@ -55,39 +60,29 @@ portable region metadata rather than copying SQLite IDs. A fresh database can
 therefore restore the choice after the photos and sidecars move.
 
 Older face-review packets without this property remain readable. Their absence
-does not clear an existing cached choice. Existing database-only picture choices
-are not automatically exported by index maintenance, which remains read-only
-toward originals and sidecars; reselecting a picture writes it portably. Until
-legacy state has been persisted and all provenance gaps are closed, deleting the
-database is not a verified lossless recovery procedure.
+does not clear an existing cached choice. Index maintenance does not migrate
+old development-only picture choices; reselecting a picture writes it portably.
 
-## Remaining persistence-contract gaps
+## Pre-release persistence-contract audit
 
-| Cached field | Current reconstruction behavior | Required before claiming lossless clean rebuild |
-|---|---|---|
-| `tags.source` | Keywords imported from files are labeled `Metadata`, regardless of their original `Manual` or `AutoML` source. | Persist and import tag provenance without changing user tags or falsely promoting suggestions. |
-| `tags.confidence` | Keyword import assigns `1.0`, not the original generated confidence. | Preserve source confidence in associated metadata where it is retained as meaningful provenance. |
-| `images.auto_tag_scan_version` | Not exported with keywords or restored by indexing. | Persist/restore provenance where required, or explicitly recompute derived scan state rather than claim the old state was recovered. |
-| Legacy `persons.representative_face_region_id` | Previously saved only in SQLite; new selections now round-trip through XMP. | Explicitly persist historical choices before removing their cache. Do not copy database IDs into portable metadata. |
-| `images.face_metadata_export_required` and associated pending face state | Indicates cached face information still needs export; maintenance skips it and reports it. | Complete a deliberate, verified portable export, reporting unavailable files and write errors without discarding the pending state. |
+The app has not shipped a release. Compatibility with old development caches
+must not turn SQLite into an authority or prevent stale-entry cleanup. No
+historical cache backfill/export is required by this repair feature. Any current
+writer that saves a unique user decision only in SQLite is a persistence bug
+to fix at that writer, not a reason to retain invalid paths.
 
-In particular, historical background automatic-tagging records can contain
-`AutoML` tag values, source/confidence, and scan version saved only in SQLite.
-Adding portable writes to selected-photo review does not export those existing
-records, nor prove that the separate background `AutoTagWorkItem` writer uses
-the same pathway. Each writer and historical export must be verified separately.
-The selected-review portability work in PR #152 is not part of this branch and
-does not resolve these legacy records by itself.
+| Field identified in earlier development code | Portable persistence requirement / status |
+|---|---|
+| Automatic tag values, `tags.source`, `tags.confidence` | Ordinary keywords alone cannot recover provenance. PR #152 adds a versioned `plib:TagMetadata` snapshot and fresh-cache import, covering selected review and background writes. It is not part of this standalone branch. |
+| `images.auto_tag_scan_version` | PR #152 carries it in the same portable snapshot; otherwise this is derived scan state, not evidence that the old value was recovered. |
+| `persons.representative_face_region_id` | This PR persists new/reselected person-picture choices through portable face metadata and restores the chosen face without copying database IDs. |
+| `images.face_metadata_export_required` | This is export-work status, not portable library content. Explicit face-review actions write metadata first. Derived recognition data is regenerable; pending exports for available files are reported/skipped by maintenance to keep it read-only toward photos. |
 
-Historical cache-only export is **not implemented by this repair feature**.
-That is a nonblocking limitation for incremental repair, which retains the
-existing rows, but a blocker for any claim of lossless clean rebuild or safe
-cache deletion. No automatic migration or export is run against a live library.
-
-These are not reasons to make the cache the source of truth. They are remaining
-compatibility work. The Settings command offered here is **cache-preserving
-repair**, not a clean rebuild or a certification that an existing database can
-be discarded. It neither exports historical state nor bypasses the gaps above.
+This Settings command repairs the existing index rather than providing a
+drop-and-recreate operation. The standalone branch must not claim tag
+provenance round trips until the #152 persistence path is integrated. That
+integration requirement does not justify keeping verified-invalid entries.
+No live library migration or maintenance was used for development or tests.
 
 ## Combined tag-metadata integration evidence
 
@@ -114,8 +109,8 @@ dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Pla
 That run also covers background tag-writing round trips, metadata-write
 failure/retry, and newer-sidecar races in separate tests. The relocation
 scenario itself exercises **selected review**, not background-tag relocation.
-It does not export historical cache-only values or establish lossless clean
-rebuilds of old libraries.
+It does not export historical development-cache values. Those values do not
+block verified-missing cleanup in this pre-release app.
 
 The combined-only test requires both PR heads and is deliberately not compiled
 into either standalone PR. Its patch and results are preserved as

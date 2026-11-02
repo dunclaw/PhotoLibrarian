@@ -285,7 +285,8 @@ public partial class SettingsViewModel : ObservableObject
                     result.UpdatedFiles,
                     result.RepairedMoves,
                     result.ConfirmedMissingFiles,
-                    result.Issues.Count);
+                    result.Issues.Count,
+                    result.RemovedFiles);
         }
         catch (Exception exception)
         {

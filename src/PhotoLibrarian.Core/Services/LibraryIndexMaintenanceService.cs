@@ -47,6 +47,7 @@ public sealed class LibraryIndexMaintenanceService
         var repairedMoves = 0;
         var updatedFiles = 0;
         var confirmedMissing = 0;
+        var removedFiles = 0;
         var totalFiles = 0;
 
         try
@@ -170,6 +171,11 @@ public sealed class LibraryIndexMaintenanceService
                     path));
             }
 
+            if (missingEntries.Count > repairedMoves)
+            {
+                await RemoveConfirmedMissingAsync(missingEntries, watchedFolders);
+            }
+
             progress?.Report(new LibraryIndexMaintenanceProgress(
                 LibraryIndexMaintenanceStage.Complete,
                 totalFiles,
@@ -194,7 +200,75 @@ public sealed class LibraryIndexMaintenanceService
                 confirmedMissing,
                 issues,
                 cancelled,
-                totalFiles);
+                totalFiles,
+                removedFiles);
+
+        async Task RemoveConfirmedMissingAsync(
+            IReadOnlyList<ImageEntry> missing,
+            IReadOnlyList<WatchedFolder> folders)
+        {
+            // Repeat enumeration after indexing: storage may have disappeared or files returned.
+            var rescanned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var errors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var folder in folders)
+            {
+                ScanFolder(folder, rescanned, found, seen, errors, issues, progress,
+                    cancellationToken);
+            }
+            var removable = missing.Where(entry => IsConfirmedMissing(
+                entry.FilePath, folders, rescanned, found, seen, errors)).ToList();
+            if (removable.Count == 0) return;
+
+            progress?.Report(new LibraryIndexMaintenanceProgress(
+                LibraryIndexMaintenanceStage.RemovingMissingFiles, 0, removable.Count, ""));
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                using var connection = _database.CreateConnection();
+                using var transaction = connection.BeginTransaction();
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+
+                var removed = 0;
+                for (var index = 0; index < removable.Count; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var entry = removable[index];
+                    // ID and path must still identify the scanned row, not a repaired move.
+                    command.CommandText = "DELETE FROM images WHERE id = $id AND file_path = $path";
+                    command.Parameters.Clear();
+                    command.Parameters.AddWithValue("$id", entry.Id);
+                    command.Parameters.AddWithValue("$path", entry.FilePath);
+                    removed += await command.ExecuteNonQueryAsync(cancellationToken);
+                    progress?.Report(new LibraryIndexMaintenanceProgress(
+                        LibraryIndexMaintenanceStage.RemovingMissingFiles,
+                        index + 1, removable.Count, entry.FilePath));
+                }
+                command.Parameters.Clear();
+                command.CommandText = """
+                    UPDATE persons SET face_count =
+                        (SELECT COUNT(*) FROM face_regions WHERE person_id = persons.id)
+                    """;
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                transaction.Commit();
+                removedFiles = removed;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                issues.Add(new LibraryIndexMaintenanceIssue(
+                    LibraryIndexMaintenanceIssueKind.CleanupFailed,
+                    "",
+                    $"Missing-entry cleanup was rolled back or not started: {exception.Message}"));
+            }
+        }
     }
 
     private async Task<List<WatchedFolder>> GetWatchedFoldersAsync(
@@ -682,7 +756,8 @@ public sealed record LibraryIndexMaintenanceResult(
     int ConfirmedMissingFiles,
     IReadOnlyList<LibraryIndexMaintenanceIssue> Issues,
     bool Cancelled,
-    int TotalFiles)
+    int TotalFiles,
+    int RemovedFiles)
 {
     public bool Succeeded => !Cancelled && Issues.Count == 0;
 }
@@ -697,6 +772,7 @@ public enum LibraryIndexMaintenanceStage
     ScanningFolders,
     VerifyingMoves,
     IndexingFiles,
+    RemovingMissingFiles,
     Complete
 }
 
@@ -709,5 +785,6 @@ public enum LibraryIndexMaintenanceIssueKind
     FileReadFailed,
     FileIndexFailed,
     PendingMetadataExport,
-    ReparsePointSkipped
+    ReparsePointSkipped,
+    CleanupFailed
 }

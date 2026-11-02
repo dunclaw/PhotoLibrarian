@@ -43,6 +43,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
 
             Assert.True(result.Succeeded);
             Assert.Equal(1, result.RepairedMoves);
+            Assert.Equal(0, result.RemovedFiles);
             Assert.Contains(progress, update =>
                 update.Stage == LibraryIndexMaintenanceStage.IndexingFiles &&
                 update.Path == destinationPath);
@@ -67,7 +68,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
     }
 
     [Fact]
-    public async Task Reconcile_ReportsConfirmedDeletionButRetainsItsRecord()
+    public async Task Reconcile_RemovesConfirmedDeletionAndRelatedCacheRows()
     {
         var root = CreateTemporaryDirectory();
         try
@@ -79,13 +80,203 @@ public sealed class LibraryIndexMaintenanceServiceTests
             await library.IndexAsync(path);
             var indexed = Assert.IsType<ImageEntry>(
                 await library.Images.GetByPathAsync(path));
+            await SeedDatabaseOnlyStateAsync(library, indexed.Id);
+            await SeedExactHashAsync(library, indexed, path);
+            using (var connection = library.Database.CreateConnection())
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    UPDATE persons SET representative_face_region_id =
+                        (SELECT id FROM face_regions WHERE image_id = $id)
+                    """;
+                command.Parameters.AddWithValue("$id", indexed.Id);
+                await command.ExecuteNonQueryAsync();
+            }
             File.Delete(path);
 
             var result = await library.Maintenance.ReconcileAsync();
 
             Assert.True(result.Succeeded);
             Assert.Equal(1, result.ConfirmedMissingFiles);
-            Assert.Equal(indexed.Id, (await library.Images.GetByPathAsync(path))!.Id);
+            Assert.Equal(1, result.RemovedFiles);
+            Assert.Null(await library.Images.GetByPathAsync(path));
+            Assert.Empty(await library.Images.GetDuplicateHashesAsync(
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1, await CountDatabaseOnlyStateAsync(library.Database, indexed.Id));
+            using (var connection = library.Database.CreateConnection())
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    SELECT COUNT(*) FROM persons
+                    WHERE face_count = 0 AND representative_face_region_id IS NULL
+                    """;
+                Assert.Equal(1L, await command.ExecuteScalarAsync());
+            }
+            var repeated = await library.Maintenance.ReconcileAsync();
+            Assert.True(repeated.Succeeded);
+            Assert.Equal(0, repeated.RemovedFiles);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_RemovesEntriesInDeletedSubdirectoryButNotUnavailableRoot()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var library = await TestLibrary.CreateAsync(root);
+            await library.AddWatchedFolderAsync(root);
+            var deletedFolder = Path.Combine(root, "deleted");
+            Directory.CreateDirectory(deletedFolder);
+            var path = Path.Combine(deletedFolder, "photo.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            Directory.Delete(deletedFolder, recursive: true);
+
+            var result = await library.Maintenance.ReconcileAsync();
+
+            Assert.True(result.Succeeded);
+            Assert.Equal(1, result.RemovedFiles);
+            Assert.Null(await library.Images.GetByPathAsync(path));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reconcile_RechecksStorageAndRetainsEntriesWhenSecondScanFails(bool accessDenied)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var fileSystem = new CallbackFileSystem((directory, scan) =>
+            {
+                if (directory != root || scan != 2) return;
+                if (accessDenied) throw new UnauthorizedAccessException("Access lost during repair.");
+                throw new DirectoryNotFoundException("Storage disconnected during repair.");
+            });
+            using var library = await TestLibrary.CreateAsync(root, fileSystem);
+            await library.AddWatchedFolderAsync(root);
+            var path = Path.Combine(root, "deleted.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            File.Delete(path);
+
+            var result = await library.Maintenance.ReconcileAsync();
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.NotNull(await library.Images.GetByPathAsync(path));
+            Assert.Contains(result.Issues, issue => issue.Kind == (accessDenied
+                ? LibraryIndexMaintenanceIssueKind.AccessDenied
+                : LibraryIndexMaintenanceIssueKind.FolderUnavailable));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_RetainsFileThatReturnsBeforeCleanup()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var path = Path.Combine(root, "returned.png");
+            byte[] originalBytes = [];
+            var fileSystem = new CallbackFileSystem((directory, scan) =>
+            {
+                if (directory == root && scan == 2) File.WriteAllBytes(path, originalBytes);
+            });
+            using var library = await TestLibrary.CreateAsync(root, fileSystem);
+            await library.AddWatchedFolderAsync(root);
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            originalBytes = await File.ReadAllBytesAsync(path);
+            var original = await library.Images.GetByPathAsync(path);
+            File.Delete(path);
+
+            var result = await library.Maintenance.ReconcileAsync();
+
+            Assert.True(result.Succeeded);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.Equal(original!.Id, (await library.Images.GetByPathAsync(path))!.Id);
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(path));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reconcile_CleanupCancellationOrFailureRollsBackEntireBatchAndRetries(bool cancel)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var library = await TestLibrary.CreateAsync(root);
+            await library.AddWatchedFolderAsync(root);
+            foreach (var name in new[] { "one.png", "two.png" })
+            {
+                var path = Path.Combine(root, name);
+                await WicTestImage.CreateAsync(path, 16, 12);
+                await library.IndexAsync(path);
+                var entry = (await library.Images.GetByPathAsync(path))!;
+                await SeedDatabaseOnlyStateAsync(library, entry.Id);
+                File.Delete(path);
+            }
+            if (!cancel)
+            {
+                using var connection = library.Database.CreateConnection();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TRIGGER fail_cleanup BEFORE DELETE ON images
+                    WHEN (SELECT COUNT(*) FROM images) = 1
+                    BEGIN SELECT RAISE(ABORT, 'Synthetic cleanup failure'); END;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+            using var cancellation = new CancellationTokenSource();
+            var progress = new InlineProgress<LibraryIndexMaintenanceProgress>(update =>
+            {
+                if (cancel && update.Stage == LibraryIndexMaintenanceStage.RemovingMissingFiles &&
+                    update.Current == 1) cancellation.Cancel();
+            });
+
+            var interrupted = await library.Maintenance.ReconcileAsync(progress, cancellation.Token);
+
+            Assert.False(interrupted.Succeeded);
+            Assert.Equal(cancel, interrupted.Cancelled);
+            Assert.Equal(0, interrupted.RemovedFiles);
+            Assert.Equal(2, await library.Images.GetCountAsync());
+            using (var connection = library.Database.CreateConnection())
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT COUNT(*) FROM tags";
+                Assert.Equal(2L, await command.ExecuteScalarAsync());
+                command.CommandText = "DROP TRIGGER IF EXISTS fail_cleanup";
+                await command.ExecuteNonQueryAsync();
+            }
+            if (!cancel)
+                Assert.Contains(interrupted.Issues, issue =>
+                    issue.Kind == LibraryIndexMaintenanceIssueKind.CleanupFailed);
+
+            var retried = await library.Maintenance.ReconcileAsync();
+            Assert.True(retried.Succeeded);
+            Assert.Equal(2, retried.RemovedFiles);
+            Assert.Equal(0, await library.Images.GetCountAsync());
         }
         finally
         {
@@ -116,7 +307,8 @@ public sealed class LibraryIndexMaintenanceServiceTests
 
             Assert.True(result.Succeeded);
             Assert.Equal(0, result.RepairedMoves);
-            Assert.Equal(original.Id, (await library.Images.GetByPathAsync(oldPath))!.Id);
+            Assert.Null(await library.Images.GetByPathAsync(oldPath));
+            Assert.Equal(1, result.RemovedFiles);
             Assert.NotNull(await library.Images.GetByPathAsync(firstCopy));
             Assert.NotNull(await library.Images.GetByPathAsync(secondCopy));
         }
@@ -186,6 +378,66 @@ public sealed class LibraryIndexMaintenanceServiceTests
                 issue => issue.Kind ==
                     LibraryIndexMaintenanceIssueKind.AccessDenied);
             Assert.Equal(indexed.Id, (await library.Images.GetByPathAsync(path))!.Id);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_RetainsMissingFileUnderUnreadableSubdirectory()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var unreadable = Path.Combine(root, "unreadable");
+            Directory.CreateDirectory(unreadable);
+            using var library = await TestLibrary.CreateAsync(root, new DenyingFileSystem(unreadable));
+            await library.AddWatchedFolderAsync(root);
+            var path = Path.Combine(unreadable, "deleted.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            File.Delete(path);
+
+            var result = await library.Maintenance.ReconcileAsync();
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.NotNull(await library.Images.GetByPathAsync(path));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_RetainsEntriesOutsideNonRecursiveWatchedScope()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var library = await TestLibrary.CreateAsync(root);
+            await library.AddWatchedFolderAsync(root);
+            using (var connection = library.Database.CreateConnection())
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = "UPDATE watched_folders SET include_sub = 0";
+                await command.ExecuteNonQueryAsync();
+            }
+            var child = Path.Combine(root, "child");
+            Directory.CreateDirectory(child);
+            var path = Path.Combine(child, "deleted.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            File.Delete(path);
+
+            var result = await library.Maintenance.ReconcileAsync();
+
+            Assert.True(result.Succeeded);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.NotNull(await library.Images.GetByPathAsync(path));
         }
         finally
         {
@@ -469,6 +721,22 @@ public sealed class LibraryIndexMaintenanceServiceTests
 
         public FileAttributes GetAttributes(string path) =>
             File.GetAttributes(path);
+    }
+
+    private sealed class CallbackFileSystem(Action<string, int> beforeEnumeration)
+        : ILibraryMaintenanceFileSystem
+    {
+        private readonly Dictionary<string, int> _scanCounts = new(StringComparer.OrdinalIgnoreCase);
+
+        public IEnumerable<string> EnumerateFileSystemEntries(string directoryPath)
+        {
+            _scanCounts.TryGetValue(directoryPath, out var count);
+            _scanCounts[directoryPath] = ++count;
+            beforeEnumeration(directoryPath, count);
+            return Directory.EnumerateFileSystemEntries(directoryPath);
+        }
+
+        public FileAttributes GetAttributes(string path) => File.GetAttributes(path);
     }
 
     private sealed class ReparsePointFileSystem(string reparsePath)
