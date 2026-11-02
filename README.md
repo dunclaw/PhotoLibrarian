@@ -53,6 +53,39 @@ the same full-resolution graph; zoom only scales its result. Image dimensions
 and alpha are unchanged by denoising. Undo/redo, Reset, pending XMP edits, and
 the existing original-backup/save flow include the new amount.
 
+### Sharing and email
+
+Select still photos and use **Share selected photos** in the grid toolbar, or
+**Share or email...** in the right-click menu. Windows Share is the primary
+handoff: choose an installed app that accepts files. PhotoLibrarian does not
+send messages or upload anything itself. Available share targets depend on
+Windows and installed apps; opening the sheet does not mean a message was sent.
+
+Copies are JPEGs, at most 1600 pixels on the longest side (no enlargement),
+at 85% quality, limited to 20 photos and 20 MiB per batch. Mail providers may
+impose smaller limits. The existing resize/export metadata policy applies:
+common embedded descriptive metadata is retained, but GPS, face regions and
+sidecars are not copied. Animated files use their first frame; RAW/HEIC and
+other formats require a working Windows imaging codec. Unsupported, missing,
+or unreadable photos are reported before any successful copies are handed off.
+Original bytes, metadata, sidecars and grid selection are unchanged.
+
+**Email (attach manually)** is also available if Windows Share is unavailable
+or has no suitable mail target. Standard `mailto:` URIs cannot reliably attach
+files in Outlook or other clients. This fallback opens a short email draft and
+the copies folder; **attach the JPEG files yourself before sending**. No
+nonstandard `attachment=` parameters or local paths are placed in the URI.
+If there is no default mail handler or Explorer cannot open, the dialog reports
+that and provides the folder path.
+
+Copies live under `%LOCALAPPDATA%\PhotoLibrarian\ShareCopies`, separately from
+the library. Cancelled or abandoned preparations are removed immediately;
+copies handed to another app remain for seven days to support delayed reads
+and drafts. Expired batches are cleaned on the next launch/share; locked files
+are logged and retried later. Save copies elsewhere for drafts kept longer.
+Only generated batches are cleaned; unrelated folders and nested content are
+never recursively deleted.
+
 ### Batch rename
 
 Batch rename numbers files from 1 in selection order. Patterns specify the basename only
