@@ -1117,6 +1117,7 @@ public partial class ImageGridViewModel : ObservableObject
                 });
                 await tcs.Task;
             }
+            if (version != _groupingVersion) return;
             DebugLog.WriteLine($"[GROUPING] No images to group");
             RestoreSelectionAfterLoad();
             ResultsChanged?.Invoke(this, EventArgs.Empty);
@@ -1177,6 +1178,7 @@ public partial class ImageGridViewModel : ObservableObject
                 return new List<PhotoGroup>();
             }
         });
+        if (version != _groupingVersion) return;
         
         // Update UI on main thread
         if (App.MainWindow?.DispatcherQueue != null)
@@ -1207,6 +1209,8 @@ public partial class ImageGridViewModel : ObservableObject
             });
             await tcs.Task;
         }
+        // A superseded grouping must not publish the temporary empty grid of a newer load.
+        if (version != _groupingVersion) return;
         RestoreSelectionAfterLoad();
         ResultsChanged?.Invoke(this, EventArgs.Empty);
     }

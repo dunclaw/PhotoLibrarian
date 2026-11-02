@@ -301,7 +301,7 @@ public sealed class UnsharpMaskPerformanceTests
     [InlineData(6000, 4000)]
     public void SourceResolutionRenderCompletes(int width, int height)
     {
-        using var device = CanvasDevice.GetSharedDevice();
+        using var device = new CanvasDevice();
         var pixels = CreatePerformancePixels(width, height);
         using var source = CanvasBitmap.CreateFromBytes(
             device, pixels, width, height, DirectXPixelFormat.B8G8R8A8UIntNormalized, 96);
