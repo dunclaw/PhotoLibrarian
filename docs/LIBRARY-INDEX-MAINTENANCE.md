@@ -71,6 +71,19 @@ database is not a verified lossless recovery procedure.
 | Legacy `persons.representative_face_region_id` | Previously saved only in SQLite; new selections now round-trip through XMP. | Explicitly persist historical choices before removing their cache. Do not copy database IDs into portable metadata. |
 | `images.face_metadata_export_required` and associated pending face state | Indicates cached face information still needs export; maintenance skips it and reports it. | Complete a deliberate, verified portable export, reporting unavailable files and write errors without discarding the pending state. |
 
+In particular, historical background automatic-tagging records can contain
+`AutoML` tag values, source/confidence, and scan version saved only in SQLite.
+Adding portable writes to selected-photo review does not export those existing
+records, nor prove that the separate background `AutoTagWorkItem` writer uses
+the same pathway. Each writer and historical export must be verified separately.
+The selected-review portability work in PR #152 is not part of this branch and
+does not resolve these legacy records by itself.
+
+Historical cache-only export is **not implemented by this repair feature**.
+That is a nonblocking limitation for incremental repair, which retains the
+existing rows, but a blocker for any claim of lossless clean rebuild or safe
+cache deletion. No automatic migration or export is run against a live library.
+
 These are not reasons to make the cache the source of truth. They are remaining
 compatibility work. The Settings command offered here is **cache-preserving
 repair**, not a clean rebuild or a certification that an existing database can
