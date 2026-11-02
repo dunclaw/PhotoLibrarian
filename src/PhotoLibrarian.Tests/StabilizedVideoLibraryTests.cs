@@ -66,6 +66,46 @@ public sealed class StabilizedVideoLibraryTests
     }
 
     [Fact]
+    public async Task SupersededGroupingDuringReloadDoesNotCloseViewer()
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var main = library.Main;
+        var original = await library.AddVideoAsync("original.mp4");
+        await main.ImageGrid.FilterByFolderAsync(library.Photos);
+        main.ImageViewer.OpenImage(original, main.ImageGrid.GetViewerImages());
+        var publishedCounts = new List<int>();
+        main.ImageGrid.ResultsChanged += (_, _) => publishedCounts.Add(main.ImageGrid.Images.Count);
+
+        var context = new DeferredContinuationContext();
+        var previousContext = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+            main.ImageGrid.SortDescending = !main.ImageGrid.SortDescending;
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
+        var continuation = await context.Continuation.Task.WaitAsync(
+            TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+
+        var resumedDuringReload = false;
+        main.ImageGrid.Images.CollectionChanged += (_, _) =>
+        {
+            if (resumedDuringReload || main.ImageGrid.Images.Count != 0) return;
+            // Finish the old grouping while the new load has cleared, but not repopulated, the grid.
+            resumedDuringReload = true;
+            continuation.Callback(continuation.State);
+        };
+        await main.RefreshAfterIndexAsync();
+
+        Assert.True(resumedDuringReload);
+        Assert.Equal(1, Assert.Single(publishedCounts));
+        Assert.Equal(original.FilePath, main.ImageViewer.CurrentEntry?.FilePath);
+    }
+
+    [Fact]
     public async Task MetadataShutdownDrainsReadsForRapidVideoSelections()
     {
         await using var library = await LibraryFixture.CreateAsync();
@@ -103,6 +143,15 @@ public sealed class StabilizedVideoLibraryTests
         Assert.Equal(original.FilePath, main.ImageGrid.SelectedImage!.Entry.FilePath);
         Assert.Equal("original", File.ReadAllText(original.FilePath));
         Assert.Single(main.ImageGrid.Images);
+    }
+
+    private sealed class DeferredContinuationContext : SynchronizationContext
+    {
+        public TaskCompletionSource<(SendOrPostCallback Callback, object? State)> Continuation { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override void Post(SendOrPostCallback callback, object? state) =>
+            Continuation.SetResult((callback, state));
     }
 
     private sealed class LibraryFixture : IAsyncDisposable

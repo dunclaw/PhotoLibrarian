@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using MetadataExtractor;
 using MetadataExtractor.Formats.Xmp;
 using PhotoLibrarian.Core.Models;
@@ -327,6 +328,7 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
                 .Where(face =>
                     face.SuggestionsHidden ||
                     face.PersonSuggestionsHidden ||
+                    face.IsPersonRepresentative.HasValue ||
                     face.RejectedPersonNames.Count > 0)
                 .Select(face => new FaceReviewEntry(
                     face.X,
@@ -340,7 +342,8 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
                         .Where(name => !string.IsNullOrWhiteSpace(name))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Order(StringComparer.OrdinalIgnoreCase)
-                        .ToArray()))
+                        .ToArray(),
+                    face.IsPersonRepresentative))
                 .ToArray());
         if (review.Faces.Count > 0)
         {
@@ -419,7 +422,8 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
                         NullIfWhiteSpace(decision.PersonName),
                         decision.SuggestionsHidden,
                         decision.PersonSuggestionsHidden,
-                        decision.RejectedPersonNames ?? []);
+                        decision.RejectedPersonNames ?? [],
+                        decision.IsPersonRepresentative);
                     var matchIndex = FindBestMatch(faces, decisionFace);
                     if (matchIndex < 0)
                     {
@@ -433,7 +437,8 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
                         PersonName = existing.PersonName ?? decisionFace.PersonName,
                         SuggestionsHidden = decisionFace.SuggestionsHidden,
                         PersonSuggestionsHidden = decisionFace.PersonSuggestionsHidden,
-                        RejectedPersonNames = decisionFace.RejectedPersonNames
+                        RejectedPersonNames = decisionFace.RejectedPersonNames,
+                        IsPersonRepresentative = decisionFace.IsPersonRepresentative
                     };
                 }
             }
@@ -885,7 +890,8 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         string? PersonName,
         bool SuggestionsHidden,
         bool PersonSuggestionsHidden,
-        IReadOnlyList<string>? RejectedPersonNames);
+        IReadOnlyList<string>? RejectedPersonNames,
+        bool? IsPersonRepresentative = null);
 
     private sealed class FileBackup(string path, string? backupPath) : IDisposable
     {
