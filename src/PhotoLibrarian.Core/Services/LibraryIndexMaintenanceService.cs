@@ -107,11 +107,9 @@ public sealed class LibraryIndexMaintenanceService
                     !entry.FaceMetadataExportRequired &&
                     entry.FaceMetadataImported)
                 .ToList();
-            var repairedPaths = new HashSet<string>(
-                StringComparer.OrdinalIgnoreCase);
             if (repairCandidates.Count > 0)
             {
-                repairedPaths = await RepairUniqueMovesAsync(
+                var repairedPaths = await RepairUniqueMovesAsync(
                     repairCandidates,
                     filesFound,
                     entriesByPath,
@@ -122,7 +120,6 @@ public sealed class LibraryIndexMaintenanceService
             }
 
             var candidateFiles = filesFound
-                .Where(path => !repairedPaths.Contains(path))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             totalFiles = candidateFiles.Length;

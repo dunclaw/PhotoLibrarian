@@ -37,10 +37,15 @@ public sealed class LibraryIndexMaintenanceServiceTests
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             File.Move(oldPath, destinationPath);
 
-            var result = await library.Maintenance.ReconcileAsync();
+            var progress = new List<LibraryIndexMaintenanceProgress>();
+            var result = await library.Maintenance.ReconcileAsync(
+                new InlineProgress<LibraryIndexMaintenanceProgress>(progress.Add));
 
             Assert.True(result.Succeeded);
             Assert.Equal(1, result.RepairedMoves);
+            Assert.Contains(progress, update =>
+                update.Stage == LibraryIndexMaintenanceStage.IndexingFiles &&
+                update.Path == destinationPath);
             Assert.Equal(1, result.ConfirmedMissingFiles);
             Assert.Null(await library.Images.GetByPathAsync(oldPath));
             var relocated = Assert.IsType<ImageEntry>(
