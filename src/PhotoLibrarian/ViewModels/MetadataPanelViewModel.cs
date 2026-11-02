@@ -84,6 +84,8 @@ public partial class MetadataPanelViewModel : ObservableObject
     private FaceRepository? _faceRepo;
     private MainViewModel? _main;
     private CancellationTokenSource? _videoMetadataCancellation;
+    private Task _videoMetadataReads = Task.CompletedTask;
+    private bool _isStopping;
     private static readonly ResourceLoader ResourceLoader = new(
         Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.pri"),
         "Resources");
@@ -246,6 +248,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// </summary>
     public async void ShowMetadata(IReadOnlyList<ImageEntry> entries)
     {
+        if (_isStopping) return;
         if (entries == null || entries.Count == 0)
         {
             Clear();
@@ -373,6 +376,9 @@ public partial class MetadataPanelViewModel : ObservableObject
             var cancellation = new CancellationTokenSource();
             _videoMetadataCancellation = cancellation;
             videoMetadataTask = LoadVideoMetadataAsync(_entries[0], cancellation);
+            _videoMetadataReads = _videoMetadataReads.IsCompleted
+                ? videoMetadataTask
+                : Task.WhenAll(_videoMetadataReads, videoMetadataTask);
         }
 
         // Tags — load from DB and compute union
@@ -470,6 +476,13 @@ public partial class MetadataPanelViewModel : ObservableObject
         _videoMetadataCancellation = null;
         if (cancellation is null) return;
         cancellation.Cancel();
+    }
+
+    public async Task StopVideoMetadataReadsAsync()
+    {
+        _isStopping = true;
+        CancelVideoMetadataRead();
+        await _videoMetadataReads;
     }
 
     private void ResetVideoMetadata()

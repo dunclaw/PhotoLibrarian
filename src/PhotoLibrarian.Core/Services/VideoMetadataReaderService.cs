@@ -37,9 +37,12 @@ public static class VideoMetadataReaderService
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("The selected video no longer exists.", filePath);
 
+            // Await native operations to completion before honoring cancellation so shutdown
+            // can drain the reads rather than leave a canceled Windows property read holding a file.
             var file = await StorageFile.GetFileFromPathAsync(filePath)
-                .AsTask(cancellationToken)
+                .AsTask()
                 .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             var shell = await file.Properties.RetrievePropertiesAsync(
                 [
                     "System.Title", "System.Author", "System.Music.AlbumTitle", "System.Media.Year",
@@ -47,19 +50,24 @@ public static class VideoMetadataReaderService
                     "System.Photo.CameraManufacturer", "System.Photo.CameraModel",
                     "System.GPS.Latitude", "System.GPS.Longitude"
                 ])
-                .AsTask(cancellationToken)
+                .AsTask()
                 .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             var properties = await file.Properties.GetVideoPropertiesAsync()
-                .AsTask(cancellationToken)
+                .AsTask()
                 .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             double? frameRate = null;
             string? codec = null;
             string? extractionError = null;
             try
             {
-                var profile = await MediaEncodingProfile.CreateFromFileAsync(file)
-                    .AsTask(cancellationToken)
+                using var stream = await file.OpenReadAsync().AsTask().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                var profile = await MediaEncodingProfile.CreateFromStreamAsync(stream)
+                    .AsTask()
                     .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (profile.Video is { } video)
                 {
                     if (video.FrameRate.Numerator > 0 && video.FrameRate.Denominator > 0)
