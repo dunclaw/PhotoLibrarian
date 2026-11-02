@@ -88,3 +88,39 @@ These are not reasons to make the cache the source of truth. They are remaining
 compatibility work. The Settings command offered here is **cache-preserving
 repair**, not a clean rebuild or a certification that an existing database can
 be discarded. It neither exports historical state nor bypasses the gaps above.
+
+## Combined tag-metadata integration evidence
+
+The selected-tag worker verified an isolated combination of these exact refs:
+
+- PR #151: `74661d1d83c953bde66a23c7aa64444ebc5ffbe5`
+- PR #152: `caa071e58f733a015298fc57effd3a50677290db`
+- Local integration merge: `811135024b8eefca64a322f65bf695b098257672`
+
+`SelectedTagRelocationIntegrationTests.Reconcile_RefreshesChangedSelectedTagSnapshotAndFreshCacheAfterMove`
+applies selected-photo tags, revises only their XMP snapshot to source
+`Imported`, confidence `0.76`, and scan version `relocated-scan-v2`, then moves
+the unchanged JPEG and its separate tag sidecar. In that combination,
+`ReconcileAsync` repairs the unique-hash move and imports the revised snapshot
+in the **same pass**, preserving the original image ID and manual family tag.
+Indexing the moved files into a fresh cache restores that provenance as well.
+
+The focused combined run passed **44 tests, zero failures, zero skipped**:
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 --no-build -- -class PhotoLibrarian.Tests.SelectedTagRelocationIntegrationTests -class PhotoLibrarian.Tests.LibraryIndexMaintenanceServiceTests -class PhotoLibrarian.Tests.LibraryIndexingServiceTests -class PhotoLibrarian.Tests.AutoTagReviewViewModelTests -class PhotoLibrarian.Tests.BackgroundAutoTagPortabilityTests -class PhotoLibrarian.Tests.AutoTagRepositoryTests -class PhotoLibrarian.Tests.BatchTagProcessorTests -class PhotoLibrarian.Tests.RecognitionPipelineTests
+```
+
+That run also covers background tag-writing round trips, metadata-write
+failure/retry, and newer-sidecar races in separate tests. The relocation
+scenario itself exercises **selected review**, not background-tag relocation.
+It does not export historical cache-only values or establish lossless clean
+rebuilds of old libraries.
+
+The combined-only test requires both PR heads and is deliberately not compiled
+into either standalone PR. Its patch and results are preserved as
+`files/selected-tag-relocation-integration.patch` and
+`files/selected-tag-relocation-integration-results.txt` in the selected-tag
+session's artifacts (session `d838d0e6-1eb8-4af4-ac1c-8df94733ecc3`).
+These are local session artifacts, not public downloadable links; apply the
+patch only to the combined refs when reproducing. No live library was used.
