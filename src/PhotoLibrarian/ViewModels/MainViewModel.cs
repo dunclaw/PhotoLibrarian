@@ -1173,6 +1173,7 @@ public partial class MainViewModel : ObservableObject
         Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
+        await MetadataPanel.StopVideoMetadataReadsAsync();
         _watchedChanges.Dispose();
         _scanner.WatcherError -= OnWatcherError;
         _indexingCts?.Cancel();

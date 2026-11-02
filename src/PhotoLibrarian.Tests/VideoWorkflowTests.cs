@@ -90,6 +90,53 @@ public sealed class VideoWorkflowTests
     }
 
     [Fact]
+    public void MetadataPanelDeclaresOptionalVideoDetailRowsAndKeepsPhotoDetails()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var panel = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MetadataPanel.xaml"));
+        var rows = panel.Descendants()
+            .Select(element => (string?)element.Attribute(x + "Name"))
+            .Where(name => name is not null)
+            .ToHashSet();
+
+        Assert.Contains("InfoDimensionsRow", rows);
+        Assert.Contains("InfoCameraRow", rows);
+        Assert.Contains("InfoVideoTitleRow", rows);
+        Assert.Contains("InfoVideoDurationRow", rows);
+        Assert.Contains("InfoVideoBitrateRow", rows);
+        Assert.Contains("InfoVideoFrameRateRow", rows);
+        Assert.Contains("InfoVideoCodecRow", rows);
+        Assert.Contains("InfoVideoAlbumRow", rows);
+        Assert.Contains("InfoVideoYearRow", rows);
+        Assert.Contains("InfoVideoDateEncodedRow", rows);
+        Assert.Contains("VideoMetadataErrorBar", rows);
+    }
+
+    [Fact]
+    public void PhotoMetadataPanelValuesRemainIndependentOfVideoDetails()
+    {
+        var panel = new MetadataPanelViewModel();
+        var photo = new ImageEntry
+        {
+            FilePath = @"C:\Photos\photo.jpg",
+            FileName = "photo.jpg",
+            Width = 1920,
+            Height = 1080,
+            MediaType = MediaType.Image
+        };
+
+        panel.ShowMetadata(photo);
+
+        Assert.Equal("1920 x 1080", panel.Dimensions);
+        Assert.Equal("", panel.VideoDuration);
+        Assert.Equal("", panel.VideoBitrate);
+        Assert.Equal("", panel.VideoTitle);
+        Assert.Equal("", panel.VideoAlbum);
+        Assert.Equal("", panel.VideoYear);
+        Assert.Equal("", panel.VideoMetadataError);
+    }
+
+    [Fact]
     public async Task ThumbnailRequestsHonorPreCancellation()
     {
         using var cancellation = new CancellationTokenSource();
