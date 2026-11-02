@@ -9,6 +9,7 @@
     <Grid x:Name="AppRoot">
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="F11" Invoked="OnSlideshowInvoked" />
+            <KeyboardAccelerator Key="P" Modifiers="Control" Invoked="OnPrintPhotosInvoked" />
         </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

@@ -64,6 +64,36 @@
   <data name="DuplicateFileChanged" xml:space="preserve"><value>The photo changed or is no longer available. Run the duplicate scan again.</value></data>
   <data name="DuplicateContentChanged" xml:space="preserve"><value>The photo contents changed after the scan. Run the duplicate scan again.</value></data>
   <data name="DuplicateChangedDuringVerification" xml:space="preserve"><value>The photo changed during verification. Run the duplicate scan again.</value></data>
+  <data name="PrintTitle" xml:space="preserve"><value>Print photos</value></data>
+  <data name="PrintTaskTitle" xml:space="preserve"><value>PhotoLibrarian photos</value></data>
+  <data name="PrintSamplePhotoSingle" xml:space="preserve"><value>Previewing {0} · 1 photo selected</value></data>
+  <data name="PrintSamplePhotoMultiple" xml:space="preserve"><value>Previewing {0} · {1} photos selected</value></data>
+  <data name="PrintLayoutHeader" xml:space="preserve"><value>Photo size and layout</value></data>
+  <data name="PrintLayoutFullPage" xml:space="preserve"><value>Full page</value></data>
+  <data name="PrintLayoutFourBySix" xml:space="preserve"><value>4 × 6 in</value></data>
+  <data name="PrintLayoutFiveBySeven" xml:space="preserve"><value>5 × 7 in</value></data>
+  <data name="PrintLayoutEightByTen" xml:space="preserve"><value>8 × 10 in</value></data>
+  <data name="PrintLayoutWallet" xml:space="preserve"><value>Wallet (2.5 × 3.5 in, four per page)</value></data>
+  <data name="PrintLayoutContactSheet" xml:space="preserve"><value>Contact sheet (3 × 3 with filenames)</value></data>
+  <data name="PrintPlacementHeader" xml:space="preserve"><value>Photo placement</value></data>
+  <data name="PrintPlacementFit" xml:space="preserve"><value>Fit — show entire photo</value></data>
+  <data name="PrintPlacementFill" xml:space="preserve"><value>Fill frame — crop edges</value></data>
+  <data name="PrintPlacementPolicy" xml:space="preserve"><value>Fit shows the whole photo and may leave blank space. Fill crops the edges. Photos are never stretched.</value></data>
+  <data name="PrintPreviewNote" xml:space="preserve"><value>Continue to see the actual printer preview and page margins. Printing never changes the photo files.</value></data>
+  <data name="PrintContinue" xml:space="preserve"><value>Continue to print preview</value></data>
+  <data name="PrintCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PrintClose" xml:space="preserve"><value>Close</value></data>
+  <data name="PrintAlreadyOpen" xml:space="preserve"><value>A print preview is already open.</value></data>
+  <data name="PrintSelectionRequired" xml:space="preserve"><value>Select one or more photos to print.</value></data>
+  <data name="PrintRawUnsupported" xml:space="preserve"><value>RAW photos cannot be printed yet because the print path does not apply the RAW development recipe.</value></data>
+  <data name="PrintUnsupportedFormats" xml:space="preserve"><value>These selected items are not supported for printing. Supported formats are JPEG, PNG, TIFF, and BMP.</value></data>
+  <data name="PrintNotSupported" xml:space="preserve"><value>Windows printing is not available on this device.</value></data>
+  <data name="PrintUiUnavailable" xml:space="preserve"><value>Windows could not open print preview. Check that a printer is installed and available.</value></data>
+  <data name="PrintErrorTitle" xml:space="preserve"><value>Printing unavailable</value></data>
+  <data name="PrintFailed" xml:space="preserve"><value>Printing could not continue: {0}</value></data>
+  <data name="PrintPhotoLoadFailed" xml:space="preserve"><value>Could not load "{0}": {1}</value></data>
+  <data name="PrintSubmitted" xml:space="preserve"><value>Print job submitted to Windows.</value></data>
+  <data name="PrintCanceled" xml:space="preserve"><value>Print job canceled or failed.</value></data>
   <data name="DuplicateSelectionRequired" xml:space="preserve"><value>Select a duplicate candidate first.</value></data>
   <data name="DuplicateKeeperRequired" xml:space="preserve"><value>Choose which photo to keep first.</value></data>
   <data name="NotTaggedLabel.Text" xml:space="preserve">

@@ -12,6 +12,7 @@ using System;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
+using Windows.Graphics.Printing;
 
 namespace PhotoLibrarian;
 
@@ -24,6 +25,150 @@ public sealed partial class MainWindow : Window
     private SlideshowWindow? _slideshow;
     private Control? _slideshowReturnFocus;
     private double _slideshowIntervalSeconds = 5;
+    private PhotoPrintSession? _printSession;
+
+    private async void OnPrintPhotosInvoked(
+        KeyboardAccelerator sender,
+        KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (!CanPrintPhotos()) return;
+        args.Handled = true;
+        await PrintSelectedPhotosAsync();
+    }
+
+    private bool CanPrintPhotos() =>
+        !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+          ViewModel.DuplicateReview.IsOpen || ViewModel.ImageEditor.IsOpen ||
+          ViewerOverlay.IsCropping || ViewerOverlay.IsStraightening ||
+          ViewerOverlay.IsRedEyeRemoving || ViewerOverlay.IsManualFaceTagging);
+
+    private async Task PrintSelectedPhotosAsync()
+    {
+        if (_printSession is not null)
+        {
+            ViewModel.StatusText = PhotoPrintStrings.Get("PrintAlreadyOpen");
+            return;
+        }
+
+        var photos = GetPhotosForPrinting();
+        if (photos.Count == 0)
+        {
+            await ShowPrintErrorAsync(PhotoPrintStrings.Get("PrintSelectionRequired"));
+            return;
+        }
+
+        var unsupported = photos
+            .Where(photo => photo.MediaType != Core.Models.MediaType.Image ||
+                !PhotoPrintImageDecoder.IsSupported(photo.FilePath))
+            .ToList();
+        if (unsupported.Count > 0)
+        {
+            var rawSelected = unsupported.Any(photo => RawToneMappingService.IsRaw(photo.FilePath));
+            var details = rawSelected
+                ? PhotoPrintStrings.Get("PrintRawUnsupported")
+                : PhotoPrintStrings.Get("PrintUnsupportedFormats");
+            var filenames = string.Join(Environment.NewLine, unsupported.Select(photo => photo.FileName));
+            await ShowPrintErrorAsync($"{details}{Environment.NewLine}{filenames}");
+            return;
+        }
+
+        if (!PrintManager.IsSupported())
+        {
+            await ShowPrintErrorAsync(PhotoPrintStrings.Get("PrintNotSupported"));
+            return;
+        }
+
+        try
+        {
+            var options = await new PhotoPrintOptionsDialog(this, photos).ShowAsync(CancellationToken.None);
+            if (options is null) return;
+
+            var session = new PhotoPrintSession(this, photos, options.Value.Layout, options.Value.Placement);
+            session.Error += OnPrintError;
+            session.Completed += OnPrintCompleted;
+            _printSession = session;
+            var shown = await session.ShowPrintUiAsync();
+            if (!shown)
+            {
+                session.Dispose();
+                _printSession = null;
+                await ShowPrintErrorAsync(PhotoPrintStrings.Get("PrintUiUnavailable"));
+            }
+        }
+        catch (Exception exception)
+        {
+            _printSession?.Dispose();
+            _printSession = null;
+            await ShowPrintErrorAsync(PhotoPrintStrings.Format("PrintFailed", exception.Message));
+        }
+    }
+
+    private IReadOnlyList<Core.Models.ImageEntry> GetPhotosForPrinting()
+    {
+        var grid = ViewModel.ImageGrid;
+        IReadOnlyList<Core.Models.ImageEntry> selected;
+        if (grid.SelectedImages.Count > 0)
+        {
+            selected = grid.SelectedImages.Select(image => image.Entry).ToList();
+        }
+        else if (ViewModel.ImageViewer.IsOpen && ViewModel.ImageViewer.CurrentEntry is { } current)
+        {
+            selected = [current];
+        }
+        else if (grid.SelectedImage is { } selectedImage)
+        {
+            selected = [selectedImage.Entry];
+        }
+        else
+        {
+            selected = [];
+        }
+
+        return PhotoPrintLayoutService.OrderSelection(
+            grid.DisplayedEntries,
+            selected,
+            photo => photo.FilePath);
+    }
+
+    private async Task ShowPrintErrorAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = AppRoot.XamlRoot,
+            Title = PhotoPrintStrings.Get("PrintErrorTitle"),
+            Content = message,
+            CloseButtonText = PhotoPrintStrings.Get("PrintClose")
+        };
+        await dialog.ShowAsync();
+    }
+
+    private void OnPrintError(object? sender, string message)
+    {
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (_isClosing) return;
+            await ShowPrintErrorAsync(PhotoPrintStrings.Format("PrintFailed", message));
+        });
+    }
+
+    private void OnPrintCompleted(object? sender, PrintTaskCompletion completion)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (sender is PhotoPrintSession session)
+            {
+                session.Error -= OnPrintError;
+                session.Completed -= OnPrintCompleted;
+                session.Dispose();
+                if (ReferenceEquals(_printSession, session))
+                    _printSession = null;
+            }
+
+            ViewModel.StatusText = completion == PrintTaskCompletion.Submitted
+                ? PhotoPrintStrings.Get("PrintSubmitted")
+                : PhotoPrintStrings.Get("PrintCanceled");
+        });
+    }
 
     private void OnSlideshowInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
@@ -413,6 +558,8 @@ public sealed partial class MainWindow : Window
         _isClosing = true;
         FolderNavPanel.SaveState();
         _slideshow?.Close();
+        _printSession?.Dispose();
+        _printSession = null;
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
         ViewModel.DuplicateReview.PropertyChanged -= OnDuplicateReviewPropertyChanged;
