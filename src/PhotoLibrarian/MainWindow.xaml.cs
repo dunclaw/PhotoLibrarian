@@ -628,10 +628,16 @@ public sealed partial class MainWindow : Window
             ViewModel.StatusText = "Applying crop…";
 
             // Back up the original first (no-op if a backup already exists).
-            await App.ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
+            // A read-only original is left untouched; the crop is written to a new file instead.
+            var readOnlyOriginal = new System.IO.FileInfo(entry.FilePath).IsReadOnly;
+            if (!readOnlyOriginal)
+                await App.ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
 
             var result = await CropService.CropImageAsync(entry.FilePath, bounds.Value);
-            await ViewModel.RefreshAfterCropAsync(entry.FilePath, result);
+            if (result.CopyPath is not null)
+                await ViewModel.IndexCroppedCopyAsync(result.CopyPath);
+            else
+                await ViewModel.RefreshAfterCropAsync(entry.FilePath, result);
         }
         catch (Exception ex)
         {
