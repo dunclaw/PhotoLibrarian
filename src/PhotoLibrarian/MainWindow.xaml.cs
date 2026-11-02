@@ -302,6 +302,12 @@ public sealed partial class MainWindow : Window
     {
         if (_isClosing) return;
 
+        if (e.PropertyName == nameof(ImageViewerViewModel.ShouldShowInformationPane))
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing) UpdateInformationPaneVisibility();
+            });
+
         if (e.PropertyName == nameof(ImageViewerViewModel.IsOpen))
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -425,10 +431,39 @@ public sealed partial class MainWindow : Window
         await ViewModel.CleanupAsync();
     }
 
+    private GridLength _informationPaneWidth = new(300);
+    private double _informationPaneMinWidth = 200;
+
+    private void UpdateInformationPaneVisibility()
+    {
+        bool visible = ViewModel.ImageViewer.ShouldShowInformationPane;
+        if (visible == (InformationPane.Visibility == Visibility.Visible)) return;
+
+        if (!visible)
+        {
+            var focused = Content?.XamlRoot is { } root
+                ? FocusManager.GetFocusedElement(root) as DependencyObject : null;
+            if (IsWithin(focused, InformationPane) || IsWithin(focused, InformationPaneSplitter))
+                ViewerOverlay.FocusViewer();
+            _informationPaneWidth = InformationPaneColumn.Width;
+            _informationPaneMinWidth = InformationPaneColumn.MinWidth;
+            InformationPaneColumn.MinWidth = 0;
+            InformationPaneColumn.Width = new GridLength(0);
+        }
+        else
+        {
+            InformationPaneColumn.Width = _informationPaneWidth;
+            InformationPaneColumn.MinWidth = _informationPaneMinWidth;
+        }
+        InformationPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        InformationPaneSplitter.Visibility = InformationPane.Visibility;
+    }
+
     private void UpdateViewerVisibility()
     {
         ViewerOverlay.Visibility = ViewModel.ImageViewer.IsOpen
             ? Visibility.Visible : Visibility.Collapsed;
+        UpdateInformationPaneVisibility();
         UpdateRibbonVisibility();
     }
 

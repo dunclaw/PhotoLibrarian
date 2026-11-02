@@ -594,12 +594,22 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Toggle item in selection | Ctrl+Click |
 | Open viewer | Double-click |
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
+| Actual size in viewer | A or the **1:1** button |
+| Show / hide viewer information pane | I or the information toggle |
 | Next / previous in viewer | ←  →  arrow keys |
 | Previous / next while editing | Left / Right arrows (outside input controls); Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
 | Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
 | Exit slideshow | Esc or F11 |
+
+**Actual size** displays one decoded image pixel per physical display pixel, adjusting
+for Windows display scaling. It is available once a still image is loaded (not for video).
+**Fit to window** returns to a view that follows window and pane resizes. The information
+toggle hides the right-hand pane and its splitter while viewing, restoring its resized
+width when shown again. The choice is remembered only until the app closes; closing
+the viewer always restores the normal grid's information pane. Both controls support
+Tab and Enter/Space; A and I apply when viewer focus is outside text inputs.
 
 Start a slideshow with F11, the **Slideshow** button at the left of the grid toolbar or in
 the viewer ribbon, or **Slideshow** in a photo's right-click menu. Photos play in the order
