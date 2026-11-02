@@ -587,10 +587,12 @@ public partial class MetadataPanelViewModel : ObservableObject
                     Confidence = 1.0f
                 });
 
-                // Rewrite sidecar with the full set for this image (DB is the source of truth)
+                // Rewrite portable keywords and source metadata from the current tag set.
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion);
             }
         }
 
@@ -617,7 +619,9 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await _tagRepo.RemoveTagAsync(entry.Id, tag);
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion);
             }
         }
 

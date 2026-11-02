@@ -332,6 +332,10 @@ public sealed class AutoTagRepositoryTests
                 Source = TagSource.Imported
             });
 
+            Assert.Equal(
+                2,
+                (await tags.GetImagesWithAutoTagMetadataAsync(
+                    TestContext.Current.CancellationToken)).Count);
             var result = await tags.RemoveAllAutoTagsAsync(
                 TestContext.Current.CancellationToken);
 

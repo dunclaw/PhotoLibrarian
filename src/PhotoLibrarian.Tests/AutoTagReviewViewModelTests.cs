@@ -52,6 +52,21 @@ public sealed class AutoTagReviewViewModelTests
             image.FilePath));
         Assert.DoesNotContain("Auto/park", TagWriterService.ReadTagsFromSidecar(
             image.FilePath));
+        var portableMetadata = new MetadataReaderService()
+            .ReadPortableTagMetadata(image.FilePath);
+        Assert.NotNull(portableMetadata);
+        Assert.Equal(
+            AutoTagModelCatalog.MobileNetV2.PipelineVersion,
+            portableMetadata.AutoTagScanVersion);
+        Assert.Contains(
+            portableMetadata.Tags,
+            tag => tag.Tag == "Auto/dog" &&
+                tag.Source == nameof(TagSource.AutoML) &&
+                tag.Confidence == 0.9f);
+        Assert.Contains(
+            portableMetadata.Tags,
+            tag => tag.Tag == "family" &&
+                tag.Source == nameof(TagSource.Manual));
         Assert.False(review.IsOpen);
     }
 

@@ -188,6 +188,34 @@ public sealed class TagRepository : IAutoTagStore
         return results;
     }
 
+    public async Task<List<ImageEntry>> GetImagesWithAutoTagMetadataAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT images.*
+            FROM images
+            WHERE images.auto_tag_scan_version IS NOT NULL
+               OR EXISTS (
+                    SELECT 1
+                    FROM tags
+                    WHERE tags.image_id = images.id
+                      AND tags.source = $source
+               )
+            """;
+        cmd.Parameters.AddWithValue("$source", (int)TagSource.AutoML);
+
+        var images = new List<ImageEntry>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            images.Add(ImageRepository.ReadImageEntry(reader));
+        }
+
+        return images;
+    }
+
     public async Task<bool> TryReplaceAutoTagsAsync(
         ImageEntry expectedImage,
         IReadOnlyCollection<GeneratedImageTag> tags,
@@ -397,6 +425,22 @@ public sealed class TagRepository : IAutoTagStore
     public async Task AddMetadataTagAsync(
         long imageId,
         string tag,
+        CancellationToken cancellationToken = default) =>
+        await ImportTagAsync(
+            imageId,
+            tag,
+            TagSource.Metadata,
+            1.0f,
+            cancellationToken);
+
+    /// <summary>
+    /// Imports file-side tag data without replacing an existing cached tag.
+    /// </summary>
+    public async Task ImportTagAsync(
+        long imageId,
+        string tag,
+        TagSource source,
+        float confidence,
         CancellationToken cancellationToken = default)
     {
         using var conn = _db.CreateConnection();
@@ -410,10 +454,29 @@ public sealed class TagRepository : IAutoTagStore
                 """;
             cmd.Parameters.AddWithValue("$id", imageId);
             cmd.Parameters.AddWithValue("$tag", tagPath);
-            cmd.Parameters.AddWithValue("$source", (int)TagSource.Metadata);
-            cmd.Parameters.AddWithValue("$confidence", 1.0f);
+            cmd.Parameters.AddWithValue("$source", (int)source);
+            cmd.Parameters.AddWithValue("$confidence", confidence);
             await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    public async Task RestoreAutoTagScanVersionAsync(
+        long imageId,
+        string? scanVersion,
+        CancellationToken cancellationToken = default)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE images
+            SET auto_tag_scan_version = $scanVersion
+            WHERE id = $id
+            """;
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue(
+            "$scanVersion",
+            (object?)scanVersion ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>

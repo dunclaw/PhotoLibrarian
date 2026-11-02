@@ -1,4 +1,5 @@
 using XmpCore;
+using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -10,24 +11,44 @@ namespace PhotoLibrarian.Core.Services;
 public static class TagWriterService
 {
     private const string DcNamespace = "http://purl.org/dc/elements/1.1/";
+    private const string PhotoLibrarianNamespace =
+        EmbeddedMetadataWriter.PhotoLibrarianXmpNamespace;
+
+    static TagWriterService()
+    {
+        try { XmpMetaFactory.SchemaRegistry.RegisterNamespace(PhotoLibrarianNamespace, "plib"); }
+        catch { }
+    }
 
     /// <summary>
     /// Writes the complete tag set to the image file. Pass an empty enumeration to clear all tags.
     /// </summary>
-    public static async Task WriteTagsToSidecarAsync(string imagePath, IEnumerable<string> tags)
+    public static async Task WriteTagsToSidecarAsync(
+        string imagePath,
+        IEnumerable<string> tags,
+        IReadOnlyCollection<ImageTag>? tagProvenance = null,
+        string? autoTagScanVersion = null)
     {
         var distinct = tags
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .Select(t => t.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var portableMetadata = tagProvenance is null
+            ? null
+            : PortableImageTagMetadataSerializer.Serialize(
+                tagProvenance,
+                autoTagScanVersion);
         Exception? embeddedError = null;
 
         if (EmbeddedMetadataWriter.IsSupported(imagePath))
         {
             try
             {
-                await EmbeddedMetadataWriter.WriteAsync(imagePath, keywords: distinct);
+                await EmbeddedMetadataWriter.WriteAsync(
+                    imagePath,
+                    keywords: distinct,
+                    photoTagMetadata: portableMetadata);
                 return;
             }
             catch (Exception ex)
@@ -57,6 +78,14 @@ public static class TagWriterService
                 xmp.AppendArrayItem(DcNamespace, "dc:subject",
                     new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false },
                     tag, null);
+            }
+
+            if (portableMetadata is not null)
+            {
+                xmp.SetProperty(
+                    PhotoLibrarianNamespace,
+                    EmbeddedMetadataWriter.PhotoTagMetadataPropertyName,
+                    portableMetadata);
             }
 
             var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());

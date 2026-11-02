@@ -238,6 +238,62 @@ public sealed class MetadataReaderService
     }
 
     /// <summary>
+    /// Reads PhotoLibrarian tag source, confidence, and automatic scan version data
+    /// from embedded XMP first, then from an XMP sidecar.
+    /// </summary>
+    public PortableImageTagMetadata? ReadPortableTagMetadata(string filePath)
+    {
+        try
+        {
+            var directories = ImageMetadataReader.ReadMetadata(filePath);
+            var xmp = directories.OfType<XmpDirectory>().FirstOrDefault()?.XmpMeta;
+            var embedded = ReadPortableTagMetadata(xmp);
+            if (embedded is not null)
+                return embedded;
+        }
+        catch (Exception exception)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read embedded tag provenance from {filePath}: {exception.Message}");
+        }
+
+        var sidecarPath = Path.ChangeExtension(filePath, ".xmp");
+        if (!File.Exists(sidecarPath))
+            return null;
+
+        try
+        {
+            var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+            return ReadPortableTagMetadata(xmp);
+        }
+        catch (Exception exception) when (
+            exception is XmpException or IOException or UnauthorizedAccessException)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read tag provenance from {sidecarPath}: {exception.Message}");
+            return null;
+        }
+    }
+
+    private static PortableImageTagMetadata? ReadPortableTagMetadata(IXmpMeta? xmp)
+    {
+        if (xmp is null ||
+            !xmp.DoesPropertyExist(
+                MetadataWriterService.PhotoLibrarianNamespace,
+                EmbeddedMetadataWriter.PhotoTagMetadataPropertyName))
+        {
+            return null;
+        }
+
+        var json = xmp.GetPropertyString(
+            MetadataWriterService.PhotoLibrarianNamespace,
+            EmbeddedMetadataWriter.PhotoTagMetadataPropertyName);
+        return PortableImageTagMetadataSerializer.TryDeserialize(json, out var metadata)
+            ? metadata
+            : null;
+    }
+
+    /// <summary>
     /// Formats an exposure time (in seconds) consistently:
     /// - >= 1 second: "N" or "N.X" (e.g. "1", "1.3", "30")
     /// - &lt; 1 second: "1/N" (e.g. "1/60", "1/4000") — N is rounded to the nearest standard.

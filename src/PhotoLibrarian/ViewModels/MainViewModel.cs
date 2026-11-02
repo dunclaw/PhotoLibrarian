@@ -764,13 +764,56 @@ public partial class MainViewModel : ObservableObject
             _autoTaggingEnabled = false;
             await StopRecognitionAsync();
 
+            var affectedImages = await _tagRepo.GetImagesWithAutoTagMetadataAsync(
+                cancellationToken);
             var result = await _tagRepo.RemoveAllAutoTagsAsync(
                 cancellationToken);
+            var metadataFailures = 0;
+            string? firstMetadataFailure = null;
+            foreach (var image in affectedImages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    if (!System.IO.File.Exists(image.FilePath))
+                    {
+                        throw new FileNotFoundException(
+                            "The photo is no longer available.",
+                            image.FilePath);
+                    }
+
+                    var remainingTags = await _tagRepo.GetTagsAsync(image.Id);
+                    await TagWriterService.WriteTagsToSidecarAsync(
+                        image.FilePath,
+                        remainingTags.Select(tag => tag.Tag),
+                        remainingTags,
+                        autoTagScanVersion: null);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    metadataFailures++;
+                    firstMetadataFailure ??=
+                        $"{image.FilePath}: {exception.Message}";
+                    DebugLog.WriteLine(
+                        $"Failed to remove automatic tag metadata from {image.FilePath}: {exception}");
+                }
+            }
+
             await RefreshTagsTreeAsync();
             await MetadataPanel.ReloadTagsAsync();
 
             var status =
                 $"Removed {result.TagCount:N0} automatic tag assignments from {result.PhotoCount:N0} photos. Automatic tagging is off.";
+            if (metadataFailures > 0)
+            {
+                status +=
+                    $" Metadata was not updated for {metadataFailures:N0} photo(s); first failure: {firstMetadataFailure}";
+            }
             Settings.AutoTaggingStatus = status;
             StatusText = status;
         }
@@ -1022,7 +1065,9 @@ public partial class MainViewModel : ObservableObject
 
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(path,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion);
 
                 applied++;
             }

@@ -165,10 +165,44 @@ public sealed class LibraryIndexingService
         await _faceRepo.SetFaceMetadataExportRequiredAsync(imageId, false, ct);
 
         var tags = _metadataReader.ReadTags(filePath);
+        var portableTags = _metadataReader.ReadPortableTagMetadata(filePath);
+        var importedTagPaths = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        if (portableTags is not null)
+        {
+            foreach (var tag in portableTags.Tags.OrderBy(
+                tag => tag.Tag.Length))
+            {
+                if (!Enum.TryParse<TagSource>(
+                    tag.Source,
+                    ignoreCase: false,
+                    out var source))
+                {
+                    continue;
+                }
+
+                await _tagRepo.ImportTagAsync(
+                    imageId,
+                    tag.Tag,
+                    source,
+                    tag.Confidence,
+                    ct);
+                importedTagPaths.Add(tag.Tag);
+            }
+        }
+
         foreach (var tag in tags)
         {
+            if (importedTagPaths.Contains(tag))
+                continue;
+
             await _tagRepo.AddMetadataTagAsync(imageId, tag, ct);
         }
+
+        await _tagRepo.RestoreAutoTagScanVersionAsync(
+            imageId,
+            portableTags?.AutoTagScanVersion,
+            ct);
         return true;
     }
 }

@@ -379,28 +379,27 @@ public partial class AutoTagReviewViewModel : ObservableObject
                     }
 
                     photo.AreTagsCommitted = true;
-                    if (accepted.Length > 0)
+                    var currentStaleMessage =
+                        SelectedPhotoAutoTagReviewProcessor
+                            .ValidatePhotoSnapshot(photo.Image);
+                    if (currentStaleMessage is not null)
                     {
-                        var currentStaleMessage =
-                            SelectedPhotoAutoTagReviewProcessor
-                                .ValidatePhotoSnapshot(photo.Image);
-                        if (currentStaleMessage is not null)
-                        {
-                            SetPhotoError(
-                                photo,
-                                AutoTagReviewStrings.Format(
-                                    "AutoTagReviewMetadataSkipped",
-                                    currentStaleMessage));
-                            failedPhotos++;
-                            continue;
-                        }
-
-                        var allTags = await _tagRepository.GetTagsAsync(
-                            photo.Image.Id);
-                        await TagWriterService.WriteTagsToSidecarAsync(
-                            photo.Image.FilePath,
-                            allTags.Select(tag => tag.Tag).Distinct());
+                        SetPhotoError(
+                            photo,
+                            AutoTagReviewStrings.Format(
+                                "AutoTagReviewMetadataSkipped",
+                                currentStaleMessage));
+                        failedPhotos++;
+                        continue;
                     }
+
+                    var allTags = await _tagRepository.GetTagsAsync(
+                        photo.Image.Id);
+                    await TagWriterService.WriteTagsToSidecarAsync(
+                        photo.Image.FilePath,
+                        allTags.Select(tag => tag.Tag).Distinct(),
+                        allTags,
+                        _scanVersion);
 
                     photo.IsCommitted = true;
                     savedPhotos++;
@@ -525,6 +524,7 @@ public partial class AutoTagReviewViewModel : ObservableObject
         FileSize = image.FileSize,
         DateModified = image.DateModified,
         DateIndexed = image.DateIndexed,
+        AutoTagScanVersion = image.AutoTagScanVersion,
         MediaType = image.MediaType
     };
 }
