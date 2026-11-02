@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -9,6 +10,106 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class LibraryIndexingServiceTests
 {
+    [Fact]
+    public async Task IndexFileAsync_ReimportsChangedPortableTagSidecarForCachedImage()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-tag-sidecar-refresh-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, "photo.raw");
+
+        try
+        {
+            await File.WriteAllBytesAsync(imagePath, [1, 2, 3]);
+            using var database = new CacheDatabase(
+                Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database,
+                images,
+                tags,
+                new FaceRepository(database),
+                scanner,
+                new MetadataReaderService(),
+                new FaceMetadataStore());
+            var originalImageWriteTime = File.GetLastWriteTimeUtc(imagePath);
+
+            await TagWriterService.WriteTagsToSidecarAsync(
+                imagePath,
+                ["Auto/dog", "family"],
+                [
+                    new ImageTag
+                    {
+                        Tag = "Auto",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.55f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "Auto/dog",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.55f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "family",
+                        Source = TagSource.Manual,
+                        Confidence = 1.0f
+                    }
+                ],
+                "model-pipeline-v1");
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+            Assert.False(await indexer.IndexFileAsync(imagePath));
+
+            await TagWriterService.WriteTagsToSidecarAsync(
+                imagePath,
+                ["Auto/dog", "family"],
+                [
+                    new ImageTag
+                    {
+                        Tag = "Auto",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.91f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "Auto/dog",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.91f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "family",
+                        Source = TagSource.Manual,
+                        Confidence = 1.0f
+                    }
+                ],
+                "model-pipeline-v2");
+
+            Assert.Equal(originalImageWriteTime, File.GetLastWriteTimeUtc(imagePath));
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+
+            var indexedImage = (await images.GetByPathAsync(imagePath))!;
+            var restored = await tags.GetTagsAsync(indexedImage.Id);
+            Assert.Equal(
+                0.91f,
+                Assert.Single(restored, tag => tag.Tag == "Auto/dog").Confidence);
+            Assert.Equal(
+                TagSource.Manual,
+                Assert.Single(restored, tag => tag.Tag == "family").Source);
+            Assert.Equal("model-pipeline-v2", indexedImage.AutoTagScanVersion);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(".png")]
     [InlineData(".raw")]

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -7,6 +8,54 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class AutoTagRepositoryTests
 {
+    [Fact]
+    public async Task TryReplaceAutoTagsIfUnchangedAsync_PreservesNewerReviewedTags()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            await tags.TryReplaceAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("cat", 0.72f)],
+                "previous-v1",
+                TestContext.Current.CancellationToken);
+            image.AutoTagScanVersion = "previous-v1";
+            var expectedAutoTags = (await tags.GetTagsAsync(image.Id))
+                .Where(tag => tag.Source == TagSource.AutoML)
+                .ToArray();
+
+            Assert.True(await tags.TryAddReviewedAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("approved", 0.94f)],
+                "reviewed-v2",
+                TestContext.Current.CancellationToken));
+
+            var replaced = await tags.TryReplaceAutoTagsIfUnchangedAsync(
+                image,
+                [new GeneratedImageTag("dog", 0.88f)],
+                expectedAutoTags,
+                image.AutoTagScanVersion,
+                TestContext.Current.CancellationToken);
+
+            Assert.False(replaced);
+            var storedTags = await tags.GetTagsAsync(image.Id);
+            Assert.Contains(storedTags, tag => tag.Tag == "Auto/cat");
+            Assert.Contains(storedTags, tag => tag.Tag == "Auto/approved");
+            Assert.DoesNotContain(storedTags, tag => tag.Tag == "Auto/dog");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
     [Fact]
     public async Task TryReplaceAutoTagsAsync_PreservesManualTagsAndTracksVersion()
     {

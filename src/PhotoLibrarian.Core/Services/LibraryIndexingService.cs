@@ -147,12 +147,25 @@ public sealed class LibraryIndexingService
             (!string.Equals(existing.FaceSidecarPath, sidecar?.FullName, StringComparison.OrdinalIgnoreCase) ||
              existing.FaceSidecarSize != sidecar?.Length ||
              existing.FaceSidecarModified != sidecar?.LastWriteTimeUtc);
+        var portableTagMetadata = _metadataReader.ReadPortableTagMetadata(filePath);
+        var portableTagsChanged = false;
+        if (existing is not null && portableTagMetadata is not null)
+        {
+            var portableTagRows = CreatePortableTagRows(
+                existing.Id,
+                portableTagMetadata);
+            var cachedTagRows = await _tagRepo.GetTagsAsync(existing.Id, ct);
+            portableTagsChanged =
+                existing.AutoTagScanVersion != portableTagMetadata.AutoTagScanVersion ||
+                !HaveSameTagRows(cachedTagRows, portableTagRows);
+        }
 
         if (existing is not null &&
             existing.DateModified >= fileInfo.LastWriteTimeUtc &&
             existing.SearchMetadataIndexed &&
             existing.FaceMetadataImported &&
-            !sidecarChanged)
+            !sidecarChanged &&
+            !portableTagsChanged)
             return false;
 
         var entry = _metadataReader.ReadMetadata(filePath);
@@ -165,45 +178,70 @@ public sealed class LibraryIndexingService
         await _faceRepo.SetFaceMetadataExportRequiredAsync(imageId, false, ct);
 
         var tags = _metadataReader.ReadTags(filePath);
-        var portableTags = _metadataReader.ReadPortableTagMetadata(filePath);
-        var importedTagPaths = new HashSet<string>(
-            StringComparer.OrdinalIgnoreCase);
-        if (portableTags is not null)
+        if (portableTagMetadata is not null)
         {
-            foreach (var tag in portableTags.Tags.OrderBy(
-                tag => tag.Tag.Length))
-            {
-                if (!Enum.TryParse<TagSource>(
-                    tag.Source,
-                    ignoreCase: false,
-                    out var source))
-                {
-                    continue;
-                }
-
-                await _tagRepo.ImportTagAsync(
-                    imageId,
-                    tag.Tag,
-                    source,
-                    tag.Confidence,
-                    ct);
-                importedTagPaths.Add(tag.Tag);
-            }
+            await _tagRepo.ReplaceTagsFromPortableMetadataAsync(
+                imageId,
+                CreatePortableTagRows(imageId, portableTagMetadata),
+                ct);
         }
-
-        foreach (var tag in tags)
+        else
         {
-            if (importedTagPaths.Contains(tag))
-                continue;
-
-            await _tagRepo.AddMetadataTagAsync(imageId, tag, ct);
+            foreach (var tag in tags)
+            {
+                await _tagRepo.AddMetadataTagAsync(imageId, tag, ct);
+            }
         }
 
         await _tagRepo.RestoreAutoTagScanVersionAsync(
             imageId,
-            portableTags?.AutoTagScanVersion,
+            portableTagMetadata?.AutoTagScanVersion,
             ct);
         return true;
+    }
+
+    private static IReadOnlyCollection<ImageTag> CreatePortableTagRows(
+        long imageId,
+        PortableImageTagMetadata metadata)
+    {
+        var rows = new List<ImageTag>();
+        foreach (var tag in metadata.Tags)
+        {
+            if (!Enum.TryParse<TagSource>(
+                    tag.Source,
+                    ignoreCase: false,
+                    out var source) ||
+                !Enum.IsDefined(source))
+            {
+                continue;
+            }
+
+            rows.Add(new ImageTag
+            {
+                ImageId = imageId,
+                Tag = tag.Tag,
+                Source = source,
+                Confidence = tag.Confidence
+            });
+        }
+
+        return rows;
+    }
+
+    private static bool HaveSameTagRows(
+        IReadOnlyCollection<ImageTag> left,
+        IReadOnlyCollection<ImageTag> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+
+        var expected = right.ToDictionary(
+            tag => tag.Tag,
+            StringComparer.OrdinalIgnoreCase);
+        return left.All(tag =>
+            expected.TryGetValue(tag.Tag, out var expectedTag) &&
+            tag.Source == expectedTag.Source &&
+            tag.Confidence.Equals(expectedTag.Confidence));
     }
 }
 

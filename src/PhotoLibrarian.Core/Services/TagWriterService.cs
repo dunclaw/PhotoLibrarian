@@ -1,5 +1,6 @@
 using XmpCore;
 using PhotoLibrarian.Core.Models;
+using System.Security.Cryptography;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -27,7 +28,8 @@ public static class TagWriterService
         string imagePath,
         IEnumerable<string> tags,
         IReadOnlyCollection<ImageTag>? tagProvenance = null,
-        string? autoTagScanVersion = null)
+        string? autoTagScanVersion = null,
+        TagMetadataSidecarSnapshot? expectedSidecarSnapshot = null)
     {
         var distinct = tags
             .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -40,6 +42,7 @@ public static class TagWriterService
                 tagProvenance,
                 autoTagScanVersion);
         Exception? embeddedError = null;
+        EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
 
         if (EmbeddedMetadataWriter.IsSupported(imagePath))
         {
@@ -62,6 +65,7 @@ public static class TagWriterService
         await Task.Run(() =>
         {
             var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+            EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
             IXmpMeta xmp;
             try
             {
@@ -69,7 +73,12 @@ public static class TagWriterService
                     ? XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath))
                     : XmpMetaFactory.Create();
             }
-            catch { xmp = XmpMetaFactory.Create(); }
+            catch (Exception exception)
+            {
+                throw new IOException(
+                    $"The existing XMP sidecar could not be read: {sidecarPath}.",
+                    exception);
+            }
 
             try { xmp.DeleteProperty(DcNamespace, "dc:subject"); } catch { }
 
@@ -89,7 +98,11 @@ public static class TagWriterService
             }
 
             var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
-            File.WriteAllText(sidecarPath, serialized);
+            WriteSidecarAtomically(
+                imagePath,
+                sidecarPath,
+                serialized,
+                expectedSidecarSnapshot);
         });
         if (embeddedError is not null)
             MetadataWriterService.ReportSidecarFallback(imagePath, "tags", embeddedError);
@@ -121,4 +134,74 @@ public static class TagWriterService
 
         return tags;
     }
+
+    public static TagMetadataSidecarSnapshot CaptureSidecarSnapshot(
+        string imagePath)
+    {
+        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+        if (!File.Exists(sidecarPath))
+            return new TagMetadataSidecarSnapshot(false, 0, default, null);
+
+        using var stream = new FileStream(
+            sidecarPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        var hash = Convert.ToHexString(SHA256.HashData(stream));
+        return new TagMetadataSidecarSnapshot(
+            true,
+            stream.Length,
+            File.GetLastWriteTimeUtc(sidecarPath),
+            hash);
+    }
+
+    private static void EnsureSidecarSnapshot(
+        string imagePath,
+        TagMetadataSidecarSnapshot? expected)
+    {
+        if (expected is null)
+            return;
+
+        var current = CaptureSidecarSnapshot(imagePath);
+        if (current != expected)
+        {
+            throw new IOException(
+                "The photo's XMP sidecar changed during automatic tagging. " +
+                "Refresh the library and retry so newer metadata is preserved.");
+        }
+    }
+
+    private static void WriteSidecarAtomically(
+        string imagePath,
+        string sidecarPath,
+        string contents,
+        TagMetadataSidecarSnapshot? expected)
+    {
+        var directory = Path.GetDirectoryName(sidecarPath)
+            ?? throw new InvalidOperationException(
+                "The XMP sidecar path has no parent directory.");
+        var temporaryPath = Path.Combine(
+            directory,
+            $".{Path.GetFileName(sidecarPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temporaryPath, contents);
+            EnsureSidecarSnapshot(imagePath, expected);
+            if (expected is { Exists: false })
+                File.Move(temporaryPath, sidecarPath);
+            else
+                File.Move(temporaryPath, sidecarPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
 }
+
+public sealed record TagMetadataSidecarSnapshot(
+    bool Exists,
+    long Length,
+    DateTime LastWriteTimeUtc,
+    string? ContentHash);

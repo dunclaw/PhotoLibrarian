@@ -7,13 +7,30 @@ namespace PhotoLibrarian.Core.Data;
 /// </summary>
 public interface IAutoTagStore
 {
+    Task<List<ImageTag>> GetTagsAsync(
+        long imageId,
+        CancellationToken cancellationToken = default);
+
     Task<List<ImageEntry>> GetImagesNeedingAutoTagsAsync(
         string scanVersion,
         CancellationToken cancellationToken = default);
 
-    Task<bool> TryReplaceAutoTagsAsync(
+    Task<bool> TryReplaceAutoTagsIfUnchangedAsync(
         ImageEntry expectedImage,
         IReadOnlyCollection<GeneratedImageTag> tags,
+        IReadOnlyCollection<ImageTag> expectedAutoTags,
+        string? expectedScanVersion,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> TryRestoreAutoTagsAsync(
+        ImageEntry expectedImage,
+        IReadOnlyCollection<ImageTag> expectedAutoTags,
+        IReadOnlyCollection<ImageTag> previousAutoTags,
+        string? previousScanVersion,
+        CancellationToken cancellationToken = default);
+
+    Task SetAutoTagScanVersionAsync(
+        long imageId,
         string scanVersion,
         CancellationToken cancellationToken = default);
 }

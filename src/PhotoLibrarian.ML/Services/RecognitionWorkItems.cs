@@ -1,5 +1,6 @@
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.ML.Services;
 
@@ -140,6 +141,18 @@ internal static class AutoTagWorkItem
         AutoTagModelDefinition definition,
         CancellationToken cancellationToken)
     {
+        var staleMessage =
+            SelectedPhotoAutoTagReviewProcessor.ValidatePhotoSnapshot(image);
+        if (staleMessage is not null)
+            throw new InvalidOperationException(staleMessage);
+
+        var sidecarSnapshot =
+            TagWriterService.CaptureSidecarSnapshot(image.FilePath);
+        var previousAutoTags = (await store.GetTagsAsync(
+                image.Id,
+                cancellationToken))
+            .Where(tag => tag.Source == TagSource.AutoML)
+            .ToArray();
         var predictions = await tagger.PredictTagsAsync(
             decoded,
             settings.ProfileId,
@@ -152,15 +165,76 @@ internal static class AutoTagWorkItem
                 prediction.Tag,
                 prediction.Confidence))
             .ToArray();
-        if (!await store.TryReplaceAutoTagsAsync(
+        if (!await store.TryReplaceAutoTagsIfUnchangedAsync(
             image,
             generatedTags,
-            definition.PipelineVersion,
+            previousAutoTags,
+            image.AutoTagScanVersion,
             cancellationToken))
         {
             throw new InvalidOperationException(
-                "The photo changed during automatic tagging and will be retried.");
+                "The photo or its automatic tags changed during tagging. " +
+                "Refresh the library before retrying.");
         }
+
+        List<ImageTag> replacedAutoTags = [];
+        try
+        {
+            var allTags = await store.GetTagsAsync(
+                image.Id,
+                cancellationToken);
+            replacedAutoTags = allTags
+                .Where(tag => tag.Source == TagSource.AutoML)
+                .ToList();
+
+            staleMessage =
+                SelectedPhotoAutoTagReviewProcessor.ValidatePhotoSnapshot(image);
+            if (staleMessage is not null)
+                throw new InvalidOperationException(staleMessage);
+
+            await TagWriterService.WriteTagsToSidecarAsync(
+                image.FilePath,
+                allTags.Select(tag => tag.Tag),
+                allTags,
+                definition.PipelineVersion,
+                sidecarSnapshot);
+        }
+        catch (Exception metadataException)
+        {
+            bool restored;
+            try
+            {
+                restored = await store.TryRestoreAutoTagsAsync(
+                    image,
+                    replacedAutoTags,
+                    previousAutoTags,
+                    image.AutoTagScanVersion,
+                    CancellationToken.None);
+            }
+            catch (Exception restoreException)
+            {
+                throw new AggregateException(
+                    "Automatic-tag metadata could not be written, and the previous " +
+                    "automatic tags could not be restored.",
+                    metadataException,
+                    restoreException);
+            }
+
+            if (!restored)
+            {
+                throw new InvalidOperationException(
+                    "Automatic-tag metadata could not be written. Newer tag changes " +
+                    "were retained; refresh the library before retrying.",
+                    metadataException);
+            }
+
+            throw;
+        }
+
+        await store.SetAutoTagScanVersionAsync(
+            image.Id,
+            definition.PipelineVersion,
+            cancellationToken);
 
         return generatedTags.Length;
     }
