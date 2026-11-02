@@ -1086,6 +1086,15 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    public async Task IndexCroppedCopyAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        if (await _imageRepo.GetByPathAsync(path) is null)
+            throw new InvalidOperationException($"The cropped copy at '{path}' could not be added to the library.");
+        await RefreshAfterIndexAsync();
+        StatusText = $"Original is read-only; saved cropped copy as {Path.GetFileName(path)}";
+    }
+
     public async Task IndexRawDerivativeAsync(string path)
     {
         await _indexingService.IndexFileAsync(path);
@@ -1168,6 +1177,7 @@ public partial class MainViewModel : ObservableObject
         Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
+        await MetadataPanel.StopVideoMetadataReadsAsync();
         _watchedChanges.Dispose();
         _scanner.WatcherError -= OnWatcherError;
         _indexingCts?.Cancel();

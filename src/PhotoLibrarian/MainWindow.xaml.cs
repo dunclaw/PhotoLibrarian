@@ -302,6 +302,12 @@ public sealed partial class MainWindow : Window
     {
         if (_isClosing) return;
 
+        if (e.PropertyName == nameof(ImageViewerViewModel.ShouldShowInformationPane))
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing) UpdateInformationPaneVisibility();
+            });
+
         if (e.PropertyName == nameof(ImageViewerViewModel.IsOpen))
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -425,10 +431,39 @@ public sealed partial class MainWindow : Window
         await ViewModel.CleanupAsync();
     }
 
+    private GridLength _informationPaneWidth = new(300);
+    private double _informationPaneMinWidth = 200;
+
+    private void UpdateInformationPaneVisibility()
+    {
+        bool visible = ViewModel.ImageViewer.ShouldShowInformationPane;
+        if (visible == (InformationPane.Visibility == Visibility.Visible)) return;
+
+        if (!visible)
+        {
+            var focused = Content?.XamlRoot is { } root
+                ? FocusManager.GetFocusedElement(root) as DependencyObject : null;
+            if (IsWithin(focused, InformationPane) || IsWithin(focused, InformationPaneSplitter))
+                ViewerOverlay.FocusViewer();
+            _informationPaneWidth = InformationPaneColumn.Width;
+            _informationPaneMinWidth = InformationPaneColumn.MinWidth;
+            InformationPaneColumn.MinWidth = 0;
+            InformationPaneColumn.Width = new GridLength(0);
+        }
+        else
+        {
+            InformationPaneColumn.Width = _informationPaneWidth;
+            InformationPaneColumn.MinWidth = _informationPaneMinWidth;
+        }
+        InformationPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        InformationPaneSplitter.Visibility = InformationPane.Visibility;
+    }
+
     private void UpdateViewerVisibility()
     {
         ViewerOverlay.Visibility = ViewModel.ImageViewer.IsOpen
             ? Visibility.Visible : Visibility.Collapsed;
+        UpdateInformationPaneVisibility();
         UpdateRibbonVisibility();
     }
 
@@ -628,10 +663,16 @@ public sealed partial class MainWindow : Window
             ViewModel.StatusText = "Applying crop…";
 
             // Back up the original first (no-op if a backup already exists).
-            await App.ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
+            // A read-only original is left untouched; the crop is written to a new file instead.
+            var readOnlyOriginal = new System.IO.FileInfo(entry.FilePath).IsReadOnly;
+            if (!readOnlyOriginal)
+                await App.ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
 
             var result = await CropService.CropImageAsync(entry.FilePath, bounds.Value);
-            await ViewModel.RefreshAfterCropAsync(entry.FilePath, result);
+            if (result.CopyPath is not null)
+                await ViewModel.IndexCroppedCopyAsync(result.CopyPath);
+            else
+                await ViewModel.RefreshAfterCropAsync(entry.FilePath, result);
         }
         catch (Exception ex)
         {

@@ -106,6 +106,28 @@ public sealed class StabilizedVideoLibraryTests
     }
 
     [Fact]
+    public async Task MetadataShutdownDrainsReadsForRapidVideoSelections()
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var main = library.Main;
+        var original = await library.AddVideoAsync("original.mp4");
+        var copy = await library.AddVideoAsync("original-stabilized.mp4");
+
+        for (int iteration = 0; iteration < 50; iteration++)
+        {
+            main.MetadataPanel.ShowMetadata(original);
+            main.MetadataPanel.ShowMetadata(copy);
+        }
+
+        await main.MetadataPanel.StopVideoMetadataReadsAsync();
+
+        using var originalHandle = new FileStream(
+            original.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        using var copyHandle = new FileStream(
+            copy.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    [Fact]
     public async Task IndexFailureLeavesViewerAndSelectionOnOriginal()
     {
         await using var library = await LibraryFixture.CreateAsync();

@@ -9,7 +9,8 @@ public readonly record struct CropResult(
     uint Height,
     uint SourceWidth,
     uint SourceHeight,
-    CropRectangle Bounds);
+    CropRectangle Bounds,
+    string? CopyPath = null);
 
 /// <summary>Crops images in oriented display coordinates and remaps sidecar face metadata.</summary>
 public static class CropService
@@ -36,6 +37,15 @@ public static class CropService
 
         var sidecar = PrepareRemappedSidecar(filePath, sourceWidth, sourceHeight, crop);
         var pixels = WindowsImagingCodec.Crop(decoded.Pixels, sourceWidth, sourceHeight, crop);
+
+        // A read-only original is the user's request not to modify it, so crop into a new file instead.
+        if (new FileInfo(filePath).IsReadOnly ||
+            (sidecar is not null && new FileInfo(sidecar.Value.Path).IsReadOnly))
+        {
+            var copyPath = await WriteCroppedCopyAsync(filePath, pixels, crop, sidecar?.Content);
+            return new CropResult(crop.Width, crop.Height, sourceWidth, sourceHeight, crop, copyPath);
+        }
+
         var temporaryImagePath = $"{filePath}.{Guid.NewGuid():N}.tmp";
         string? temporarySidecarPath = null;
         try
@@ -104,6 +114,39 @@ public static class CropService
             DeleteIfPresent(imageBackupPath);
             if (sidecarBackupPath is not null)
                 DeleteIfPresent(sidecarBackupPath);
+        }
+    }
+
+    private static async Task<string> WriteCroppedCopyAsync(
+        string filePath, byte[] pixels, CropRectangle crop, string? sidecarContent)
+    {
+        var encoded = await WindowsImagingCodec.EncodeAsync(filePath, pixels, crop.Width, crop.Height);
+        var directory = Path.GetDirectoryName(filePath)!;
+        var name = Path.GetFileNameWithoutExtension(filePath);
+        var extension = Path.GetExtension(filePath);
+
+        // CreateNew guarantees we never overwrite an existing file.
+        for (var attempt = 1; ; attempt++)
+        {
+            var suffix = attempt == 1 ? "-cropped" : $"-cropped-{attempt}";
+            var copyPath = Path.Combine(directory, name + suffix + extension);
+            try
+            {
+                await using var stream = new FileStream(copyPath, FileMode.CreateNew, FileAccess.Write);
+                await stream.WriteAsync(encoded);
+            }
+            catch (IOException) when (File.Exists(copyPath))
+            {
+                continue;
+            }
+
+            if (sidecarContent is not null)
+            {
+                var sidecarPath = FaceMetadataStore.GetSidecarPathForImage(copyPath);
+                if (!File.Exists(sidecarPath))
+                    await File.WriteAllTextAsync(sidecarPath, sidecarContent);
+            }
+            return copyPath;
         }
     }
 

@@ -18,6 +18,18 @@ public partial class ImageViewerViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
 
+    /// <summary>Session-only preference; the normal grid always shows its information pane.</summary>
+    [ObservableProperty]
+    public partial bool IsInformationPaneVisible { get; set; } = true;
+
+    public bool ShouldShowInformationPane => !IsOpen || IsInformationPaneVisible;
+
+    partial void OnIsOpenChanged(bool value) => OnPropertyChanged(nameof(ShouldShowInformationPane));
+    partial void OnIsInformationPaneVisibleChanged(bool value) => OnPropertyChanged(nameof(ShouldShowInformationPane));
+
+    [RelayCommand]
+    private void ToggleInformationPane() => IsInformationPaneVisible = !IsInformationPaneVisible;
+
     [ObservableProperty]
     public partial BitmapImage? CurrentImage { get; set; }
 
@@ -195,6 +207,7 @@ public partial class ImageViewerViewModel : ObservableObject
         var entry = _allImages[_currentIndex];
         Title = entry.FileName;
         ImageInfo = $"{_currentIndex + 1} / {_allImages.Count}";
+        CurrentImage = null;
         RaiseCurrentEntryChanged();
 
         if (entry.MediaType == MediaType.Video)
