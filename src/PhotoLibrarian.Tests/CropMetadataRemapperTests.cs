@@ -36,6 +36,33 @@ public sealed class CropMetadataRemapperTests
     }
 
     [Fact]
+    public async Task CropImage_ReadOnlyOriginal_LeavesOriginalAndWritesCopy()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, "image.jpg");
+        try
+        {
+            await WicTestImage.CreateAsync(imagePath, 100, 80, true);
+            File.SetAttributes(imagePath, FileAttributes.ReadOnly);
+
+            var result = await CropService.CropImageAsync(
+                imagePath,
+                new BitmapBounds { X = 25, Y = 20, Width = 50, Height = 40 });
+
+            Assert.Equal((100u, 80u), await WicTestImage.ReadSizeAsync(imagePath));
+            Assert.True(new FileInfo(imagePath).IsReadOnly);
+            Assert.Equal(Path.Combine(directory, "image-cropped.jpg"), result.CopyPath);
+            Assert.Equal((50u, 40u), await WicTestImage.ReadSizeAsync(result.CopyPath!));
+        }
+        finally
+        {
+            File.SetAttributes(imagePath, FileAttributes.Normal);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public void RemapFaceRegion_ClipsPartialRegionAndDropsOutsideRegion()
     {
         var crop = new CropRectangle(25, 20, 50, 40);
