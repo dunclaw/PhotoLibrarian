@@ -59,6 +59,7 @@ public sealed partial class ImageViewerOverlay : UserControl
         if (IsCropping) ExitCropMode();
         if (IsStraightening) ExitStraightenMode();
         _isRedEyeRemoving = true;
+        ZoomActualSizeButton.IsEnabled = false;
         PreviousButton.Visibility = Visibility.Collapsed;
         NextButton.Visibility = Visibility.Collapsed;
         RedEyeRectangle.Visibility = Visibility.Collapsed;
@@ -68,6 +69,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     public void ExitRedEyeMode()
     {
         _isRedEyeRemoving = false;
+        SetZoomControlsEnabled(true);
         _isDrawingRedEye = false;
         RedEyeRectangle.Visibility = Visibility.Collapsed;
         RedEyeOverlay.Visibility = Visibility.Collapsed;
@@ -86,6 +88,7 @@ public sealed partial class ImageViewerOverlay : UserControl
         if (IsRedEyeRemoving) ExitRedEyeMode();
 
         IsCropping = true;
+        ZoomActualSizeButton.IsEnabled = false;
 
         // The prev/next buttons sit exactly where the E/W handles land and would swallow
         // the pointer presses meant for them, so they go away for the duration of the crop.
@@ -114,6 +117,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
         CropOverlayView.Visibility = Visibility.Collapsed;
         IsCropping = false;
+        SetZoomControlsEnabled(true);
 
         PreviousButton.Visibility = Visibility.Visible;
         NextButton.Visibility = Visibility.Visible;
@@ -241,7 +245,9 @@ public sealed partial class ImageViewerOverlay : UserControl
             return;
         }
 
+        if (_zoomPan is not null) return;
         _zoomPan = new ImageZoomPanController(ImageScrollViewer, ScrollContent, ImageHost, FullImage);
+        if (XamlRoot is { } root) root.Changed += OnXamlRootChanged;
         DebugLog.WriteLine("ImageViewerOverlay: ZoomPanController created");
         
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -354,18 +360,25 @@ public sealed partial class ImageViewerOverlay : UserControl
                     if (IsCropping) ExitCropMode();
                     if (IsStraightening) ExitStraightenMode();
                     if (_isManualFaceTagging) ExitManualFaceTagging();
+                    _currentImagePixelWidth = 0;
+                    _currentImagePixelHeight = 0;
+                    _zoomPan?.SetImageSize(0, 0);
+                    SetZoomControlsEnabled(false);
                     // Attach handler BEFORE setting source (in case image is cached and fires immediately)
+                    FullImage.ImageOpened -= OnImageOpened;
                     FullImage.ImageOpened += OnImageOpened;
                     FullImage.Source = ViewModel.CurrentImage;
                     
                     // If image is already loaded (cached), manually trigger setup
                     if (ViewModel.CurrentImage is BitmapImage bmp && bmp.PixelWidth > 0)
                     {
+                        FullImage.ImageOpened -= OnImageOpened;
                         DebugLog.WriteLine($"ImageViewerOverlay: Image already loaded, setting up manually");
                         _currentImagePixelWidth = (uint)bmp.PixelWidth;
                         _currentImagePixelHeight = (uint)bmp.PixelHeight;
                         _zoomPan?.SetImageSize(bmp.PixelWidth, bmp.PixelHeight);
                         _zoomPan?.ApplyBestFit();
+                        SetZoomControlsEnabled(true);
                         if (_pendingManualFaceTagging) EnterManualFaceTagging();
                     }
                     break;
@@ -373,6 +386,7 @@ public sealed partial class ImageViewerOverlay : UserControl
                     ZoomOutButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     ZoomFitButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     ZoomInButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomActualSizeButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     VideoPlayer.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
                     if (!ViewModel.IsVideo) StopVideo();
@@ -582,6 +596,15 @@ public sealed partial class ImageViewerOverlay : UserControl
         _zoomPan?.ApplyBestFit();
     }
 
+    private void OnZoomActualSize(object sender, RoutedEventArgs e)
+    {
+        if (ZoomActualSizeButton.IsEnabled && ViewModel?.IsVideo == false)
+            _zoomPan?.ApplyActualSize();
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) =>
+        _zoomPan?.HandleRasterizationScaleChanged();
+
     private void OnImageOpened(object sender, RoutedEventArgs e)
     {
         // Unhook to avoid multiple firings
@@ -616,6 +639,7 @@ public sealed partial class ImageViewerOverlay : UserControl
         _zoomPan.ApplyBestFit();
         _currentImagePixelWidth = (uint)width;
         _currentImagePixelHeight = (uint)height;
+        SetZoomControlsEnabled(true);
         DebugLog.WriteLine("ImageViewerOverlay: Applied best fit");
         if (_pendingManualFaceTagging) EnterManualFaceTagging();
     }
@@ -708,6 +732,10 @@ public sealed partial class ImageViewerOverlay : UserControl
     {
         if (ViewModel is null) return false;
 
+        if (key is Windows.System.VirtualKey.A or Windows.System.VirtualKey.I &&
+            (IsKeyDown(Windows.System.VirtualKey.Control) || IsKeyDown(Windows.System.VirtualKey.Menu)))
+            return false;
+
         if (IsCropping)
         {
             // Swallow viewer navigation while cropping so arrow keys don't silently
@@ -754,10 +782,16 @@ public sealed partial class ImageViewerOverlay : UserControl
                 RunKeyCommand(() => ViewModel.PreviousImageCommand.ExecuteAsync(null));
                 return true;
             case Windows.System.VirtualKey.Add:
-                ViewModel.ZoomInCommand.Execute(null);
+                if (ZoomInButton.IsEnabled && !ViewModel.IsVideo) _zoomPan?.ZoomIn();
                 return true;
             case Windows.System.VirtualKey.Subtract:
-                ViewModel.ZoomOutCommand.Execute(null);
+                if (ZoomOutButton.IsEnabled && !ViewModel.IsVideo) _zoomPan?.ZoomOut();
+                return true;
+            case Windows.System.VirtualKey.A:
+                OnZoomActualSize(this, new RoutedEventArgs());
+                return true;
+            case Windows.System.VirtualKey.I:
+                ViewModel.ToggleInformationPaneCommand.Execute(null);
                 return true;
             case Windows.System.VirtualKey.F:
                 RunKeyCommand(ToggleFlagAsync);
@@ -778,6 +812,11 @@ public sealed partial class ImageViewerOverlay : UserControl
             DebugLog.WriteLine($"ImageViewerOverlay: keyboard command failed: {ex}");
         }
     }
+
+    private static bool IsKeyDown(Windows.System.VirtualKey key) =>
+        (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+            & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+
     /// <summary>Toggles the flag on the image currently shown in the viewer (F shortcut).</summary>
     private async Task ToggleFlagAsync()
     {
@@ -937,9 +976,11 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void SetZoomControlsEnabled(bool isEnabled)
     {
+        isEnabled = isEnabled && _currentImagePixelWidth > 0 && _currentImagePixelHeight > 0;
         ZoomOutButton.IsEnabled = isEnabled;
         ZoomFitButton.IsEnabled = isEnabled;
         ZoomInButton.IsEnabled = isEnabled;
+        ZoomActualSizeButton.IsEnabled = isEnabled && !IsCropping && !IsRedEyeRemoving;
     }
 
     private void OnCancelManualFaceTagging(object sender, RoutedEventArgs e) =>
