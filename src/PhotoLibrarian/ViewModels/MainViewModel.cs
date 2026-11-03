@@ -20,6 +20,7 @@ public partial class MainViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
     private readonly WatchedFolderChangeService _watchedChanges;
+    private bool _libraryFoldersChanging;
     private readonly OriginalBackupService _backupService;
     private readonly IDisposable _faceResources;
     private readonly RecognitionPipeline _recognitionPipeline;
@@ -171,7 +172,7 @@ public partial class MainViewModel : ObservableObject
             Settings.CurrentAutoTaggingSettings.CanRun;
         PhotoOps = new Services.PhotoOperationsService(imageRepo, backupService);
         DuplicateReview = new DuplicateReviewViewModel(
-            new DuplicateDetectionService(imageRepo),
+            new DuplicateDetectionService(imageRepo, watchedOnly: true),
             PhotoOps);
         DuplicateReview.BeforeScanAsync = PauseRecognitionForDuplicateScanAsync;
         DuplicateReview.AfterScan = ResumeRecognitionAfterDuplicateScan;
@@ -257,7 +258,7 @@ public partial class MainViewModel : ObservableObject
         
         // Don't load images on startup - wait for user to select a folder
         // This prevents showing all 535 indexed images in random order
-        TotalImages = await _imageRepo.GetCountAsync();
+        TotalImages = await _imageRepo.GetCountAsync(watchedOnly: true);
         StatusText = TotalImages > 0 ? "Select a folder to view photos" : "Add folders to get started";
 
         // Start background indexing to populate metadata (tags, dates)
@@ -461,6 +462,8 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void StartRecognitionProcessing()
     {
+        if (_libraryFoldersChanging)
+            return;
         if (_isShuttingDown ||
             _duplicateScanActive ||
             _autoTagReviewActive ||
@@ -505,8 +508,9 @@ public partial class MainViewModel : ObservableObject
     {
         try
         {
+            var watchedFolders = await new WatchedFolderRepository(_db).GetAllAsync();
             await _recognitionPipeline.ProcessLibraryAsync(
-                request,
+                request with { WatchedFolders = watchedFolders },
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -559,15 +563,16 @@ public partial class MainViewModel : ObservableObject
         _indexingCts?.Cancel();
         _indexingCts = new CancellationTokenSource();
         var ct = _indexingCts.Token;
+        var folders = FolderNav.RootFolders.ToList();
 
         _ = Task.Run(async () =>
         {
             // Wait a bit before starting to let UI settle
             await Task.Delay(2000, ct);
             
-            DebugLog.WriteLine($"StartBackgroundIndexing: Starting scan of {FolderNav.RootFolders.Count} folders");
+            DebugLog.WriteLine($"StartBackgroundIndexing: Starting scan of {folders.Count} folders");
 
-            foreach (var folder in FolderNav.RootFolders)
+            foreach (var folder in folders)
             {
                 if (ct.IsCancellationRequested) break;
 
@@ -689,6 +694,18 @@ public partial class MainViewModel : ObservableObject
         }
 
         SetRecognitionStage(RecognitionStage.None, false);
+    }
+
+    public async Task PauseRecognitionForFolderChangeAsync()
+    {
+        _libraryFoldersChanging = true;
+        await StopRecognitionAsync();
+    }
+
+    public void ResumeRecognitionAfterFolderChange()
+    {
+        _libraryFoldersChanging = false;
+        StartRecognitionProcessing();
     }
 
     private async Task PauseRecognitionForAutoTagReviewAsync()
@@ -1230,7 +1247,7 @@ public partial class MainViewModel : ObservableObject
     public async Task RefreshAfterIndexAsync()
     {
         await ImageGrid.LoadImagesAsync();
-        TotalImages = await _imageRepo.GetCountAsync();
+        TotalImages = await _imageRepo.GetCountAsync(watchedOnly: true);
         StatusText = $"{TotalImages:N0} items";
         // Refresh date and tag navigation data
         await DateNav.LoadDatesAsync();

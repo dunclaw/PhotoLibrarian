@@ -22,6 +22,6 @@ public partial class NotTaggedNavigationViewModel : ObservableObject
 
     public async Task LoadAsync()
     {
-        Count = await _tagRepo.GetNotTaggedCountAsync();
+        Count = await _tagRepo.GetNotTaggedCountAsync(watchedOnly: true);
     }
 }

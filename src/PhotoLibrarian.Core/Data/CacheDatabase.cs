@@ -1,5 +1,6 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.Core.Data;
 
@@ -36,6 +37,7 @@ public sealed class CacheDatabase : IDisposable
         // Keep one connection open to hold the shared cache alive
         _initConnection = new SqliteConnection(_connectionString);
         await _initConnection.OpenAsync();
+        RegisterFunctions(_initConnection);
 
         // WAL mode for concurrent reads during writes
         await ExecutePragmaAsync(_initConnection, "PRAGMA journal_mode=WAL;");
@@ -94,6 +96,13 @@ public sealed class CacheDatabase : IDisposable
                 face_sidecar_modified TEXT,
                 face_metadata_export_required INTEGER NOT NULL DEFAULT 0
             );
+
+            CREATE VIEW IF NOT EXISTS watched_images AS
+                SELECT i.* FROM images i
+                WHERE EXISTS (
+                    SELECT 1 FROM watched_folders w
+                    WHERE is_watched_file(i.file_path, w.path, w.include_sub)
+                );
 
             -- Note: thumbnails table removed - we now use Windows thumbnail cache instead
             -- This eliminates storage duplication and leverages OS-level optimization
@@ -285,11 +294,16 @@ public sealed class CacheDatabase : IDisposable
     {
         var conn = new SqliteConnection(_connectionString);
         conn.Open();
+        RegisterFunctions(conn);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "PRAGMA foreign_keys=ON;";
         cmd.ExecuteNonQuery();
         return conn;
     }
+
+    private static void RegisterFunctions(SqliteConnection connection) =>
+        connection.CreateFunction<string, string, bool, bool>(
+            "is_watched_file", WatchedFolderScope.ContainsFile, isDeterministic: true);
 
     /// <summary>
     /// Returns the shared connection for backward compatibility.

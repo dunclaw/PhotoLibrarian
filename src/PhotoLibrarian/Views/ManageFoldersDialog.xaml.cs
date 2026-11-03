@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.ViewModels;
@@ -45,13 +47,8 @@ public sealed partial class ManageFoldersDialog : ContentDialog
         // Get the folder from the button's DataContext
         if (sender is Button button && button.DataContext is FolderNode folder)
         {
-            ViewModel.SelectedFolder = folder;
-            
-            if (ViewModel.RemoveFolderCommand.CanExecute(null))
-            {
-                await ViewModel.RemoveFolderCommand.ExecuteAsync(null);
-                RefreshFolderList();
-            }
+            await ViewModel.RemoveWatchedFolderAsync(folder);
+            RefreshFolderList();
         }
     }
 

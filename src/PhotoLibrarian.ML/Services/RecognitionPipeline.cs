@@ -1,5 +1,8 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.ML.Services;
 
@@ -14,6 +17,8 @@ public sealed record RecognitionRequest(
     bool IsFaceDetectionEnabled,
     AutoTaggingSettings? AutoTaggingSettings)
 {
+    public IReadOnlyList<WatchedFolder>? WatchedFolders { get; init; }
+
     public bool IsAutoTaggingEnabled =>
         AutoTaggingSettings?.CanRun == true;
 
@@ -290,12 +295,16 @@ public sealed class RecognitionPipeline
 
         foreach (var image in pendingFaces)
         {
+            if (!IsInScope(image))
+                continue;
             byImageId[image.Id] = items.Count;
             items.Add(new RecognitionWorkItem(image, true, false));
         }
 
         foreach (var image in pendingTags)
         {
+            if (!IsInScope(image))
+                continue;
             if (byImageId.TryGetValue(image.Id, out var index))
             {
                 items[index] = items[index] with { NeedsTags = true };
@@ -307,6 +316,11 @@ public sealed class RecognitionPipeline
         }
 
         return items;
+
+        bool IsInScope(ImageEntry image) =>
+            request.WatchedFolders is null ||
+            request.WatchedFolders.Any(folder => WatchedFolderScope.ContainsFile(
+                image.FilePath, folder.Path, folder.IncludeSubfolders));
     }
 
     private sealed record RecognitionWorkItem(

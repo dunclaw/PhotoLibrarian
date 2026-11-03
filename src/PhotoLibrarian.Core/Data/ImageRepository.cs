@@ -105,14 +105,16 @@ public sealed partial class ImageRepository
     public async Task<List<ImageEntry>> GetAllAsync(
         string? orderBy = "date_taken",
         bool descending = true,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         var dir = descending ? "DESC" : "ASC";
         var validColumns = new HashSet<string> { "date_taken", "file_name", "date_modified", "rating", "file_size" };
         var col = validColumns.Contains(orderBy ?? "") ? orderBy : "date_taken";
-        cmd.CommandText = $"SELECT * FROM images ORDER BY {col} {dir}";
+        var table = watchedOnly ? "watched_images" : "images";
+        cmd.CommandText = $"SELECT * FROM {table} ORDER BY {col} {dir}";
 
         var results = new List<ImageEntry>();
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -182,11 +184,13 @@ public sealed partial class ImageRepository
         return results;
     }
 
-    public async Task<int> GetCountAsync()
+    public async Task<int> GetCountAsync(bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM images";
+        cmd.CommandText = watchedOnly
+            ? "SELECT COUNT(*) FROM watched_images"
+            : "SELECT COUNT(*) FROM images";
         var result = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(result);
     }
@@ -289,11 +293,13 @@ public sealed partial class ImageRepository
     }
 
     /// <summary>Number of images currently flagged — drives the "Flagged" node's count.</summary>
-    public async Task<int> GetFlaggedCountAsync()
+    public async Task<int> GetFlaggedCountAsync(bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM images WHERE is_flagged = 1";
+        cmd.CommandText = watchedOnly
+            ? "SELECT COUNT(*) FROM watched_images WHERE is_flagged = 1"
+            : "SELECT COUNT(*) FROM images WHERE is_flagged = 1";
         var result = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(result);
     }

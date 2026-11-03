@@ -217,11 +217,17 @@ public sealed class TagRepository : IAutoTagStore
     /// <summary>
     /// Gets all unique tags with their usage count.
     /// </summary>
-    public async Task<List<(string Tag, int Count)>> GetAllTagsWithCountAsync()
+    public async Task<List<(string Tag, int Count)>> GetAllTagsWithCountAsync(bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC";
+        cmd.CommandText = watchedOnly
+            ? """
+              SELECT tag, COUNT(*) as cnt FROM tags
+              WHERE image_id IN (SELECT id FROM watched_images)
+              GROUP BY tag ORDER BY cnt DESC
+              """
+            : "SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC";
 
         var results = new List<(string, int)>();
         using var reader = await cmd.ExecuteReaderAsync();
@@ -281,12 +287,13 @@ public sealed class TagRepository : IAutoTagStore
     /// Library-wide count of items with no tag rows, regardless of tag source or hierarchy.
     /// This is the indexed equivalent of ImageRefinementFilter.IsUntagged.
     /// </summary>
-    public async Task<int> GetNotTaggedCountAsync()
+    public async Task<int> GetNotTaggedCountAsync(bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT COUNT(*) FROM images
+        var table = watchedOnly ? "watched_images" : "images";
+        cmd.CommandText = $"""
+            SELECT COUNT(*) FROM {table} images
             WHERE NOT EXISTS (SELECT 1 FROM tags WHERE tags.image_id = images.id)
             """;
         return Convert.ToInt32(await cmd.ExecuteScalarAsync());

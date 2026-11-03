@@ -19,10 +19,12 @@ public sealed class DuplicateDetectionService
     private const int MaximumDiagnostics = 50;
     private static readonly double[,] DctCosines = CreateDctCosines();
     private readonly ImageRepository _imageRepository;
+    private readonly bool _watchedOnly;
 
-    public DuplicateDetectionService(ImageRepository imageRepository)
+    public DuplicateDetectionService(ImageRepository imageRepository, bool watchedOnly = false)
     {
         _imageRepository = imageRepository;
+        _watchedOnly = watchedOnly;
     }
 
     public async Task<DuplicateScanResult> ScanAsync(
@@ -33,7 +35,8 @@ public sealed class DuplicateDetectionService
         if (seedPaths is { Count: 0 })
             return new DuplicateScanResult([], [], 0, false);
 
-        var images = (await _imageRepository.GetAllAsync(cancellationToken: cancellationToken))
+        var images = (await _imageRepository.GetAllAsync(
+            cancellationToken: cancellationToken, watchedOnly: _watchedOnly))
             .Where(image => image.MediaType == MediaType.Image)
             .ToList();
         var snapshots = new List<DuplicateFileSnapshot>(images.Count);

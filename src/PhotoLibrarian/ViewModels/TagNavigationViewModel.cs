@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using PhotoLibrarian.Core.Data;
 using System.Collections.ObjectModel;
@@ -24,7 +26,7 @@ public partial class TagNavigationViewModel : ObservableObject
         RootTags.Clear();
 
         // Get all unique tags with their counts
-        var tagCounts = await _tagRepo.GetAllTagsWithCountAsync();
+        var tagCounts = await _tagRepo.GetAllTagsWithCountAsync(watchedOnly: true);
         
         // Calculate total count
         int totalCount = tagCounts.Sum(t => t.Count);

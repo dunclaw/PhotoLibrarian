@@ -294,4 +294,10 @@
   <data name="ViewerInformationPane.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
     <value>Show or hide the tag and caption information pane (I)</value>
   </data>
+  <data name="ManageFoldersDescription.Text" xml:space="preserve">
+    <value>Add folders to your library. Removing a folder hides its photos unless another watched folder includes them. Photos and sidecars stay on disk; cached metadata is kept for re-adding the folder.</value>
+  </data>
+  <data name="WatchedFolderUpdateFailed" xml:space="preserve">
+    <value>Could not update library folders: {0}</value>
+  </data>
 </root>

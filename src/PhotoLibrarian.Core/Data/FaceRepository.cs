@@ -1554,7 +1554,7 @@ public sealed class FaceRepository : IFaceScanStore
     /// <summary>
     /// Loads named-person membership in one pass for client-side refinement composition.
     /// </summary>
-    public async Task<Dictionary<long, HashSet<long>>> GetPersonIdsByImageIdAsync()
+    public async Task<Dictionary<long, HashSet<long>>> GetPersonIdsByImageIdAsync(bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -1563,6 +1563,8 @@ public sealed class FaceRepository : IFaceScanStore
             FROM face_regions
             WHERE person_id IS NOT NULL
             """;
+        if (watchedOnly)
+            cmd.CommandText += " AND image_id IN (SELECT id FROM watched_images)";
 
         var results = new Dictionary<long, HashSet<long>>();
         using var reader = await cmd.ExecuteReaderAsync();
