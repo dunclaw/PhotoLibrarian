@@ -79,6 +79,31 @@
   <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
     <value>Not tagged</value>
   </data>
+  <data name="GridShareButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Share selected photos</value></data>
+  <data name="GridShareButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Share or email resized copies of selected photos</value></data>
+  <data name="ShareAction" xml:space="preserve"><value>Share or email...</value></data>
+  <data name="ShareTitle" xml:space="preserve"><value>Share photos</value></data>
+  <data name="ShareNoPhotos" xml:space="preserve"><value>No prepared photos are available.</value></data>
+  <data name="ShareSelectionLimit" xml:space="preserve"><value>Select 1 to 20 still photos to share. Videos are not supported. Originals will not be changed.</value></data>
+  <data name="SharePolicy" xml:space="preserve"><value>Prepare {0} photo(s) as JPEG copies: at most 1600 pixels on the longest side, never enlarged, at 85% quality. Batches are limited to 20 photos and 20 MiB; your mail provider may have a lower limit. Only the first frame is used. Common embedded descriptive metadata is retained; GPS, face regions and sidecars are not copied. Originals and selection remain unchanged.&#x0a;&#x0a;Windows Share passes the copies to an app you choose. Email opens your default mail app and the copies folder: you must attach the JPEG files yourself, because mailto links cannot reliably attach files.&#x0a;&#x0a;Temporary copies are kept locally for 7 days, then removed on the next app launch or share. Save a separate copy for long-lived drafts.</value></data>
+  <data name="ShareWindowsButton" xml:space="preserve"><value>Windows Share</value></data>
+  <data name="ShareEmailButton" xml:space="preserve"><value>Email (attach manually)</value></data>
+  <data name="ShareCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="ShareClose" xml:space="preserve"><value>Close</value></data>
+  <data name="ShareContinue" xml:space="preserve"><value>Use prepared copies</value></data>
+  <data name="SharePreparing" xml:space="preserve"><value>Preparing resized copies...</value></data>
+  <data name="ShareCancelling" xml:space="preserve"><value>Cancelling preparation...</value></data>
+  <data name="ShareProgress" xml:space="preserve"><value>Preparing {0:N0} of {1:N0}: {2}</value></data>
+  <data name="ShareCancelled" xml:space="preserve"><value>Sharing cancelled. No files were handed off.</value></data>
+  <data name="SharePartial" xml:space="preserve"><value>{0} copies prepared; {1} photos could not be prepared. Review the errors before continuing. Unsupported or unavailable photos are not sent.</value></data>
+  <data name="ShareUnavailable" xml:space="preserve"><value>Windows Share could not open: {0}&#x0a;&#x0a;You can instead open an email draft and the copies folder, then attach the files manually.</value></data>
+  <data name="ShareSheetOpened" xml:space="preserve"><value>Windows Share opened with resized copies. Choose a target app to continue; nothing has been sent by PhotoLibrarian.</value></data>
+  <data name="ShareManualAttachment" xml:space="preserve"><value>Photos are NOT attached or sent. Attach the JPEG copies from the folder below in your mail app. Copies are kept for 7 days; save them elsewhere for longer-lived drafts.</value></data>
+  <data name="ShareFolderFailed" xml:space="preserve"><value>The copies folder could not be opened automatically. Open the path above in File Explorer.</value></data>
+  <data name="ShareMailFailed" xml:space="preserve"><value>No mail draft was opened. Configure a default mail app, or open your mail app and compose a message manually.</value></data>
+  <data name="ShareFailed" xml:space="preserve"><value>Could not share photos: {0}</value></data>
+  <data name="ShareMailSubject" xml:space="preserve"><value>Photos</value></data>
+  <data name="ShareMailBody" xml:space="preserve"><value>Attach the resized JPEG copies from the PhotoLibrarian folder opened in File Explorer before sending this message. No photos have been attached automatically.</value></data>
   <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
   <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Repair moves and remove stale index entries for files verified missing from accessible watched folders. Unavailable locations are retained. Photos and sidecars are never changed. This repairs the existing index, not a clean rebuild.</value></data>
   <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>

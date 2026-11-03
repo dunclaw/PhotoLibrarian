@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using PhotoLibrarian.Core.Models;
@@ -60,7 +62,10 @@ public static class ImageExportService
                 COMException or ArgumentException or NotSupportedException or InvalidOperationException)
             {
                 System.Diagnostics.Debug.WriteLine($"[EXPORT] {sourcePath}: {ex}");
-                failures.Add(new(sourcePath, ex.Message));
+                var message = string.IsNullOrWhiteSpace(ex.Message)
+                    ? $"{ex.GetType().Name} (0x{ex.HResult:X8})"
+                    : ex.Message;
+                failures.Add(new(sourcePath, message));
             }
             progress?.Report(new(index + 1, sourcePaths.Count, Path.GetFileName(sourcePath)));
         }

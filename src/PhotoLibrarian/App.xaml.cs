@@ -46,6 +46,7 @@ public partial class App : Application
             $"PhotoLibrarian starting: {typeof(App).Assembly.GetName().Version}, " +
             $"{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
             $"{Environment.OSVersion.VersionString}");
+        _ = Task.Run(() => new PhotoSharePreparationService().CleanupExpired());
         var dbPath = Path.Combine(dataDir, "cache.db");
 
         // Create services
