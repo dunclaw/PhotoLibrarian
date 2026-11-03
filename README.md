@@ -88,6 +88,21 @@ are logged and retried later. Save copies elsewhere for drafts kept longer.
 Only generated batches are cleaned; unrelated folders and nested content are
 never recursively deleted.
 
+### Full-photo context menu
+
+Right-click a photo in the full viewer, or press **Shift+F10** / the **Menu key**,
+to access the same applicable single-file actions as the grid: open with,
+file location, slideshow, wallpaper, rotation, resize/export, sharing, flag,
+copy, copy full path, rename, delete and properties. Actions target the file on
+screen, not a previous grid multiselection. Image-only actions are disabled for
+videos; rotation is limited to supported still-image formats. Finish or cancel
+an active crop, straighten, red-eye or people-tagging operation before using
+file actions.
+
+Viewer deletion requires confirmation and moves the file to the Recycle Bin;
+Cancel leaves it unchanged. Rotation uses the existing original-backup path,
+and export/share continue to create copies rather than overwrite the source.
+
 ### Batch rename
 
 Batch rename numbers files from 1 in selection order. Patterns specify the basename only

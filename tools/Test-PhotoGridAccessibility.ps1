@@ -2,7 +2,8 @@ param(
     [ValidateSet('x64', 'ARM64')]
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
-    [switch]$Preview
+    [switch]$Preview,
+    [switch]$ViewerContextMenu
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +29,7 @@ try {
     $arguments = @('run', '.', '--manifest', '.\Package.appxmanifest',
         '--exe', 'PhotoLibrarian.AccessibilityTests.exe', '--unregister-on-exit')
     if ($Preview) { $arguments += @('--args', '--preview') }
+    elseif ($ViewerContextMenu) { $arguments += @('--args', '--viewer-context-menu') }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
     if (-not $Preview) {
@@ -35,7 +37,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        Write-Host "Passed $($result.passed.Count) grid accessibility checks."
+        Write-Host "Passed $($result.passed.Count) accessibility checks."
     }
 }
 finally {

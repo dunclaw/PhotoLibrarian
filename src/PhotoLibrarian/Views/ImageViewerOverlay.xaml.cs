@@ -707,18 +707,6 @@ public sealed partial class ImageViewerOverlay : UserControl
         // Kept for backwards compatibility, but not used with new zoom controller
     }
 
-    private void OnCopyContextMenuOpening(object sender, object e)
-    {
-        StopFocusGuard();
-        CopyViewerFullPathItem.IsEnabled = !string.IsNullOrWhiteSpace(ViewModel?.CurrentEntry?.FilePath);
-    }
-
-    private void OnCopyFullPathClick(object sender, RoutedEventArgs e)
-    {
-        App.ViewModel.StatusText = PhotoClipboardService.CopyText(
-            ViewModel?.CurrentEntry?.FilePath, "full path");
-    }
-
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (HandleViewerKey(e.Key)) e.Handled = true;
@@ -731,6 +719,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     public bool HandleViewerKey(Windows.System.VirtualKey key)
     {
         if (ViewModel is null) return false;
+        if (_isPhotoContextMenuOpen) return false;
 
         if (key is Windows.System.VirtualKey.A or Windows.System.VirtualKey.I &&
             (IsKeyDown(Windows.System.VirtualKey.Control) || IsKeyDown(Windows.System.VirtualKey.Menu)))

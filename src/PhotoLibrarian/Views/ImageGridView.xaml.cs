@@ -602,20 +602,82 @@ public sealed partial class ImageGridView : UserControl
         var selected = ViewModel.SelectedImages.Count > 0
             ? ViewModel.SelectedImages.ToList()
             : new List<ImageThumbnailViewModel> { primary };
-        bool isMulti = selected.Count > 1;
-        var ops = App.ViewModel.PhotoOps;
-
         var menu = new MenuFlyout();
+        PopulatePhotoContextMenu(menu, primary, selected);
+        menu.ShowAt(e.Source, e.Position);
+    }
 
-        // View file (default action) — only enabled for single selection
-        var viewItem = new MenuFlyoutItem { Text = "View file" };
-        viewItem.Click += (_, _) =>
+    public void PopulateViewerContextMenu(MenuFlyout menu, PhotoContextMenuTarget target)
+    {
+        var primary = new ImageThumbnailViewModel(target.Entry);
+        PopulatePhotoContextMenu(menu, primary, [primary], target);
+    }
+
+    private bool _isContextOperationRunning;
+
+    private void PopulatePhotoContextMenu(
+        MenuFlyout menu,
+        ImageThumbnailViewModel primary,
+        List<ImageThumbnailViewModel> selected,
+        PhotoContextMenuTarget? viewerTarget = null)
+    {
+        if (ViewModel is null) return;
+        bool isMulti = selected.Count > 1;
+        bool isViewer = viewerTarget is not null;
+        var ops = App.ViewModel.PhotoOps;
+        menu.Items.Clear();
+
+        bool CanExecute()
         {
-            ViewModel.SelectedImage = primary;
-            ViewModel.OpenViewerCommand.Execute(null);
-        };
-        viewItem.IsEnabled = !isMulti;
-        menu.Items.Add(viewItem);
+            if (_isContextOperationRunning) return false;
+            if (viewerTarget is null || viewerTarget.IsCurrent(App.ViewModel.ImageViewer.CurrentEntry))
+                return true;
+            App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextStale");
+            return false;
+        }
+
+        void AddAction(MenuFlyoutItem item, Func<Task> action, string id)
+        {
+            AutomationProperties.SetAutomationId(item, (isViewer ? "Viewer" : "Grid") + id);
+            item.IsEnabled &= !_isContextOperationRunning;
+            item.Click += async (_, _) =>
+            {
+                if (!CanExecute()) return;
+                _isContextOperationRunning = true;
+                try
+                {
+                    await action();
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.WriteLine($"[CONTEXT] {item.Text}: {ex}");
+                    App.ViewModel.StatusText = PhotoContextMenuStrings.Format("PhotoContextFailed", item.Text, ex.Message);
+                }
+                finally
+                {
+                    _isContextOperationRunning = false;
+                }
+            };
+            menu.Items.Add(item);
+        }
+
+        void AddSyncAction(MenuFlyoutItem item, Action action, string id)
+        {
+            AddAction(item, () =>
+            {
+                action();
+                return Task.CompletedTask;
+            }, id);
+        }
+
+        if (!isViewer)
+        {
+            AddSyncAction(new MenuFlyoutItem { Text = "View file", IsEnabled = !isMulti }, () =>
+            {
+                ViewModel.SelectedImage = primary;
+                ViewModel.OpenViewerCommand.Execute(null);
+            }, "ViewFile");
+        }
 
         var slideshowItem = new MenuFlyoutItem
         {
@@ -623,37 +685,38 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE786" },
             KeyboardAcceleratorTextOverride = "F11"
         };
-        AutomationProperties.SetAutomationId(slideshowItem, "GridContextSlideshow");
         var selectedEntries = selected.Select(vm => vm.Entry).ToArray();
-        slideshowItem.Click += (_, _) => SlideshowRequested?.Invoke(this, selectedEntries);
-        menu.Items.Add(slideshowItem);
+        AddSyncAction(slideshowItem, () => SlideshowRequested?.Invoke(this, selectedEntries), "ContextSlideshow");
 
         // Open with default
         var openWith = new MenuFlyoutItem { Text = "Open with default app" };
-        openWith.Click += async (_, _) =>
+        AddAction(openWith, async () =>
         {
             foreach (var vm in selected) await Services.PhotoOperationsService.OpenWithDefaultAsync(vm.Entry.FilePath);
-        };
-        menu.Items.Add(openWith);
+        }, "OpenDefault");
 
         // Open with → submenu of registered handlers for this extension
-        BuildOpenWithSubMenu(menu, primary, selected);
+        BuildOpenWithSubMenu(menu, primary, selected, CanExecute, isViewer ? "Viewer" : "Grid");
 
         // Open file location
         var reveal = new MenuFlyoutItem { Text = "Open file location" };
-        reveal.Click += (_, _) => Services.PhotoOperationsService.RevealInExplorer(primary.Entry.FilePath);
-        menu.Items.Add(reveal);
+        AddSyncAction(reveal, () => Services.PhotoOperationsService.RevealInExplorer(primary.Entry.FilePath), "OpenLocation");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Set as desktop background — single only
         var wallpaper = new MenuFlyoutItem { Text = "Set as desktop background" };
-        wallpaper.Click += (_, _) => Services.PhotoOperationsService.SetAsDesktopBackground(primary.Entry.FilePath);
-        wallpaper.IsEnabled = !isMulti;
-        menu.Items.Add(wallpaper);
+        wallpaper.IsEnabled = !isMulti && PhotoContextMenuTarget.SupportsWallpaper(primary.Entry);
+        AddSyncAction(wallpaper, () =>
+        {
+            if (!Services.PhotoOperationsService.SetAsDesktopBackground(primary.Entry.FilePath))
+                App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextWallpaperFailed");
+        }, "Wallpaper");
 
-        var rotateRight = new MenuFlyoutItem { Text = "Rotate right" };
-        rotateRight.Click += async (_, _) =>
+        bool canRotate = viewerTarget?.CanRotate ??
+            selected.All(vm => PhotoContextMenuTarget.SupportsRotation(vm.Entry));
+        var rotateRight = new MenuFlyoutItem { Text = "Rotate right", IsEnabled = canRotate };
+        AddAction(rotateRight, async () =>
         {
             foreach (var vm in selected)
             {
@@ -661,11 +724,10 @@ public sealed partial class ImageGridView : UserControl
                 await App.ViewModel!.RefreshAfterPixelEditAsync(
                     vm.Entry.FilePath, size.Width, size.Height, "Rotated");
             }
-        };
-        menu.Items.Add(rotateRight);
+        }, "RotateRight");
 
-        var rotateLeft = new MenuFlyoutItem { Text = "Rotate left" };
-        rotateLeft.Click += async (_, _) =>
+        var rotateLeft = new MenuFlyoutItem { Text = "Rotate left", IsEnabled = canRotate };
+        AddAction(rotateLeft, async () =>
         {
             foreach (var vm in selected)
             {
@@ -673,17 +735,15 @@ public sealed partial class ImageGridView : UserControl
                 await App.ViewModel!.RefreshAfterPixelEditAsync(
                     vm.Entry.FilePath, size.Width, size.Height, "Rotated");
             }
-        };
-        menu.Items.Add(rotateLeft);
+        }, "RotateLeft");
 
         var resize = new MenuFlyoutItem
         {
             Text = isMulti ? $"Resize and export ({selected.Count})..." : "Resize and export...",
             IsEnabled = !_isExporting && selected.All(vm => vm.Entry.MediaType == MediaType.Image)
         };
-        AutomationProperties.SetAutomationId(resize, "ResizeExportSelection");
-        resize.Click += async (_, _) => await ShowResizeExportAsync(selected);
-        menu.Items.Add(resize);
+        AddAction(resize, () => ShowResizeExportAsync(selected), "ResizeExportSelection");
+        if (!isViewer) AutomationProperties.SetAutomationId(resize, "ResizeExportSelection");
 
         var share = new MenuFlyoutItem
         {
@@ -691,10 +751,9 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE72D" },
             IsEnabled = !_isSharing && selected.All(vm => vm.Entry.MediaType == MediaType.Image)
         };
-        AutomationProperties.SetAutomationId(share, "ShareSelection");
         AutomationProperties.SetName(share, ShareStrings.Get("ShareAction"));
-        share.Click += async (_, _) => await ShowPhotoShareAsync(selected);
-        menu.Items.Add(share);
+        AddAction(share, () => ShowPhotoShareAsync(selected), "ShareSelection");
+        if (!isViewer) AutomationProperties.SetAutomationId(share, "ShareSelection");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
@@ -708,18 +767,16 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE129" },
             KeyboardAcceleratorTextOverride = "F"
         };
-        flagItem.Click += async (_, _) => await ViewModel.SetFlagAsync(selected, !allFlagged);
-        menu.Items.Add(flagItem);
+        AddAction(flagItem, () => ViewModel.SetFlagAsync(selected, !allFlagged), "Flag");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Copy
         var copy = new MenuFlyoutItem { Text = isMulti ? $"Copy ({selected.Count} files)" : "Copy" };
-        copy.Click += async (_, _) =>
+        AddAction(copy, async () =>
         {
             await Services.PhotoOperationsService.CopyFilesToClipboardAsync(selected.Select(vm => vm.Entry.FilePath));
-        };
-        menu.Items.Add(copy);
+        }, "Copy");
 
         var copyFullPath = new MenuFlyoutItem
         {
@@ -727,38 +784,73 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE8C8" },
             IsEnabled = !isMulti && !string.IsNullOrWhiteSpace(primary.Entry.FilePath)
         };
-        AutomationProperties.SetAutomationId(copyFullPath, "GridCopyFullPath");
-        copyFullPath.Click += (_, _) =>
+        AddSyncAction(copyFullPath, () =>
             App.ViewModel.StatusText = Services.PhotoClipboardService.CopyText(
-                primary.Entry.FilePath, "full path");
-        menu.Items.Add(copyFullPath);
+                primary.Entry.FilePath, "full path"), "CopyFullPath");
 
         // Delete
         var delete = new MenuFlyoutItem { Text = isMulti ? $"Delete ({selected.Count})" : "Delete" };
-        delete.Click += async (_, _) =>
+        AddAction(delete, async () =>
         {
-            var deleted = await ops.DeleteToRecycleBinAsync(selected.Select(vm => vm.Entry));
-            if (deleted.Count > 0)
+            async Task RecycleAsync()
             {
-                // Refresh the grid; deleted IDs are gone from DB already
-                await ViewModel.LoadImagesAsync();
+                var deleted = await ops.DeleteToRecycleBinAsync(selected.Select(vm => vm.Entry));
+                if (deleted.Count > 0)
+                {
+                    await ViewModel.LoadImagesAsync();
+                    if (isViewer)
+                        App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextRecycled");
+                }
+                else if (isViewer)
+                {
+                    App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextNotRecycled");
+                }
             }
-        };
-        menu.Items.Add(delete);
+
+            if (viewerTarget is not null)
+            {
+                async Task<bool> ConfirmAsync()
+                {
+                    var confirmation = new ContentDialog
+                    {
+                        Title = PhotoContextMenuStrings.Get("PhotoContextRecycleTitle"),
+                        Content = primary.Entry.FilePath,
+                        PrimaryButtonText = PhotoContextMenuStrings.Get("PhotoContextRecycle"),
+                        CloseButtonText = PhotoContextMenuStrings.Get("PhotoContextCancel"),
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = XamlRoot,
+                        RequestedTheme = ActualTheme
+                    };
+                    return await confirmation.ShowAsync() == ContentDialogResult.Primary;
+                }
+
+                var result = await viewerTarget.ExecuteConfirmedAsync(
+                    () => App.ViewModel.ImageViewer.CurrentEntry, ConfirmAsync, RecycleAsync);
+                if (result != ConfirmedPhotoActionResult.Completed)
+                {
+                    App.ViewModel.StatusText = PhotoContextMenuStrings.Get(
+                        result == ConfirmedPhotoActionResult.Stale ? "PhotoContextStale" : "PhotoContextCancelled");
+                }
+                return;
+            }
+            await RecycleAsync();
+        }, "Delete");
 
         var rename = new MenuFlyoutItem { Text = isMulti ? $"Rename ({selected.Count})…" : "Rename…" };
-        rename.Click += async (_, _) => await RenameEntriesAsync(selected.Select(vm => vm.Entry).ToArray());
-        menu.Items.Add(rename);
+        AddAction(rename, async () =>
+        {
+            await RenameEntriesAsync(selectedEntries);
+            if (isViewer && App.ViewModel.ImageViewer.CurrentEntry is { } current &&
+                string.Equals(current.FilePath, primary.Entry.FilePath, StringComparison.OrdinalIgnoreCase))
+                await App.ViewModel.ImageViewer.ReloadCurrentImageAsync();
+        }, "Rename");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Properties — single only (shell dialog is one-file-at-a-time)
         var props = new MenuFlyoutItem { Text = "Properties" };
-        props.Click += (_, _) => Services.PhotoOperationsService.ShowPropertiesDialog(primary.Entry.FilePath);
         props.IsEnabled = !isMulti;
-        menu.Items.Add(props);
-
-        menu.ShowAt(e.Source, e.Position);
+        AddSyncAction(props, () => Services.PhotoOperationsService.ShowPropertiesDialog(primary.Entry.FilePath), "Properties");
     }
 
     private async void OnShareClick(object sender, RoutedEventArgs e)
@@ -994,10 +1086,13 @@ public sealed partial class ImageGridView : UserControl
     private static void BuildOpenWithSubMenu(
         MenuFlyout menu,
         ViewModels.ImageThumbnailViewModel primary,
-        List<ViewModels.ImageThumbnailViewModel> selected)
+        List<ViewModels.ImageThumbnailViewModel> selected,
+        Func<bool> canExecute,
+        string automationPrefix)
     {
         var ext = System.IO.Path.GetExtension(primary.Entry.FilePath);
-        var subFlyout = new MenuFlyoutSubItem { Text = "Open with" };
+        var subFlyout = new MenuFlyoutSubItem { Text = "Open with", IsEnabled = canExecute() };
+        AutomationProperties.SetAutomationId(subFlyout, automationPrefix + "OpenWith");
 
         try
         {
@@ -1008,8 +1103,10 @@ public sealed partial class ImageGridView : UserControl
             {
                 if (!seen.Add(h.UIName)) continue;
                 var item = new MenuFlyoutItem { Text = h.UIName };
+                AutomationProperties.SetAutomationId(item, automationPrefix + "OpenWithApp" + seen.Count);
                 item.Click += (_, _) =>
                 {
+                    if (!canExecute()) return;
                     var paths = selected.Select(vm => vm.Entry.FilePath).ToList();
                     Services.OpenWithHelper.Invoke(h, paths);
                 };
@@ -1025,8 +1122,10 @@ public sealed partial class ImageGridView : UserControl
             subFlyout.Items.Add(new MenuFlyoutSeparator());
 
         var chooseAnother = new MenuFlyoutItem { Text = "Choose another app…" };
+        AutomationProperties.SetAutomationId(chooseAnother, automationPrefix + "ChooseAnotherApp");
         chooseAnother.Click += (_, _) =>
         {
+            if (!canExecute()) return;
             // Multi-file → the dialog only takes one file, use the primary
             Services.OpenWithHelper.ShowOpenWithDialog(primary.Entry.FilePath);
         };

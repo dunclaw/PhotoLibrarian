@@ -1,6 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 
 using System;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -272,7 +273,7 @@ internal sealed class ImageZoomPanController
     public void HandlePointerPressed(ScrollViewer sv, PointerRoutedEventArgs e)
     {
         var pt = e.GetCurrentPoint(sv);
-        if (!pt.Properties.IsLeftButtonPressed && !pt.IsInContact)
+        if (!ShouldStartPan(e.Pointer.PointerDeviceType, pt.Properties.IsLeftButtonPressed, pt.IsInContact))
             return;
 
         _isPanning = true;
@@ -283,6 +284,9 @@ internal sealed class ImageZoomPanController
         sv.CapturePointer(e.Pointer);
         e.Handled = true;
     }
+
+    internal static bool ShouldStartPan(PointerDeviceType deviceType, bool isLeftButtonPressed, bool isInContact) =>
+        deviceType == PointerDeviceType.Mouse ? isLeftButtonPressed : isInContact;
 
     public void HandlePointerMoved(ScrollViewer sv, PointerRoutedEventArgs e)
     {

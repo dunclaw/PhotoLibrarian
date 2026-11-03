@@ -55,6 +55,15 @@
     <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml"
           Link="TestAssets\ImageViewerOverlay.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.ContextMenu.cs"
+          Link="TestAssets\ImageViewerOverlay.ContextMenu.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml.cs"
+          Link="TestAssets\ImageViewerOverlay.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
+          Link="TestAssets\MainWindow.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml"
           Link="TestAssets\TopRibbon.xaml"
           CopyToOutputDirectory="PreserveNewest" />

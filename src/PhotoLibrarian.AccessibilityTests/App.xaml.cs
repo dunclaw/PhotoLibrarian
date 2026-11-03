@@ -36,34 +36,41 @@ public partial class App : Application
         string? failure = null;
         try
         {
-            _grid = new VirtualizingPhotoGrid { ItemSize = 120 };
-            var group = new PhotoGroup { Header = "Synthetic photos" };
-            for (int i = 0; i < 10_000; i++)
-                group.Items.Add(new ImageThumbnailViewModel(new ImageEntry
-                {
-                    Id = i + 1,
-                    FileName = $"Photo-{i:D5}.jpg",
-                    FilePath = $@"C:\SyntheticPhotos\Photo-{i:D5}.jpg"
-                }) { IsLoading = false });
-            _groups.Add(group);
-            _grid.SetGroups(_groups);
-            var layout = new Grid();
-            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            layout.RowDefinitions.Add(new RowDefinition());
-            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var before = new Button { Content = "Before grid" };
-            var after = new Button { Content = "After grid" };
-            layout.Children.Add(before);
-            layout.Children.Add(_grid);
-            layout.Children.Add(after);
-            Grid.SetRow(_grid, 1);
-            Grid.SetRow(after, 2);
-            _window = new Window { Title = "Photo grid accessibility regression", Content = layout };
-            _window.AppWindow.Resize(new SizeInt32(920, 700));
-            _window.Activate();
-            await Task.Delay(500);
-            if (Environment.GetCommandLineArgs().Contains("--preview")) return;
-            await RunTestsAsync(group, before, after);
+            if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
+            {
+                await RunViewerContextMenuTestsAsync();
+            }
+            else
+            {
+                _grid = new VirtualizingPhotoGrid { ItemSize = 120 };
+                var group = new PhotoGroup { Header = "Synthetic photos" };
+                for (int i = 0; i < 10_000; i++)
+                    group.Items.Add(new ImageThumbnailViewModel(new ImageEntry
+                    {
+                        Id = i + 1,
+                        FileName = $"Photo-{i:D5}.jpg",
+                        FilePath = $@"C:\SyntheticPhotos\Photo-{i:D5}.jpg"
+                    }) { IsLoading = false });
+                _groups.Add(group);
+                _grid.SetGroups(_groups);
+                var layout = new Grid();
+                layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                layout.RowDefinitions.Add(new RowDefinition());
+                layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var before = new Button { Content = "Before grid" };
+                var after = new Button { Content = "After grid" };
+                layout.Children.Add(before);
+                layout.Children.Add(_grid);
+                layout.Children.Add(after);
+                Grid.SetRow(_grid, 1);
+                Grid.SetRow(after, 2);
+                _window = new Window { Title = "Photo grid accessibility regression", Content = layout };
+                _window.AppWindow.Resize(new SizeInt32(920, 700));
+                _window.Activate();
+                await Task.Delay(500);
+                if (Environment.GetCommandLineArgs().Contains("--preview")) return;
+                await RunTestsAsync(group, before, after);
+            }
         }
         catch (Exception exception)
         {
