@@ -630,12 +630,20 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
 | Actual size in viewer | A or the **1:1** button |
 | Show / hide viewer information pane | I or the information toggle |
+| Reset viewer zoom to fit | Ctrl+0 |
 | Next / previous in viewer | ←  →  arrow keys |
 | Previous / next while editing | Left / Right arrows (outside input controls); Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
 | Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
 | Exit slideshow | Esc or F11 |
+| Rate selected photos (0 clears; 1-5 sets) | 0-5 or Ctrl+1-Ctrl+5 |
+| Rotate selected photos clockwise / counter-clockwise | Ctrl+R / Ctrl+L |
+| Focus the selected photos' tag entry | Ctrl+T, then type a tag and press Enter |
+| Rename selected photos | F2 |
+| Move selected photos to the Recycle Bin | Delete |
+| Undo / redo pending editor changes | Ctrl+Z / Ctrl+Y |
+| Print selected photos | Ctrl+P |
 
 **Actual size** displays one decoded image pixel per physical display pixel, adjusting
 for Windows display scaling. It is available once a still image is loaded (not for video).
@@ -659,8 +667,10 @@ Photos wrap at either end. Use **Pause / Resume** and
 auto-advance. Each photo gets a full interval after loading or manual navigation.
 The interval is remembered until the app closes. Exiting returns to the unchanged
 grid or viewer; slideshow shortcuts are unavailable while editing or in settings.
-
-More shortcuts (Del, F2, 0-5 rating) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
+Rating, rotation, tagging, rename, delete, and print act on the current grid selection
+(or the current photo when only one is selected). Rating shortcuts are ignored while an
+input control is focused; text boxes keep their normal typing and undo behavior. Delete
+uses the Windows Recycle Bin confirmation so removed photos remain recoverable.
 
 ---
 

@@ -655,15 +655,20 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// always sets to the chosen value (no toggle — too ambiguous when mixed).
     /// </summary>
     [RelayCommand]
-    public async Task SetRatingAsync(int star)
+    public Task SetRatingAsync(int star) => SetRatingCoreAsync(star, toggleOnRepeat: true);
+
+    public Task SetRatingFromShortcutAsync(int rating) =>
+        SetRatingCoreAsync(rating, toggleOnRepeat: false);
+
+    private async Task SetRatingCoreAsync(int rating, bool toggleOnRepeat)
     {
+        if (rating is < 0 or > 5) throw new ArgumentOutOfRangeException(nameof(rating));
         if (_entries.Count == 0) return;
 
-        int newRating;
-        if (_entries.Count == 1 && !IsRatingMixed && Rating == star)
-            newRating = 0; // single-select toggle
-        else
-            newRating = star;
+        int newRating = toggleOnRepeat && rating > 0 &&
+            _entries.Count == 1 && !IsRatingMixed && Rating == rating
+                ? 0
+                : rating;
 
         Rating = newRating;
         IsRatingMixed = false;
