@@ -110,7 +110,28 @@
                             Margin="0,2,0,0" />
 
                     <TextBlock Text="Geotag" Style="{StaticResource SectionHeaderStyle}" />
-                    <TextBlock x:Name="GeotagText" Style="{StaticResource PlaceholderStyle}" Margin="0,2,0,0" />
+                    <Grid Margin="0,2,0,0" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="GeotagText"
+                                   Style="{StaticResource PlaceholderStyle}"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="EditGeotagButton"
+                                Grid.Column="1"
+                                AutomationProperties.AutomationId="EditGeotagButton"
+                                AutomationProperties.Name="Edit geotag"
+                                Content="Edit"
+                                Click="OnEditGeotagClick"
+                                Padding="8,4" />
+                    </Grid>
+                    <TextBlock x:Name="GeotagAvailabilityHint"
+                               Visibility="Collapsed"
+                               Text="Geotag editing is available for photo selections only."
+                               Style="{StaticResource PlaceholderStyle}"
+                               Margin="0,2,0,0"
+                               TextWrapping="Wrap" />
 
                     <TextBlock Text="Caption" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBox x:Name="CaptionBox"

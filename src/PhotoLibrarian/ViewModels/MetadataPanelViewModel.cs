@@ -75,6 +75,12 @@ public partial class TagDisplayItem : ObservableObject
     }
 }
 
+public sealed record GeotagBatchResult(
+    int AppliedCount,
+    int TotalCount,
+    int SidecarCount,
+    IReadOnlyList<string> Failures);
+
 public partial class MetadataPanelViewModel : ObservableObject
 {
     // Currently-selected entries (1 or more)
@@ -83,6 +89,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     private TagRepository? _tagRepo;
     private FaceRepository? _faceRepo;
     private MainViewModel? _main;
+    private GeotagMetadataWriterService? _geotagWriter;
     private CancellationTokenSource? _videoMetadataCancellation;
     private Task _videoMetadataReads = Task.CompletedTask;
     private bool _isStopping;
@@ -98,6 +105,9 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     [ObservableProperty]
     public partial int SelectionCount { get; set; }
+
+    [ObservableProperty]
+    public partial bool CanEditGeotag { get; set; }
 
     [ObservableProperty]
     public partial string SelectionSummary { get; set; } = "";
@@ -219,22 +229,25 @@ public partial class MetadataPanelViewModel : ObservableObject
     public MetadataPanelViewModel() { }
 
     public void Initialize(
-        ImageRepository imageRepo,
-        TagRepository tagRepo,
-        FaceRepository faceRepo,
-        MainViewModel main)
+        ImageRepository? imageRepo = null,
+        TagRepository? tagRepo = null,
+        FaceRepository? faceRepo = null,
+        MainViewModel? main = null,
+        OriginalBackupService? backupService = null)
     {
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
         _faceRepo = faceRepo;
         _main = main;
-        _main.PropertyChanged += (_, e) =>
+        _geotagWriter = new GeotagMetadataWriterService(backupService ?? new OriginalBackupService());
+        if (_main is not null)
         {
-            if (e.PropertyName == nameof(MainViewModel.IsManualFaceTaggingActive))
+            _main.PropertyChanged += (_, e) =>
             {
-                IsManualFaceTaggingActive = _main.IsManualFaceTaggingActive;
-            }
-        };
+                if (e.PropertyName == nameof(MainViewModel.IsManualFaceTaggingActive))
+                    IsManualFaceTaggingActive = _main.IsManualFaceTaggingActive;
+            };
+        }
     }
 
     /// <summary>
@@ -262,6 +275,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         HasImage = true;
         SelectionCount = _entries.Count;
         IsMultiSelect = _entries.Count > 1;
+        CanEditGeotag = _entries.All(entry => entry.MediaType == Core.Models.MediaType.Image);
 
         if (_entries.Count == 1)
         {
@@ -606,6 +620,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         HasImage = false;
         IsMultiSelect = false;
         SelectionCount = 0;
+        CanEditGeotag = false;
         SelectionSummary = "";
         FileName = "";
         FolderPath = "";
@@ -819,6 +834,72 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         if (_main != null) await _main.RefreshAfterDateChangeAsync();
+    }
+
+    public async Task<GeotagBatchResult> SetGeotagAsync(GeoCoordinate coordinate)
+    {
+        if (_entries.Count == 0 || !CanEditGeotag || _geotagWriter is null)
+            return new GeotagBatchResult(0, _entries.Count, 0, []);
+
+        var entries = _entries.ToList();
+        var failures = new List<string>();
+        var appliedCount = 0;
+        var sidecarCount = 0;
+        var attempts = await _geotagWriter.WriteBatchAsync(
+            entries.Select(entry => entry.FilePath).ToList(),
+            coordinate);
+
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            var attempt = attempts[index];
+            if (attempt.Location is not { } writeLocation)
+            {
+                failures.Add($"{entry.FileName}: {attempt.Error}");
+                continue;
+            }
+
+            if (writeLocation == GeotagWriteLocation.XmpSidecar)
+                sidecarCount++;
+
+            entry.GpsLatitude = coordinate.Latitude;
+            entry.GpsLongitude = coordinate.Longitude;
+            appliedCount++;
+
+            if (_imageRepo is not null && entry.Id > 0)
+            {
+                try
+                {
+                    var fileInfo = new FileInfo(entry.FilePath);
+                    entry.FileSize = fileInfo.Length;
+                    entry.DateModified = fileInfo.LastWriteTimeUtc;
+                    await _imageRepo.UpdateGpsCoordinatesAsync(
+                        entry.Id,
+                        coordinate.Latitude,
+                        coordinate.Longitude,
+                        entry.FileSize,
+                        entry.DateModified);
+                }
+                catch (Exception exception) when (
+                    exception is not OutOfMemoryException and not StackOverflowException)
+                {
+                    failures.Add(
+                        $"{entry.FileName}: coordinates were written, but the library index could not be updated: {exception.Message}");
+                }
+            }
+        }
+
+        GpsLatitude = CommonStringOrMixed(
+            _entries,
+            entry => entry.GpsLatitude.HasValue ? $"{entry.GpsLatitude:F4}" : "");
+        GpsLongitude = CommonStringOrMixed(
+            _entries,
+            entry => entry.GpsLongitude.HasValue ? $"{entry.GpsLongitude:F4}" : "");
+
+        if (_main is not null && appliedCount > 0)
+            await _main.ImageGrid.RefreshGroupingAsync();
+
+        return new GeotagBatchResult(appliedCount, entries.Count, sidecarCount, failures);
     }
 
     /// <summary>

@@ -144,7 +144,7 @@ public partial class MainViewModel : ObservableObject
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
-        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this);
+        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this, backupService);
         PeopleReview = new PeopleReviewViewModel(faceReviewService);
         Settings = new SettingsViewModel(
             db,
