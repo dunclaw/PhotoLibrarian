@@ -505,6 +505,9 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // Deliberate keyboard navigation must end the short opening-time focus recovery.
+        if (e.Key == Windows.System.VirtualKey.Tab)
+            ViewerOverlay.StopFocusGuard();
         if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
         {
             var editorFocus = Content?.XamlRoot is { } editorRoot

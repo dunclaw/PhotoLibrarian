@@ -2,10 +2,12 @@ param(
     [ValidateSet('x64', 'ARM64')]
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
-    [switch]$Preview
+    [switch]$Preview,
+    [switch]$ViewerPreview
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Preview -and $ViewerPreview) { throw 'Choose either grid Preview or ViewerPreview.' }
 $project = Join-Path $PSScriptRoot '..\src\PhotoLibrarian.AccessibilityTests\PhotoLibrarian.AccessibilityTests.csproj'
 Get-Command dotnet, winapp -ErrorAction Stop | Out-Null
 
@@ -28,14 +30,15 @@ try {
     $arguments = @('run', '.', '--manifest', '.\Package.appxmanifest',
         '--exe', 'PhotoLibrarian.AccessibilityTests.exe', '--unregister-on-exit')
     if ($Preview) { $arguments += @('--args', '--preview') }
+    if ($ViewerPreview) { $arguments += @('--args', '--viewer-preview') }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
-    if (-not $Preview) {
+    if (-not $Preview -and -not $ViewerPreview) {
         if (-not (Test-Path $resultPath)) { throw 'Accessibility test host did not produce results.' }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        Write-Host "Passed $($result.passed.Count) grid accessibility checks."
+        Write-Host "Passed $($result.passed.Count) grid and viewer command accessibility checks."
     }
 }
 finally {

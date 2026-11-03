@@ -1,5 +1,9 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using System;
 
 namespace PhotoLibrarian.Views;
@@ -46,31 +50,50 @@ public sealed partial class TopRibbon : UserControl
     /// <summary>Switch the ribbon into crop sub-mode (replaces standard viewer tools with Apply/Cancel/Aspect).</summary>
     public void EnterCropMode()
     {
+        var moveFocus = HasFocusWithin(ViewerTools);
         ViewerTools.Visibility = Visibility.Collapsed;
         CropTools.Visibility = Visibility.Visible;
         SetContextSubLabel("Drag the handles to set the crop (hold Ctrl to keep proportions), or drag on the photo to draw a new one");
+        if (moveFocus) AspectCombo.Focus(FocusState.Keyboard);
     }
 
     public void ExitCropMode()
     {
+        var moveFocus = HasFocusWithin(CropTools);
         ViewerTools.Visibility = Visibility.Visible;
         CropTools.Visibility = Visibility.Collapsed;
         SetContextSubLabel(null);
+        if (moveFocus) CropButton.Focus(FocusState.Keyboard);
     }
 
     public void EnterStraightenMode()
     {
+        var moveFocus = HasFocusWithin(ViewerTools) || HasFocusWithin(CropTools);
         ViewerTools.Visibility = Visibility.Collapsed;
         CropTools.Visibility = Visibility.Collapsed;
         StraightenTools.Visibility = Visibility.Visible;
         SetContextSubLabel("Drag along the horizon, fine-tune the angle, or use Auto");
+        if (moveFocus) ApplyStraightenButton.Focus(FocusState.Keyboard);
     }
 
     public void ExitStraightenMode()
     {
+        var moveFocus = HasFocusWithin(StraightenTools);
         ViewerTools.Visibility = Visibility.Visible;
         StraightenTools.Visibility = Visibility.Collapsed;
         SetContextSubLabel(null);
+        if (moveFocus) StraightenButton.Focus(FocusState.Keyboard);
+    }
+
+    private bool HasFocusWithin(DependencyObject ancestor)
+    {
+        if (XamlRoot is null) return false;
+        var focused = FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
+        for (var current = focused; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor)) return true;
+        }
+        return false;
     }
 
     public void EnterRedEyeMode()
