@@ -209,6 +209,31 @@
   <data name="ShareFailed" xml:space="preserve"><value>Could not share photos: {0}</value></data>
   <data name="ShareMailSubject" xml:space="preserve"><value>Photos</value></data>
   <data name="ShareMailBody" xml:space="preserve"><value>Attach the resized JPEG copies from the PhotoLibrarian folder opened in File Explorer before sending this message. No photos have been attached automatically.</value></data>
+  <data name="PanoramaMenuAction" xml:space="preserve"><value>Stitch panorama (2 photos)</value></data>
+  <data name="PanoramaProgressStarting" xml:space="preserve"><value>Preparing panorama...</value></data>
+  <data name="PanoramaProgress" xml:space="preserve"><value>{0} ({1}%)</value></data>
+  <data name="PanoramaProgressAutomationName" xml:space="preserve"><value>Panorama progress</value></data>
+  <data name="PanoramaPreviewAutomationName" xml:space="preserve"><value>Stitched panorama preview</value></data>
+  <data name="PanoramaSaveProgressAutomationName" xml:space="preserve"><value>Panorama save progress</value></data>
+  <data name="PanoramaStitchTitle" xml:space="preserve"><value>Stitch panorama</value></data>
+  <data name="PanoramaSavingTitle" xml:space="preserve"><value>Saving panorama</value></data>
+  <data name="PanoramaReviewTitle" xml:space="preserve"><value>Review panorama</value></data>
+  <data name="PanoramaSaveButton" xml:space="preserve"><value>Save panorama...</value></data>
+  <data name="PanoramaCancelButton" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PanoramaCloseButton" xml:space="preserve"><value>Close</value></data>
+  <data name="PanoramaPreviewDetails" xml:space="preserve"><value>{0:N0} x {1:N0} pixels. {2:N0} of {3:N0} feature matches agree ({4:P0}). Preview includes automatic crop and seam blending. Only a new JPEG will be saved; both originals stay unchanged.</value></data>
+  <data name="PanoramaSaveNotStarted" xml:space="preserve"><value>Panorama not saved</value></data>
+  <data name="PanoramaCancelled" xml:space="preserve"><value>Panorama cancelled</value></data>
+  <data name="PanoramaFailed" xml:space="preserve"><value>Panorama failed: {0}</value></data>
+  <data name="PanoramaPreviewFailed" xml:space="preserve"><value>Could not create a safe panorama: {0}</value></data>
+  <data name="PanoramaEncodingProgress" xml:space="preserve"><value>Encoding the panorama JPEG...</value></data>
+  <data name="PanoramaSaveCancelling" xml:space="preserve"><value>Cancelling and removing the temporary output...</value></data>
+  <data name="PanoramaSaveCancelled" xml:space="preserve"><value>Panorama save cancelled</value></data>
+  <data name="PanoramaSavedButNotIndexedTitle" xml:space="preserve"><value>Panorama saved but not indexed</value></data>
+  <data name="PanoramaSavedButNotIndexed" xml:space="preserve"><value>Saved panorama at {0}, but could not add it to the library: {1}</value></data>
+  <data name="PanoramaSaveFailedTitle" xml:space="preserve"><value>Could not save panorama</value></data>
+  <data name="PanoramaSaveFailed" xml:space="preserve"><value>Could not save panorama: {0}</value></data>
+  <data name="PanoramaCreatedStatus" xml:space="preserve"><value>Created panorama {0}</value></data>
   <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
   <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Repair moves and remove stale index entries for files verified missing from accessible watched folders. Unavailable locations are retained. Photos and sidecars are never changed. This repairs the existing index, not a clean rebuild.</value></data>
   <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>

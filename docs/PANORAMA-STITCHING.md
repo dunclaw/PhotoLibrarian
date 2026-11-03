@@ -1,0 +1,9 @@
+# Panorama stitching
+
+Select exactly two photos in the grid, open the context menu, and choose **Stitch panorama**. PhotoLibrarian creates a local preview using feature matching, a robust homography fit, exposure compensation, feather blending, and an automatic clean-rectangle crop. Review the composed result before choosing an output folder and saving it.
+
+Stitching runs entirely on-device and adds no third-party or native computer-vision dependency. Both sources are decoded through Windows Imaging Component with EXIF orientation applied and sRGB color management. The inputs are never modified. The JPEG derivative is staged and published under a distinct ` - Panorama` name without overwriting an existing file; an existing name is incremented. The new image is indexed and revealed in the library. Embedded XMP records the source file names and stitch method. Source GPS, face regions, edit recipes, and other metadata are not copied because their coordinates or meaning may no longer be valid.
+
+Supported input formats are JPEG, PNG, TIFF, and BMP. RAW and video files are not supported. The current workflow stitches two photos only; the inputs are each decoded to at most 2,400 pixels on their longest edge and may be at most 512 MB. Panoramas are limited to 16 megapixels and 6,400 pixels per side. These limits bound local memory use and processing time.
+
+The matcher uses oriented binary image features and RANSAC to estimate a projective alignment. It rejects photos with too few or too-concentrated matches, weak consensus, unstable transforms, excessive output bounds, or too little clean crop area. It is intended for overlapping photos of mostly static scenes. Strong parallax, moving subjects, repeated patterns, large viewpoint changes, and inconsistent exposure can still make a result unusable; the preview is the acceptance step, and there is no manual seam or crop editor in this workflow.

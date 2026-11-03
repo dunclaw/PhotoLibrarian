@@ -7,9 +7,12 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.Graphics.Imaging;
 
 namespace PhotoLibrarian.Views;
 
@@ -21,6 +24,7 @@ public sealed partial class ImageGridView : UserControl
     private bool _isInitialized;
     private bool _isExporting;
     private bool _isSharing;
+    private bool _isStitching;
     private readonly PhotoShareService _shareService = new();
 
     public ImageGridView()
@@ -685,6 +689,18 @@ public sealed partial class ImageGridView : UserControl
         resize.Click += async (_, _) => await ShowResizeExportAsync(selected);
         menu.Items.Add(resize);
 
+        var stitch = new MenuFlyoutItem
+        {
+            Text = PanoramaStrings.Get("PanoramaMenuAction"),
+            Icon = new FontIcon { Glyph = "\uE91B" },
+            IsEnabled = selected.Count == 2 &&
+                selected.All(vm => vm.Entry.MediaType == MediaType.Image) &&
+                !_isStitching
+        };
+        AutomationProperties.SetAutomationId(stitch, "StitchPanoramaSelection");
+        stitch.Click += async (_, _) => await ShowPanoramaPreviewAsync(selected.ToArray());
+        menu.Items.Add(stitch);
+
         var share = new MenuFlyoutItem
         {
             Text = ShareStrings.Get("ShareAction"),
@@ -759,6 +775,252 @@ public sealed partial class ImageGridView : UserControl
         menu.Items.Add(props);
 
         menu.ShowAt(e.Source, e.Position);
+    }
+
+    private async Task ShowPanoramaPreviewAsync(
+        IReadOnlyList<ImageThumbnailViewModel> selected)
+    {
+        if (_isStitching || selected.Count != 2)
+            return;
+
+        _isStitching = true;
+        using var cancellation = new System.Threading.CancellationTokenSource();
+        var progressLabel = new TextBlock
+        {
+            Text = PanoramaStrings.Get("PanoramaProgressStarting"),
+            TextWrapping = TextWrapping.Wrap
+        };
+        AutomationProperties.SetAutomationId(progressLabel, "PanoramaProgress");
+        AutomationProperties.SetName(
+            progressLabel,
+            PanoramaStrings.Get("PanoramaProgressAutomationName"));
+        AutomationProperties.SetLiveSetting(
+            progressLabel,
+            Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+        var progressBar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0
+        };
+        var previewImage = new Image
+        {
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
+            MaxWidth = 1120,
+            MaxHeight = 560,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetName(
+            previewImage,
+            PanoramaStrings.Get("PanoramaPreviewAutomationName"));
+        var dialog = new ContentDialog
+        {
+            Title = PanoramaStrings.Get("PanoramaStitchTitle"),
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                Children = { progressLabel, progressBar, previewImage }
+            },
+            PrimaryButtonText = PanoramaStrings.Get("PanoramaSaveButton"),
+            CloseButtonText = PanoramaStrings.Get("PanoramaCancelButton"),
+            DefaultButton = ContentDialogButton.Primary,
+            IsPrimaryButtonEnabled = false,
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme
+        };
+        var panoramaReady = false;
+        dialog.Closing += (_, _) =>
+        {
+            if (!panoramaReady)
+                cancellation.Cancel();
+        };
+
+        var paths = selected.Select(vm => vm.Entry.FilePath).ToArray();
+        var progress = new Progress<Core.Services.PanoramaStitchProgress>(update =>
+        {
+            if (cancellation.IsCancellationRequested)
+                return;
+            progressLabel.Text = PanoramaStrings.Format(
+                "PanoramaProgress", update.Stage, update.Percent);
+            progressBar.Value = update.Percent;
+        });
+
+        try
+        {
+            var showing = dialog.ShowAsync();
+            Core.Services.PanoramaStitchResult panorama;
+            try
+            {
+                panorama = await Core.Services.PanoramaStitchingService.CreatePreviewAsync(
+                    paths[0], paths[1], progress, cancellation.Token);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+                await showing;
+                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaCancelled");
+                return;
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"[PANORAMA] Preview failed: {ex}");
+                progressLabel.Text = PanoramaStrings.Format("PanoramaPreviewFailed", ex.Message);
+                progressBar.Visibility = Visibility.Collapsed;
+                dialog.PrimaryButtonText = "";
+                dialog.IsPrimaryButtonEnabled = false;
+                dialog.CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton");
+                await showing;
+                App.ViewModel.StatusText = PanoramaStrings.Format("PanoramaFailed", ex.Message);
+                return;
+            }
+
+            var bitmap = SoftwareBitmap.CreateCopyFromBuffer(
+                panorama.Pixels.AsBuffer(),
+                BitmapPixelFormat.Bgra8,
+                panorama.Width,
+                panorama.Height,
+                BitmapAlphaMode.Ignore);
+            var bitmapSource = new SoftwareBitmapSource();
+            await bitmapSource.SetBitmapAsync(bitmap);
+            bitmap.Dispose();
+            previewImage.Source = bitmapSource;
+            previewImage.Visibility = Visibility.Visible;
+            progressBar.Visibility = Visibility.Collapsed;
+            progressLabel.Text = PanoramaStrings.Format(
+                "PanoramaPreviewDetails",
+                panorama.Width,
+                panorama.Height,
+                panorama.InlierCount,
+                panorama.MatchCount,
+                panorama.InlierRatio);
+            dialog.Title = PanoramaStrings.Get("PanoramaReviewTitle");
+            dialog.IsPrimaryButtonEnabled = true;
+            panoramaReady = true;
+            var decision = await showing;
+            if (decision != ContentDialogResult.Primary)
+            {
+                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaSaveNotStarted");
+                return;
+            }
+
+            var window = App.MainWindow
+                ?? throw new InvalidOperationException("The main window is no longer available.");
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
+                WinRT.Interop.WindowNative.GetWindowHandle(window));
+            var picker = new Microsoft.Windows.Storage.Pickers.FolderPicker(windowId)
+            {
+                SuggestedStartLocation =
+                    Microsoft.Windows.Storage.Pickers.PickerLocationId.PicturesLibrary
+            };
+            var outputFolder = await picker.PickSingleFolderAsync();
+            if (outputFolder is null)
+            {
+                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaSaveNotStarted");
+                return;
+            }
+
+            using var saveCancellation = new System.Threading.CancellationTokenSource();
+            var saveLabel = new TextBlock
+            {
+                Text = PanoramaStrings.Get("PanoramaEncodingProgress"),
+                TextWrapping = TextWrapping.Wrap
+            };
+            AutomationProperties.SetAutomationId(saveLabel, "PanoramaSaveProgress");
+            AutomationProperties.SetName(
+                saveLabel,
+                PanoramaStrings.Get("PanoramaSaveProgressAutomationName"));
+            var saveDialog = new ContentDialog
+            {
+                Title = PanoramaStrings.Get("PanoramaSavingTitle"),
+                Content = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        saveLabel,
+                        new ProgressBar { IsIndeterminate = true }
+                    }
+                },
+                CloseButtonText = PanoramaStrings.Get("PanoramaCancelButton"),
+                XamlRoot = XamlRoot,
+                RequestedTheme = ActualTheme
+            };
+            var saveFinished = false;
+            saveDialog.Closing += (_, args) =>
+            {
+                if (saveFinished)
+                    return;
+                args.Cancel = true;
+                saveCancellation.Cancel();
+                saveLabel.Text = PanoramaStrings.Get("PanoramaSaveCancelling");
+            };
+            var showingSave = saveDialog.ShowAsync();
+            string outputPath;
+            try
+            {
+                outputPath = await Core.Services.PanoramaStitchingService.SaveAsync(
+                    panorama, outputFolder.Path, saveCancellation.Token);
+            }
+            catch (OperationCanceledException) when (saveCancellation.IsCancellationRequested)
+            {
+                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaSaveCancelled");
+                return;
+            }
+            finally
+            {
+                saveFinished = true;
+                saveDialog.Hide();
+                await showingSave;
+            }
+
+            try
+            {
+                await App.ViewModel.IndexPanoramaAsync(outputPath);
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"[PANORAMA] Indexing saved output failed: {ex}");
+                App.ViewModel.StatusText =
+                    PanoramaStrings.Format(
+                        "PanoramaSavedButNotIndexed", outputPath, ex.Message);
+                await new ContentDialog
+                {
+                    Title = PanoramaStrings.Get("PanoramaSavedButNotIndexedTitle"),
+                    Content = new TextBlock
+                    {
+                        Text = App.ViewModel.StatusText,
+                        TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true
+                    },
+                    CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton"),
+                    XamlRoot = XamlRoot,
+                    RequestedTheme = ActualTheme
+                }.ShowAsync();
+                Services.PhotoOperationsService.RevealInExplorer(outputPath);
+                return;
+            }
+            Services.PhotoOperationsService.RevealInExplorer(outputPath);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaCancelled");
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"[PANORAMA] Save failed: {ex}");
+            App.ViewModel.StatusText = PanoramaStrings.Format("PanoramaSaveFailed", ex.Message);
+            await new ContentDialog
+            {
+                Title = PanoramaStrings.Get("PanoramaSaveFailedTitle"),
+                Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton"),
+                XamlRoot = XamlRoot,
+                RequestedTheme = ActualTheme
+            }.ShowAsync();
+        }
+        finally
+        {
+            _isStitching = false;
+        }
     }
 
     private async void OnShareClick(object sender, RoutedEventArgs e)
