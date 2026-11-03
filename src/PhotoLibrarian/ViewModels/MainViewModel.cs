@@ -146,7 +146,11 @@ public partial class MainViewModel : ObservableObject
             db,
             autoTaggingSettingsStore,
             autoTagModelManager,
-            autoTagBenchmarkProcessor);
+            autoTagBenchmarkProcessor,
+            new LibraryIndexMaintenanceService(
+                db,
+                imageRepo,
+                indexingService));
         _autoTaggingEnabled =
             Settings.CurrentAutoTaggingSettings.CanRun;
         PhotoOps = new Services.PhotoOperationsService(imageRepo, backupService);
@@ -1173,6 +1177,7 @@ public partial class MainViewModel : ObservableObject
         Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
+        await MetadataPanel.StopVideoMetadataReadsAsync();
         _watchedChanges.Dispose();
         _scanner.WatcherError -= OnWatcherError;
         _indexingCts?.Cancel();

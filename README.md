@@ -20,7 +20,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - **Not tagged** under Browse > Tags shows indexed photos and videos with no tags, using the same definition as Filter > Missing metadata > Untagged. Its live count is library-wide (like other Browse counts), independent of selection, refinement, and search. Checking it adds these items to the navigation union; refinement and search still restrict the union. The check is remembered across restarts and tag-tree refreshes.
 - ⚡ **SQLite metadata index** + Windows native thumbnail cache for instant viewport-aware loads.
 - **Search current photos** in the header finds filename, caption/title, tags, camera make/model, and people using a local SQLite FTS5 index. The left-pane selections build a union; header refinement filters and search further restrict it. Suggestions use that same scope, and results keep the grid's selected sort and grouping. Type for suggestions and press Enter or select a suggestion to apply search. Words match prefixes (case/accent insensitive); multiple words must all match. Clearing search restores the selected, refined set. For a global search, select all photos and clear refinement filters first. Existing libraries get filename, camera, tag, and people search immediately; the next background scan automatically populates captions/titles from photo metadata.
-- ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date all edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups.
+- ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups. Selected videos also show available duration, dimensions, bitrate, frame rate, codec, capture/encoded dates, camera, GPS, title, album, artist, and year from local Windows properties.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Noise reduction / Clarity / Sharpness / Levels / Rotation.
 - **Editor undo/redo** with split-button history menus. A slider or histogram drag, Auto enhance, and Reset each form one step; selecting a history entry undoes or redoes through that step. History covers pending adjustments only and clears on save, Revert, close, or opening another photo.
 - **Previous/Next while editing** follows the grid's current filters, sort, and grouping, skipping videos and unsupported editing formats and wrapping at either end. Use the editor toolbar, Left / Right arrows, or Ctrl+Page Up / Ctrl+Page Down. Arrow keys still adjust focused sliders and input fields rather than changing photos. Navigation and Close offer Save (Keep recipe for RAW), Discard, or Cancel for pending changes; failed saves leave the current photo and edits open. RAW saves keep the XMP preview recipe, never overwrite the original. Each photo starts with its own adjustments and empty undo history. Filter changes do not discard an open edit: if the current photo is excluded, Next starts at the first eligible result and Previous at the last; with no eligible results navigation is disabled.
@@ -627,12 +627,22 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Toggle item in selection | Ctrl+Click |
 | Open viewer | Double-click |
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
+| Actual size in viewer | A or the **1:1** button |
+| Show / hide viewer information pane | I or the information toggle |
 | Next / previous in viewer | ←  →  arrow keys |
 | Previous / next while editing | Left / Right arrows (outside input controls); Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
 | Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
 | Exit slideshow | Esc or F11 |
+
+**Actual size** displays one decoded image pixel per physical display pixel, adjusting
+for Windows display scaling. It is available once a still image is loaded (not for video).
+**Fit to window** returns to a view that follows window and pane resizes. The information
+toggle hides the right-hand pane and its splitter while viewing, restoring its resized
+width when shown again. The choice is remembered only until the app closes; closing
+the viewer always restores the normal grid's information pane. Both controls support
+Tab and Enter/Space; A and I apply when viewer focus is outside text inputs.
 
 Start a slideshow with F11, the **Slideshow** button at the left of the grid toolbar or in
 the viewer ribbon, or **Slideshow** in a photo's right-click menu. Photos play in the order

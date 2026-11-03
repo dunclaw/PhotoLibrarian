@@ -308,21 +308,45 @@
                 <Border Height="1"
                         Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <StackPanel Spacing="4">
-                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}"
-                               Text="Thumbnail cache" />
+                <StackPanel Spacing="8">
+                    <TextBlock x:Uid="IndexMaintenanceTitle"
+                               Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Uid="IndexMaintenanceDescription"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
                     <TextBlock x:Name="CacheSizeText"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Text="Cache size: calculating…" />
+                               Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBlock x:Name="CachePathText"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                IsTextSelectionEnabled="True"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                TextWrapping="Wrap" />
-                    <Button AutomationProperties.AutomationId="RebuildCacheButton"
-                            HorizontalAlignment="Left"
-                            Content="Rebuild cache"
-                            Click="OnRebuildCache" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="RepairLibraryIndexButton"
+                                x:Uid="IndexMaintenanceRepairButton"
+                                AutomationProperties.AutomationId="RepairLibraryIndexButton"
+                                HorizontalAlignment="Left"
+                                Click="OnRepairLibraryIndex" />
+                        <Button x:Name="CancelIndexMaintenanceButton"
+                                x:Uid="IndexMaintenanceCancelButton"
+                                AutomationProperties.AutomationId="CancelIndexMaintenanceButton"
+                                Click="OnCancelIndexMaintenance"
+                                Visibility="Collapsed" />
+                    </StackPanel>
+                    <ProgressBar x:Name="IndexMaintenanceProgressBar"
+                                 x:Uid="IndexMaintenanceProgressBar"
+                                 Maximum="100"
+                                 Visibility="Collapsed" />
+                    <TextBlock x:Name="IndexMaintenanceStatusText"
+                               AutomationProperties.AutomationId="IndexMaintenanceStatusText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="IndexMaintenanceDiagnosticsText"
+                               AutomationProperties.AutomationId="IndexMaintenanceDiagnosticsText"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               TextWrapping="Wrap" />
                 </StackPanel>
 
                 <Border Height="1"

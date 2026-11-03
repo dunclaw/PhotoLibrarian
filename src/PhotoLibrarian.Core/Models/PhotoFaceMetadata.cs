@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.Core.Models;
 
 public sealed record PhotoFaceMetadata(
@@ -14,4 +15,5 @@ public sealed record PortableFaceMetadata(
     string? PersonName,
     bool SuggestionsHidden,
     bool PersonSuggestionsHidden,
-    IReadOnlyList<string> RejectedPersonNames);
+    IReadOnlyList<string> RejectedPersonNames,
+    bool? IsPersonRepresentative = null);
