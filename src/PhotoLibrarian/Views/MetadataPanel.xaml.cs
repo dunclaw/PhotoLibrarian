@@ -82,6 +82,7 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.Camera):
             case nameof(MetadataPanelViewModel.GpsLatitude):
             case nameof(MetadataPanelViewModel.GpsLongitude):
+            case nameof(MetadataPanelViewModel.PlaceName):
                 DispatcherQueue.TryEnqueue(UpdateVideoDetailsDisplay);
                 break;
             case nameof(MetadataPanelViewModel.CommonDateTaken):
@@ -198,6 +199,7 @@ public sealed partial class MetadataPanel : UserControl
         InfoIso.Text = ViewModel.Iso;
         InfoLatitude.Text = ViewModel.GpsLatitude;
         InfoLongitude.Text = ViewModel.GpsLongitude;
+        InfoPlaceName.Text = ViewModel.PlaceName;
         InfoFilePath.Text = ViewModel.FilePath;
         CopyFileNameButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FileName);
         CopyFolderPathButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FolderPath);
@@ -214,6 +216,9 @@ public sealed partial class MetadataPanel : UserControl
         InfoIsoRow.Visibility = string.IsNullOrEmpty(ViewModel.Iso) ? Visibility.Collapsed : Visibility.Visible;
         InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
         InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
+        InfoPlaceNameRow.Visibility = string.IsNullOrEmpty(ViewModel.PlaceName)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         UpdateVideoDetailsDisplay();
 
         UpdateStars();
@@ -247,8 +252,12 @@ public sealed partial class MetadataPanel : UserControl
         InfoCameraRow.Visibility = string.IsNullOrEmpty(ViewModel.Camera) ? Visibility.Collapsed : Visibility.Visible;
         InfoLatitude.Text = ViewModel.GpsLatitude;
         InfoLongitude.Text = ViewModel.GpsLongitude;
+        InfoPlaceName.Text = ViewModel.PlaceName;
         InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
         InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
+        InfoPlaceNameRow.Visibility = string.IsNullOrEmpty(ViewModel.PlaceName)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         if (!string.IsNullOrEmpty(ViewModel.GpsLatitude) && ViewModel.GpsLatitude != "Multiple values")
             GeotagText.Text = $"{ViewModel.GpsLatitude}, {ViewModel.GpsLongitude}";
         VideoMetadataErrorBar.Message = ViewModel.VideoMetadataError;
