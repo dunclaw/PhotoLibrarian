@@ -139,6 +139,7 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="StatusBarText" 
                        Text="Ready"
@@ -152,12 +153,16 @@
             <Button x:Name="SettingsButton" 
                     AutomationProperties.AutomationId="SettingsButton"
                     AutomationProperties.Name="Settings"
-                    Grid.Column="4"
+                    Grid.Column="5"
                     Click="OnSettingsClick"
                     Padding="8,4"
                     ToolTipService.ToolTip="Settings">
                 <FontIcon Glyph="&#xE713;" FontSize="14" />
             </Button>
+            <Button x:Uid="FuseLaunch" Grid.Column="4" Content="Photo Fuse" Margin="0,0,8,0" Padding="8,4"
+                    AutomationProperties.AutomationId="PhotoFuse"
+                    ToolTipService.ToolTip="Select two to four burst stills in the grid, then create a new region composite"
+                    Click="OnPhotoFuseClick" />
             <Button x:Name="BenchmarkButton" 
                     AutomationProperties.AutomationId="BenchmarkButton"
                     AutomationProperties.Name="Run benchmark"

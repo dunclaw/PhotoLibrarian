@@ -26,6 +26,49 @@ public sealed partial class MainWindow : Window
     private Control? _slideshowReturnFocus;
     private double _slideshowIntervalSeconds = 5;
     private PhotoPrintSession? _printSession;
+    private bool _photoFuseOpen;
+
+    private async void OnPhotoFuseClick(object sender, RoutedEventArgs args)
+    {
+        if (_photoFuseOpen) return;
+        if (!CanPrintPhotos() || ViewModel.ImageViewer.IsOpen)
+        {
+            ViewModel.StatusText = PhotoFuseStrings.Get("FuseGridRequired");
+            return;
+        }
+        _photoFuseOpen = true;
+        string? saved = null;
+        try
+        {
+            var photos = GetPhotosForPrinting();
+            if (photos.Count is < 2 or > PhotoFuseSession.MaximumFrames ||
+                photos.Any(photo => photo.MediaType != Core.Models.MediaType.Image ||
+                    !PhotoFuseSession.IsSupported(photo.FilePath)))
+            {
+                await new ContentDialog
+                {
+                    XamlRoot = AppRoot.XamlRoot,
+                    Title = PhotoFuseStrings.Get("FuseTitle"),
+                    Content = PhotoFuseStrings.Get("FuseSelectionRequired"),
+                    CloseButtonText = PhotoFuseStrings.Get("FuseClose")
+                }.ShowAsync();
+                return;
+            }
+            var dialog = new PhotoFuseDialog(photos.Select(photo => photo.FilePath)) { XamlRoot = AppRoot.XamlRoot };
+            await dialog.ShowAsync();
+            saved = dialog.ExportedPath;
+            if (saved is null) return;
+            await ViewModel.RevealPhotoFuseCopyAsync(saved);
+            ViewModel.StatusText = PhotoFuseStrings.Format("FuseSaved", saved);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusText = saved is null
+                ? PhotoFuseStrings.Format("FuseFailed", ex.Message)
+                : PhotoFuseStrings.Format("FuseIndexFailed", saved, ex.Message);
+        }
+        finally { _photoFuseOpen = false; }
+    }
 
     private async void OnPrintPhotosInvoked(
         KeyboardAccelerator sender,
@@ -37,7 +80,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool CanPrintPhotos() =>
-        !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+        !(_isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
           ViewModel.DuplicateReview.IsOpen || ViewModel.ImageEditor.IsOpen ||
           ViewerOverlay.IsCropping || ViewerOverlay.IsStraightening ||
           ViewerOverlay.IsRedEyeRemoving || ViewerOverlay.IsManualFaceTagging);
@@ -180,7 +223,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool CanStartSlideshow() =>
-        !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+        !(_isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
           ViewModel.DuplicateReview.IsOpen ||
           ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
           ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||

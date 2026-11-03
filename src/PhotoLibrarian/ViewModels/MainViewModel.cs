@@ -103,7 +103,8 @@ public partial class MainViewModel : ObservableObject
         AutoTagModelManager autoTagModelManager,
         AutoTagBenchmarkProcessor autoTagBenchmarkProcessor,
         SelectedPhotoAutoTagReviewProcessor selectedPhotoAutoTagReviewProcessor,
-        UserActivityGate activityGate)
+        UserActivityGate activityGate,
+        Services.GridLayoutSettingsStore? gridLayoutSettingsStore = null)
     {
         _db = db;
         _imageRepo = imageRepo;
@@ -139,7 +140,7 @@ public partial class MainViewModel : ObservableObject
             scanner,
             metadataReader,
             this,
-            new PhotoLibrarian.Services.GridLayoutSettingsStore());
+            gridLayoutSettingsStore ?? new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
@@ -1211,6 +1212,22 @@ public partial class MainViewModel : ObservableObject
             ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
         ImageViewer.OpenExportedVideo(copy);
         StatusText = $"Opened stabilized copy: {path}";
+    }
+
+    public async Task RevealPhotoFuseCopyAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The composite at '{path}' could not be added to the library.");
+        if (copy.MediaType != MediaType.Image)
+            throw new InvalidOperationException("The saved Photo Fuse copy is not a still image.");
+        // The existing transient export reveal is media-neutral despite its historical name.
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The composite at '{path}' could not be shown in the grid.");
+        ImageGrid.SelectViewerEntry(copy);
     }
 
     public async Task MakeCopyForEditingAsync(ImageEntry entry)
