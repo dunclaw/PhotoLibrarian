@@ -12,7 +12,7 @@ namespace PhotoLibrarian.Tests;
 public sealed class AutoTagReviewViewModelTests
 {
     [Fact]
-    public async Task SuggestionsAreNotWrittenUntilApprovedAndRejectedTagsStayOut()
+    public async Task SuggestionsAreNotWrittenUntilAddedAndExistingManualTagsRemain()
     {
         using var fixture = new ReviewFixture();
         var image = await fixture.CreatePhotoAsync();
@@ -35,7 +35,6 @@ public sealed class AutoTagReviewViewModelTests
 
         var photo = Assert.Single(review.Photos);
         Assert.Equal(2, photo.Suggestions.Count);
-        photo.Suggestions[1].IsAccepted = false;
         await review.ApplyAsync();
 
         var stored = await fixture.Tags.GetTagsAsync(image.Id);
@@ -47,10 +46,13 @@ public sealed class AutoTagReviewViewModelTests
             stored,
             tag => tag.Tag == "Auto/dog" &&
                 tag.Source == TagSource.AutoML);
-        Assert.DoesNotContain(stored, tag => tag.Tag == "Auto/park");
+        Assert.Contains(
+            stored,
+            tag => tag.Tag == "Auto/park" &&
+                tag.Source == TagSource.AutoML);
         Assert.Contains("Auto/dog", TagWriterService.ReadTagsFromSidecar(
             image.FilePath));
-        Assert.DoesNotContain("Auto/park", TagWriterService.ReadTagsFromSidecar(
+        Assert.Contains("Auto/park", TagWriterService.ReadTagsFromSidecar(
             image.FilePath));
         var portableMetadata = new MetadataReaderService()
             .ReadPortableTagMetadata(image.FilePath);
@@ -67,6 +69,11 @@ public sealed class AutoTagReviewViewModelTests
             portableMetadata.Tags,
             tag => tag.Tag == "family" &&
                 tag.Source == nameof(TagSource.Manual));
+        Assert.Contains(
+            portableMetadata.Tags,
+            tag => tag.Tag == "Auto/park" &&
+                tag.Source == nameof(TagSource.AutoML) &&
+                tag.Confidence == 0.7f);
         Assert.False(review.IsOpen);
     }
 
@@ -104,6 +111,23 @@ public sealed class AutoTagReviewViewModelTests
             2,
             (await fixture.Tags.GetTagsAsync(image.Id))
                 .Count(tag => tag.Source == TagSource.AutoML));
+    }
+
+    [Fact]
+    public async Task ChangingSelectionClosesSuggestionsForThePreviousPhoto()
+    {
+        using var fixture = new ReviewFixture();
+        var image = await fixture.CreatePhotoAsync();
+        var review = fixture.CreateReview(new TagPrediction("bird", 0.88f));
+
+        await review.OpenForImagesAsync([image]);
+
+        Assert.True(review.IsOpen);
+        review.CloseIfSelectionChanged([]);
+
+        Assert.False(review.IsOpen);
+        Assert.Empty(review.Photos);
+        Assert.Empty(await fixture.Tags.GetTagsAsync(image.Id));
     }
 
     private sealed class ReviewFixture : IDisposable

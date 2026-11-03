@@ -17,11 +17,6 @@ public sealed partial class AutoTagReviewView : UserControl
     public static Visibility InvertBoolToVisibility(bool value) =>
         value ? Visibility.Collapsed : Visibility.Visible;
 
-    public static Visibility ShowEmptyState(bool isBusy, int photoCount) =>
-        !isBusy && photoCount == 0
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
     public static bool IsProgressIndeterminate(
         bool isBusy,
         int progressValue) =>

@@ -13,21 +13,11 @@ using System.Globalization;
 
 namespace PhotoLibrarian.ViewModels;
 
-public partial class AutoTagReviewTagViewModel : ObservableObject
+public sealed class AutoTagReviewTagViewModel
 {
-    [ObservableProperty]
-    public partial bool IsEditable { get; set; } = true;
-
-    [ObservableProperty]
-    public partial bool IsAccepted { get; set; } = true;
-
     public string Tag { get; }
     public string DisplayText => AutoTagReviewStrings.Format(
         "AutoTagReviewSuggestion",
-        Tag,
-        Confidence.ToString("P0", CultureInfo.CurrentCulture));
-    public string AutomationName => AutoTagReviewStrings.Format(
-        "AutoTagReviewSuggestionAutomationName",
         Tag,
         Confidence.ToString("P0", CultureInfo.CurrentCulture));
     public float Confidence { get; }
@@ -44,11 +34,9 @@ public sealed class AutoTagReviewPhotoViewModel : ObservableObject
     private string _errorMessage = "";
     private bool _canRetrySave;
     private bool _isCommitted;
-    private bool _areTagsCommitted;
 
     public ImageEntry Image { get; }
     public string FileName => Image.FileName;
-    public string FilePath => Image.FilePath;
     public ObservableCollection<AutoTagReviewTagViewModel> Suggestions { get; }
     public string ErrorMessage
     {
@@ -61,33 +49,13 @@ public sealed class AutoTagReviewPhotoViewModel : ObservableObject
     public bool IsCommitted
     {
         get => _isCommitted;
-        set
-        {
-            if (!SetProperty(ref _isCommitted, value))
-                return;
-
-            foreach (var suggestion in Suggestions)
-                suggestion.IsEditable = !value && !AreTagsCommitted;
-        }
+        set => SetProperty(ref _isCommitted, value);
     }
     public bool CanRetrySave
     {
         get => _canRetrySave;
         private set => SetProperty(ref _canRetrySave, value);
     }
-    public bool AreTagsCommitted
-    {
-        get => _areTagsCommitted;
-        set
-        {
-            if (!SetProperty(ref _areTagsCommitted, value))
-                return;
-
-            foreach (var suggestion in Suggestions)
-                suggestion.IsEditable = !value && !IsCommitted;
-        }
-    }
-
     public AutoTagReviewPhotoViewModel(SelectedPhotoAutoTagReviewItem item)
     {
         Image = item.Image;
@@ -101,9 +69,6 @@ public sealed class AutoTagReviewPhotoViewModel : ObservableObject
     {
         ErrorMessage = message;
         CanRetrySave = canRetrySave;
-        foreach (var suggestion in Suggestions)
-            suggestion.IsEditable =
-                canRetrySave && !AreTagsCommitted && !IsCommitted;
         OnPropertyChanged(nameof(HasError));
     }
 
@@ -114,8 +79,6 @@ public sealed class AutoTagReviewPhotoViewModel : ObservableObject
 
         ErrorMessage = "";
         CanRetrySave = false;
-        foreach (var suggestion in Suggestions)
-            suggestion.IsEditable = !AreTagsCommitted && !IsCommitted;
         OnPropertyChanged(nameof(ErrorMessage));
         OnPropertyChanged(nameof(HasError));
     }
@@ -134,6 +97,7 @@ public partial class AutoTagReviewViewModel : ObservableObject
     private Func<Task>? _afterApplyAsync;
     private string? _scanVersion;
     private bool _recognitionSuspended;
+    private long[] _reviewImageIds = [];
 
     public ObservableCollection<AutoTagReviewPhotoViewModel> Photos { get; } = [];
     public event Action<string>? StatusUpdated;
@@ -167,7 +131,9 @@ public partial class AutoTagReviewViewModel : ObservableObject
         !IsBusy &&
         !IsApplying &&
         Photos.Any(photo =>
-            (!photo.HasError || photo.CanRetrySave) && !photo.IsCommitted);
+            (!photo.HasError || photo.CanRetrySave) &&
+            !photo.IsCommitted &&
+            photo.Suggestions.Count > 0);
 
     public bool CanClose => !IsApplying;
 
@@ -208,6 +174,7 @@ public partial class AutoTagReviewViewModel : ObservableObject
             return;
         }
 
+        _reviewImageIds = images.Select(image => image.Id).Order().ToArray();
         IsOpen = true;
         IsBusy = true;
         _generationCancellation = new CancellationTokenSource();
@@ -293,9 +260,30 @@ public partial class AutoTagReviewViewModel : ObservableObject
             return;
 
         IsOpen = false;
+        _reviewImageIds = [];
         _generationCancellation?.Cancel();
         if (!IsBusy)
             ResumeRecognition();
+    }
+
+    public void CloseIfSelectionChanged(IReadOnlyList<ImageEntry> selectedImages)
+    {
+        if (!IsOpen || IsApplying)
+            return;
+
+        var selectedImageIds = selectedImages
+            .Where(image => image.MediaType == MediaType.Image)
+            .Select(image => image.Id)
+            .Order()
+            .ToArray();
+        if (!_reviewImageIds.SequenceEqual(selectedImageIds))
+        {
+            Close();
+            Photos.Clear();
+            ErrorMessage = "";
+            StatusMessage = AutoTagReviewStrings.Get(
+                "AutoTagReviewInitialStatus");
+        }
     }
 
     public async Task ShutdownAsync()
@@ -339,15 +327,17 @@ public partial class AutoTagReviewViewModel : ObservableObject
         {
             foreach (var photo in Photos)
             {
-                if (photo.HasError || photo.IsCommitted)
+                if (photo.IsCommitted || photo.Suggestions.Count == 0)
+                    continue;
+
+                if (photo.HasError)
                 {
-                    if (!photo.CanRetrySave || photo.IsCommitted)
+                    if (!photo.CanRetrySave)
                         continue;
                 }
 
                 photo.ClearSaveError();
                 var accepted = photo.Suggestions
-                    .Where(suggestion => suggestion.IsAccepted)
                     .Select(suggestion => new GeneratedImageTag(
                         suggestion.Tag,
                         suggestion.Confidence))
@@ -378,7 +368,6 @@ public partial class AutoTagReviewViewModel : ObservableObject
                         continue;
                     }
 
-                    photo.AreTagsCommitted = true;
                     var currentStaleMessage =
                         SelectedPhotoAutoTagReviewProcessor
                             .ValidatePhotoSnapshot(photo.Image);

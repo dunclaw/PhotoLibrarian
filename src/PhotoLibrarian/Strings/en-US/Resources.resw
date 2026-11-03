@@ -76,20 +76,20 @@
   <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
     <value>Not tagged</value>
   </data>
-  <data name="GridAutoTagReviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
-    <value>Review automatic tags for selected photos</value>
+  <data name="MetadataSuggestTagsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Suggest tags for selected photos</value>
   </data>
-  <data name="GridAutoTagReviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
-    <value>Generate and review local tag suggestions for the selected photos</value>
+  <data name="MetadataSuggestTagsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Generate local tag suggestions for the selected photos</value>
   </data>
-  <data name="GridAutoTagReviewButton.Content" xml:space="preserve">
-    <value>Review tags</value>
+  <data name="MetadataSuggestTagsButton.Content" xml:space="preserve">
+    <value>Suggest</value>
   </data>
   <data name="AutoTagReviewTitle.Text" xml:space="preserve">
-    <value>Review automatic tags</value>
+    <value>Suggested tags</value>
   </data>
   <data name="AutoTagReviewSubtitle.Text" xml:space="preserve">
-    <value>Suggestions are generated locally for the selected photos. Select the tags to keep; unchecked suggestions are rejected.</value>
+    <value>Review these suggestions here; the photo stays visible. Nothing is saved until you add them.</value>
   </data>
   <data name="AutoTagReviewCancelButton.Content" xml:space="preserve">
     <value>Stop generating</value>
@@ -101,19 +101,10 @@
     <value>Close automatic tag review</value>
   </data>
   <data name="AutoTagReviewApplyButton.Content" xml:space="preserve">
-    <value>Apply accepted tags</value>
-  </data>
-  <data name="AutoTagReviewSafetyNotice.Message" xml:space="preserve">
-    <value>Nothing is saved while suggestions are generated. Only checked tags are saved after you choose Apply accepted tags.</value>
+    <value>Add suggestions</value>
   </data>
   <data name="AutoTagReviewNoSuggestions.Text" xml:space="preserve">
     <value>No suggestions for this photo.</value>
-  </data>
-  <data name="AutoTagReviewEmptyTitle.Text" xml:space="preserve">
-    <value>No photos to review</value>
-  </data>
-  <data name="AutoTagReviewEmptySubtitle.Text" xml:space="preserve">
-    <value>Select photos in the grid, then generate suggestions with an approved local profile.</value>
   </data>
   <data name="AutoTagReviewProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
     <value>Automatic tag suggestion progress</value>
@@ -125,13 +116,13 @@
     <value>Preparing selected photos.</value>
   </data>
   <data name="AutoTagReviewNoSelection" xml:space="preserve">
-    <value>Select one or more photos before reviewing automatic tags.</value>
+    <value>Select one or more photos before suggesting tags.</value>
   </data>
   <data name="AutoTagReviewProgressStatus" xml:space="preserve">
     <value>{0:N0} of {1:N0} photos processed — {2}</value>
   </data>
   <data name="AutoTagReviewReadyStatus" xml:space="preserve">
-    <value>{0:N0} photos processed; {1:N0} suggestions. Check the tags you want to keep.</value>
+    <value>{0:N0} photos processed; {1:N0} suggestions ready to add.</value>
   </data>
   <data name="AutoTagReviewCanceledStatus" xml:space="preserve">
     <value>Stopped after {0:N0} of {1:N0} photos. Completed suggestions are shown; nothing has been saved yet.</value>
@@ -141,9 +132,6 @@
   </data>
   <data name="AutoTagReviewSuggestion" xml:space="preserve">
     <value>{0} — {1} confidence</value>
-  </data>
-  <data name="AutoTagReviewSuggestionAutomationName" xml:space="preserve">
-    <value>Accept {0} tag suggestion with {1} confidence</value>
   </data>
   <data name="AutoTagReviewIssuesSummary" xml:space="preserve">
     <value>{0:N0} photo(s) need attention. See the messages on each photo.</value>
@@ -161,6 +149,6 @@
     <value>Tags were saved, but the tag lists could not be refreshed: {0}</value>
   </data>
   <data name="AutoTagReviewApplyStatus" xml:space="preserve">
-    <value>Saved {0:N0} accepted tag(s) across {1:N0} photo(s); {2:N0} photo(s) need attention.</value>
+    <value>Added {0:N0} tag(s) across {1:N0} photo(s); {2:N0} photo(s) need attention.</value>
   </data>
 </root>

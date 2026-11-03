@@ -37,7 +37,6 @@ public sealed partial class MainWindow : Window
     private bool CanStartSlideshow() =>
         !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
           ViewModel.DuplicateReview.IsOpen ||
-          ViewModel.AutoTagReview.IsOpen ||
           ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
           ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
           ViewerOverlay.IsManualFaceTagging);
@@ -194,7 +193,6 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnMainViewModelPropertyChanged;
         ViewModel.PeopleReview.PropertyChanged += OnPeopleReviewPropertyChanged;
         ViewModel.DuplicateReview.PropertyChanged += OnDuplicateReviewPropertyChanged;
-        ViewModel.AutoTagReview.PropertyChanged += OnAutoTagReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged += OnImageViewerPropertyChanged;
         ViewModel.ImageEditor.PropertyChanged += OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
@@ -211,7 +209,6 @@ public sealed partial class MainWindow : Window
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
-        ImageGridPanel.AutoTagReviewRequested += OnAutoTagReviewClick;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
@@ -283,12 +280,6 @@ public sealed partial class MainWindow : Window
     {
         if (!_isClosing && e.PropertyName == nameof(ViewModel.DuplicateReview.IsOpen))
             UpdateDuplicateReviewVisibility();
-    }
-
-    private void OnAutoTagReviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (!_isClosing && e.PropertyName == nameof(ViewModel.AutoTagReview.IsOpen))
-            UpdateAutoTagReviewVisibility();
     }
 
     private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -426,7 +417,6 @@ public sealed partial class MainWindow : Window
         ViewModel.PeopleReview.PropertyChanged -= OnPeopleReviewPropertyChanged;
         ViewModel.DuplicateReview.PropertyChanged -= OnDuplicateReviewPropertyChanged;
         ViewModel.DuplicateReview.Close();
-        ViewModel.AutoTagReview.PropertyChanged -= OnAutoTagReviewPropertyChanged;
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
         ViewModel.ImageEditor.PropertyChanged -= OnImageEditorPropertyChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
@@ -737,27 +727,9 @@ public sealed partial class MainWindow : Window
         await ViewModel.DuplicateReview.OpenForImagesAsync(ViewModel.ImageGrid.DisplayedEntries);
     }
 
-    private async void OnAutoTagReviewClick(object sender, RoutedEventArgs e)
-    {
-        var grid = ViewModel.ImageGrid;
-        var selectedImages = grid.SelectedImages.Count > 0
-            ? grid.SelectedImages.Select(image => image.Entry).ToArray()
-            : grid.SelectedImage is { } selected
-                ? [selected.Entry]
-                : [];
-        await ViewModel.AutoTagReview.OpenForImagesAsync(selectedImages);
-    }
-
     private void UpdateDuplicateReviewVisibility()
     {
         DuplicateReviewOverlay.Visibility = ViewModel.DuplicateReview.IsOpen
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-    }
-
-    private void UpdateAutoTagReviewVisibility()
-    {
-        AutoTagReviewOverlay.Visibility = ViewModel.AutoTagReview.IsOpen
             ? Visibility.Visible
             : Visibility.Collapsed;
     }

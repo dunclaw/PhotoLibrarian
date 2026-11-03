@@ -218,6 +218,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         _entries = entries.ToList();
+        _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = true;
         SelectionCount = _entries.Count;
         IsMultiSelect = _entries.Count > 1;
@@ -432,6 +433,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     public void Clear()
     {
         _entries = new();
+        _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = false;
         IsMultiSelect = false;
         SelectionCount = 0;
