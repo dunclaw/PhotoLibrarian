@@ -541,14 +541,19 @@ public sealed class FaceReviewService
             cancellationToken);
     }
 
-    public Task SetPersonRepresentativeFaceAsync(
+    public async Task SetPersonRepresentativeFaceAsync(
         long personId,
         long faceRegionId,
-        CancellationToken cancellationToken = default) =>
-        _faceRepository.SetPersonRepresentativeFaceAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var state = await LoadPortableStateAsync(cancellationToken);
+        var affectedImages = state.SetRepresentativeFace(personId, faceRegionId);
+        await PersistImagesAsync(state, affectedImages, cancellationToken);
+        await _faceRepository.SetPersonRepresentativeFaceAsync(
             personId,
             faceRegionId,
             cancellationToken);
+    }
 
     private async Task<PortableLibraryState> LoadPortableStateAsync(
         CancellationToken cancellationToken)
@@ -600,7 +605,10 @@ public sealed class FaceReviewService
                         person.SuggestionsHidden,
                         face.RejectedPersonNames
                             .Order(StringComparer.OrdinalIgnoreCase)
-                            .ToArray()))
+                            .ToArray(),
+                        face.Region.PersonId is long ownerId &&
+                        state.People.TryGetValue(ownerId, out var owner) &&
+                        owner.RepresentativeFaceRegionId == face.Region.Id))
                     .ToList());
             writes.Add((image.FilePath, metadata));
         }
@@ -663,6 +671,26 @@ public sealed class FaceReviewService
             People.GetValueOrDefault(personId)
             ?? throw new InvalidOperationException(
                 "The selected person no longer exists.");
+
+        public HashSet<long> SetRepresentativeFace(long personId, long faceId)
+        {
+            var person = GetPerson(personId);
+            var face = GetFace(faceId);
+            if (face.Region.PersonId != personId)
+            {
+                throw new InvalidOperationException(
+                    "The selected face is no longer assigned to this person.");
+            }
+
+            var affected = new HashSet<long> { face.Region.ImageId };
+            if (person.RepresentativeFaceRegionId is long previousId &&
+                Faces.TryGetValue(previousId, out var previous))
+            {
+                affected.Add(previous.Region.ImageId);
+            }
+            person.RepresentativeFaceRegionId = faceId;
+            return affected;
+        }
 
         public HashSet<long> AssignFaces(
             IReadOnlyCollection<long> faceIds,
@@ -760,6 +788,7 @@ public sealed class FaceReviewService
 
             var source = GetPerson(sourcePersonId);
             var target = GetPerson(targetPersonId);
+            target.RepresentativeFaceRegionId ??= source.RepresentativeFaceRegionId;
             var affected = new HashSet<long>();
             foreach (var face in Faces.Values)
             {
@@ -835,6 +864,10 @@ public sealed class FaceReviewService
                 var face = GetFace(previous.FaceRegionId);
                 face.Region.PersonId = previous.PersonId;
                 face.Region.PersonName = previous.PersonName;
+                if (previous.WasRepresentative && previous.PersonId is long ownerId)
+                {
+                    GetPerson(ownerId).RepresentativeFaceRegionId = previous.FaceRegionId;
+                }
                 face.SuggestionsHidden = previous.SuggestionsHidden;
                 face.RejectedPersonNames.Clear();
                 foreach (var personId in previous.RejectedPersonIds)

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ApplicationManifest>..\PhotoLibrarian\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="TestApp.xaml" />
+    <Page Remove="TestApp.xaml" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <ProjectReference Include="..\PhotoLibrarian\PhotoLibrarian.csproj" />
+  </ItemGroup>
+  <!-- The referenced WinExe's compiled control uses an application-relative XAML URI. -->
+  <Target Name="CopyPhotoGridResources" AfterTargets="Build">
+    <ItemGroup>
+      <_GridResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Controls\VirtualizingPhotoGrid.xbf" />
+      <_PhotoResources Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\PhotoLibrarian.pri" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_GridResource)" DestinationFolder="$(TargetDir)Controls" />
+    <Copy SourceFiles="@(_PhotoResources)" DestinationFolder="$(TargetDir)" />
+  </Target>
+</Project>

@@ -17,7 +17,7 @@ public sealed class MultiscaleLocalContrastExperimentTests
         const int height = 128;
         const double clarityStrength = 0.5;
         const double candidateStrength = 1.0;
-        using var device = CanvasDevice.GetSharedDevice();
+        using var device = new CanvasDevice();
         var outputDirectory = Environment.GetEnvironmentVariable(
             "PHOTO_LIBRARIAN_LOCAL_CONTRAST_OUTPUT_DIR");
         if (!string.IsNullOrWhiteSpace(outputDirectory))
@@ -138,7 +138,7 @@ public sealed class MultiscaleLocalContrastExperimentTests
     [Fact]
     public void SourceResolutionRenderCostsAreMeasured()
     {
-        using var device = CanvasDevice.GetSharedDevice();
+        using var device = new CanvasDevice();
         var outputDirectory = Environment.GetEnvironmentVariable(
             "PHOTO_LIBRARIAN_LOCAL_CONTRAST_OUTPUT_DIR");
         var report = new System.Text.StringBuilder();

@@ -308,6 +308,23 @@ public partial class ImageGridViewModel : ObservableObject
             f.EndsWith(Path.DirectorySeparatorChar) ? f : f + Path.DirectorySeparatorChar
         ).ToList();
 
+        if (folderFilters is not null && folderFilters.Count > 0)
+        {
+            var staleEntries = await Task.Run(() => allImages
+                .Where(img => folderFilters.Any(f => img.FilePath.StartsWith(f, StringComparison.OrdinalIgnoreCase)) &&
+                              !File.Exists(img.FilePath))
+                .ToList(), ct);
+            if (ct.IsCancellationRequested) return;
+            if (staleEntries.Count > 0)
+            {
+                DebugLog.WriteLine($"LoadImagesAsync: Removing {staleEntries.Count} indexed entries whose files no longer exist");
+                var stalePaths = new HashSet<string>(staleEntries.Select(e => e.FilePath), StringComparer.OrdinalIgnoreCase);
+                allImages.RemoveAll(img => stalePaths.Contains(img.FilePath));
+                foreach (var stale in staleEntries)
+                    await _imageRepo.DeleteByPathAsync(stale.FilePath);
+            }
+        }
+
         DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {allImages.Count}, FolderFilters: {folderFilters?.Count ?? 0}, DateFilters: {hasDateFilter}, TagFilters: {hasTagFilter}");
         DebugLog.WriteLine(
             "  UNION logic: Show images matching ANY filter " +
@@ -1117,6 +1134,7 @@ public partial class ImageGridViewModel : ObservableObject
                 });
                 await tcs.Task;
             }
+            if (version != _groupingVersion) return;
             DebugLog.WriteLine($"[GROUPING] No images to group");
             RestoreSelectionAfterLoad();
             ResultsChanged?.Invoke(this, EventArgs.Empty);
@@ -1177,6 +1195,7 @@ public partial class ImageGridViewModel : ObservableObject
                 return new List<PhotoGroup>();
             }
         });
+        if (version != _groupingVersion) return;
         
         // Update UI on main thread
         if (App.MainWindow?.DispatcherQueue != null)
@@ -1207,6 +1226,8 @@ public partial class ImageGridViewModel : ObservableObject
             });
             await tcs.Task;
         }
+        // A superseded grouping must not publish the temporary empty grid of a newer load.
+        if (version != _groupingVersion) return;
         RestoreSelectionAfterLoad();
         ResultsChanged?.Invoke(this, EventArgs.Empty);
     }

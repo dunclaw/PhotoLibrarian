@@ -221,7 +221,7 @@ public sealed class LibraryIndexingServiceTests
     }
 
     [Fact]
-    public async Task WatchedFolderChanges_IndexExplorerCopyAndRemoveDeletedImage()
+    public async Task WatchedFolderChanges_PreservesIndexDataWhenImageIsDeleted()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -252,7 +252,7 @@ public sealed class LibraryIndexingServiceTests
             changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             File.Delete(imagePath);
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.Null(await images.GetByPathAsync(imagePath));
+            Assert.NotNull(await images.GetByPathAsync(imagePath));
         }
         finally
         {
@@ -300,7 +300,7 @@ public sealed class LibraryIndexingServiceTests
             changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             File.Move(oldPath, renamedPath);
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.Null(await images.GetByPathAsync(oldPath));
+            Assert.NotNull(await images.GetByPathAsync(oldPath));
             Assert.NotNull(await images.GetByPathAsync(renamedPath));
         }
         finally
@@ -311,7 +311,7 @@ public sealed class LibraryIndexingServiceTests
     }
 
     [Fact]
-    public async Task WatchedFolderChanges_IndexesMovedInDirectoryAndRemovesMovedOutDirectory()
+    public async Task WatchedFolderChanges_PreservesRecordsWhenDirectoryMovesOut()
     {
         var root = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
         var watched = Path.Combine(root, "watched");
@@ -345,7 +345,7 @@ public sealed class LibraryIndexingServiceTests
             changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Directory.Move(imported, outside);
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.Null(await images.GetByPathAsync(imagePath));
+            Assert.NotNull(await images.GetByPathAsync(imagePath));
         }
         finally
         {

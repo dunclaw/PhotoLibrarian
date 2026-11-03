@@ -44,6 +44,13 @@
                         ToolTipService.ToolTip="Slideshow (F11): plays selected photos, or all photos starting at the selected one">
                     <FontIcon Glyph="&#xE786;" FontSize="16" />
                 </Button>
+                <Button x:Name="ShareButton"
+                        x:Uid="GridShareButton"
+                        AutomationProperties.AutomationId="GridShareButton"
+                        Click="OnShareClick"
+                        Padding="8">
+                    <FontIcon Glyph="&#xE72D;" />
+                </Button>
                 <TextBlock Text="Group:" VerticalAlignment="Center" Margin="4,0" />
                 <ComboBox x:Name="GroupByCombo" 
                           SelectedIndex="0" 

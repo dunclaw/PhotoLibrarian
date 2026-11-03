@@ -4,9 +4,9 @@ using Microsoft.Data.Sqlite;
 namespace PhotoLibrarian.Core.Data;
 
 /// <summary>
-/// Manages the SQLite cache database. This is a performance cache only —
-/// all authoritative data lives in image file metadata (EXIF/XMP/IPTC).
-/// The database can be safely deleted and rebuilt by re-scanning.
+/// Manages the SQLite index/cache. Authoritative library information belongs in
+/// the media and associated metadata, not here. Unique user decisions must be
+/// persisted by their writers before updating this cache.
 /// </summary>
 public sealed class CacheDatabase : IDisposable
 {

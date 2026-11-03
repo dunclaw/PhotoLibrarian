@@ -1,0 +1,121 @@
+# Library index maintenance
+
+Use **Settings > Library index maintenance > Repair library index** to scan
+the configured watched folders. The operation reads local files and updates
+the existing SQLite database incrementally; it does not drop, recreate, or
+vacuum the database. Newly discovered or changed media is indexed through the
+normal indexing service.
+
+The persistence contract is **files and associated metadata are authoritative;
+SQLite is a rebuildable index/cache**, not a separate library that must be
+copied to move the photos. Tags, flags, and people assignments are written to
+the media or its XMP sidecar; duplicate hashes, thumbnails, and recognition
+embeddings are derived caches. Always move associated sidecars with the photos.
+
+Repair removes stale entries for files verified missing from accessible watched
+folders, after attempting exact-identity move repair and indexing available
+files. A second folder scan confirms that candidates are still absent and
+storage is still accessible. The image rows and related tag, face, and hash
+cache rows are removed in one transaction; person face counts and representative
+references are updated consistently. No photos or sidecars are deleted.
+
+Entries on unavailable storage, in unreadable directories, or outside the
+watched scan scope remain indexed. A false filesystem existence check alone is
+never sufficient evidence for removal. Symbolic links and other reparse points
+are skipped and reported rather than followed.
+
+A move or rename is repaired only when an existing duplicate-scan SHA-256
+cache entry still matches the indexed file size and modification time, and
+exactly one newly found file has the same full content hash. Ambiguous matches,
+stale hashes, and files with sidecar state that cannot be verified are not
+treated as moves. Available destination files are indexed independently, and
+the old missing paths are eligible for cleanup. No filename-only matching is
+used.
+
+Canceling or encountering an error keeps already completed per-file indexing
+and relocation work. Cancellation or failure during missing-entry cleanup rolls
+back the entire cleanup batch, including cascaded rows and person updates.
+The result reports only committed removal counts and includes any cleanup
+failure. Retrying scans the same watched folders and safely resumes; incomplete
+or unavailable locations are reported rather than presented as a successful
+complete scan. Filesystem watcher delete and missing-directory notifications
+retain entries until explicit repair can verify absence; a transient storage
+loss must not empty the library.
+
+The maintenance action never modifies or deletes photo originals or writes
+sidecars. Files with a pending people-metadata export are reported and skipped
+so maintenance cannot cause a sidecar write. A unique exact-hash move retains
+the image ID and its associated cache rows. Confirmed deletions remove cache
+rows regardless of whether an old development database contains unexported
+values. There is no legacy-export prerequisite or automatic whole-cache backup
+for this cleanup.
+
+## Person picture portability
+
+Choosing a person's picture now saves the selection in that photo's
+PhotoLibrarian XMP face-review metadata before changing the cache. Choosing a
+different picture also clears the previous file's selection, with the existing
+metadata batch backup/rollback behavior. Import locates the selected face by its
+portable region metadata rather than copying SQLite IDs. A fresh database can
+therefore restore the choice after the photos and sidecars move.
+
+Older face-review packets without this property remain readable. Their absence
+does not clear an existing cached choice. Index maintenance does not migrate
+old development-only picture choices; reselecting a picture writes it portably.
+
+## Pre-release persistence-contract audit
+
+The app has not shipped a release. Compatibility with old development caches
+must not turn SQLite into an authority or prevent stale-entry cleanup. No
+historical cache backfill/export is required by this repair feature. Any current
+writer that saves a unique user decision only in SQLite is a persistence bug
+to fix at that writer, not a reason to retain invalid paths.
+
+| Field identified in earlier development code | Portable persistence requirement / status |
+|---|---|
+| Automatic tag values, `tags.source`, `tags.confidence` | Ordinary keywords alone cannot recover provenance. PR #152 adds a versioned `plib:TagMetadata` snapshot and fresh-cache import, covering selected review and background writes. It is not part of this standalone branch. |
+| `images.auto_tag_scan_version` | PR #152 carries it in the same portable snapshot; otherwise this is derived scan state, not evidence that the old value was recovered. |
+| `persons.representative_face_region_id` | This PR persists new/reselected person-picture choices through portable face metadata and restores the chosen face without copying database IDs. |
+| `images.face_metadata_export_required` | This is export-work status, not portable library content. Explicit face-review actions write metadata first. Derived recognition data is regenerable; pending exports for available files are reported/skipped by maintenance to keep it read-only toward photos. |
+
+This Settings command repairs the existing index rather than providing a
+drop-and-recreate operation. The standalone branch must not claim tag
+provenance round trips until the #152 persistence path is integrated. That
+integration requirement does not justify keeping verified-invalid entries.
+No live library migration or maintenance was used for development or tests.
+
+## Combined tag-metadata integration evidence
+
+The selected-tag worker verified an isolated combination of these exact refs:
+
+- PR #151: `74661d1d83c953bde66a23c7aa64444ebc5ffbe5`
+- PR #152: `caa071e58f733a015298fc57effd3a50677290db`
+- Local integration merge: `811135024b8eefca64a322f65bf695b098257672`
+
+`SelectedTagRelocationIntegrationTests.Reconcile_RefreshesChangedSelectedTagSnapshotAndFreshCacheAfterMove`
+applies selected-photo tags, revises only their XMP snapshot to source
+`Imported`, confidence `0.76`, and scan version `relocated-scan-v2`, then moves
+the unchanged JPEG and its separate tag sidecar. In that combination,
+`ReconcileAsync` repairs the unique-hash move and imports the revised snapshot
+in the **same pass**, preserving the original image ID and manual family tag.
+Indexing the moved files into a fresh cache restores that provenance as well.
+
+The focused combined run passed **44 tests, zero failures, zero skipped**:
+
+```powershell
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 --no-build -- -class PhotoLibrarian.Tests.SelectedTagRelocationIntegrationTests -class PhotoLibrarian.Tests.LibraryIndexMaintenanceServiceTests -class PhotoLibrarian.Tests.LibraryIndexingServiceTests -class PhotoLibrarian.Tests.AutoTagReviewViewModelTests -class PhotoLibrarian.Tests.BackgroundAutoTagPortabilityTests -class PhotoLibrarian.Tests.AutoTagRepositoryTests -class PhotoLibrarian.Tests.BatchTagProcessorTests -class PhotoLibrarian.Tests.RecognitionPipelineTests
+```
+
+That run also covers background tag-writing round trips, metadata-write
+failure/retry, and newer-sidecar races in separate tests. The relocation
+scenario itself exercises **selected review**, not background-tag relocation.
+It does not export historical development-cache values. Those values do not
+block verified-missing cleanup in this pre-release app.
+
+The combined-only test requires both PR heads and is deliberately not compiled
+into either standalone PR. Its patch and results are preserved as
+`files/selected-tag-relocation-integration.patch` and
+`files/selected-tag-relocation-integration-results.txt` in the selected-tag
+session's artifacts (session `d838d0e6-1eb8-4af4-ac1c-8df94733ecc3`).
+These are local session artifacts, not public downloadable links; apply the
+patch only to the combined refs when reproducing. No live library was used.

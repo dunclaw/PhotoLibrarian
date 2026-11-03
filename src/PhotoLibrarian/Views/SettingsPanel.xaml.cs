@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 
 namespace PhotoLibrarian.Views;
@@ -78,8 +79,28 @@ public sealed partial class SettingsPanel : UserControl
             var isTinyClip =
                 profile.Id == AutoTagModelCatalog.TinyClipProfileId;
             CacheSizeText.Text =
-                $"Cache size: {ViewModel.ThumbnailCacheSizeMB} MB";
+                LibraryIndexMaintenanceStrings.Format(
+                    "IndexMaintenanceDatabaseSize",
+                    ViewModel.ThumbnailCacheSizeMB);
             CachePathText.Text = ViewModel.CacheLocation;
+            RepairLibraryIndexButton.IsEnabled =
+                !ViewModel.IsIndexMaintenanceRunning;
+            CancelIndexMaintenanceButton.Visibility =
+                ViewModel.IsIndexMaintenanceRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            IndexMaintenanceProgressBar.Visibility =
+                ViewModel.IsIndexMaintenanceRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            IndexMaintenanceProgressBar.IsIndeterminate =
+                ViewModel.IsIndexMaintenanceProgressIndeterminate;
+            IndexMaintenanceProgressBar.Value =
+                ViewModel.IndexMaintenanceProgress;
+            IndexMaintenanceStatusText.Text =
+                ViewModel.IndexMaintenanceStatus;
+            IndexMaintenanceDiagnosticsText.Text =
+                ViewModel.IndexMaintenanceDiagnostics;
             AutoTaggingToggle.IsOn =
                 ViewModel.IsAutoTaggingEnabled;
             AutoTaggingToggle.IsEnabled =
@@ -267,14 +288,34 @@ public sealed partial class SettingsPanel : UserControl
         }
     }
 
-    private async void OnRebuildCache(
+    private async void OnRepairLibraryIndex(
         object sender,
         RoutedEventArgs e)
     {
-        if (ViewModel?.RebuildCacheCommand.CanExecute(null) == true)
+        if (ViewModel is null ||
+            !await ConfirmAsync(
+                LibraryIndexMaintenanceStrings.Get(
+                    "IndexMaintenanceConfirmTitle"),
+                LibraryIndexMaintenanceStrings.Get(
+                    "IndexMaintenanceConfirmMessage"),
+                LibraryIndexMaintenanceStrings.Get(
+                    "IndexMaintenanceConfirmPrimary")))
         {
-            await ViewModel.RebuildCacheCommand.ExecuteAsync(null);
+            return;
         }
+
+        await ViewModel.RepairLibraryIndexCommand.ExecuteAsync(null);
+        if (App.ViewModel is not null)
+        {
+            await App.ViewModel.RefreshAfterIndexAsync();
+        }
+    }
+
+    private void OnCancelIndexMaintenance(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ViewModel?.CancelIndexMaintenanceCommand.Execute(null);
     }
 
     private async void OnClose(object sender, RoutedEventArgs e)

@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -19,11 +20,14 @@ public sealed partial class ImageGridView : UserControl
     public event RoutedEventHandler? DuplicateReviewRequested;
     private bool _isInitialized;
     private bool _isExporting;
+    private bool _isSharing;
+    private readonly PhotoShareService _shareService = new();
 
     public ImageGridView()
     {
         this.InitializeComponent();
         this.Loaded += OnLoaded;
+        this.Unloaded += (_, _) => _shareService.Dispose();
     }
 
     private void OnPeopleReviewClick(object sender, RoutedEventArgs e) =>
@@ -681,6 +685,17 @@ public sealed partial class ImageGridView : UserControl
         resize.Click += async (_, _) => await ShowResizeExportAsync(selected);
         menu.Items.Add(resize);
 
+        var share = new MenuFlyoutItem
+        {
+            Text = ShareStrings.Get("ShareAction"),
+            Icon = new FontIcon { Glyph = "\uE72D" },
+            IsEnabled = !_isSharing && selected.All(vm => vm.Entry.MediaType == MediaType.Image)
+        };
+        AutomationProperties.SetAutomationId(share, "ShareSelection");
+        AutomationProperties.SetName(share, ShareStrings.Get("ShareAction"));
+        share.Click += async (_, _) => await ShowPhotoShareAsync(selected);
+        menu.Items.Add(share);
+
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Flag / Unflag — mirrors the F shortcut. A mixed selection is flagged first.
@@ -745,6 +760,146 @@ public sealed partial class ImageGridView : UserControl
 
         menu.ShowAt(e.Source, e.Position);
     }
+
+    private async void OnShareClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not null)
+            await ShowPhotoShareAsync(ViewModel.SelectedImages.ToArray());
+    }
+
+    private async Task ShowPhotoShareAsync(IReadOnlyList<ImageThumbnailViewModel> selected)
+    {
+        if (_isSharing) return;
+        _isSharing = true;
+        try
+        {
+            var snapshot = selected.ToArray();
+            if (snapshot.Length is < 1 or > Core.Services.PhotoSharePreparationService.MaximumPhotos ||
+                snapshot.Any(vm => vm.Entry.MediaType != MediaType.Image))
+            {
+                await ShareDialog(ShareStrings.Get("ShareSelectionLimit")).ShowAsync();
+                return;
+            }
+            var paths = snapshot.Select(vm => vm.Entry.FilePath).ToArray();
+
+            var confirmation = ShareDialog(ShareStrings.Format("SharePolicy", snapshot.Length));
+            confirmation.PrimaryButtonText = ShareStrings.Get("ShareWindowsButton");
+            confirmation.SecondaryButtonText = ShareStrings.Get("ShareEmailButton");
+            confirmation.CloseButtonText = ShareStrings.Get("ShareCancel");
+            confirmation.DefaultButton = ContentDialogButton.Primary;
+            var choice = await confirmation.ShowAsync();
+            if (choice == ContentDialogResult.None) return;
+
+            using var cancellation = new System.Threading.CancellationTokenSource();
+            var label = new TextBlock { Text = ShareStrings.Get("SharePreparing"), TextWrapping = TextWrapping.Wrap };
+            AutomationProperties.SetAutomationId(label, "ShareProgress");
+            AutomationProperties.SetLiveSetting(label, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+            var progressDialog = ShareDialog("");
+            progressDialog.Content = label;
+            progressDialog.CloseButtonText = ShareStrings.Get("ShareCancel");
+            var finished = false;
+            progressDialog.Closing += (_, args) =>
+            {
+                if (finished) return;
+                args.Cancel = true;
+                cancellation.Cancel();
+                label.Text = ShareStrings.Get("ShareCancelling");
+            };
+            var progress = new Progress<Core.Services.ImageExportProgress>(update =>
+            {
+                if (!cancellation.IsCancellationRequested)
+                    label.Text = ShareStrings.Format("ShareProgress", update.Completed, update.Total, update.FileName);
+            });
+            var showing = progressDialog.ShowAsync();
+            Core.Services.PreparedPhotoShare prepared;
+            try
+            {
+                prepared = await Task.Run(() => new Core.Services.PhotoSharePreparationService()
+                    .PrepareAsync(paths, progress, cancellation.Token));
+            }
+            finally
+            {
+                finished = true;
+                progressDialog.Hide();
+                await showing;
+            }
+
+            using (prepared)
+            {
+                var result = prepared.Result;
+                if (result.IsCancelled || cancellation.IsCancellationRequested)
+                {
+                    App.ViewModel.StatusText = ShareStrings.Get("ShareCancelled");
+                    return;
+                }
+                if (result.Failures.Count > 0)
+                {
+                    var details = ShareStrings.Format("SharePartial", result.ExportedPaths.Count, result.Failures.Count) +
+                        "\n\n" + string.Join("\n", result.Failures.Select(f => $"{f.SourcePath}: {f.Message}"));
+                    var partial = ShareDialog(details);
+                    partial.CloseButtonText = ShareStrings.Get("ShareCancel");
+                    if (result.ExportedPaths.Count > 0)
+                        partial.PrimaryButtonText = ShareStrings.Get("ShareContinue");
+                    if (await partial.ShowAsync() != ContentDialogResult.Primary) return;
+                }
+                if (choice == ContentDialogResult.Primary)
+                {
+                    try
+                    {
+                        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow!);
+                        await _shareService.ShowAsync(hwnd, result.ExportedPaths, ShareStrings.Get("ShareTitle"));
+                        prepared.RetainForHandoff();
+                        App.ViewModel.StatusText = ShareStrings.Get("ShareSheetOpened");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog.WriteLine($"[SHARE] Windows share UI unavailable: {ex}");
+                        var fallback = ShareDialog(ShareStrings.Format("ShareUnavailable", ex.Message));
+                        fallback.PrimaryButtonText = ShareStrings.Get("ShareEmailButton");
+                        if (await fallback.ShowAsync() != ContentDialogResult.Primary) return;
+                    }
+                }
+
+                // Retain before launching either external app: even a partially successful
+                // launch can leave a draft that needs the copies later.
+                prepared.RetainForHandoff();
+                var email = await PhotoShareService.OpenEmailAsync(prepared.Folder);
+                var message = ShareStrings.Get("ShareManualAttachment") + "\n\n" + prepared.Folder;
+                if (!email.FolderOpened) message += "\n\n" + ShareStrings.Get("ShareFolderFailed");
+                if (!email.DraftOpened) message += "\n\n" + ShareStrings.Get("ShareMailFailed");
+                App.ViewModel.StatusText = ShareStrings.Get("ShareManualAttachment");
+                await ShareDialog(message).ShowAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            App.ViewModel.StatusText = ShareStrings.Get("ShareCancelled");
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"[SHARE] {ex}");
+            App.ViewModel.StatusText = ShareStrings.Format("ShareFailed", ex.Message);
+            await ShareDialog(App.ViewModel.StatusText).ShowAsync();
+        }
+        finally
+        {
+            _isSharing = false;
+        }
+    }
+
+    private ContentDialog ShareDialog(string message) => new()
+    {
+        Title = ShareStrings.Get("ShareTitle"),
+        Content = new ScrollViewer
+        {
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true },
+            MaxHeight = 400
+        },
+        CloseButtonText = ShareStrings.Get("ShareClose"),
+        XamlRoot = XamlRoot,
+        RequestedTheme = ActualTheme
+    };
 
     private async Task ShowResizeExportAsync(IReadOnlyList<ImageThumbnailViewModel> selected)
     {
