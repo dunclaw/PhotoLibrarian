@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
@@ -13,6 +14,7 @@ internal static class WindowsImagingCodec
         uint maximumDimension = uint.MaxValue,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         await using var stream = File.OpenRead(path);
         var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream()).AsTask(cancellationToken);
         var scale = Math.Min(1d, (double)maximumDimension /
