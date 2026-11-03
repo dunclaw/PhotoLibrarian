@@ -1248,7 +1248,9 @@ public partial class MainViewModel : ObservableObject
     {
         await ImageGrid.LoadImagesAsync();
         TotalImages = await _imageRepo.GetCountAsync(watchedOnly: true);
-        StatusText = $"{TotalImages:N0} items";
+        StatusText = ImageGrid.HasMapFilter
+            ? Services.PhotoMapStrings.Format("PhotoMapGridCount", ImageGrid.DisplayedEntries.Count)
+            : $"{TotalImages:N0} items";
         // Refresh date and tag navigation data
         await DateNav.LoadDatesAsync();
         await PeopleNav.LoadPeopleAsync();

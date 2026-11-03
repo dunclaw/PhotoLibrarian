@@ -83,6 +83,26 @@ public partial class ImageGridViewModel : ObservableObject
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
     private string? _primarySelectedPath;
     private string? _revealedExportPath;
+    private HashSet<string>? _mapPaths;
+
+    public bool HasMapFilter => _mapPaths is not null;
+    public IReadOnlyCollection<string>? MapFilterPaths => _mapPaths;
+
+    public async Task ApplyMapFilterAsync(IEnumerable<string>? paths)
+    {
+        _mapPaths = paths is null ? null : new(paths, StringComparer.OrdinalIgnoreCase);
+        var selection = _mapPaths;
+        OnPropertyChanged(nameof(HasMapFilter));
+        int version = _groupingVersion + 1;
+        await ApplyGroupingAsync();
+        if (version == _groupingVersion && selection is not null && ReferenceEquals(selection, _mapPaths) &&
+            DisplayedEntries.FirstOrDefault() is { } first)
+            SelectViewerEntry(first);
+    }
+
+    private List<ImageThumbnailViewModel> GetMapFilteredImages() =>
+        Images.Where(image => _mapPaths is null ||
+            (PhotoMap.HasValidCoordinates(image.Entry) && _mapPaths.Contains(image.Entry.FilePath))).ToList();
     
     // Queue management for viewport-aware loading
     private readonly Queue<ImageThumbnailViewModel> _loadQueue = new();
@@ -101,10 +121,17 @@ public partial class ImageGridViewModel : ObservableObject
     public bool RequiresTagData => Refinement.RequiresTags || _currentNotTaggedSelected;
 
     public event EventHandler? ResultsChanged;
+    public event EventHandler? MapScopeInvalidated;
     public event EventHandler? SelectionRestoreRequested;
 
     /// <summary>Keep a newly exported copy visible until the user changes the browsing filters.</summary>
-    public void RevealExportedVideo(string path) => _revealedExportPath = path;
+    public void RevealExportedVideo(string path)
+    {
+        _revealedExportPath = path;
+        // An explicitly opened copy must not remain hidden by a previous map selection.
+        _mapPaths = null;
+        OnPropertyChanged(nameof(HasMapFilter));
+    }
 
     public List<ImageEntry> GetViewerImages() =>
         DisplayedEntries.ToList();
@@ -224,6 +251,7 @@ public partial class ImageGridViewModel : ObservableObject
     public async Task LoadImagesAsync()
     {
         ++_groupingVersion;
+        MapScopeInvalidated?.Invoke(this, EventArgs.Empty);
         // Cancel any pending thumbnail loads from previous folder
         _loadCts?.Cancel();
         _loadCts = new CancellationTokenSource();
@@ -1118,8 +1146,8 @@ public partial class ImageGridViewModel : ObservableObject
         var currentGroupBy = GroupBy;
         var currentSortBy = SortBy;
         var currentSortDesc = SortDescending;
-        var imageCount = Images.Count;
-        var imageSnapshot = Images.ToList();
+        var imageSnapshot = GetMapFilteredImages();
+        var imageCount = imageSnapshot.Count;
         
         DebugLog.WriteLine($"[GROUPING] ApplyGroupingAsync called, GroupBy={currentGroupBy}, Images.Count={imageCount}");
         
@@ -1135,9 +1163,13 @@ public partial class ImageGridViewModel : ObservableObject
                 });
                 await tcs.Task;
             }
+            else
+                GroupedImages.Clear();
             if (version != _groupingVersion) return;
             DebugLog.WriteLine($"[GROUPING] No images to group");
             RestoreSelectionAfterLoad();
+            if (HasMapFilter)
+                _main.StatusText = PhotoMapStrings.Format("PhotoMapGridCount", 0);
             ResultsChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -1227,9 +1259,16 @@ public partial class ImageGridViewModel : ObservableObject
             });
             await tcs.Task;
         }
+        else
+        {
+            GroupedImages.Clear();
+            foreach (var group in groups)
+                GroupedImages.Add(group);
+        }
         // A superseded grouping must not publish the temporary empty grid of a newer load.
         if (version != _groupingVersion) return;
         RestoreSelectionAfterLoad();
+        _main.StatusText = PhotoMapStrings.Format("PhotoMapGridCount", imageCount);
         ResultsChanged?.Invoke(this, EventArgs.Empty);
     }
     
@@ -1408,6 +1447,8 @@ public partial class ImageGridViewModel : ObservableObject
         _currentFlaggedSelected = false;
         _currentNotTaggedSelected = false;
         _searchScope = [];
+        _mapPaths = null;
+        OnPropertyChanged(nameof(HasMapFilter));
         Refinement = ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));
         Images.Clear();
@@ -1488,7 +1529,7 @@ public partial class ImageGridViewModel : ObservableObject
 
     private void RestoreSelectionAfterLoad()
     {
-        var visibleSelection = Images
+        var visibleSelection = GetMapFilteredImages()
             .Where(item => _selectedPaths.Contains(item.Entry.FilePath))
             .ToList();
         var primary = visibleSelection.FirstOrDefault(item =>
@@ -1508,7 +1549,7 @@ public partial class ImageGridViewModel : ObservableObject
     public IReadOnlyList<ImageEntry> DisplayedEntries =>
         GroupedImages.Count > 0
             ? GroupedImages.SelectMany(group => group.Items).Select(vm => vm.Entry).ToList()
-            : Images.Select(vm => vm.Entry).ToList();
+            : GetMapFilteredImages().Select(vm => vm.Entry).ToList();
 
     [RelayCommand]
     private void OpenViewer()

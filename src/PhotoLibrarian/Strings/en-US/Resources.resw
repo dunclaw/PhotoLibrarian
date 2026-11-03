@@ -184,6 +184,29 @@
   <data name="AutoTagReviewApplyStatus" xml:space="preserve">
     <value>Added {0:N0} tag(s) across {1:N0} photo(s); {2:N0} photo(s) need attention.</value>
   </data>
+  <data name="PhotoMapToggle.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Offline coordinate map</value></data>
+  <data name="PhotoMapToggle.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show GPS groups on an offline coordinate map. Closing clears its grid filter.</value></data>
+  <data name="PhotoMapTitle.Text" xml:space="preserve"><value>Offline coordinate map</value></data>
+  <data name="PhotoMapDisclaimer.Text" xml:space="preserve"><value>GPS positions only: no basemap, roads, place names or imagery. North is up; east is right. Select a pin or a group in the list to narrow the grid. Zoom to separate groups.</value></data>
+  <data name="PhotoMapFit.Content" xml:space="preserve"><value>Fit all</value></data>
+  <data name="PhotoMapZoomIn.Content" xml:space="preserve"><value>Zoom in</value></data>
+  <data name="PhotoMapZoomOut.Content" xml:space="preserve"><value>Zoom out</value></data>
+  <data name="PhotoMapWest.Content" xml:space="preserve"><value>West</value></data>
+  <data name="PhotoMapEast.Content" xml:space="preserve"><value>East</value></data>
+  <data name="PhotoMapNorth.Content" xml:space="preserve"><value>North</value></data>
+  <data name="PhotoMapSouth.Content" xml:space="preserve"><value>South</value></data>
+  <data name="PhotoMapClear.Content" xml:space="preserve"><value>Clear map filter</value></data>
+  <data name="PhotoMapGroups.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Visible GPS groups</value></data>
+  <data name="PhotoMapGroups.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Use arrow keys to select a group and filter the photo grid. Tab to Clear map filter to restore the current photos.</value></data>
+  <data name="PhotoMapGroup" xml:space="preserve"><value>{0:N0} item(s), latitude {1:F5}, longitude {2:F5}</value></data>
+  <data name="PhotoMapCounts" xml:space="preserve"><value>{0:N0} valid GPS; {1:N0} missing, incomplete or invalid. In view: {2:N0} items in {3:N0} groups. Map filter: {4:N0} matching items.</value></data>
+  <data name="PhotoMapBounds" xml:space="preserve"><value>Latitude {0:F5} to {1:F5}; longitude {2:F5} eastward to {3:F5} (may cross 180).</value></data>
+  <data name="PhotoMapError" xml:space="preserve"><value>Could not update the coordinate map: {0}</value></data>
+  <data name="PhotoMapGridCount" xml:space="preserve"><value>{0:N0} items</value></data>
+  <data name="PhotoMapEmptyTitle" xml:space="preserve"><value>No items match this map group</value></data>
+  <data name="PhotoMapEmptyDescription" xml:space="preserve"><value>Clear the map filter or choose another group.</value></data>
+  <data name="GridEmptyTitle.Text" xml:space="preserve"><value>No photos yet</value></data>
+  <data name="GridEmptyDescription.Text" xml:space="preserve"><value>Click + in the Library panel to add a folder</value></data>
   <data name="GridShareButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Share selected photos</value></data>
   <data name="GridShareButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Share or email resized copies of selected photos</value></data>
   <data name="ShareAction" xml:space="preserve"><value>Share or email...</value></data>
