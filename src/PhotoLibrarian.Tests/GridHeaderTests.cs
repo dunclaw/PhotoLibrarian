@@ -50,8 +50,8 @@ public sealed class GridHeaderTests
         Assert.Equal("3", (string?)namedControls["DuplicateReviewButton"].Attribute("Grid.Column"));
         var zoom = namedControls["SizeSlider"].Parent!;
         Assert.Equal("Right", (string?)zoom.Attribute("HorizontalAlignment"));
-        Assert.Equal("5", (string?)zoom.Attribute("Grid.Column"));
-        Assert.Equal("6", (string?)namedControls["FilterButton"].Attribute("Grid.Column"));
+        Assert.Equal("4", (string?)zoom.Attribute("Grid.Column"));
+        Assert.Equal("5", (string?)namedControls["FilterButton"].Attribute("Grid.Column"));
         Assert.Equal("Copy", (string?)namedControls["DuplicateReviewButton"]
             .Elements().Single().Attribute("Symbol"));
     }
