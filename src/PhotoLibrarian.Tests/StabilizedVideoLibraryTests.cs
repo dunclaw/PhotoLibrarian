@@ -145,6 +145,29 @@ public sealed class StabilizedVideoLibraryTests
         Assert.Single(main.ImageGrid.Images);
     }
 
+    [Fact]
+    public async Task TrimmedCopyIsIndexedRevealedAndOpenedInTheViewer()
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var original = await library.AddVideoAsync("original.mp4");
+        var main = library.Main;
+        await main.ImageGrid.FilterByFolderAsync(library.Photos);
+        main.ImageViewer.OpenImage(original, main.ImageGrid.GetViewerImages());
+        string copyPath = Path.Combine(library.Photos, "original-trimmed.mp4");
+        await File.WriteAllTextAsync(copyPath, "encoded trimmed copy");
+        await MetadataWriterService.WriteCaptionAsync(copyPath, "Trimmed caption");
+
+        await main.OpenTrimmedVideoAsync(copyPath);
+
+        var indexed = await library.Images.GetByPathAsync(copyPath);
+        Assert.NotNull(indexed);
+        Assert.Equal(indexed.Id, main.ImageViewer.CurrentEntry!.Id);
+        Assert.Equal(copyPath, main.ImageViewer.VideoPath);
+        Assert.Equal(copyPath, main.ImageGrid.SelectedImage!.Entry.FilePath);
+        Assert.Equal("Trimmed caption", main.ImageViewer.CurrentEntry.Caption);
+        Assert.Equal("original", await File.ReadAllTextAsync(original.FilePath));
+    }
+
     private sealed class DeferredContinuationContext : SynchronizationContext
     {
         public TaskCompletionSource<(SendOrPostCallback Callback, object? State)> Continuation { get; } =

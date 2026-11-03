@@ -351,6 +351,7 @@ public sealed partial class MainWindow : Window
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
+        TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
