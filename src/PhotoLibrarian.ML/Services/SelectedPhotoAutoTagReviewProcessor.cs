@@ -1,5 +1,6 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.ML.Services;
 
@@ -66,6 +67,7 @@ public sealed class SelectedPhotoAutoTagReviewProcessor
 
             IReadOnlyList<TagPrediction> predictions = [];
             string? error = null;
+            string? identity = null;
             try
             {
                 var staleMessage = ValidatePhotoSnapshot(image);
@@ -74,6 +76,10 @@ public sealed class SelectedPhotoAutoTagReviewProcessor
                     throw new InvalidOperationException(staleMessage);
                 }
 
+                identity = await RecognitionSourceIdentity.ComputeAsync(
+                    image.FilePath, cancellationToken);
+                if (image.SourceIdentity is not null && image.SourceIdentity != identity)
+                    throw new InvalidOperationException("The selected photo content changed.");
                 predictions = await _autoTagger.PredictTagsAsync(
                     image.FilePath,
                     settings.ProfileId,
@@ -87,6 +93,7 @@ public sealed class SelectedPhotoAutoTagReviewProcessor
                 {
                     throw new InvalidOperationException(staleMessage);
                 }
+                await RecognitionSourceIdentity.ValidateAsync(image.FilePath, identity, cancellationToken);
             }
             catch (OperationCanceledException)
                 when (cancellationToken.IsCancellationRequested)
@@ -101,7 +108,8 @@ public sealed class SelectedPhotoAutoTagReviewProcessor
             results.Add(new SelectedPhotoAutoTagReviewItem(
                 image,
                 error is null ? predictions : [],
-                error));
+                error,
+                identity));
             progress?.Report(new SelectedPhotoAutoTagReviewProgress(
                 results.Count,
                 images.Length,
@@ -141,7 +149,8 @@ public sealed class SelectedPhotoAutoTagReviewProcessor
 public sealed record SelectedPhotoAutoTagReviewItem(
     ImageEntry Image,
     IReadOnlyList<TagPrediction> Predictions,
-    string? Error);
+    string? Error,
+    string? SourceIdentity = null);
 
 public sealed record SelectedPhotoAutoTagReviewProgress(
     int Processed,

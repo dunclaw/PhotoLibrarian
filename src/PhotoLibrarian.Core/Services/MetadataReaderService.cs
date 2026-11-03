@@ -239,10 +239,14 @@ public sealed class MetadataReaderService
 
     /// <summary>
     /// Reads PhotoLibrarian tag source, confidence, and automatic scan version data
-    /// from embedded XMP first, then from an XMP sidecar.
+    /// from an explicit portable sidecar packet, or otherwise embedded XMP.
     /// </summary>
     public PortableImageTagMetadata? ReadPortableTagMetadata(string filePath)
     {
+        var sidecar = ReadPortableTagSidecarMetadata(filePath);
+        if (sidecar is not null)
+            return sidecar;
+
         try
         {
             var directories = ImageMetadataReader.ReadMetadata(filePath);
@@ -256,7 +260,11 @@ public sealed class MetadataReaderService
             Diagnostics.DebugLog.WriteLine(
                 $"Could not read embedded tag provenance from {filePath}: {exception.Message}");
         }
+        return null;
+    }
 
+    internal PortableImageTagMetadata? ReadPortableTagSidecarMetadata(string filePath)
+    {
         var sidecarPath = Path.ChangeExtension(filePath, ".xmp");
         if (!File.Exists(sidecarPath))
             return null;

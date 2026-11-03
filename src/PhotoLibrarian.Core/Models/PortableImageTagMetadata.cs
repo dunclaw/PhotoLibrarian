@@ -9,4 +9,5 @@ public sealed record PortableImageTag(
 public sealed record PortableImageTagMetadata(
     int SchemaVersion,
     string? AutoTagScanVersion,
-    IReadOnlyList<PortableImageTag> Tags);
+    IReadOnlyList<PortableImageTag> Tags,
+    string? SourceIdentity = null);
