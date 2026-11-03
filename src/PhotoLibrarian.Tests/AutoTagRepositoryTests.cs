@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -7,6 +8,54 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class AutoTagRepositoryTests
 {
+    [Fact]
+    public async Task TryReplaceAutoTagsIfUnchangedAsync_PreservesNewerReviewedTags()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            await tags.TryReplaceAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("cat", 0.72f)],
+                "previous-v1",
+                TestContext.Current.CancellationToken);
+            image.AutoTagScanVersion = "previous-v1";
+            var expectedAutoTags = (await tags.GetTagsAsync(image.Id))
+                .Where(tag => tag.Source == TagSource.AutoML)
+                .ToArray();
+
+            Assert.True(await tags.TryAddReviewedAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("approved", 0.94f)],
+                "reviewed-v2",
+                TestContext.Current.CancellationToken));
+
+            var replaced = await tags.TryReplaceAutoTagsIfUnchangedAsync(
+                image,
+                [new GeneratedImageTag("dog", 0.88f)],
+                expectedAutoTags,
+                image.AutoTagScanVersion,
+                TestContext.Current.CancellationToken);
+
+            Assert.False(replaced);
+            var storedTags = await tags.GetTagsAsync(image.Id);
+            Assert.Contains(storedTags, tag => tag.Tag == "Auto/cat");
+            Assert.Contains(storedTags, tag => tag.Tag == "Auto/approved");
+            Assert.DoesNotContain(storedTags, tag => tag.Tag == "Auto/dog");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
     [Fact]
     public async Task TryReplaceAutoTagsAsync_PreservesManualTagsAndTracksVersion()
     {
@@ -191,6 +240,102 @@ public sealed class AutoTagRepositoryTests
     }
 
     [Fact]
+    public async Task TryAddReviewedAutoTagsAsync_AddsAcceptedTagsAndPreservesExistingSources()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            await tags.AddTagAsync(new ImageTag
+            {
+                ImageId = image.Id,
+                Tag = "family",
+                Source = TagSource.Manual
+            });
+            await tags.TryReplaceAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("dog", 0.8f)],
+                "profile-v1",
+                TestContext.Current.CancellationToken);
+
+            var wasSaved = await tags.TryAddReviewedAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("park", 0.7f)],
+                "profile-v1",
+                TestContext.Current.CancellationToken);
+
+            Assert.True(wasSaved);
+            var stored = await tags.GetTagsAsync(image.Id);
+            Assert.Contains(
+                stored,
+                tag => tag.Tag == "family" &&
+                    tag.Source == TagSource.Manual);
+            Assert.Contains(
+                stored,
+                tag => tag.Tag == "Auto/dog" &&
+                    tag.Source == TagSource.AutoML);
+            Assert.Contains(
+                stored,
+                tag => tag.Tag == "Auto/park" &&
+                    tag.Source == TagSource.AutoML);
+            Assert.DoesNotContain(stored, tag => tag.Tag == "Auto/cat");
+            Assert.Empty(await tags.GetImagesNeedingAutoTagsAsync(
+                "profile-v1",
+                TestContext.Current.CancellationToken));
+
+            await tags.AddMetadataTagAsync(
+                image.Id,
+                "Auto/park",
+                TestContext.Current.CancellationToken);
+            Assert.Equal(
+                TagSource.AutoML,
+                Assert.Single(
+                    await tags.GetTagsAsync(image.Id),
+                    tag => tag.Tag == "Auto/park").Source);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task TryAddReviewedAutoTagsAsync_RejectsStaleImageWithoutChangingTags()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            image.FileSize++;
+
+            var wasSaved = await tags.TryAddReviewedAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("cat", 0.9f)],
+                "profile-v1",
+                TestContext.Current.CancellationToken);
+
+            Assert.False(wasSaved);
+            Assert.Empty(await tags.GetTagsAsync(image.Id));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
     public async Task RemoveAllAutoTagsAsync_PreservesOtherSourcesAndMakesPhotosEligible()
     {
         var databasePath = CreateDatabasePath();
@@ -236,6 +381,10 @@ public sealed class AutoTagRepositoryTests
                 Source = TagSource.Imported
             });
 
+            Assert.Equal(
+                2,
+                (await tags.GetImagesWithAutoTagMetadataAsync(
+                    TestContext.Current.CancellationToken)).Count);
             var result = await tags.RemoveAllAutoTagsAsync(
                 TestContext.Current.CancellationToken);
 

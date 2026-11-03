@@ -147,12 +147,25 @@ public sealed class LibraryIndexingService
             (!string.Equals(existing.FaceSidecarPath, sidecar?.FullName, StringComparison.OrdinalIgnoreCase) ||
              existing.FaceSidecarSize != sidecar?.Length ||
              existing.FaceSidecarModified != sidecar?.LastWriteTimeUtc);
+        var portableTagMetadata = _metadataReader.ReadPortableTagMetadata(filePath);
+        var portableTagsChanged = false;
+        if (existing is not null && portableTagMetadata is not null)
+        {
+            var portableTagRows = CreatePortableTagRows(
+                existing.Id,
+                portableTagMetadata);
+            var cachedTagRows = await _tagRepo.GetTagsAsync(existing.Id, ct);
+            portableTagsChanged =
+                existing.AutoTagScanVersion != portableTagMetadata.AutoTagScanVersion ||
+                !HaveSameTagRows(cachedTagRows, portableTagRows);
+        }
 
         if (existing is not null &&
             existing.DateModified >= fileInfo.LastWriteTimeUtc &&
             existing.SearchMetadataIndexed &&
             existing.FaceMetadataImported &&
-            !sidecarChanged)
+            !sidecarChanged &&
+            !portableTagsChanged)
             return false;
 
         var entry = _metadataReader.ReadMetadata(filePath);
@@ -165,17 +178,70 @@ public sealed class LibraryIndexingService
         await _faceRepo.SetFaceMetadataExportRequiredAsync(imageId, false, ct);
 
         var tags = _metadataReader.ReadTags(filePath);
-        foreach (var tag in tags)
+        if (portableTagMetadata is not null)
         {
-            await _tagRepo.AddTagAsync(new ImageTag
+            await _tagRepo.ReplaceTagsFromPortableMetadataAsync(
+                imageId,
+                CreatePortableTagRows(imageId, portableTagMetadata),
+                ct);
+        }
+        else
+        {
+            foreach (var tag in tags)
+            {
+                await _tagRepo.AddMetadataTagAsync(imageId, tag, ct);
+            }
+        }
+
+        await _tagRepo.RestoreAutoTagScanVersionAsync(
+            imageId,
+            portableTagMetadata?.AutoTagScanVersion,
+            ct);
+        return true;
+    }
+
+    private static IReadOnlyCollection<ImageTag> CreatePortableTagRows(
+        long imageId,
+        PortableImageTagMetadata metadata)
+    {
+        var rows = new List<ImageTag>();
+        foreach (var tag in metadata.Tags)
+        {
+            if (!Enum.TryParse<TagSource>(
+                    tag.Source,
+                    ignoreCase: false,
+                    out var source) ||
+                !Enum.IsDefined(source))
+            {
+                continue;
+            }
+
+            rows.Add(new ImageTag
             {
                 ImageId = imageId,
-                Tag = tag,
-                Source = TagSource.Metadata,
-                Confidence = 1.0f
+                Tag = tag.Tag,
+                Source = source,
+                Confidence = tag.Confidence
             });
         }
-        return true;
+
+        return rows;
+    }
+
+    private static bool HaveSameTagRows(
+        IReadOnlyCollection<ImageTag> left,
+        IReadOnlyCollection<ImageTag> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+
+        var expected = right.ToDictionary(
+            tag => tag.Tag,
+            StringComparer.OrdinalIgnoreCase);
+        return left.All(tag =>
+            expected.TryGetValue(tag.Tag, out var expectedTag) &&
+            tag.Source == expectedTag.Source &&
+            tag.Confidence.Equals(expectedTag.Confidence));
     }
 }
 

@@ -61,10 +61,14 @@ public sealed class ImageEditorNavigationTests : IDisposable
         var reader = new MetadataReaderService();
         var indexer = new LibraryIndexingService(db, images, tags, faces, scanner, reader, null!);
         var pipeline = new RecognitionPipeline(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+        var models = new AutoTagModelManager(sessions);
+        var tagger = new AutoTaggingService(sessions, models);
         var main = new MainViewModel(db, images, tags, faces, scanner, reader, indexer, _backups,
             pipeline, new FaceReviewService(faces, images, null!, null!), Mock.Of<IDisposable>(),
             new AutoTaggingSettingsStore(Path.Combine(_directory, "auto-tagging.json")),
-            new AutoTagModelManager(sessions), new AutoTagBenchmarkProcessor(null!, null!), new UserActivityGate());
+            models, new AutoTagBenchmarkProcessor(null!, null!),
+            new SelectedPhotoAutoTagReviewProcessor(models, tagger),
+            new UserActivityGate());
         try
         {
             var first = Entry("first.jpg");

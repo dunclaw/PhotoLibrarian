@@ -33,6 +33,7 @@ public partial class MainViewModel : ObservableObject
     private bool _autoTaggingEnabled;
     private bool _recognitionRescanRequested;
     private bool _duplicateScanActive;
+    private bool _autoTagReviewActive;
     private int _lastAutoTagTreeRefresh;
     private volatile bool _isShuttingDown;
 
@@ -48,6 +49,7 @@ public partial class MainViewModel : ObservableObject
     public MetadataPanelViewModel MetadataPanel { get; }
     public PeopleReviewViewModel PeopleReview { get; }
     public DuplicateReviewViewModel DuplicateReview { get; }
+    public AutoTagReviewViewModel AutoTagReview { get; }
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
     public OriginalBackupService BackupService => _backupService;
@@ -99,6 +101,7 @@ public partial class MainViewModel : ObservableObject
         AutoTaggingSettingsStore autoTaggingSettingsStore,
         AutoTagModelManager autoTagModelManager,
         AutoTagBenchmarkProcessor autoTagBenchmarkProcessor,
+        SelectedPhotoAutoTagReviewProcessor selectedPhotoAutoTagReviewProcessor,
         UserActivityGate activityGate)
     {
         _db = db;
@@ -151,6 +154,19 @@ public partial class MainViewModel : ObservableObject
                 db,
                 imageRepo,
                 indexingService));
+        AutoTagReview = new AutoTagReviewViewModel(
+            selectedPhotoAutoTagReviewProcessor,
+            tagRepo,
+            () => Settings.CurrentAutoTaggingSettings);
+        AutoTagReview.SetRecognitionCallbacks(
+            PauseRecognitionForAutoTagReviewAsync,
+            ResumeRecognitionAfterAutoTagReview);
+        AutoTagReview.SetAfterApplyCallback(async () =>
+        {
+            await RefreshTagsTreeAsync();
+            await MetadataPanel.ReloadTagsAsync();
+        });
+        AutoTagReview.StatusUpdated += status => StatusText = status;
         _autoTaggingEnabled =
             Settings.CurrentAutoTaggingSettings.CanRun;
         PhotoOps = new Services.PhotoOperationsService(imageRepo, backupService);
@@ -445,7 +461,10 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void StartRecognitionProcessing()
     {
-        if (_isShuttingDown || _duplicateScanActive || TotalImages == 0)
+        if (_isShuttingDown ||
+            _duplicateScanActive ||
+            _autoTagReviewActive ||
+            TotalImages == 0)
         {
             return;
         }
@@ -672,6 +691,21 @@ public partial class MainViewModel : ObservableObject
         SetRecognitionStage(RecognitionStage.None, false);
     }
 
+    private async Task PauseRecognitionForAutoTagReviewAsync()
+    {
+        _autoTagReviewActive = true;
+        await StopRecognitionAsync();
+    }
+
+    private void ResumeRecognitionAfterAutoTagReview()
+    {
+        _autoTagReviewActive = false;
+        if (!_isShuttingDown && (_faceDetectionEnabled || _autoTaggingEnabled))
+        {
+            StartRecognitionProcessing();
+        }
+    }
+
     /// <summary>
     /// Applies an enable/disable change to the running job by restarting it
     /// with the new stage set.
@@ -734,13 +768,56 @@ public partial class MainViewModel : ObservableObject
             _autoTaggingEnabled = false;
             await StopRecognitionAsync();
 
+            var affectedImages = await _tagRepo.GetImagesWithAutoTagMetadataAsync(
+                cancellationToken);
             var result = await _tagRepo.RemoveAllAutoTagsAsync(
                 cancellationToken);
+            var metadataFailures = 0;
+            string? firstMetadataFailure = null;
+            foreach (var image in affectedImages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    if (!System.IO.File.Exists(image.FilePath))
+                    {
+                        throw new FileNotFoundException(
+                            "The photo is no longer available.",
+                            image.FilePath);
+                    }
+
+                    var remainingTags = await _tagRepo.GetTagsAsync(image.Id);
+                    await TagWriterService.WriteTagsToSidecarAsync(
+                        image.FilePath,
+                        remainingTags.Select(tag => tag.Tag),
+                        remainingTags,
+                        autoTagScanVersion: null);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    metadataFailures++;
+                    firstMetadataFailure ??=
+                        $"{image.FilePath}: {exception.Message}";
+                    DebugLog.WriteLine(
+                        $"Failed to remove automatic tag metadata from {image.FilePath}: {exception}");
+                }
+            }
+
             await RefreshTagsTreeAsync();
             await MetadataPanel.ReloadTagsAsync();
 
             var status =
                 $"Removed {result.TagCount:N0} automatic tag assignments from {result.PhotoCount:N0} photos. Automatic tagging is off.";
+            if (metadataFailures > 0)
+            {
+                status +=
+                    $" Metadata was not updated for {metadataFailures:N0} photo(s); first failure: {firstMetadataFailure}";
+            }
             Settings.AutoTaggingStatus = status;
             StatusText = status;
         }
@@ -992,7 +1069,9 @@ public partial class MainViewModel : ObservableObject
 
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(path,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion);
 
                 applied++;
             }
@@ -1177,6 +1256,7 @@ public partial class MainViewModel : ObservableObject
         Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
+        await AutoTagReview.ShutdownAsync();
         await MetadataPanel.StopVideoMetadataReadsAsync();
         _watchedChanges.Dispose();
         _scanner.WatcherError -= OnWatcherError;

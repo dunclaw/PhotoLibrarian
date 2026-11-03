@@ -28,7 +28,6 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -91,7 +90,7 @@
             <Button x:Name="FilterButton"
                     AutomationProperties.AutomationId="GridFilterButton"
                     AutomationProperties.Name="Refine photos"
-                    Grid.Column="6"
+                    Grid.Column="5"
                     Margin="0,0,12,0"
                     ToolTipService.ToolTip="Refine the current left-pane results">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -304,7 +303,7 @@
             </Button>
 
             <!-- Thumbnail size slider -->
-            <StackPanel Grid.Column="5" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="4">
+            <StackPanel Grid.Column="4" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="4">
                 <Button Click="OnDecreaseSize" Padding="6" ToolTipService.ToolTip="Smaller thumbnails">
                     <FontIcon Glyph="&#xE71F;" FontSize="12" />
                 </Button>

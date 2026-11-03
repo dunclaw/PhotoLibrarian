@@ -258,6 +258,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         CancelVideoMetadataRead();
         ResetVideoMetadata();
         _entries = entries.ToList();
+        _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = true;
         SelectionCount = _entries.Count;
         IsMultiSelect = _entries.Count > 1;
@@ -601,6 +602,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         CancelVideoMetadataRead();
         ResetVideoMetadata();
         _entries = new();
+        _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = false;
         IsMultiSelect = false;
         SelectionCount = 0;
@@ -756,10 +758,12 @@ public partial class MetadataPanelViewModel : ObservableObject
                     Confidence = 1.0f
                 });
 
-                // Rewrite sidecar with the full set for this image (DB is the source of truth)
+                // Rewrite portable keywords and source metadata from the current tag set.
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion);
             }
         }
 
@@ -786,7 +790,9 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await _tagRepo.RemoveTagAsync(entry.Id, tag);
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion);
             }
         }
 

@@ -4,10 +4,12 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Services;
 using System;
 using System.Globalization;
+using System.Linq;
 
 namespace PhotoLibrarian.Views;
 
@@ -48,6 +50,7 @@ public sealed partial class MetadataPanel : UserControl
     {
         if (ViewModel is null) return;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        App.ViewModel.AutoTagReview.PropertyChanged += OnAutoTagReviewPropertyChanged;
         TagsList.ItemsSource = ViewModel.Tags;
         PeopleTagsList.ItemsSource = ViewModel.PeopleTags;
         UpdateDisplay();
@@ -99,6 +102,17 @@ public sealed partial class MetadataPanel : UserControl
         }
     }
 
+    private void OnAutoTagReviewPropertyChanged(
+        object? sender,
+        System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(AutoTagReviewViewModel.IsBusy) or
+            nameof(AutoTagReviewViewModel.IsApplying))
+        {
+            DispatcherQueue.TryEnqueue(UpdateSuggestTagsButtonState);
+        }
+    }
+
     private void UpdateAddPeopleTagsButtonState()
     {
         if (ViewModel is null) return;
@@ -118,6 +132,7 @@ public sealed partial class MetadataPanel : UserControl
     {
         if (ViewModel is null || !ViewModel.HasImage)
         {
+            SuggestTagsButton.IsEnabled = false;
             CopyFileNameButton.IsEnabled = false;
             CopyFolderPathButton.IsEnabled = false;
             CopyFullPathButton.IsEnabled = false;
@@ -128,6 +143,7 @@ public sealed partial class MetadataPanel : UserControl
 
         EmptyContent.Visibility = Visibility.Collapsed;
         DetailContent.Visibility = Visibility.Visible;
+        UpdateSuggestTagsButtonState();
 
         // Multi-select banner
         bool multi = ViewModel.IsMultiSelect;
@@ -392,6 +408,33 @@ public sealed partial class MetadataPanel : UserControl
         var tag = btn.Tag as string;
         if (!string.IsNullOrEmpty(tag))
             ViewModel.RemoveTagCommand.Execute(tag);
+    }
+
+    private async void OnSuggestTagsClick(object sender, RoutedEventArgs e)
+    {
+        var grid = App.ViewModel.ImageGrid;
+        var selectedImages = grid.SelectedImages.Count > 0
+            ? grid.SelectedImages
+                .Where(image => image.Entry.MediaType == MediaType.Image)
+                .Select(image => image.Entry)
+                .ToArray()
+            : grid.SelectedImage is { Entry.MediaType: MediaType.Image } selected
+                ? [selected.Entry]
+                : [];
+        await App.ViewModel.AutoTagReview.OpenForImagesAsync(selectedImages);
+    }
+
+    private void UpdateSuggestTagsButtonState()
+    {
+        if (ViewModel is null)
+            return;
+
+        var review = App.ViewModel.AutoTagReview;
+        SuggestTagsButton.IsEnabled =
+            ViewModel.HasImage &&
+            ViewModel.MediaType != "Video" &&
+            !review.IsBusy &&
+            !review.IsApplying;
     }
 
     // --- Date taken: compact text editor ---

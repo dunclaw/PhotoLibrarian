@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -9,6 +10,216 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class LibraryIndexingServiceTests
 {
+    [Fact]
+    public async Task IndexFileAsync_ReimportsChangedPortableTagSidecarForCachedImage()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-tag-sidecar-refresh-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, "photo.raw");
+
+        try
+        {
+            await File.WriteAllBytesAsync(imagePath, [1, 2, 3]);
+            using var database = new CacheDatabase(
+                Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database,
+                images,
+                tags,
+                new FaceRepository(database),
+                scanner,
+                new MetadataReaderService(),
+                new FaceMetadataStore());
+            var originalImageWriteTime = File.GetLastWriteTimeUtc(imagePath);
+
+            await TagWriterService.WriteTagsToSidecarAsync(
+                imagePath,
+                ["Auto/dog", "family"],
+                [
+                    new ImageTag
+                    {
+                        Tag = "Auto",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.55f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "Auto/dog",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.55f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "family",
+                        Source = TagSource.Manual,
+                        Confidence = 1.0f
+                    }
+                ],
+                "model-pipeline-v1");
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+            Assert.False(await indexer.IndexFileAsync(imagePath));
+
+            await TagWriterService.WriteTagsToSidecarAsync(
+                imagePath,
+                ["Auto/dog", "family"],
+                [
+                    new ImageTag
+                    {
+                        Tag = "Auto",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.91f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "Auto/dog",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.91f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "family",
+                        Source = TagSource.Manual,
+                        Confidence = 1.0f
+                    }
+                ],
+                "model-pipeline-v2");
+
+            Assert.Equal(originalImageWriteTime, File.GetLastWriteTimeUtc(imagePath));
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+
+            var indexedImage = (await images.GetByPathAsync(imagePath))!;
+            var restored = await tags.GetTagsAsync(indexedImage.Id);
+            Assert.Equal(
+                0.91f,
+                Assert.Single(restored, tag => tag.Tag == "Auto/dog").Confidence);
+            Assert.Equal(
+                TagSource.Manual,
+                Assert.Single(restored, tag => tag.Tag == "family").Source);
+            Assert.Equal("model-pipeline-v2", indexedImage.AutoTagScanVersion);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(".png")]
+    [InlineData(".raw")]
+    public async Task IndexFileAsync_RestoresPortableTagSourcesConfidenceAndScanVersion(
+        string extension)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-tag-roundtrip-{Guid.NewGuid():N}");
+        var sourceDirectory = Path.Combine(directory, "source");
+        var movedDirectory = Path.Combine(directory, "moved");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(movedDirectory);
+        var sourcePath = Path.Combine(sourceDirectory, $"tagged{extension}");
+        var imagePath = Path.Combine(movedDirectory, $"tagged{extension}");
+
+        try
+        {
+            if (extension == ".png")
+                await WicTestImage.CreateAsync(sourcePath, 16, 12);
+            else
+                await File.WriteAllBytesAsync(sourcePath, [1, 2, 3]);
+            var portableTags = new[]
+            {
+                new ImageTag
+                {
+                    Tag = "Auto",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.91f
+                },
+                new ImageTag
+                {
+                    Tag = "Auto/animal",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.91f
+                },
+                new ImageTag
+                {
+                    Tag = "Auto/animal/bird",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.91f
+                },
+                new ImageTag
+                {
+                    Tag = "Auto/animal/bird/duck",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.82f
+                },
+                new ImageTag
+                {
+                    Tag = "family",
+                    Source = TagSource.Manual,
+                    Confidence = 1.0f
+                }
+            };
+            const string scanVersion = "profile:approved-pipeline-v7";
+            await TagWriterService.WriteTagsToSidecarAsync(
+                sourcePath,
+                portableTags.Select(tag => tag.Tag),
+                portableTags,
+                scanVersion);
+
+            File.Move(sourcePath, imagePath);
+            var sourceSidecar = Path.ChangeExtension(sourcePath, ".xmp");
+            if (File.Exists(sourceSidecar))
+            {
+                File.Move(
+                    sourceSidecar,
+                    Path.ChangeExtension(imagePath, ".xmp"));
+            }
+
+            using var database = new CacheDatabase(
+                Path.Combine(directory, "fresh-cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database,
+                images,
+                tags,
+                new FaceRepository(database),
+                scanner,
+                new MetadataReaderService(),
+                new FaceMetadataStore());
+
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+
+            var restored = await tags.GetTagsAsync(
+                (await images.GetByPathAsync(imagePath))!.Id);
+            Assert.Equal(
+                TagSource.AutoML,
+                Assert.Single(restored, tag => tag.Tag == "Auto/animal/bird").Source);
+            Assert.Equal(
+                0.82f,
+                Assert.Single(restored, tag => tag.Tag == "Auto/animal/bird/duck").Confidence);
+            Assert.Equal(
+                TagSource.Manual,
+                Assert.Single(restored, tag => tag.Tag == "family").Source);
+            Assert.Equal(
+                scanVersion,
+                (await images.GetByPathAsync(imagePath))!.AutoTagScanVersion);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task WatchedFolderChanges_PreservesIndexDataWhenImageIsDeleted()
     {

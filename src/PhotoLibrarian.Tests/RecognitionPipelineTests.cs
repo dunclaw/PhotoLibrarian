@@ -5,8 +5,14 @@ using Xunit;
 
 namespace PhotoLibrarian.Tests;
 
-public sealed class RecognitionPipelineTests
+public sealed class RecognitionPipelineTests : IDisposable
 {
+    private readonly string _directory = Path.Combine(
+        Path.GetTempPath(),
+        $"PhotoLibrarian-recognition-pipeline-{Guid.NewGuid():N}");
+
+    public RecognitionPipelineTests() => Directory.CreateDirectory(_directory);
+
     [Fact]
     public async Task ProcessLibraryAsync_DecodesEachPhotoOnceAndSharesItAcrossStages()
     {
@@ -292,15 +298,22 @@ public sealed class RecognitionPipelineTests
             });
     }
 
-    private static ImageEntry CreateImage(long id) => new()
+    private ImageEntry CreateImage(long id)
     {
-        Id = id,
-        FilePath = $@"C:\Photos\photo-{id}.jpg",
-        FileName = $"photo-{id}.jpg",
-        FileSize = 100,
-        DateModified = DateTime.UtcNow,
-        DateIndexed = DateTime.UtcNow
-    };
+        var path = Path.Combine(_directory, $"photo-{id}.raw");
+        File.WriteAllBytes(path, [1, 2, 3]);
+        var file = new FileInfo(path);
+        return new ImageEntry
+        {
+            Id = id,
+            FilePath = path,
+            FileName = file.Name,
+            FileSize = file.Length,
+            DateModified = file.LastWriteTimeUtc,
+            DateIndexed = DateTime.UtcNow,
+            MediaType = MediaType.Image
+        };
+    }
 
     private static DetectedFace CreateFace() => new()
     {
@@ -362,22 +375,45 @@ public sealed class RecognitionPipelineTests
 
     private sealed class FakeTagStore(IReadOnlyList<ImageEntry> pending) : IAutoTagStore
     {
-        public List<(ImageEntry Image, IReadOnlyCollection<GeneratedImageTag> Tags, string ScanVersion)> Saved { get; } = [];
+        public List<(
+            ImageEntry Image,
+            IReadOnlyCollection<GeneratedImageTag> Tags,
+            string? ScanVersion)> Saved { get; } = [];
+
+        public Task<List<ImageTag>> GetTagsAsync(
+            long imageId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new List<ImageTag>());
 
         public Task<List<ImageEntry>> GetImagesNeedingAutoTagsAsync(
             string scanVersion,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(pending.ToList());
 
-        public Task<bool> TryReplaceAutoTagsAsync(
+        public Task<bool> TryReplaceAutoTagsIfUnchangedAsync(
             ImageEntry expectedImage,
             IReadOnlyCollection<GeneratedImageTag> tags,
-            string scanVersion,
+            IReadOnlyCollection<ImageTag> expectedAutoTags,
+            string? expectedScanVersion,
             CancellationToken cancellationToken = default)
         {
-            Saved.Add((expectedImage, tags, scanVersion));
+            Saved.Add((expectedImage, tags, null));
             return Task.FromResult(true);
         }
+
+        public Task<bool> TryRestoreAutoTagsAsync(
+            ImageEntry expectedImage,
+            IReadOnlyCollection<ImageTag> expectedAutoTags,
+            IReadOnlyCollection<ImageTag> previousAutoTags,
+            string? previousScanVersion,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task SetAutoTagScanVersionAsync(
+            long imageId,
+            string scanVersion,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class FakeFaceModelProvider : IFaceModelProvider
@@ -523,5 +559,10 @@ public sealed class RecognitionPipelineTests
             WaitCount++;
             return Task.CompletedTask;
         }
+    }
+
+    public void Dispose()
+    {
+        Directory.Delete(_directory, recursive: true);
     }
 }
