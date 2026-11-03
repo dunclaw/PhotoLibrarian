@@ -8,6 +8,12 @@ using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Controls;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media.Imaging;
+using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.Graphics.Imaging;
+using Windows.Storage;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Windows.Graphics;
@@ -64,6 +70,7 @@ public partial class App : Application
             await Task.Delay(500);
             if (Environment.GetCommandLineArgs().Contains("--preview")) return;
             await RunTestsAsync(group, before, after);
+            await RunMapTestsAsync();
         }
         catch (Exception exception)
         {
@@ -188,6 +195,110 @@ public partial class App : Application
     {
         if (!condition) throw new InvalidOperationException(name);
         _passed.Add(name);
+    }
+
+    private async Task RunMapTestsAsync()
+    {
+        var map = new LocalPhotoMapView();
+        _window.Content = map;
+        await Task.Delay(100);
+        var list = (ListView)map.FindName("GroupList");
+        var canvas = (Canvas)map.FindName("MapCanvas");
+        IReadOnlyList<string>? selected = null;
+        int requests = 0;
+        map.FilterRequested += (_, paths) => { selected = paths; requests++; };
+        var many = Enumerable.Range(0, 100_000).Select(i => new ImageEntry
+        {
+            FilePath = $@"C:\SyntheticPhotos\Old-{i}.jpg", FileName = $"Old-{i}.jpg",
+            GpsLatitude = i % 90, GpsLongitude = i % 180
+        }).ToArray();
+        map.Refresh(many);
+        var latest = new[]
+        {
+            new ImageEntry { FilePath = @"C:\SyntheticPhotos\West.jpg", FileName = "West.jpg",
+                GpsLatitude = 89, GpsLongitude = 179.9 },
+            new ImageEntry { FilePath = @"C:\SyntheticPhotos\East.jpg", FileName = "East.jpg",
+                GpsLatitude = -89, GpsLongitude = -179.9 },
+            new ImageEntry { FilePath = @"C:\SyntheticPhotos\Missing.jpg", FileName = "Missing.jpg" }
+        };
+        map.Refresh(latest);
+        await WaitForMapAsync(list, 2);
+        list.UpdateLayout();
+        await Task.Delay(100);
+        Check(list.Items.OfType<PhotoMapGroup>().SelectMany(group => group.Cluster.Paths)
+            .Order().SequenceEqual(latest.Take(2).Select(entry => entry.FilePath).Order()),
+            "Map superseded large render publishes only the latest GPS scope");
+        var listPeer = FrameworkElementAutomationPeer.CreatePeerForElement(list);
+        Check(listPeer.GetAutomationControlType() == AutomationControlType.List &&
+            listPeer.GetName() == "Visible GPS groups" && !string.IsNullOrWhiteSpace(listPeer.GetHelpText()),
+            "Map exposes a localized keyboard list with selection semantics and help");
+        var firstContainer = (ListViewItem)list.ContainerFromIndex(0);
+        var itemPeers = listPeer.GetChildren()
+            .Where(peer => peer.GetAutomationControlType() == AutomationControlType.ListItem).ToList();
+        Check(itemPeers[0].GetName() == ((PhotoMapGroup)list.Items[0]).Label,
+            "Map list item announces its count and coordinates, not its backing object");
+        ((ISelectionItemProvider)itemPeers[0].GetPattern(PatternInterface.SelectionItem)).Select();
+        Check(selected?.Count == 1 && requests == 1, "Map UIA list selection requests the same pin filter");
+        var selectedContainer = list.ContainerFromIndex(0);
+        firstContainer.Focus(FocusState.Keyboard);
+        var secondContainer = (ListViewItem)list.ContainerFromIndex(1);
+        ((ISelectionItemProvider)itemPeers[1].GetPattern(PatternInterface.SelectionItem)).Select();
+        Check(requests == 2 && ReferenceEquals(selectedContainer, list.ContainerFromIndex(0)),
+            "Changing a map selection does not recreate list containers or lose keyboard targets");
+        var pins = canvas.Children.OfType<ToggleButton>().ToList();
+        Check(pins.Count == 2 && pins.All(pin =>
+            !string.IsNullOrWhiteSpace(AutomationProperties.GetName(pin)) &&
+            !string.IsNullOrWhiteSpace(AutomationProperties.GetAutomationId(pin))),
+            "Map pins are named semantic toggle buttons with stable automation IDs");
+        ((IToggleProvider)FrameworkElementAutomationPeer.CreatePeerForElement(pins[0])
+            .GetPattern(PatternInterface.Toggle)).Toggle();
+        await Task.Delay(50);
+        Check(requests == 3 && selected!.SequenceEqual(((PhotoMapGroup)pins[0].Tag).Cluster.Paths),
+            "Map pin toggle requests its group's paths through the same filter event");
+        var clear = (Button)map.FindName("ClearButton");
+        ((IInvokeProvider)FrameworkElementAutomationPeer.CreatePeerForElement(clear)
+            .GetPattern(PatternInterface.Invoke)).Invoke();
+        await Task.Delay(50);
+        Check(selected is null && requests == 4 && !clear.IsEnabled,
+            "Map clear is invokable and removes only its own selection");
+        foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
+        {
+            map.RequestedTheme = theme;
+            await Task.Delay(150);
+            await SaveMapScreenshotAsync(map, theme.ToString());
+            Check(canvas.Children.OfType<ToggleButton>().Count() == 2,
+                $"Map keeps both polar/dateline points in {theme} theme");
+        }
+        map.Refresh(many);
+        map.Deactivate();
+        await Task.Delay(150);
+        Check(list.Items.Count == 0 && canvas.Children.Count == 0,
+            "Closing the map cancels pending work without reviving stale pins");
+    }
+
+    private static async Task WaitForMapAsync(ListView list, int expectedCount)
+    {
+        for (int attempt = 0; attempt < 100; attempt++)
+        {
+            if (list.Items.OfType<PhotoMapGroup>().Sum(group => group.Cluster.Paths.Count) == expectedCount)
+                return;
+            await Task.Delay(50);
+        }
+        throw new TimeoutException("Map did not publish the expected GPS groups.");
+    }
+
+    private static async Task SaveMapScreenshotAsync(LocalPhotoMapView map, string theme)
+    {
+        var bitmap = new RenderTargetBitmap();
+        await bitmap.RenderAsync(map);
+        var pixels = await bitmap.GetPixelsAsync();
+        var folder = await StorageFolder.GetFolderFromPathAsync(AppContext.BaseDirectory);
+        var file = await folder.CreateFileAsync($"map-{theme}.png", CreationCollisionOption.ReplaceExisting);
+        using var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
+        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+            (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, pixels.ToArray());
+        await encoder.FlushAsync();
     }
 
     private async Task PressAsync(params VirtualKey[] keys)

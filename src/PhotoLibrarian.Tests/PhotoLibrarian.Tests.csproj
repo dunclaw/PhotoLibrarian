@@ -25,6 +25,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\PhotoLibrarian.Core\Models\PhotoMap.cs"
+          Link="TestAssets\PhotoMap.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\LocalPhotoMapView.xaml"
+          Link="TestAssets\LocalPhotoMapView.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\LocalPhotoMapView.xaml.cs"
+          Link="TestAssets\LocalPhotoMapView.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\MainWindow.xaml"
           Link="TestAssets\MainWindow.xaml"
           CopyToOutputDirectory="PreserveNewest" />

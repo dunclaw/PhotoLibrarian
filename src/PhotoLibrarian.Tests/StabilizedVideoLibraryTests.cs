@@ -11,6 +11,64 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class StabilizedVideoLibraryTests
 {
+    [Fact]
+    public async Task MapSelectionIntersectsNavigationRefinementSearchAndNeverWritesPhotos()
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var alpha = await library.AddVideoAsync("alpha.mp4");
+        var beta = await library.AddVideoAsync("beta.mp4");
+        var missing = await library.AddVideoAsync("missing.mp4");
+        alpha.GpsLatitude = 89;
+        alpha.GpsLongitude = 179.9;
+        alpha.Rating = 5;
+        beta.GpsLatitude = -89;
+        beta.GpsLongitude = -179.9;
+        beta.Rating = 1;
+        missing.Rating = 5;
+        foreach (var entry in new[] { alpha, beta, missing })
+            await library.Images.UpsertImageAsync(entry);
+        var files = Directory.GetFiles(library.Photos).ToDictionary(path => path, File.ReadAllBytes);
+        var grid = library.Main.ImageGrid;
+        await grid.FilterByFolderAsync(library.Photos);
+        await grid.ApplyRefinementAsync(new ImageRefinementFilter { Rating = 4 });
+        var restores = 0;
+        grid.SelectionRestoreRequested += (_, _) => restores++;
+
+        await grid.ApplyMapFilterAsync([alpha.FilePath.ToUpperInvariant(), beta.FilePath, missing.FilePath]);
+
+        Assert.Equal(alpha.FilePath, Assert.Single(grid.DisplayedEntries).FilePath);
+        Assert.Equal(alpha.FilePath, grid.SelectedImage?.Entry.FilePath);
+        Assert.True(restores > 0);
+        Assert.Equal(2, grid.Images.Count); // Pre-map scope still contains missing GPS.
+        await library.Main.RefreshAfterIndexAsync();
+        Assert.Single(grid.DisplayedEntries);
+        Assert.Equal("1 items", library.Main.StatusText);
+        await grid.ApplySearchAsync("missing");
+        Assert.Empty(grid.DisplayedEntries);
+        Assert.Null(grid.SelectedImage);
+        await grid.ApplyMapFilterAsync(null);
+        Assert.Equal(missing.FilePath, Assert.Single(grid.DisplayedEntries).FilePath);
+        await grid.ApplySearchAsync("");
+        await grid.ApplyRefinementAsync(ImageRefinementFilter.Empty);
+        await grid.ApplyMapFilterAsync([beta.FilePath]);
+        library.Main.ImageViewer.OpenImage(beta, grid.GetViewerImages());
+        await grid.ApplyMapFilterAsync([alpha.FilePath]);
+        Assert.Equal(alpha.FilePath, library.Main.ImageViewer.CurrentEntry?.FilePath);
+        await grid.ApplyMapFilterAsync([]);
+        Assert.Empty(grid.DisplayedEntries);
+        Assert.False(library.Main.ImageViewer.IsOpen);
+        await grid.ApplyMapFilterAsync(null);
+        Assert.Equal(3, grid.DisplayedEntries.Count);
+        await grid.ApplyMapFilterAsync([alpha.FilePath]);
+        grid.RevealExportedVideo(beta.FilePath);
+        Assert.False(grid.HasMapFilter);
+        await grid.LoadImagesAsync();
+        Assert.Contains(grid.DisplayedEntries, entry => entry.FilePath == beta.FilePath);
+        foreach (var file in files)
+            Assert.Equal(file.Value, File.ReadAllBytes(file.Key));
+        Assert.Equal(files.Keys.Order(), Directory.GetFiles(library.Photos).Order());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

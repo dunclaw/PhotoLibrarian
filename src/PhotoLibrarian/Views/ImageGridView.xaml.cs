@@ -90,6 +90,7 @@ public sealed partial class ImageGridView : UserControl
         UpdateSortByCombo();
         UpdateSortOrderIcon();
         ViewModel.ResultsChanged += OnResultsChanged;
+        ViewModel.MapScopeInvalidated += (_, _) => LocalMap.Deactivate();
         ViewModel.SelectionRestoreRequested += OnSelectionRestoreRequested;
         InitializeRefinementControls(ViewModel.Refinement);
         await RefreshPeopleAsync();
@@ -145,7 +146,52 @@ public sealed partial class ImageGridView : UserControl
 
     private void OnResultsChanged(object? sender, EventArgs e)
     {
+        EmptyState.Visibility = ViewModel?.DisplayedEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (ViewModel?.HasMapFilter == true)
+        {
+            EmptyStateTitle.Text = PhotoMapStrings.Get("PhotoMapEmptyTitle");
+            EmptyStateDescription.Text = PhotoMapStrings.Get("PhotoMapEmptyDescription");
+        }
+        else
+        {
+            EmptyStateTitle.Text = PhotoMapStrings.Get("GridEmptyTitle.Text");
+            EmptyStateDescription.Text = PhotoMapStrings.Get("GridEmptyDescription.Text");
+        }
+        if (MapButton.IsChecked == true && ViewModel is not null)
+        {
+            LocalMap.Refresh(ViewModel.Images.Select(image => image.Entry));
+            LocalMap.SetSelection(ViewModel.MapFilterPaths);
+        }
         RestoreGridSelection(scrollIntoView: false);
+    }
+
+    private async void OnMapToggle(object sender, RoutedEventArgs e)
+    {
+        bool show = MapButton.IsChecked == true;
+        LocalMap.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show && ViewModel is not null)
+            LocalMap.Refresh(ViewModel.Images.Select(image => image.Entry));
+        else
+        {
+            LocalMap.Deactivate();
+            await ApplyMapFilterAsync(null);
+        }
+    }
+
+    private async void OnMapFilterRequested(object? sender, IReadOnlyList<string>? paths) =>
+        await ApplyMapFilterAsync(paths);
+
+    private async System.Threading.Tasks.Task ApplyMapFilterAsync(IReadOnlyList<string>? paths)
+    {
+        if (ViewModel is null) return;
+        try
+        {
+            await ViewModel.ApplyMapFilterAsync(paths);
+        }
+        catch (Exception ex)
+        {
+            App.ViewModel.StatusText = PhotoMapStrings.Format("PhotoMapError", ex.Message);
+        }
     }
 
     private void OnSelectionRestoreRequested(object? sender, EventArgs e)

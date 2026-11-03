@@ -22,6 +22,8 @@
       <_PhotoResources Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\PhotoLibrarian.pri" />
     </ItemGroup>
     <Copy SourceFiles="@(_GridResource)" DestinationFolder="$(TargetDir)Controls" />
+    <Copy SourceFiles="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\LocalPhotoMapView.xbf"
+          DestinationFolder="$(TargetDir)Views" />
     <Copy SourceFiles="@(_PhotoResources)" DestinationFolder="$(TargetDir)" />
   </Target>
 </Project>
