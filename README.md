@@ -41,6 +41,30 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 ---
 
+### Photo effects
+
+The editor's **Effects** gallery previews the current photo with **None**, black
+and white, red/orange/yellow monochrome filters, sepia, cyanotype, and warm/cool
+tints. Selecting a preset replaces only the effect; **None** keeps your other
+adjustments. Selection, Reset, undo/redo, and pending portable XMP recipes share
+the same effect state. Old recipes without an effect retain their appearance.
+Save uses the existing original-backup flow, bakes the effect once, and clears
+the pending effect recipe.
+
+Previews are generated locally from EXIF-oriented photo pixels, including
+current adjustments, not sample pictures. Thumbnail decoding and rendering
+run off the UI thread, with a 160-pixel maximum dimension and one render at a
+time. Changing photos or adjustments cancels pending work and rejects stale
+results. These small previews approximate spatial detail filters; the editor's
+main preview and save both evaluate the shared graph at source resolution.
+Creative color matrices act on the existing encoded raster RGB, preserve alpha,
+and do not add another sRGB transfer.
+
+Effects are explicitly disabled for RAW preview and RAW export; only the RAW
+controls apply there. Dormant raster recipe fields are retained, not applied to
+the RAW development. To use effects on a RAW photo, export an SDR derivative
+first and edit that copy. RAW sensor bytes are never changed.
+
 ### Noise reduction
 
 The editor's **Detail > Noise reduction** slider runs entirely locally with no

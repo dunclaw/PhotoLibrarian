@@ -179,6 +179,18 @@ public partial class ImageEditorViewModel : ObservableObject
     [ObservableProperty]
     public partial double Tint { get; set; }
 
+    [ObservableProperty]
+    public partial PhotoEffect Effect { get; set; }
+
+    public void SelectEffect(PhotoEffect effect, string label)
+    {
+        if (!Enum.IsDefined(effect)) throw new ArgumentOutOfRangeException(nameof(effect));
+        if (!IsOpen || IsBusy || IsRawPreview) return;
+        BeginEdit(label);
+        Effect = effect;
+        EndEdit();
+    }
+
     // Detail
     [ObservableProperty]
     public partial double Clarity { get; set; }
@@ -334,6 +346,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Saturation = Saturation,
         Temperature = Temperature,
         Tint = Tint,
+        Effect = Effect,
         Clarity = Clarity,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
@@ -479,6 +492,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Saturation = p.Saturation;
         Temperature = p.Temperature;
         Tint = p.Tint;
+        Effect = p.Effect;
         Clarity = p.Clarity;
         Sharpness = p.Sharpness;
         NoiseReduction = p.NoiseReduction;
@@ -504,6 +518,7 @@ public partial class ImageEditorViewModel : ObservableObject
     partial void OnSaturationChanged(double value) => OnParameterChanged("Saturation");
     partial void OnTemperatureChanged(double value) => OnParameterChanged("Temperature");
     partial void OnTintChanged(double value) => OnParameterChanged("Tint");
+    partial void OnEffectChanged(PhotoEffect value) => OnParameterChanged("Effect");
     partial void OnClarityChanged(double value) => OnParameterChanged("Clarity");
     partial void OnSharpnessChanged(double value) => OnParameterChanged("Sharpness");
     partial void OnNoiseReductionChanged(double value) => OnParameterChanged("Noise reduction");
@@ -613,7 +628,7 @@ public partial class ImageEditorViewModel : ObservableObject
         a.Brightness == b.Brightness && a.Contrast == b.Contrast && a.Exposure == b.Exposure &&
         a.RawExposureEv == b.RawExposureEv && a.RawWhitePoint == b.RawWhitePoint &&
         a.Highlights == b.Highlights && a.Shadows == b.Shadows && a.Saturation == b.Saturation &&
-        a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
+        a.Effect == b.Effect && a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
         a.Sharpness == b.Sharpness && a.NoiseReduction == b.NoiseReduction &&
         a.SharpeningMode == b.SharpeningMode && a.UnsharpMaskAmount == b.UnsharpMaskAmount &&
         a.UnsharpMaskRadius == b.UnsharpMaskRadius &&
