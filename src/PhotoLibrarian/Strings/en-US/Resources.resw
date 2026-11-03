@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="EditorEffectsTitle.Text" xml:space="preserve"><value>Effects</value></data>
+  <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo effects</value></data>
+  <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Use arrow keys to select an effect. None removes only the effect, keeping other adjustments.</value></data>
+  <data name="EditorEffectNone" xml:space="preserve"><value>None</value></data>
+  <data name="EditorEffectBlackAndWhite" xml:space="preserve"><value>Black and white</value></data>
+  <data name="EditorEffectRedFilter" xml:space="preserve"><value>Red filter</value></data>
+  <data name="EditorEffectOrangeFilter" xml:space="preserve"><value>Orange filter</value></data>
+  <data name="EditorEffectYellowFilter" xml:space="preserve"><value>Yellow filter</value></data>
+  <data name="EditorEffectSepia" xml:space="preserve"><value>Sepia</value></data>
+  <data name="EditorEffectCyanotype" xml:space="preserve"><value>Cyanotype</value></data>
+  <data name="EditorEffectWarmTint" xml:space="preserve"><value>Warm tint</value></data>
+  <data name="EditorEffectCoolTint" xml:space="preserve"><value>Cool tint</value></data>
+  <data name="EditorEffectHistory" xml:space="preserve"><value>Effect: {0}</value></data>
+  <data name="EditorEffectsLoading" xml:space="preserve"><value>Updating previews from this photo...</value></data>
+  <data name="EditorEffectsReady" xml:space="preserve"><value>Previews include current adjustments. None keeps your other adjustments.</value></data>
+  <data name="EditorEffectsFailed" xml:space="preserve"><value>Effect previews could not be loaded: {0}</value></data>
+  <data name="EditorEffectsRawUnavailable" xml:space="preserve"><value>Effects are unavailable for RAW preview and export. Export an SDR derivative, then edit that copy.</value></data>
   <data name="PhotoGridName" xml:space="preserve"><value>Photos</value></data>
   <data name="PhotoGridHelp" xml:space="preserve"><value>Use arrow keys to move, Space to select, Enter to open, and Shift+F10 for photo actions. Hold Control to move without changing selection or Shift to select a range.</value></data>
   <data name="PhotoGridItemHelp" xml:space="preserve"><value>Enter to open. Shift+F10 for photo actions.</value></data>

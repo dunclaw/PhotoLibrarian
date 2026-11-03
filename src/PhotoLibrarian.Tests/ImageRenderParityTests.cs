@@ -20,6 +20,35 @@ public sealed class ImageRenderParityTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     [Fact]
+    public async Task EveryPhotoEffectMatchesSourceResolutionPreviewSaveAndPngReopen()
+    {
+        foreach (var effect in Enum.GetValues<PhotoEffect>())
+        {
+            foreach (var alpha in new[] { false, true })
+            {
+                var name = $"effect-{effect}-{alpha}.png";
+                var parameters = new EditParameters
+                {
+                    Effect = effect, Exposure = alpha ? 0 : .2,
+                    Temperature = alpha ? 0 : -.1, RotationAngle = 13
+                };
+                await AssertPreviewSaveParityAsync(name, 37, 23,
+                    RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 37, 23, alpha: alpha),
+                    parameters);
+                var path = Path.Combine(_directory, name);
+                using var device = new CanvasDevice();
+                var beforeEncoding = await ImageEditRenderer.RenderToPixelsAsync(device, path, parameters);
+                await ImageEditRenderer.RenderToFileAsync(path, parameters, device);
+                var reopened = await RenderQualityFixtures.ReadPngPixelsAsync(path);
+                Assert.Equal(beforeEncoding.Pixels.Length, reopened.Length);
+                for (var i = 0; i < reopened.Length; i++)
+                    Assert.True(Math.Abs(beforeEncoding.Pixels[i] - reopened[i]) <= (i % 4 == 3 ? 0 : 1),
+                        $"{effect}, byte {i}, alpha {reopened[i / 4 * 4 + 3]}: expected {beforeEncoding.Pixels[i]}, reopened {reopened[i]}");
+            }
+        }
+    }
+
+    [Fact]
     public async Task RawOnlyRecipeFieldsLeaveLegacyRasterPixelsUnchanged()
     {
         var path = Path.Combine(_directory, "legacy.png");
@@ -310,7 +339,7 @@ public sealed class ImageRenderParityTests : IDisposable
     {
         try
         {
-            return CanvasDevice.GetSharedDevice();
+            return new CanvasDevice();
         }
         catch (Exception exception)
         {
