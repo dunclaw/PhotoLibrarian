@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using Xunit;
@@ -127,6 +128,20 @@ public sealed class SlideshowTests
         Assert.Equal(expected, vm.IntervalSeconds);
         vm.IntervalSeconds = input;
         Assert.Equal(expected, vm.IntervalSeconds);
+    }
+
+    [Fact]
+    public void SlideshowThemeDefaultsToContemporaryAndCanBeSelected()
+    {
+        var sequence = new SlideshowSequence([], []);
+        var defaultViewModel = new SlideshowViewModel(sequence, 5);
+        Assert.Equal(SlideshowTheme.Contemporary, defaultViewModel.Theme);
+
+        foreach (var theme in Enum.GetValues<SlideshowTheme>())
+        {
+            var viewModel = new SlideshowViewModel(sequence, 5, theme);
+            Assert.Equal(theme, viewModel.Theme);
+        }
     }
 
     [Fact]

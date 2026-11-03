@@ -17,8 +17,23 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Image Source="{x:Bind ViewModel.CurrentImage, Mode=OneWay}" Stretch="Uniform"
-               AutomationProperties.Name="Slideshow photo" />
+        <Grid x:Name="ImageStage" Grid.Row="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Border x:Name="CinematicTopBar" Grid.Row="0" Height="32"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    Visibility="Collapsed" />
+            <Image x:Name="PreviousPhotoImage" Grid.Row="1" Stretch="Uniform"
+                   AutomationProperties.Name="Previous slideshow photo" />
+            <Image x:Name="CurrentPhotoImage" Grid.Row="1" Stretch="Uniform"
+                   AutomationProperties.Name="Slideshow photo" />
+            <Border x:Name="CinematicBottomBar" Grid.Row="2" Height="32"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    Visibility="Collapsed" />
+        </Grid>
         <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    TextWrapping="Wrap" Margin="24"
@@ -45,6 +60,9 @@
                         AutomationProperties.AutomationId="SlideshowPause" />
                 <Button Content="Next" Command="{x:Bind ViewModel.NextCommand}"
                         AutomationProperties.AutomationId="SlideshowNext" />
+                <TextBlock Text="{x:Bind ViewModel.ThemeName, Mode=OneTime}"
+                           VerticalAlignment="Center"
+                           AutomationProperties.Name="Slideshow theme" />
                 <NumberBox Value="{x:Bind ViewModel.IntervalSeconds, Mode=TwoWay}"
                            Header="Seconds per photo"
                            Minimum="1" Maximum="60" SmallChange="1"
