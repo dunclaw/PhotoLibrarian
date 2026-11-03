@@ -300,4 +300,80 @@
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
+  <data name="GridImportButton.Content" xml:space="preserve"><value>Import</value></data>
+  <data name="GridImportButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Import photos from a camera or card</value></data>
+  <data name="GridImportButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Copy photos and videos from a mounted camera or memory card</value></data>
+  <data name="PhotoImportDescription.Text" xml:space="preserve"><value>Import copies supported photos and videos from a mounted filesystem device's DCIM folder. MTP/PTP cameras shown only in File Explorer are not supported. Nothing is copied until you select items and start the import.</value></data>
+  <data name="PhotoImportSourceLabel.Text" xml:space="preserve"><value>Source</value></data>
+  <data name="PhotoImportSourceBox.PlaceholderText" xml:space="preserve"><value>Choose the mounted device root or its DCIM folder</value></data>
+  <data name="PhotoImportSourceBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Camera or card source folder</value></data>
+  <data name="PhotoImportSourceBrowseButton.Content" xml:space="preserve"><value>Browse…</value></data>
+  <data name="PhotoImportSourceBrowseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose camera or card source folder</value></data>
+  <data name="PhotoImportDestinationLabel.Text" xml:space="preserve"><value>Destination</value></data>
+  <data name="PhotoImportDestinationBox.PlaceholderText" xml:space="preserve"><value>Choose an existing library folder outside the source DCIM folder</value></data>
+  <data name="PhotoImportDestinationBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Import destination folder</value></data>
+  <data name="PhotoImportDestinationBrowseButton.Content" xml:space="preserve"><value>Browse…</value></data>
+  <data name="PhotoImportDestinationBrowseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose destination folder</value></data>
+  <data name="PhotoImportNamingLabel.Text" xml:space="preserve"><value>Name template</value></data>
+  <data name="PhotoImportNamingBox.PlaceholderText" xml:space="preserve"><value>{name}</value></data>
+  <data name="PhotoImportNamingBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Optional destination filename template</value></data>
+  <data name="PhotoImportNamingHelp.Text" xml:space="preserve"><value>Use {name}, {date}, {year}, {month}, {day}, or {counter}. Folder names use capture date (or file date); conflicts get a numbered suffix and are never overwritten.</value></data>
+  <data name="PhotoImportTagsLabel.Text" xml:space="preserve"><value>Import tags</value></data>
+  <data name="PhotoImportTagsBox.PlaceholderText" xml:space="preserve"><value>Comma-separated tags</value></data>
+  <data name="PhotoImportTagsBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Optional tags to add to imported copies</value></data>
+  <data name="PhotoImportDeleteSourceCheck.Content" xml:space="preserve"><value>After copying, offer to delete verified originals from the source device (off by default)</value></data>
+  <data name="PhotoImportDeleteSourceCheck.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Offer to delete verified originals from the source after import</value></data>
+  <data name="PhotoImportScanButton.Content" xml:space="preserve"><value>Scan DCIM</value></data>
+  <data name="PhotoImportSelectAllButton.Content" xml:space="preserve"><value>Select all</value></data>
+  <data name="PhotoImportSelectNoneButton.Content" xml:space="preserve"><value>Select none</value></data>
+  <data name="PhotoImportList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photos and videos found on the device; select items to import</value></data>
+  <data name="PhotoImportSelectionText.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Number of selected import items</value></data>
+  <data name="PhotoImportProgressBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo import progress</value></data>
+  <data name="PhotoImportStatusText.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo import status</value></data>
+  <data name="PhotoImportDialogTitle" xml:space="preserve"><value>Import from camera or card</value></data>
+  <data name="PhotoImportListItemName" xml:space="preserve"><value>{0} · {1:N0} bytes</value></data>
+  <data name="PhotoImportCaptureDate" xml:space="preserve"><value>Capture date: {0}</value></data>
+  <data name="PhotoImportFileDate" xml:space="preserve"><value>File date: {0}</value></data>
+  <data name="PhotoImportDestinationPreview" xml:space="preserve"><value>Destination: {0}</value></data>
+  <data name="PhotoImportTemplateInvalid" xml:space="preserve"><value>Invalid template. Use only {name}, {date}, {year}, {month}, {day}, and {counter}.</value></data>
+  <data name="PhotoImportNoSource" xml:space="preserve"><value>Choose the mounted device root or its DCIM folder.</value></data>
+  <data name="PhotoImportNoDestination" xml:space="preserve"><value>Choose an existing destination folder.</value></data>
+  <data name="PhotoImportScanning" xml:space="preserve"><value>Scanning DCIM…</value></data>
+  <data name="PhotoImportScanFound" xml:space="preserve"><value>Found {0:N0} supported item(s). Select the items to import.</value></data>
+  <data name="PhotoImportScanEmpty" xml:space="preserve"><value>No supported photos or videos were found in DCIM.</value></data>
+  <data name="PhotoImportScanWarnings" xml:space="preserve"><value>{0:N0} item(s) were skipped. {1}</value></data>
+  <data name="PhotoImportSelectionCount" xml:space="preserve"><value>{0:N0} of {1:N0} items selected</value></data>
+  <data name="PhotoImportStart" xml:space="preserve"><value>Import selected</value></data>
+  <data name="PhotoImportDone" xml:space="preserve"><value>Done</value></data>
+  <data name="PhotoImportCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PhotoImportClose" xml:space="preserve"><value>Close</value></data>
+  <data name="PhotoImportProgress" xml:space="preserve"><value>Copying {0} · {1:N0}% · {2:N0} of {3:N0} files</value></data>
+  <data name="PhotoImportProgressVerifying" xml:space="preserve"><value>Verifying {0} · {1:N0} of {2:N0} files</value></data>
+  <data name="PhotoImportCanceling" xml:space="preserve"><value>Canceling after the current file is safely completed…</value></data>
+  <data name="PhotoImportSummary" xml:space="preserve"><value>Imported {0:N0} item(s); {1:N0} failed.</value></data>
+  <data name="PhotoImportPickerFailed" xml:space="preserve"><value>Could not open the folder picker: {0}</value></data>
+  <data name="PhotoImportScanFailed" xml:space="preserve"><value>Could not scan the source: {0}</value></data>
+  <data name="PhotoImportNoScan" xml:space="preserve"><value>Scan DCIM before starting the import.</value></data>
+  <data name="PhotoImportNoSelection" xml:space="preserve"><value>Select at least one item to import.</value></data>
+  <data name="PhotoImportOperationFailed" xml:space="preserve"><value>Import could not start or complete: {0}</value></data>
+  <data name="PhotoImportCanceledSummary" xml:space="preserve"><value>Import canceled after {0:N0} completed item(s); remaining items were not copied.</value></data>
+  <data name="PhotoImportItemSucceeded" xml:space="preserve"><value>Imported to {0}</value></data>
+  <data name="PhotoImportItemFailed" xml:space="preserve"><value>Not imported: {0}</value></data>
+  <data name="PhotoImportRefreshFailed" xml:space="preserve"><value>Copies were indexed, but the library view could not refresh: {0}</value></data>
+  <data name="PhotoImportDeviceInfo.Title" xml:space="preserve"><value>Camera or memory card detected</value></data>
+  <data name="PhotoImportDeviceInfo.Message" xml:space="preserve"><value>A mounted device with a DCIM folder is available at {0}. Choose Import to review files; no files are copied automatically.</value></data>
+  <data name="PhotoImportDeviceButton.Content" xml:space="preserve"><value>Import</value></data>
+  <data name="PhotoImportDeviceButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Review photos from the detected device</value></data>
+  <data name="PhotoImportDeviceScanFailed" xml:space="preserve"><value>Could not check removable devices: {0}</value></data>
+  <data name="PhotoImportDeleteConfirmTitle" xml:space="preserve"><value>Delete verified originals from the source?</value></data>
+  <data name="PhotoImportDeleteConfirmContent" xml:space="preserve"><value>{0:N0} imported item(s) passed copy verification and were indexed. Deletion is permanent on most cameras and cards, not sent to the Recycle Bin. The source and destination will be checked again; changed, missing, or unverified files will be preserved.</value></data>
+  <data name="PhotoImportDeleteConfirmButton" xml:space="preserve"><value>Delete verified originals</value></data>
+  <data name="PhotoImportDeleteCanceled" xml:space="preserve"><value>Original files were left on the source.</value></data>
+  <data name="PhotoImportDeleteProgress" xml:space="preserve"><value>Rechecking source and destination for {0} ({1:N0} of {2:N0})…</value></data>
+  <data name="PhotoImportDeleteSummary" xml:space="preserve"><value>Deleted {0:N0} of {1:N0} source photo(s).</value></data>
+  <data name="PhotoImportDeleteResult" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="PhotoImportDeleteSourceUnchanged" xml:space="preserve"><value>Source was preserved because verification or deletion failed: {0}</value></data>
+  <data name="PhotoImportDeviceInfoMessage" xml:space="preserve"><value>A mounted device with a DCIM folder is available at {0}. Choose Import to review files; no files are copied automatically.</value></data>
+  <data name="PhotoImportDeleteResultTitle" xml:space="preserve"><value>Source cleanup results</value></data>
+  <data name="PhotoImportUnverifiedSource" xml:space="preserve"><value>The source was preserved because it could not be verified.</value></data>
 </root>

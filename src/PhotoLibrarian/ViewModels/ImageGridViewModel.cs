@@ -91,6 +91,8 @@ public partial class ImageGridViewModel : ObservableObject
     private DateTime _lastScrollReorder = DateTime.MinValue;
     private const int ScrollReorderThrottleMs = 150; // Don't reorder more than every 150ms
     private Task? _backgroundLoadTask;
+    private readonly HashSet<string> _revealedImportedPaths =
+        new(StringComparer.OrdinalIgnoreCase);
     
     // Limit concurrent thumbnail loading to prevent memory exhaustion
     internal static readonly SemaphoreSlim s_thumbnailLoadSemaphore = new(8, 8);
@@ -105,6 +107,13 @@ public partial class ImageGridViewModel : ObservableObject
 
     /// <summary>Keep a newly exported copy visible until the user changes the browsing filters.</summary>
     public void RevealExportedVideo(string path) => _revealedExportPath = path;
+
+    public void RevealImportedPhotos(IEnumerable<string> paths)
+    {
+        _revealedImportedPaths.Clear();
+        foreach (var path in paths)
+            _revealedImportedPaths.Add(Path.GetFullPath(path));
+    }
 
     public List<ImageEntry> GetViewerImages() =>
         DisplayedEntries.ToList();
@@ -218,6 +227,7 @@ public partial class ImageGridViewModel : ObservableObject
     {
         Cleanup();
         _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         _searchScope = [];
     }
     
@@ -259,6 +269,15 @@ public partial class ImageGridViewModel : ObservableObject
             if (exported is not null)
                 allImages.Add(exported);
         }
+        foreach (var importedPath in _revealedImportedPaths)
+        {
+            if (allImages.Any(image =>
+                    string.Equals(image.FilePath, importedPath, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            var imported = await _imageRepo.GetByPathAsync(importedPath);
+            if (imported is not null)
+                allImages.Add(imported);
+        }
         if (ct.IsCancellationRequested) return;
         var searchText = _searchText;
         var tagsByImageId = RequiresTagData
@@ -296,7 +315,7 @@ public partial class ImageGridViewModel : ObservableObject
         // If no filters active, show nothing
         if (!hasFolderFilter && !hasDateFilter && !hasPeopleFilter &&
             !hasTagFilter && !hasFlagFilter && !_currentNotTaggedSelected &&
-            _revealedExportPath is null)
+            _revealedExportPath is null && _revealedImportedPaths.Count == 0)
         {
             _searchScope = [];
             DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
@@ -432,6 +451,15 @@ public partial class ImageGridViewModel : ObservableObject
         if (revealed is not null && !displayedImages.Any(image =>
                 string.Equals(image.FilePath, revealed.FilePath, StringComparison.OrdinalIgnoreCase)))
             displayedImages = displayedImages.Append(revealed).ToList();
+        foreach (var importedPath in _revealedImportedPaths)
+        {
+            var imported = allImages.FirstOrDefault(image =>
+                string.Equals(image.FilePath, importedPath, StringComparison.OrdinalIgnoreCase));
+            if (imported is not null &&
+                !displayedImages.Any(image => string.Equals(
+                    image.FilePath, imported.FilePath, StringComparison.OrdinalIgnoreCase)))
+                displayedImages = displayedImages.Append(imported).ToList();
+        }
         foreach (var image in displayedImages)
         {
             previousImages.TryGetValue(image.FilePath, out var previous);
@@ -985,6 +1013,7 @@ public partial class ImageGridViewModel : ObservableObject
     public async Task FilterByFoldersAsync(List<string>? folderPaths)
     {
         _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         DebugLog.WriteLine($"FilterByFoldersAsync: folderPaths={{{(folderPaths != null ? string.Join(", ", folderPaths.Select(p => $"'{p}'")) : "null")}}}");
         
@@ -1030,6 +1059,7 @@ public partial class ImageGridViewModel : ObservableObject
         bool notTaggedSelected = false)
     {
         _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, people={personIds?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}, notTagged={notTaggedSelected}");
         
@@ -1064,6 +1094,7 @@ public partial class ImageGridViewModel : ObservableObject
     public async Task ApplyRefinementAsync(ImageRefinementFilter refinement)
     {
         _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         Refinement = refinement ?? ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));
         await LoadImagesAsync();
@@ -1379,6 +1410,7 @@ public partial class ImageGridViewModel : ObservableObject
     public async Task ApplySearchAsync(string text)
     {
         _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         _searchText = text;
         await LoadImagesAsync();
     }
@@ -1397,6 +1429,7 @@ public partial class ImageGridViewModel : ObservableObject
     private async Task ClearFilter()
     {
         _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         _currentFolderFilters = null;
         _currentDateRootSelected = false;
         _currentYearFilters = null;
