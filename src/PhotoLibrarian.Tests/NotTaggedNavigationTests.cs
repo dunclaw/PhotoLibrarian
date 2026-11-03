@@ -22,6 +22,13 @@ public sealed class NotTaggedNavigationTests : IAsyncLifetime
     {
         _database = new CacheDatabase(Path.Combine(_directory, "cache.db"));
         await _database.InitializeAsync();
+        using (var connection = _database.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO watched_folders(path) VALUES ($path)";
+            command.Parameters.AddWithValue("$path", _directory);
+            await command.ExecuteNonQueryAsync();
+        }
         _images = new ImageRepository(_database);
         _tags = new TagRepository(_database);
         _navigation = new NotTaggedNavigationViewModel(_tags);

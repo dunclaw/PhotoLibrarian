@@ -213,6 +213,13 @@ public partial class ImageGridViewModel : ObservableObject
             _queuedItems.Clear();
         }
     }
+
+    public void InvalidateWatchedFolders()
+    {
+        Cleanup();
+        _revealedExportPath = null;
+        _searchScope = [];
+    }
     
     public async Task LoadImagesAsync()
     {
@@ -244,7 +251,14 @@ public partial class ImageGridViewModel : ObservableObject
         }
 
         // Get all images from DB (we'll filter to union of all criteria)
-        var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending);
+        var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending, watchedOnly: true);
+        if (_revealedExportPath is { } exportPath &&
+            !allImages.Any(image => string.Equals(image.FilePath, exportPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            var exported = await _imageRepo.GetByPathAsync(exportPath);
+            if (exported is not null)
+                allImages.Add(exported);
+        }
         if (ct.IsCancellationRequested) return;
         var searchText = _searchText;
         var tagsByImageId = RequiresTagData
@@ -307,23 +321,6 @@ public partial class ImageGridViewModel : ObservableObject
         var folderFilters = _currentFolderFilters?.Select(f => 
             f.EndsWith(Path.DirectorySeparatorChar) ? f : f + Path.DirectorySeparatorChar
         ).ToList();
-
-        if (folderFilters is not null && folderFilters.Count > 0)
-        {
-            var staleEntries = await Task.Run(() => allImages
-                .Where(img => folderFilters.Any(f => img.FilePath.StartsWith(f, StringComparison.OrdinalIgnoreCase)) &&
-                              !File.Exists(img.FilePath))
-                .ToList(), ct);
-            if (ct.IsCancellationRequested) return;
-            if (staleEntries.Count > 0)
-            {
-                DebugLog.WriteLine($"LoadImagesAsync: Removing {staleEntries.Count} indexed entries whose files no longer exist");
-                var stalePaths = new HashSet<string>(staleEntries.Select(e => e.FilePath), StringComparer.OrdinalIgnoreCase);
-                allImages.RemoveAll(img => stalePaths.Contains(img.FilePath));
-                foreach (var stale in staleEntries)
-                    await _imageRepo.DeleteByPathAsync(stale.FilePath);
-            }
-        }
 
         DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {allImages.Count}, FolderFilters: {folderFilters?.Count ?? 0}, DateFilters: {hasDateFilter}, TagFilters: {hasTagFilter}");
         DebugLog.WriteLine(
@@ -462,6 +459,7 @@ public partial class ImageGridViewModel : ObservableObject
         // This ensures we show all images even if database is stale/incomplete
         if (!hasSearch && hasFolderFilter && folderFilters is not null)
         {
+            var watchedFolders = _main.FolderNav.RootFolders.ToList();
             // Get indexed file paths for quick lookup
             var indexedPaths = new HashSet<string>(allImages.Select(i => i.FilePath), StringComparer.OrdinalIgnoreCase);
             var initialCount = Images.Count;
@@ -482,7 +480,10 @@ public partial class ImageGridViewModel : ObservableObject
                     {
                         if (ct.IsCancellationRequested) break;
                         
-                        if (FolderScannerService.IsSupportedFile(filePath) && !indexedPaths.Contains(filePath))
+                        if (FolderScannerService.IsSupportedFile(filePath) &&
+                            !indexedPaths.Contains(filePath) &&
+                            watchedFolders.Any(root => WatchedFolderScope.ContainsFile(
+                                filePath, root.Path, root.IncludeSubfolders)))
                         {
                             result.Add(filePath);
                         }

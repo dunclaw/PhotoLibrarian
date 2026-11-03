@@ -1,6 +1,8 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.Data.Sqlite;
+using Microsoft.Windows.ApplicationModel.Resources;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
@@ -15,6 +17,9 @@ public partial class FolderNavigationViewModel : ObservableObject
     private readonly LibraryIndexingService _indexingService;
     private readonly MainViewModel _main;
     private CancellationTokenSource? _indexCts;
+    private readonly SemaphoreSlim _removeGate = new(1, 1);
+    private static readonly ResourceLoader Resources = new(
+        Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.pri"), "Resources");
 
     public ObservableCollection<FolderNode> RootFolders { get; } = [];
 
@@ -35,20 +40,17 @@ public partial class FolderNavigationViewModel : ObservableObject
 
     public async Task LoadWatchedFoldersAsync()
     {
+        var folders = await new WatchedFolderRepository(_db).GetAllAsync();
         RootFolders.Clear();
-        using var conn = _db.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, path, include_sub FROM watched_folders ORDER BY path";
-        using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        foreach (var folder in folders)
         {
-            var path = reader.GetString(1);
+            var path = folder.Path;
             var node = new FolderNode
             {
-                Id = reader.GetInt64(0),
+                Id = folder.Id,
                 Path = path,
                 Name = path, // Show full path for root folders
-                IncludeSubfolders = reader.GetInt64(2) == 1,
+                IncludeSubfolders = folder.IncludeSubfolders,
                 IsRootFolder = true
             };
             BuildChildNodes(node);
@@ -116,12 +118,13 @@ public partial class FolderNavigationViewModel : ObservableObject
         DebugLog.WriteLine($"AddFolderAsync: Starting background indexing for '{folder.Path}'");
         _indexCts?.Cancel();
         _indexCts = new CancellationTokenSource();
+        var ct = _indexCts.Token;
         _ = Task.Run(async () =>
         {
             try
             {
                 DebugLog.WriteLine($"AddFolderAsync [Background]: Calling IndexFolderAsync");
-                await _indexingService.IndexFolderAsync(folder.Path, true, _indexCts.Token);
+                await _indexingService.IndexFolderAsync(folder.Path, true, ct);
                 DebugLog.WriteLine($"AddFolderAsync [Background]: IndexFolderAsync completed");
                 App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
                 {
@@ -153,7 +156,8 @@ public partial class FolderNavigationViewModel : ObservableObject
             // This is a subfolder - find its root
             foreach (var root in RootFolders)
             {
-                if (SelectedFolder.Path.StartsWith(root.Path, StringComparison.OrdinalIgnoreCase))
+                if (WatchedFolderScope.ContainsFile(
+                    Path.Combine(SelectedFolder.Path, "_"), root.Path, root.IncludeSubfolders))
                 {
                     rootToRemove = root;
                     break;
@@ -163,23 +167,43 @@ public partial class FolderNavigationViewModel : ObservableObject
 
         if (rootToRemove is null || rootToRemove.Id <= 0) return;
 
-        using var conn = _db.CreateConnection();
+        await RemoveWatchedFolderAsync(rootToRemove);
+    }
 
-        // Remove images from this folder
-        using var delImages = conn.CreateCommand();
-        delImages.CommandText = "DELETE FROM images WHERE file_path LIKE $prefix || '%'";
-        delImages.Parameters.AddWithValue("$prefix", rootToRemove.Path);
-        await delImages.ExecuteNonQueryAsync();
-
-        // Remove watched folder
-        using var delFolder = conn.CreateCommand();
-        delFolder.CommandText = "DELETE FROM watched_folders WHERE id = $id";
-        delFolder.Parameters.AddWithValue("$id", rootToRemove.Id);
-        await delFolder.ExecuteNonQueryAsync();
-
-        _scanner.StopWatching(rootToRemove.Path);
-        await LoadWatchedFoldersAsync();
-        await _main.RefreshAfterIndexAsync();
+    public async Task RemoveWatchedFolderAsync(FolderNode folder)
+    {
+        await _removeGate.WaitAsync();
+        try
+        {
+            _main.PauseBackgroundIndexing();
+            await _main.PauseRecognitionForFolderChangeAsync();
+            _indexCts?.Cancel();
+            _main.ImageGrid.InvalidateWatchedFolders();
+            await new WatchedFolderRepository(_db).RemoveAsync(folder.Id);
+            _scanner.StopWatching(folder.Path);
+            if (SelectedFolder is not null &&
+                WatchedFolderScope.ContainsFile(
+                    Path.Combine(SelectedFolder.Path, "_"), folder.Path, true))
+                SelectedFolder = null;
+            await LoadWatchedFoldersAsync();
+            if (_main.ImageViewer.CurrentEntry is { } current &&
+                !RootFolders.Any(root => WatchedFolderScope.ContainsFile(
+                    current.FilePath, root.Path, root.IncludeSubfolders)))
+                _main.ImageViewer.CloseCommand.Execute(null);
+            await _main.RefreshAfterIndexAsync();
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"RemoveWatchedFolderAsync failed: {ex}");
+            _main.StatusText = string.Format(
+                System.Globalization.CultureInfo.CurrentCulture,
+                Resources.GetString("WatchedFolderUpdateFailed"), ex.Message);
+        }
+        finally
+        {
+            _main.ResumeRecognitionAfterFolderChange();
+            _removeGate.Release();
+        }
     }
 
     [RelayCommand]
@@ -188,6 +212,7 @@ public partial class FolderNavigationViewModel : ObservableObject
         DebugLog.WriteLine("RefreshAsync: Starting refresh");
         _indexCts?.Cancel();
         _indexCts = new CancellationTokenSource();
+        var ct = _indexCts.Token;
 
         foreach (var folder in RootFolders)
         {
@@ -197,7 +222,7 @@ public partial class FolderNavigationViewModel : ObservableObject
                 try
                 {
                     DebugLog.WriteLine($"RefreshAsync [Background]: Calling IndexFolderAsync for '{folder.Path}'");
-                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, _indexCts.Token);
+                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct);
                     DebugLog.WriteLine($"RefreshAsync [Background]: IndexFolderAsync completed for '{folder.Path}'");
                     App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
                     {

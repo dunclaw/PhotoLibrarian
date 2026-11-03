@@ -10,6 +10,43 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class LibraryIndexMaintenanceServiceTests
 {
+    [Fact]
+    public async Task Reconcile_RootRemovedBeforeCleanupRetainsMissingCachedRecords()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var library = await TestLibrary.CreateAsync(root);
+            await library.AddWatchedFolderAsync(root);
+            var path = Path.Combine(root, "photo.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            var image = (await library.Images.GetByPathAsync(path))!;
+            await SeedDatabaseOnlyStateAsync(library, image.Id);
+            File.Delete(path);
+            var progress = new InlineProgress<LibraryIndexMaintenanceProgress>(update =>
+            {
+                if (update.Stage != LibraryIndexMaintenanceStage.RemovingMissingFiles ||
+                    update.Current != 0)
+                    return;
+                var folders = new WatchedFolderRepository(library.Database);
+                var watched = folders.GetAllAsync().GetAwaiter().GetResult();
+                folders.RemoveAsync(Assert.Single(watched).Id).GetAwaiter().GetResult();
+            });
+
+            var result = await library.Maintenance.ReconcileAsync(progress);
+
+            Assert.True(result.Succeeded);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.Equal(image.Id, (await library.Images.GetByPathAsync(path))!.Id);
+            Assert.Single(await new TagRepository(library.Database).GetTagsAsync(image.Id));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("renamed.png")]
     [InlineData("moved\\photo.png")]

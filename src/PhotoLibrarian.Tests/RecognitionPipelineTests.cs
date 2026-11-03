@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ML.Services;
@@ -12,6 +14,26 @@ public sealed class RecognitionPipelineTests : IDisposable
         $"PhotoLibrarian-recognition-pipeline-{Guid.NewGuid():N}");
 
     public RecognitionPipelineTests() => Directory.CreateDirectory(_directory);
+
+    [Fact]
+    public async Task ProcessLibraryAsync_SkipsPhotosOutsideRemainingWatchRootsForBothStages()
+    {
+        var image = CreateImage(1);
+        var faceStore = new FakeFaceStore([image]);
+        var tagStore = new FakeTagStore([image]);
+        var decoder = new CountingDecoder();
+        var pipeline = CreatePipeline(faceStore, tagStore, new FakeDetector([]),
+            new FakeEmbedder([]), new FakeTagger([]), decoder, new CountingActivityGate());
+
+        var result = await pipeline.ProcessLibraryAsync(
+            CreateRequest() with { WatchedFolders = [] },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, decoder.DecodeCount);
+        Assert.Equal(0, result.Processed);
+        Assert.Empty(faceStore.Saved);
+        Assert.Empty(tagStore.Saved);
+    }
 
     [Fact]
     public async Task ProcessLibraryAsync_DecodesEachPhotoOnceAndSharesItAcrossStages()

@@ -40,7 +40,7 @@ public sealed class StabilizedVideoLibraryTests
         Assert.Equal("Portable caption", main.ImageViewer.CurrentEntry.Caption);
         Assert.Equal(copyPath, main.ImageViewer.VideoPath);
         Assert.Equal(copyPath, main.ImageGrid.SelectedImage!.Entry.FilePath);
-        Assert.Equal(2, main.TotalImages);
+        Assert.Equal(outsideFolder ? 1 : 2, main.TotalImages); // Library count excludes the temporary outside-root reveal.
         Assert.True(revealRequests > 0);
 
         // A watched-folder refresh and a sort must retain the copy even outside the current search.
@@ -194,6 +194,14 @@ public sealed class StabilizedVideoLibraryTests
         {
             var result = new LibraryFixture();
             await result._database.InitializeAsync();
+            using (var connection = result._database.CreateConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "INSERT INTO watched_folders(path) VALUES ($path)";
+                command.Parameters.AddWithValue("$path", result.Photos);
+                await command.ExecuteNonQueryAsync();
+            }
+            await result.Main.FolderNav.LoadWatchedFoldersAsync();
             await result.Main.PauseFaceDetectionAsync();
             return result;
         }

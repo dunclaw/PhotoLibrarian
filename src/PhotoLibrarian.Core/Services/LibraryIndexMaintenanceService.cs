@@ -238,7 +238,10 @@ public sealed class LibraryIndexMaintenanceService
                     cancellationToken.ThrowIfCancellationRequested();
                     var entry = removable[index];
                     // ID and path must still identify the scanned row, not a repaired move.
-                    command.CommandText = "DELETE FROM images WHERE id = $id AND file_path = $path";
+                    command.CommandText = """
+                        DELETE FROM images WHERE id = $id AND file_path = $path
+                        AND id IN (SELECT id FROM watched_images)
+                        """;
                     command.Parameters.Clear();
                     command.Parameters.AddWithValue("$id", entry.Id);
                     command.Parameters.AddWithValue("$path", entry.FilePath);
@@ -692,31 +695,7 @@ public sealed class LibraryIndexMaintenanceService
         string filePath,
         string folderPath,
         bool includeSubfolders)
-    {
-        var root = Path.TrimEndingDirectorySeparator(folderPath);
-        var parent = Path.GetDirectoryName(filePath);
-        if (parent is null)
-        {
-            return false;
-        }
-
-        if (string.Equals(parent, root, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (!includeSubfolders)
-        {
-            return false;
-        }
-
-        var relativePath = Path.GetRelativePath(root, filePath);
-        return !Path.IsPathRooted(relativePath) &&
-            relativePath != ".." &&
-            !relativePath.StartsWith(
-                $"..{Path.DirectorySeparatorChar}",
-                StringComparison.OrdinalIgnoreCase);
-    }
+        => WatchedFolderScope.ContainsFile(filePath, folderPath, includeSubfolders);
 
     private static bool IsRootFolder(string directory, string root) =>
         string.Equals(
