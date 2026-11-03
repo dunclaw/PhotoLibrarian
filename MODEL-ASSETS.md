@@ -10,7 +10,7 @@ local storage. Photos and generated tags remain on-device.
 ## Azure distribution status
 
 The application manifest downloader and release/deployment tooling use Azure
-Blob Storage in **East US 2**, Hot LRS. Direct Blob HTTPS avoids CDN/Front Door
+Blob Storage in **West US 2**, Hot LRS. Direct Blob HTTPS avoids CDN/Front Door
 minimums and extra egress charges for the current low-volume distribution
 channel. The public container is read-only to anonymous clients; publishing
 uses GitHub Actions OIDC and Azure role assignment, with storage account keys
@@ -20,19 +20,32 @@ access. The publisher role is scoped to the blob container and excludes blob
 deletion. The release script refuses to overwrite an existing versioned blob;
 Azure Blob versioning remains available for operator recovery.
 
-The operator reports creating the role and storage account in
-`rg_photo_librarian` / West US 2; live deployment verification and publication
-remain on hold. RAM++ now has a locally verified reproducible bundle at
+The deployed resource group is `rg_photo_librarian`; the verified storage
+account is `photolibrarianassets`. The production GitHub OIDC subject uses
+immutable owner/repository IDs and is scoped to the `model-assets-production`
+environment. The production environment permits deployments only from
+`master`. The publisher service principal has only the custom
+blob read/write role at the `model-assets` container, with deletion explicitly
+excluded. RAM++ has a locally verified reproducible bundle at
 `D:\Models\PhotoLibrarian\RAM-Plus\reproducible-20261031\release-bundle`.
 Its exact model/labels identity matches the catalog, and provenance and CPU/
 DirectML report fingerprints are pinned under `reviewEvidence`. TinyCLIP's
 unchanged calibrated model and embedding bundle have also been reproduced,
 under `D:\Models\PhotoLibrarian\TinyCLIP\reproducible-20261031\release-bundle`.
 Both profiles have version-pinned Settings download support and verified
-local import fallback. Neither manifest has been published by this workstream:
-both publication flags stay disabled while the operator's cloud-write hold
-is in effect. Release evidence checks are automated internal steps of #68,
-not separate user approval milestones or replacement model versions.
+local import fallback. Both immutable Azure manifests, assets, and required
+notices are now publicly available:
+
+- RAM++ manifest: <https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/ram-plus.swin-large-14m/ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3.json>
+- TinyCLIP manifest: <https://photolibrarianassets.blob.core.windows.net/model-assets/manifests/tinyclip.vit-40m-32.int8/tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3.json>
+
+The exact profile assets, notices, public manifest GETs and content lengths
+were verified after publication. The `model-assets-20261031` GitHub release
+contains only the two exact allowlisted deployment archives; no raw reports,
+source caches, environments, checkpoints or validation images are included.
+The profile release gates are enabled alongside the reviewed evidence
+fingerprints. These are release controls for the single Settings-installation
+feature, not separate user-facing readiness milestones.
 
 ### Provisioning
 
@@ -40,33 +53,36 @@ The default storage account name is `photolibrarianassets`; storage names are
 globally unique. If it is unavailable, choose another valid name and update
 `ModelAssetBaseUri` in `AutoTagModelCatalog.cs` and each profile's `manifestUri`
 in `tools\ModelAssets\release-profiles.json` before shipping an app build.
-Create a dedicated resource group and deploy the storage account/container:
+For a new deployment, create the dedicated resource group and deploy the
+storage account/container:
 
 ```powershell
-az group create --name photolibrarian-model-assets --location eastus2
+az group create --name rg_photo_librarian --location westus2
 $publisherRoleId = az deployment sub create `
-  --location eastus2 `
+  --location westus2 `
   --template-file infra\azure\model-assets-publisher-role.bicep `
   --query properties.outputs.roleDefinitionId.value `
   --output tsv
 if ($LASTEXITCODE -ne 0) { throw 'Publisher role deployment failed.' }
 az deployment group create `
-  --resource-group photolibrarian-model-assets `
+  --resource-group rg_photo_librarian `
   --template-file infra\azure\model-assets.bicep `
   --parameters storageAccountName=photolibrarianassets `
     publisherRoleDefinitionId=$publisherRoleId `
     publisherPrincipalObjectId=<github-actions-service-principal-object-id>
 az deployment sub create `
-  --location eastus2 `
+  --location westus2 `
   --template-file infra\azure\model-assets-budget.bicep `
-  --parameters resourceGroupName=photolibrarian-model-assets `
+  --parameters resourceGroupName=rg_photo_librarian `
     alertEmail=<cost-alert-email> monthlyBudgetUsd=25
 ```
 
-Configure a GitHub Actions environment named `model-assets-production`, with
-required reviewers, and create an Azure federated identity credential for the
+Configure a GitHub Actions environment named `model-assets-production` and
+create an Azure federated identity credential for the immutable repository
 subject
-`repo:dunclaw/PhotoLibrarian:environment:model-assets-production`. The storage
+`repo:<owner>@<owner-id>/PhotoLibrarian@<repository-id>:environment:model-assets-production`.
+Set the repository OIDC customization to use immutable subjects and include
+the `repo` and `context` claim keys. The storage
 deployment assigns the publisher service principal the custom
 `PhotoLibrarian Model Asset Publisher` role on the `model-assets` container;
 it permits blob reads and writes but not deletion. Do not grant the broader
@@ -77,7 +93,7 @@ secret or storage key is needed.
 
 ### Preparing and publishing a release
 
-Run the read-only readiness check even while `publicationReady=false`:
+Run the read-only readiness check before building a release:
 
 ```powershell
 .\tools\ModelAssets\Test-ModelAssetRelease.ps1 `
@@ -104,13 +120,13 @@ profile identity and URLs; it does not fetch or rerun local reports. The
 receipt is a reviewer-controlled binding, not a cryptographic attestation
 that an arbitrary manifest author executed the validator.
 
-**Remaining external action:** authorize resuming Azure verification and
-publication once, then enable the relevant publication flags as part of that
-release operation. Normal code review and the production environment's
-deployment approval still apply; no separate artifact/readiness issues or
-repeated evidence approvals are required. Do not regenerate fingerprints to
-accommodate changed artifacts. While the hold remains, builder and publisher
-fail before writing or uploading release output.
+The exact RAM++ and TinyCLIP release profiles passed their evidence gates and
+were published through the GitHub Actions OIDC publisher. The two manifests
+above are live. The production environment is restricted to `master`, so
+publisher jobs cannot run from pull-request branches. Do not regenerate
+fingerprints to accommodate changed artifacts; any future model change needs
+a separately versioned profile and the same review, release validation, and
+deployment process.
 
 Export assets outside the repository and validate them with the profile's
 documented exporter/parity tests. The release builder refuses unexpected hashes
@@ -140,12 +156,14 @@ Compress-Archive -LiteralPath $publicFiles `
   -DestinationPath (Join-Path (Split-Path $bundle -Parent) "$profile-bundle.zip")
 ```
 
-Run the preparation commands only after the reviewed gate change, from a
-clean committed checkout. The six-file public archive/upload allowlist
-excludes exporter provenance and both raw parity reports. Those are local
-review evidence; reports contain absolute developer image paths and must not
-be attached raw to a public release. Never recursively package the durable
-parent's checkpoints, package caches, environments or validation images.
+Run the preparation commands for new profiles only after the relevant reviewed
+gate change, from a clean committed checkout. Each profile's public
+archive/upload allowlist contains only runtime assets, required notices, and
+the cloud manifest; it excludes exporter provenance and both raw parity
+reports. Those are local review evidence; reports contain absolute developer
+image paths and must not be attached raw to a public release. Never recursively
+package the durable parent's checkpoints, package caches, environments or
+validation images.
 
 Attach `<profile-id>-bundle.zip` to a reviewed GitHub release. Then dispatch
 **Publish model asset release** against that release tag/profile. The workflow
@@ -159,7 +177,7 @@ can be canceled, and verified local import remains an offline fallback.
 
 ### Cost, monitoring, and rollback
 
-Use East US 2 Hot LRS and no CDN until observed volume justifies it. The Azure
+Use West US 2 Hot LRS and no CDN until observed volume justifies it. The Azure
 Retail Prices API (`https://prices.azure.com/api/retail/prices`), checked
 2026-10-23, lists Hot LRS capacity at about **$0.0184/GB-month** and standard
 internet egress at **$0.087/GB after the first 100 GB/month free allowance**.
@@ -168,8 +186,10 @@ storage is about **$0.04/month**. One hundred full installs per month would
 transfer about 195 GB; estimated egress is about **$8.30/month** after the
 allowance. Transaction charges, taxes, discounts, and price changes are not
 included; use the Azure Pricing Calculator before rollout. The subscription
-budget template alerts the configured address at 50%, 80%, 100%, and forecast
-100% of a **$25/month** resource-group budget.
+budget template supports actual-spend alerts at 50%, 80% and 100%, plus a 100%
+forecast alert, for a **$25/month** resource-group budget. The deployed budget
+is $25/month with a 50% forecast notification; the template's actual-spend
+thresholds are not present in the live budget configuration.
 
 Azure Monitor's aggregate Blob service metrics (availability, transactions,
 ingress/egress) provide basic service/download telemetry without enabling
@@ -358,7 +378,7 @@ depend on Python.
 
 ### Reproduced release bundle, 2026-10-31
 
-The durable, **review-ready but not published** bundle is outside Git at
+The durable, independently reproduced and now-published bundle is outside Git at
 `D:\Models\PhotoLibrarian\RAM-Plus\reproducible-20261031\release-bundle`.
 Its parent retains two independently created export environments, the
 SHA-256-verified package cache, a freshly downloaded verified upstream source,
@@ -400,10 +420,9 @@ ONNX and CUDA packages are unnecessary; the locked stable CPU build reproduces
 the exact bytes.
 
 No catalog hash/version substitution or recalibration is needed because the
-authoritative model is unchanged. This bundle supplies the artifact/provenance
-prerequisite for the reviewed Azure release path. Publication still requires its
-own review and deployment approval; this work does not enable release gates,
-provision Azure resources or authorize publishing. TinyCLIP remains out of scope.
+authoritative model is unchanged. This bundle supplied the artifact/provenance
+evidence for the live Azure release. The release-gate and publisher changes
+are recorded in the follow-up code review.
 
 The upstream
 [`recognize-anything-plus-model`](https://huggingface.co/xinyu1205/recognize-anything-plus-model)

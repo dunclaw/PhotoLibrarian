@@ -3,8 +3,7 @@
   "profiles": [
     {
       "profileId": "tinyclip.vit-40m-32.int8",
-      "publicationReady": false,
-      "blockedReason": "Exact calibrated TinyCLIP assets have been reproduced; cloud publication remains on hold.",
+      "publicationReady": true,
       "reviewEvidence": {
         "provenanceSha256": "013DEACD7099CDFF207DAE078FC4AC3647BDAAFF31E229C47AA6D17B94DAE43E",
         "referenceSha256": "31583B1BE941B89C53F23317DC0E9BE705A7C1AF4586D9436625638617BA7C7A",
@@ -42,8 +41,7 @@
     },
     {
       "profileId": "ram-plus.swin-large-14m",
-      "publicationReady": false,
-      "blockedReason": "Verified RAM++ artifacts and evidence are available; publication requires a reviewed readiness change and separate deployment approval.",
+      "publicationReady": true,
       "reviewEvidence": {
         "provenanceSha256": "1D49785E2E8B2A140386D94B23D9F1B44B777E5738904285C0EEBA803CE88C1C",
         "checkpointSha256": "497C178836BA66698CA226C7895317E6E800034BE986452DBD2593298D50E87D",

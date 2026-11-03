@@ -29,6 +29,23 @@ function Expect-Rejection {
 
 try {
     Reset-Fixture
+    Assert-ModelSourceRevisionSet $profile.sourceRevisions $profile.sourceRevisions
+    $count++
+    foreach ($case in @(
+        @{ Name = 'missing source revision'; Value = [pscustomobject]@{} },
+        @{ Name = 'extra source revision'; Value = [pscustomobject]@{ extra = 'revision' } },
+        @{ Name = 'incorrect source revision'; Value = [pscustomobject]@{
+            'wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M' = 'wrong'
+            'onnx-community/TinyCLIP-ViT-40M-32-Text-19M-LAION400M-ONNX' = '737108a175dc6c043d9e64cf738baa91a272f7cb'
+        } }
+    )) {
+        $rejected = $false
+        try { Assert-ModelSourceRevisionSet $case.Value $profile.sourceRevisions }
+        catch { $rejected = $true }
+        if (-not $rejected) { throw "Unexpectedly accepted $($case.Name)" }
+        $count++
+        Write-Output "PASS rejection: $($case.Name)"
+    }
     Test-TinyClipReleaseEvidence $root $profile
     $count++
     Expect-Rejection 'missing model' { Remove-Item -LiteralPath (Join-Path $root $profile.assets[0].fileName) }
