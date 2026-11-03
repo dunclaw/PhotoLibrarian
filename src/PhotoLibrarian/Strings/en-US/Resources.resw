@@ -300,4 +300,10 @@
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
+  <data name="PhotoViewer.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Photo viewer</value>
+  </data>
+  <data name="PhotoViewer.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve">
+    <value>Use Left and Right to browse photos. Tab moves to viewer controls and the ribbon.</value>
+  </data>
 </root>

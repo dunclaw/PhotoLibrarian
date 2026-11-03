@@ -721,7 +721,24 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (!ShouldHandleShortcut(e.Key, IsInteractiveControl(e.OriginalSource as DependencyObject),
+            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging))
+            return;
         if (HandleViewerKey(e.Key)) e.Handled = true;
+    }
+
+    internal static bool ShouldHandleShortcut(
+        Windows.System.VirtualKey key, bool isInteractiveControl, bool isEditingMode)
+    {
+        // Child controls own their input; the viewer only keeps Escape as a way out.
+        if (isInteractiveControl) return key == Windows.System.VirtualKey.Escape;
+        if (isEditingMode)
+            return key is Windows.System.VirtualKey.Escape or Windows.System.VirtualKey.Enter
+                or Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right;
+        return key is Windows.System.VirtualKey.Escape
+            or Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right
+            or Windows.System.VirtualKey.Add or Windows.System.VirtualKey.Subtract
+            or Windows.System.VirtualKey.A or Windows.System.VirtualKey.I or Windows.System.VirtualKey.F;
     }
 
     /// <summary>
@@ -730,6 +747,9 @@ public sealed partial class ImageViewerOverlay : UserControl
     /// </summary>
     public bool HandleViewerKey(Windows.System.VirtualKey key)
     {
+        if (!ShouldHandleShortcut(key, false,
+            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging))
+            return false;
         if (ViewModel is null) return false;
 
         if (key is Windows.System.VirtualKey.A or Windows.System.VirtualKey.I &&
