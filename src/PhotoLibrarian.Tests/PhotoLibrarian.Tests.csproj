@@ -43,6 +43,9 @@
     <None Include="..\PhotoLibrarian\Views\MetadataPanel.xaml"
           Link="TestAssets\MetadataPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\SidecarMigrationPanel.xaml"
+          Link="TestAssets\SidecarMigrationPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\FolderNavigationPanel.xaml"
           Link="TestAssets\FolderNavigationPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />

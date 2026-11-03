@@ -592,11 +592,11 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static bool TryWriteEmbedded(string imagePath, string xmp)
+    internal static bool TryWriteEmbedded(string imagePath, string xmp, string? formatExtension = null)
     {
         if (!File.Exists(imagePath)) return false;
 
-        return Path.GetExtension(imagePath).ToLowerInvariant() switch
+        return (formatExtension ?? Path.GetExtension(imagePath)).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" or ".jpe" or ".jfif" =>
                 TryWriteJpegXmp(imagePath, xmp),
