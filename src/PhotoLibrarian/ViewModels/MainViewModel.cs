@@ -6,6 +6,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -1197,6 +1198,18 @@ public partial class MainViewModel : ObservableObject
         if (await _imageRepo.GetByPathAsync(path) is null)
             throw new InvalidOperationException($"The derivative at '{path}' could not be added to the library.");
         await RefreshAfterIndexAsync();
+    }
+
+    public async Task IndexPanoramaAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var entry = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException(
+                $"The panorama at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedImage(entry.FilePath);
+        await RefreshAfterIndexAsync();
+        ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
+        StatusText = PanoramaStrings.Format("PanoramaCreatedStatus", entry.FileName);
     }
 
     public async Task OpenStabilizedVideoAsync(string path)

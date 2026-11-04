@@ -103,8 +103,10 @@ public partial class ImageGridViewModel : ObservableObject
     public event EventHandler? ResultsChanged;
     public event EventHandler? SelectionRestoreRequested;
 
-    /// <summary>Keep a newly exported copy visible until the user changes the browsing filters.</summary>
-    public void RevealExportedVideo(string path) => _revealedExportPath = path;
+    /// <summary>Keep a newly exported item visible until the user changes the browsing filters.</summary>
+    public void RevealExportedImage(string path) => _revealedExportPath = path;
+
+    public void RevealExportedVideo(string path) => RevealExportedImage(path);
 
     public List<ImageEntry> GetViewerImages() =>
         DisplayedEntries.ToList();

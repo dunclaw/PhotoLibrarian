@@ -14,6 +14,43 @@ public sealed class StabilizedVideoLibraryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task PanoramaIsIndexedOpenedAndSelectedInTheGrid(bool filtered)
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var main = library.Main;
+        var original = await library.AddVideoAsync("original.mp4");
+        await main.ImageGrid.FilterByFolderAsync(library.Photos);
+        if (filtered)
+            await main.ImageGrid.ApplySearchAsync("onlyoriginal");
+        var path = Path.Combine(library.Photos, "original - Panorama.jpg");
+        await WicTestImage.CreateAsync(path, 120, 120, jpeg: true);
+
+        await main.IndexPanoramaAsync(path);
+
+        var indexed = await library.Images.GetByPathAsync(path);
+        Assert.NotNull(indexed);
+        Assert.True(indexed.Id > 0);
+        Assert.True(main.ImageViewer.IsOpen);
+        Assert.False(main.ImageViewer.IsVideo);
+        Assert.Equal(indexed.Id, main.ImageViewer.CurrentEntry!.Id);
+        Assert.Equal(path, main.ImageGrid.SelectedImage!.Entry.FilePath);
+        Assert.Equal(path, main.MetadataPanel.FilePath);
+        Assert.Contains(main.ImageGrid.DisplayedEntries, entry => entry.FilePath == path);
+        await main.RefreshAfterIndexAsync();
+        Assert.Equal(path, main.ImageViewer.CurrentEntry!.FilePath);
+        main.ImageViewer.CloseCommand.Execute(null);
+        Assert.Equal(path, Assert.Single(main.ImageGrid.SelectedImages).Entry.FilePath);
+        Assert.Equal("original", File.ReadAllText(original.FilePath));
+        if (filtered)
+        {
+            await main.ImageGrid.ApplySearchAsync("no-matching-file");
+            Assert.Empty(main.ImageGrid.Images);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task CopyIsIndexedRevealedAndSelectedAfterViewerCloses(bool outsideFolder)
     {
         await using var library = await LibraryFixture.CreateAsync();
