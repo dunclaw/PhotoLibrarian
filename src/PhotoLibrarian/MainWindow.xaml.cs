@@ -347,6 +347,7 @@ public sealed partial class MainWindow : Window
 
         // Top-ribbon events
         TopRibbon.CropClicked += OnRibbonCropClicked;
+        TopRibbon.EditVideoClicked += OnEditVideo;
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
