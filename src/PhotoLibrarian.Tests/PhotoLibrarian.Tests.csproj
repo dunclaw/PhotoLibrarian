@@ -61,6 +61,9 @@
     <None Include="..\PhotoLibrarian\Views\VideoStabilizationDialog.xaml"
           Link="TestAssets\VideoStabilizationDialog.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\VideoEditDialog.xaml"
+          Link="TestAssets\VideoEditDialog.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
