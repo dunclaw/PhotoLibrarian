@@ -123,12 +123,26 @@
             <views:DuplicateReviewView />
         </Border>
 
-        <InfoBar x:Name="MetadataFallbackInfoBar"
-                 AutomationProperties.AutomationId="MetadataFallbackInfoBar"
-                 Grid.Row="2"
-                 Severity="Warning"
-                 Title="Metadata saved outside the image"
-                 IsOpen="False" />
+        <StackPanel Grid.Row="2" Spacing="4">
+            <InfoBar x:Name="MetadataFallbackInfoBar"
+                     AutomationProperties.AutomationId="MetadataFallbackInfoBar"
+                     Severity="Warning"
+                     Title="Metadata saved outside the image"
+                     IsOpen="False" />
+            <InfoBar x:Name="ImportDeviceInfoBar"
+                     x:Uid="PhotoImportDeviceInfo"
+                     AutomationProperties.AutomationId="PhotoImportDeviceInfoBar"
+                     Severity="Informational"
+                     IsOpen="False"
+                     IsClosable="False">
+                <InfoBar.ActionButton>
+                    <Button x:Name="ImportDeviceButton"
+                            x:Uid="PhotoImportDeviceButton"
+                            AutomationProperties.AutomationId="PhotoImportDetectedDevice"
+                            Click="OnImportDetectedDeviceClick" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+        </StackPanel>
 
         <!-- Status bar -->
         <Grid Grid.Row="3" Padding="12,6"

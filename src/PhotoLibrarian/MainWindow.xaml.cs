@@ -26,6 +26,9 @@ public sealed partial class MainWindow : Window
     private Control? _slideshowReturnFocus;
     private double _slideshowIntervalSeconds = 5;
     private PhotoPrintSession? _printSession;
+    private RemovableVolumeMonitor? _removableVolumeMonitor;
+    private readonly Queue<string> _detectedDeviceRoots = new();
+    private string? _pendingDetectedDeviceRoot;
 
     private async void OnPrintPhotosInvoked(
         KeyboardAccelerator sender,
@@ -354,6 +357,7 @@ public sealed partial class MainWindow : Window
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
+        ImageGridPanel.ImportRequested += OnImportRequested;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
@@ -379,6 +383,125 @@ public sealed partial class MainWindow : Window
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;
+        _removableVolumeMonitor = new RemovableVolumeMonitor();
+        _removableVolumeMonitor.DeviceInserted += OnRemovableDeviceInserted;
+        _removableVolumeMonitor.ScanFailed += OnRemovableDeviceScanFailed;
+        _removableVolumeMonitor.Start();
+    }
+
+    private void OnRemovableDeviceInserted(object? sender, string sourceRoot)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosing) return;
+            _detectedDeviceRoots.Enqueue(sourceRoot);
+            ShowNextDetectedDevice();
+        });
+    }
+
+    private void OnRemovableDeviceScanFailed(object? sender, Exception exception)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_isClosing)
+                ViewModel.StatusText = PhotoImportStrings.Format(
+                    "PhotoImportDeviceScanFailed", exception.Message);
+        });
+    }
+
+    private void ShowNextDetectedDevice()
+    {
+        if (_isClosing || _pendingDetectedDeviceRoot is not null ||
+            _detectedDeviceRoots.Count == 0)
+            return;
+
+        _pendingDetectedDeviceRoot = _detectedDeviceRoots.Dequeue();
+        ImportDeviceInfoBar.Message = PhotoImportStrings.Format(
+            "PhotoImportDeviceInfoMessage",
+            _pendingDetectedDeviceRoot);
+        ImportDeviceInfoBar.IsOpen = true;
+    }
+
+    private async void OnImportDetectedDeviceClick(object sender, RoutedEventArgs e)
+    {
+        var sourceRoot = _pendingDetectedDeviceRoot;
+        _pendingDetectedDeviceRoot = null;
+        ImportDeviceInfoBar.IsOpen = false;
+        if (sourceRoot is not null)
+            await ShowPhotoImportDialogAsync(sourceRoot);
+        ShowNextDetectedDevice();
+    }
+
+    private async void OnImportRequested(object sender, RoutedEventArgs e) =>
+        await ShowPhotoImportDialogAsync();
+
+    private async Task ShowPhotoImportDialogAsync(string? sourceRoot = null)
+    {
+        var destinationRoot = ViewModel.FolderNav.RootFolders.FirstOrDefault()?.Path;
+        var dialog = new PhotoImportDialog(ViewModel, sourceRoot, destinationRoot)
+        {
+            XamlRoot = AppRoot.XamlRoot
+        };
+        await dialog.ShowAsync();
+
+        if (dialog.Outcome is not { } result ||
+            !dialog.DeleteSourceRequested ||
+            result.SuccessfulItems.Count == 0)
+            return;
+
+        var confirmation = new ContentDialog
+        {
+            XamlRoot = AppRoot.XamlRoot,
+            Title = PhotoImportStrings.Get("PhotoImportDeleteConfirmTitle"),
+            Content = PhotoImportStrings.Format(
+                "PhotoImportDeleteConfirmContent",
+                result.SuccessfulItems.Count),
+            PrimaryButtonText = PhotoImportStrings.Get("PhotoImportDeleteConfirmButton"),
+            CloseButtonText = PhotoImportStrings.Get("PhotoImportCancel"),
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+        {
+            ViewModel.StatusText = PhotoImportStrings.Get("PhotoImportDeleteCanceled");
+            return;
+        }
+
+        var progress = new Progress<PhotoImportProgress>(update =>
+        {
+            ViewModel.StatusText = PhotoImportStrings.Format(
+                "PhotoImportDeleteProgress",
+                update.CurrentFileName,
+                update.FilesCompleted + 1,
+                update.FilesTotal);
+        });
+        var deletionResults = await Task.Run(
+            () => ViewModel.PhotoImport.DeleteVerifiedSourcesAsync(
+                result.SuccessfulItems,
+                progress));
+        var deletedCount = deletionResults.Count(item => item.Deleted);
+        var summary = PhotoImportStrings.Format(
+            "PhotoImportDeleteSummary",
+            deletedCount,
+            deletionResults.Count);
+        var errors = deletionResults
+            .Where(item => !item.Deleted || item.Error is not null)
+            .Select(item => PhotoImportStrings.Format(
+                "PhotoImportDeleteResult",
+                Path.GetFileName(item.SourcePath),
+                item.Error ?? PhotoImportStrings.Get("PhotoImportUnverifiedSource")))
+            .ToList();
+        ViewModel.StatusText = summary;
+
+        var resultDialog = new ContentDialog
+        {
+            XamlRoot = AppRoot.XamlRoot,
+            Title = PhotoImportStrings.Get("PhotoImportDeleteResultTitle"),
+            Content = errors.Count == 0
+                ? summary
+                : $"{summary}{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, errors)}",
+            CloseButtonText = PhotoImportStrings.Get("PhotoImportClose")
+        };
+        await resultDialog.ShowAsync();
     }
 
     private void OnMetadataSidecarFallback(object? sender, MetadataWriteFallbackEventArgs e)
@@ -562,6 +685,8 @@ public sealed partial class MainWindow : Window
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
         _isClosing = true;
+        _removableVolumeMonitor?.Dispose();
+        _removableVolumeMonitor = null;
         FolderNavPanel.SaveState();
         _slideshow?.Close();
         _printSession?.Dispose();
