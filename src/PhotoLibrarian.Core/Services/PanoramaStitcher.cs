@@ -16,70 +16,58 @@ internal static class PanoramaStitcher
         string secondPath,
         IProgress<PanoramaStitchProgress>? progress,
         CancellationToken cancellationToken)
+        => Stitch([first, second], [firstPath, secondPath], progress, cancellationToken);
+
+    internal static PanoramaStitchResult Stitch(
+        IReadOnlyList<WindowsImagingCodec.DecodedImage> images,
+        IReadOnlyList<string> paths,
+        IProgress<PanoramaStitchProgress>? progress,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        progress?.Report(new("Finding image features", 25));
-        var firstFeatures = FeatureExtractor.Detect(first, cancellationToken);
-        var secondFeatures = FeatureExtractor.Detect(second, cancellationToken);
-        if (firstFeatures.Features.Count < MinimumInliers ||
-            secondFeatures.Features.Count < MinimumInliers)
-            throw new InvalidDataException("These photos do not contain enough distinct detail to align safely.");
+        if (images.Count < 2 || images.Count > PanoramaStitchingService.MaximumSourceCount ||
+            images.Count != paths.Count)
+            throw new ArgumentException("Supply 2 to 64 photos and a source path for each.");
+        long decodedPixels = 0;
+        var features = new FeatureSet[images.Count];
+        for (var index = 0; index < images.Count; index++)
+        {
+            var image = images[index];
+            decodedPixels += (long)image.Width * image.Height;
+            if (image.Width < 32 || image.Height < 32 ||
+                image.Pixels.LongLength != (long)image.Width * image.Height * 4 ||
+                decodedPixels > PanoramaStitchingService.MaximumDecodedPixels)
+                throw new InvalidDataException("The selected photos exceed the decoded memory limit or have invalid dimensions.");
+            progress?.Report(new("Finding image features", 15 + index * 10 / images.Count));
+            features[index] = FeatureExtractor.Detect(image, cancellationToken);
+            if (features[index].Features.Count < MinimumInliers)
+                throw new InvalidDataException($"'{Path.GetFileName(paths[index])}' has too little distinct detail to align safely.");
+        }
 
-        progress?.Report(new("Matching overlapping detail", 42));
-        var matches = MatchFeatures(firstFeatures.Features, secondFeatures.Features);
-        if (matches.Count < MinimumInliers)
-            throw new InvalidDataException("No reliable overlap was found. Choose two photos with a clear shared area.");
-
-        progress?.Report(new("Checking alignment", 54));
-        var homography = FindHomography(
-            matches, firstFeatures, secondFeatures, cancellationToken);
-        if (homography.Inliers.Count < MinimumInliers ||
-            (double)homography.Inliers.Count / matches.Count < 0.2)
-            throw new InvalidDataException("The photos could not be aligned with enough confidence.");
-        if (HasCompetingAlignment(
-                matches,
-                homography,
-                firstFeatures,
-                secondFeatures,
-                cancellationToken))
-            throw new InvalidDataException(
-                "Different parts of the scene suggest incompatible alignments. This can happen with strong parallax or moving subjects.");
-        EnsureInlierCoverage(homography.Inliers, matches, firstFeatures, secondFeatures);
-
-        var projected = ProjectSecondCorners(
-            homography.Matrix,
-            (int)second.Width,
-            (int)second.Height,
-            (int)first.Width,
-            (int)first.Height);
-        var minX = Math.Min(0, projected.Min(point => point.X));
-        var minY = Math.Min(0, projected.Min(point => point.Y));
-        var maxX = Math.Max(first.Width - 1, projected.Max(point => point.X));
-        var maxY = Math.Max(first.Height - 1, projected.Max(point => point.Y));
-        if (!double.IsFinite(minX) || !double.IsFinite(minY) ||
-            !double.IsFinite(maxX) || !double.IsFinite(maxY))
-            throw new InvalidDataException("The alignment produced invalid image bounds.");
-        if (maxX - minX > 6400 || maxY - minY > 6400)
-            throw new InvalidDataException("The alignment would create an excessively stretched panorama.");
-
-        var canvasWidth = checked((int)Math.Ceiling(maxX - minX + 1));
-        var canvasHeight = checked((int)Math.Ceiling(maxY - minY + 1));
-        var canvasPixels = checked((long)canvasWidth * canvasHeight);
-        if (canvasWidth <= 0 || canvasHeight <= 0 ||
-            canvasPixels > PanoramaStitchingService.MaximumOutputPixels ||
-            canvasWidth > 6400 || canvasHeight > 6400)
-            throw new InvalidDataException("The panorama would exceed the safe output size limit.");
-
-        var inverse = Invert(homography.Matrix)
-            ?? throw new InvalidDataException("The computed photo alignment is unstable.");
-        var gains = EstimateExposureGains(
-            matches, homography.Inliers, firstFeatures, secondFeatures, first, second);
-
+        // Features are extracted once; every pair is considered, regardless of selection or filename order.
+        var edges = new List<AlignmentEdge>();
+        var pairCount = images.Count * (images.Count - 1) / 2;
+        var pairIndex = 0;
+        for (var first = 0; first < images.Count; first++)
+        {
+            for (var second = first + 1; second < images.Count; second++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                progress?.Report(new(
+                    $"Checking overlap {++pairIndex} of {pairCount}", 25 + pairIndex * 35 / pairCount));
+                var edge = TryAlign(first, second, features, images, cancellationToken);
+                if (edge is not null)
+                    edges.Add(edge);
+            }
+        }
+        var anchor = ChooseAnchor(edges, paths);
+        var placements = PlaceImages(edges, images.Count, anchor);
+        VerifyGlobalAlignment(edges, placements, features, cancellationToken);
+        var layout = CreateLayout(placements, images, anchor);
         progress?.Report(new("Blending and cropping panorama", 67));
-        var canvas = Blend(
-            first, second, inverse,
-            minX, minY, canvasWidth, canvasHeight, gains, cancellationToken);
-        var crop = FindLargestOpaqueRectangle(canvas.Mask, canvasWidth, canvasHeight, cancellationToken);
+        var canvas = Blend(images, placements, layout, progress, cancellationToken);
+        var crop = FindLargestOpaqueRectangle(canvas.Mask, layout.Width, layout.Height, cancellationToken);
+        var canvasPixels = (long)layout.Width * layout.Height;
         var cropPixels = checked((long)crop.Width * crop.Height);
         if (crop.Width < 64 || crop.Height < 64 || cropPixels < canvasPixels * 0.35)
             throw new InvalidDataException(
@@ -91,33 +79,188 @@ internal static class PanoramaStitcher
             cancellationToken.ThrowIfCancellationRequested();
             Buffer.BlockCopy(
                 canvas.Pixels,
-                checked(((crop.Top + y) * canvasWidth + crop.Left) * 4),
+                checked(((crop.Top + y) * layout.Width + crop.Left) * 4),
                 output,
                 checked(y * crop.Width * 4),
                 checked(crop.Width * 4));
         }
 
-        var ratio = (double)homography.Inliers.Count / matches.Count;
-        var averageGain = gains.Average();
+        EnsureEverySourceRetained(placements, layout, crop, paths);
+        var matchCount = edges.Sum(edge => edge.Matches.Count);
+        var inlierCount = edges.Sum(edge => edge.Inliers.Count);
+        var sourcePlacements = new PanoramaSourcePlacement[images.Count];
+        var cropTransform = new double[] { 1, 0, -crop.Left, 0, 1, -crop.Top, 0, 0, 1 };
+        for (var index = 0; index < images.Count; index++)
+        {
+            sourcePlacements[index] = new(
+                (int)images[index].Width, (int)images[index].Height,
+                Array.AsReadOnly(Multiply(cropTransform, layout.Sources[index].Matrix)),
+                Array.AsReadOnly(placements[index].Gains));
+        }
         progress?.Report(new("Panorama preview ready", 100));
         return new PanoramaStitchResult(
             output,
             crop.Width,
             crop.Height,
-            firstPath,
-            secondPath,
-            matches.Count,
-            homography.Inliers.Count,
-            ratio,
-            averageGain);
+            Array.AsReadOnly(paths.ToArray()),
+            matchCount,
+            inlierCount,
+            (double)inlierCount / matchCount,
+            Array.AsReadOnly(placements.Select(placement => placement.Gains.Average()).ToArray()),
+            layout.Scale,
+            (double)cropPixels / canvasPixels,
+            Array.AsReadOnly(sourcePlacements));
+    }
+
+    private static AlignmentEdge? TryAlign(
+        int firstIndex, int secondIndex,
+        FeatureSet[] features,
+        IReadOnlyList<WindowsImagingCodec.DecodedImage> images,
+        CancellationToken cancellationToken)
+    {
+        var first = features[firstIndex];
+        var second = features[secondIndex];
+        var matches = MatchFeatures(first.Features, second.Features, cancellationToken);
+        if (matches.Count < MinimumInliers)
+            return null;
+        HomographyResult homography;
+        try
+        {
+            homography = FindHomography(matches, first, second, cancellationToken);
+            if (homography.Inliers.Count < MinimumInliers ||
+                (double)homography.Inliers.Count / matches.Count < 0.3 ||
+                HasCompetingAlignment(matches, homography, first, second, cancellationToken))
+                return null;
+            EnsureInlierCoverage(homography.Inliers, matches, first, second);
+            ProjectCorners(homography.Matrix);
+        }
+        catch (InvalidDataException)
+        {
+            // A rejected pair is not an output: all selected photos must still form one safe graph.
+            return null;
+        }
+        if (Invert(homography.Matrix) is null)
+            return null;
+        var gains = EstimateExposureGains(
+            matches, homography.Inliers, first, second, images[firstIndex], images[secondIndex]);
+        return new(firstIndex, secondIndex, homography.Matrix, matches, homography.Inliers, gains);
+    }
+
+    private static int ChooseAnchor(List<AlignmentEdge> edges, IReadOnlyList<string> paths)
+    {
+        var best = 0;
+        var bestDistance = int.MaxValue;
+        for (var source = 0; source < paths.Count; source++)
+        {
+            var distances = Enumerable.Repeat(-1, paths.Count).ToArray();
+            var queue = new Queue<int>();
+            queue.Enqueue(source);
+            distances[source] = 0;
+            while (queue.TryDequeue(out var current))
+            {
+                foreach (var edge in edges)
+                {
+                    var other = edge.First == current ? edge.Second : edge.Second == current ? edge.First : -1;
+                    if (other < 0 || distances[other] >= 0)
+                        continue;
+                    distances[other] = distances[current] + 1;
+                    queue.Enqueue(other);
+                }
+            }
+            if (distances.Any(distance => distance < 0))
+            {
+                var missing = Enumerable.Range(0, paths.Count)
+                    .Where(index => distances[index] < 0)
+                    .Select(index => Path.GetFileName(paths[index]));
+                throw new InvalidDataException(
+                    $"Not all selected photos have reliable overlap. Could not connect: {string.Join(", ", missing)}. " +
+                    "No photos were omitted. Select a connected set with more shared detail and less parallax.");
+            }
+            var total = distances.Sum();
+            if (total < bestDistance)
+            {
+                best = source;
+                bestDistance = total;
+            }
+        }
+        return best;
+    }
+
+    private static Placement[] PlaceImages(List<AlignmentEdge> edges, int count, int anchor)
+    {
+        var result = new Placement[count];
+        var placed = new bool[count];
+        result[anchor] = new([1, 0, 0, 0, 1, 0, 0, 0, 1], [1, 1, 1]);
+        placed[anchor] = true;
+        for (var remaining = count - 1; remaining > 0; remaining--)
+        {
+            var edge = edges.Where(edge => placed[edge.First] != placed[edge.Second])
+                .MaxBy(edge => edge.Inliers.Count)
+                ?? throw new InvalidDataException("The overlap graph is disconnected.");
+            var parent = placed[edge.First] ? edge.First : edge.Second;
+            var child = placed[edge.First] ? edge.Second : edge.First;
+            var matrix = parent == edge.First ? edge.Matrix :
+                Invert(edge.Matrix) ?? throw new InvalidDataException("An overlap transform is singular.");
+            var gains = new double[3];
+            for (var channel = 0; channel < 3; channel++)
+            {
+                var relativeGain = parent == edge.First ? edge.Gains[channel] : 1 / edge.Gains[channel];
+                gains[channel] = result[parent].Gains[channel] * relativeGain;
+                if (gains[channel] < 0.25 || gains[channel] > 4)
+                    throw new InvalidDataException("The exposure difference across this set is too large to blend reliably.");
+            }
+            result[child] = new(Multiply(result[parent].Matrix, matrix), gains);
+            placed[child] = true;
+        }
+        return result;
+    }
+
+    private static void VerifyGlobalAlignment(
+        List<AlignmentEdge> edges, Placement[] placements, FeatureSet[] features,
+        CancellationToken cancellationToken)
+    {
+        foreach (var edge in edges)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var errors = new List<double>();
+            foreach (var index in edge.Inliers)
+            {
+                var match = edge.Matches[index];
+                var a = features[edge.First].Features[match.FirstIndex];
+                var b = features[edge.Second].Features[match.SecondIndex];
+                if (!TryProject(placements[edge.First].Matrix,
+                        a.X / (features[edge.First].Width - 1d),
+                        a.Y / (features[edge.First].Height - 1d), out var ax, out var ay) ||
+                    !TryProject(placements[edge.Second].Matrix,
+                        b.X / (features[edge.Second].Width - 1d),
+                        b.Y / (features[edge.Second].Height - 1d), out var bx, out var by))
+                    throw new InvalidDataException("The global alignment is unstable.");
+                errors.Add(Math.Sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by)));
+            }
+            errors.Sort();
+            if (errors[(int)(errors.Count * 0.8)] * FeatureMaximumDimension > 8)
+                throw new InvalidDataException(
+                    "Overlapping photos disagree in the full panorama (alignment drift or parallax). No partial panorama was produced.");
+        }
+    }
+
+    private static double[] Multiply(double[] left, double[] right)
+    {
+        var result = new double[9];
+        for (var row = 0; row < 3; row++)
+            for (var column = 0; column < 3; column++)
+                for (var item = 0; item < 3; item++)
+                    result[row * 3 + column] += left[row * 3 + item] * right[item * 3 + column];
+        return result;
     }
 
     private static List<Match> MatchFeatures(
         IReadOnlyList<Feature> first,
-        IReadOnlyList<Feature> second)
+        IReadOnlyList<Feature> second,
+        CancellationToken cancellationToken)
     {
-        var firstToSecond = FindNearest(first, second, ratioTest: true);
-        var secondToFirst = FindNearest(second, first, ratioTest: true);
+        var firstToSecond = FindNearest(first, second, cancellationToken);
+        var secondToFirst = FindNearest(second, first, cancellationToken);
         var matches = new List<Match>();
         for (var index = 0; index < firstToSecond.Length; index++)
         {
@@ -131,12 +274,14 @@ internal static class PanoramaStitcher
     private static int[] FindNearest(
         IReadOnlyList<Feature> query,
         IReadOnlyList<Feature> target,
-        bool ratioTest)
+        CancellationToken cancellationToken)
     {
         var nearest = new int[query.Count];
         Array.Fill(nearest, -1);
         for (var queryIndex = 0; queryIndex < query.Count; queryIndex++)
         {
+            if ((queryIndex & 31) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             var best = int.MaxValue;
             var secondBest = int.MaxValue;
             var bestIndex = -1;
@@ -156,7 +301,7 @@ internal static class PanoramaStitcher
             }
 
             if (bestIndex >= 0 && best <= 112 &&
-                (!ratioTest || secondBest == int.MaxValue || best < secondBest * 0.78))
+                (secondBest == int.MaxValue || best < secondBest * 0.78))
                 nearest[queryIndex] = bestIndex;
         }
         return nearest;
@@ -226,7 +371,7 @@ internal static class PanoramaStitcher
         var remaining = Enumerable.Range(0, matches.Count)
             .Where(index => !excluded.Contains(index))
             .ToArray();
-        if (remaining.Length < MinimumInliers * 2)
+        if (remaining.Length < MinimumInliers)
             return false;
 
         var random = new Random(0x50414e + 1);
@@ -418,29 +563,106 @@ internal static class PanoramaStitcher
         return spanX < width * 0.08 || spanY < height * 0.08;
     }
 
-    private static List<Point> ProjectSecondCorners(
-        double[] matrix,
-        int secondWidth,
-        int secondHeight,
-        int firstWidth,
-        int firstHeight)
+    private static List<Point> ProjectCorners(double[] matrix)
     {
+        if (matrix.Any(value => !double.IsFinite(value)))
+            throw new InvalidDataException("The photo alignment contains invalid coordinates.");
         var corners = new[]
         {
             new Point(0, 0),
-            new Point(secondWidth - 1, 0),
-            new Point(0, secondHeight - 1),
-            new Point(secondWidth - 1, secondHeight - 1)
+            new Point(1, 0),
+            new Point(1, 1),
+            new Point(0, 1)
         };
         var projected = new List<Point>(corners.Length);
+        var sign = Math.Sign(matrix[8]);
         foreach (var corner in corners)
         {
-            if (!TryProject(matrix, corner.X / (secondWidth - 1d),
-                    corner.Y / (secondHeight - 1d), out var x, out var y))
+            var denominator = matrix[6] * corner.X + matrix[7] * corner.Y + matrix[8];
+            if (Math.Sign(denominator) != sign ||
+                !TryProject(matrix, corner.X, corner.Y, out var x, out var y))
                 throw new InvalidDataException("The photo alignment projects image edges to infinity.");
-            projected.Add(new Point(x * (firstWidth - 1), y * (firstHeight - 1)));
+            projected.Add(new Point(x, y));
         }
+        var area = 0d;
+        for (var index = 0; index < 4; index++)
+        {
+            var a = projected[index];
+            var b = projected[(index + 1) % 4];
+            area += a.X * b.Y - a.Y * b.X;
+        }
+        if (!double.IsFinite(area) || area <= 0.05 || area > 40)
+            throw new InvalidDataException("The photo alignment is reflected, collapsed, or excessively stretched.");
         return projected;
+    }
+
+    private static CanvasLayout CreateLayout(
+        Placement[] placements, IReadOnlyList<WindowsImagingCodec.DecodedImage> images, int anchor)
+    {
+        var corners = placements.Select(placement => ProjectCorners(placement.Matrix)).ToArray();
+        var minX = corners.Min(points => points.Min(point => point.X)) * (images[anchor].Width - 1);
+        var minY = corners.Min(points => points.Min(point => point.Y)) * (images[anchor].Height - 1);
+        var maxX = corners.Max(points => points.Max(point => point.X)) * (images[anchor].Width - 1);
+        var maxY = corners.Max(points => points.Max(point => point.Y)) * (images[anchor].Height - 1);
+        var rawWidth = maxX - minX + 1;
+        var rawHeight = maxY - minY + 1;
+        var scale = Math.Min(1, Math.Min(
+            (PanoramaStitchingService.MaximumOutputDimension - 1) / Math.Max(rawWidth, rawHeight),
+            Math.Sqrt((PanoramaStitchingService.MaximumOutputPixels - 100_000d) / (rawWidth * rawHeight))));
+        if (!double.IsFinite(scale) || scale < 0.02)
+            throw new InvalidDataException("This set is too stretched for a reliable projective panorama.");
+        var width = checked((int)Math.Ceiling(rawWidth * scale));
+        var height = checked((int)Math.Ceiling(rawHeight * scale));
+        var canvasTransform = new double[]
+        {
+            (images[anchor].Width - 1) * scale, 0, -minX * scale,
+            0, (images[anchor].Height - 1) * scale, -minY * scale,
+            0, 0, 1
+        };
+        var sources = new CanvasSource[placements.Length];
+        for (var index = 0; index < sources.Length; index++)
+        {
+            var matrix = Multiply(canvasTransform, placements[index].Matrix);
+            // These corners are already in pixels; the projective shape was checked above.
+            var points = new List<Point>();
+            foreach (var point in new[] { new Point(0, 0), new Point(1, 0), new Point(1, 1), new Point(0, 1) })
+            {
+                if (!TryProject(matrix, point.X, point.Y, out var x, out var y))
+                    throw new InvalidDataException("The full panorama alignment is unstable.");
+                points.Add(new(x, y));
+            }
+            sources[index] = new(
+                matrix,
+                Invert(matrix) ?? throw new InvalidDataException("The full panorama transform is singular."),
+                Math.Clamp((int)Math.Floor(points.Min(point => point.X)), 0, width - 1),
+                Math.Clamp((int)Math.Floor(points.Min(point => point.Y)), 0, height - 1),
+                Math.Clamp((int)Math.Ceiling(points.Max(point => point.X)), 0, width - 1),
+                Math.Clamp((int)Math.Ceiling(points.Max(point => point.Y)), 0, height - 1));
+        }
+        return new(width, height, scale, sources);
+    }
+
+    private static void EnsureEverySourceRetained(
+        Placement[] placements, CanvasLayout layout, CropRectangle crop, IReadOnlyList<string> paths)
+    {
+        for (var index = 0; index < placements.Length; index++)
+        {
+            var retained = 0;
+            for (var y = 1; y <= 5; y++)
+            {
+                for (var x = 1; x <= 5; x++)
+                {
+                    if (TryProject(layout.Sources[index].Matrix, x / 6d, y / 6d, out var px, out var py) &&
+                        px >= crop.Left && px < crop.Left + crop.Width &&
+                        py >= crop.Top && py < crop.Top + crop.Height)
+                        retained++;
+                }
+            }
+            if (retained < 3)
+                throw new InvalidDataException(
+                    $"The clean crop would discard '{Path.GetFileName(paths[index])}'. No photo was silently omitted. " +
+                    "Choose a more rectangular set with greater overlap.");
+        }
     }
 
     private static bool TryProject(
@@ -535,87 +757,78 @@ internal static class PanoramaStitcher
     }
 
     private static RenderedCanvas Blend(
-        WindowsImagingCodec.DecodedImage first,
-        WindowsImagingCodec.DecodedImage second,
-        double[] inverse,
-        double minX,
-        double minY,
-        int width,
-        int height,
-        double[] gains,
+        IReadOnlyList<WindowsImagingCodec.DecodedImage> images,
+        Placement[] placements,
+        CanvasLayout layout,
+        IProgress<PanoramaStitchProgress>? progress,
         CancellationToken cancellationToken)
     {
+        var width = layout.Width;
+        var height = layout.Height;
         var output = new byte[checked(width * height * 4)];
         var mask = new byte[checked(width * height)];
-        var firstWidth = (int)first.Width;
-        var firstHeight = (int)first.Height;
-        var secondWidth = (int)second.Width;
-        var secondHeight = (int)second.Height;
+        const int stripHeight = 32;
+        var accumulated = new float[checked(width * Math.Min(stripHeight, height) * 4)];
+        var linearSamples = Enumerable.Range(0, 256).Select(value => SrgbToLinear(value / 255d)).ToArray();
+        var srgbSamples = Enumerable.Range(0, 65536)
+            .Select(value => (byte)Math.Clamp(Math.Round(LinearToSrgb(value / 65535d) * 255), 0, 255)).ToArray();
 
-        for (var y = 0; y < height; y++)
+        // Each original is warped once into bounded strips, never into another already blended image.
+        for (var top = 0; top < height; top += stripHeight)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var globalY = y + minY;
-            for (var x = 0; x < width; x++)
+            progress?.Report(new("Blending all photos", 67 + top * 28 / height));
+            Array.Clear(accumulated);
+            var bottom = Math.Min(height, top + stripHeight);
+            for (var index = 0; index < images.Count; index++)
             {
-                var globalX = x + minX;
-                var inFirst = globalX >= 0 && globalY >= 0 &&
-                    globalX <= firstWidth - 1 && globalY <= firstHeight - 1;
-                var secondX = 0d;
-                var secondY = 0d;
-                var inSecond = TryProject(
-                    inverse,
-                    globalX / (firstWidth - 1d),
-                    globalY / (firstHeight - 1d),
-                    out var secondXNormalized,
-                    out var secondYNormalized);
-                if (inSecond)
+                var source = layout.Sources[index];
+                var image = images[index];
+                for (var y = Math.Max(top, source.Top); y < Math.Min(bottom, source.Bottom + 1); y++)
                 {
-                    secondX = secondXNormalized * (secondWidth - 1);
-                    secondY = secondYNormalized * (secondHeight - 1);
-                    inSecond = secondX >= 0 && secondY >= 0 &&
-                        secondX <= secondWidth - 1 && secondY <= secondHeight - 1;
-                }
-
-                if (!inFirst && !inSecond)
-                    continue;
-
-                var outputOffset = (y * width + x) * 4;
-                var maskOffset = y * width + x;
-                mask[maskOffset] = 1;
-                if (inFirst && inSecond)
-                {
-                    var firstEdge = EdgeDistance(globalX, globalY, firstWidth, firstHeight);
-                    var secondEdge = EdgeDistance(secondX, secondY, secondWidth, secondHeight);
-                    var firstWeight = Math.Clamp(firstEdge / 72d, 0.15, 1);
-                    var secondWeight = Math.Clamp(secondEdge / 72d, 0.15, 1);
-                    var total = firstWeight + secondWeight;
-                    for (var channel = 0; channel < 3; channel++)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    for (var x = source.Left; x <= source.Right; x++)
                     {
-                        var a = SampleFlattened(first, globalX, globalY, channel);
-                        var b = SampleFlattened(second, secondX, secondY, channel) / 255d;
-                        var blended = (SrgbToLinear(a / 255d) * firstWeight +
-                            Math.Min(1, SrgbToLinear(b) * gains[channel]) * secondWeight) / total;
-                        output[outputOffset + channel] = (byte)Math.Clamp(
-                            Math.Round(LinearToSrgb(blended) * 255), 0, 255);
+                        if (!TryProject(source.Inverse, x, y, out var nx, out var ny) ||
+                            nx < 0 || ny < 0 || nx > 1 || ny > 1)
+                            continue;
+                        var sx = nx * (image.Width - 1);
+                        var sy = ny * (image.Height - 1);
+                        var weight = (float)Math.Clamp(
+                            EdgeDistance(sx, sy, (int)image.Width, (int)image.Height) / 72, 0.02, 1);
+                        var offset = ((y - top) * width + x) * 4;
+                        for (var channel = 0; channel < 3; channel++)
+                        {
+                            var value = SampleFlattened(image, sx, sy, channel);
+                            var low = (int)value;
+                            var high = Math.Min(255, low + 1);
+                            var linear = linearSamples[low] +
+                                (linearSamples[high] - linearSamples[low]) * (value - low);
+                            accumulated[offset + channel] +=
+                                (float)Math.Min(1, linear * placements[index].Gains[channel]) * weight;
+                        }
+                        accumulated[offset + 3] += weight;
                     }
                 }
-                else if (inFirst)
+            }
+            for (var y = top; y < bottom; y++)
+            {
+                for (var x = 0; x < width; x++)
                 {
+                    var sourceOffset = ((y - top) * width + x) * 4;
+                    var weight = accumulated[sourceOffset + 3];
+                    if (weight <= 0)
+                        continue;
+                    var targetOffset = (y * width + x) * 4;
                     for (var channel = 0; channel < 3; channel++)
-                        output[outputOffset + channel] =
-                            (byte)SampleFlattened(first, globalX, globalY, channel);
+                    {
+                        var linear = accumulated[sourceOffset + channel] / weight;
+                        output[targetOffset + channel] =
+                            srgbSamples[Math.Clamp((int)Math.Round(linear * 65535), 0, 65535)];
+                    }
+                    output[targetOffset + 3] = 255;
+                    mask[y * width + x] = 1;
                 }
-                else
-                {
-                    for (var channel = 0; channel < 3; channel++)
-                        output[outputOffset + channel] =
-                            (byte)Math.Clamp(Math.Round(LinearToSrgb(Math.Min(
-                                1,
-                                SrgbToLinear(SampleFlattened(second, secondX, secondY, channel) / 255d) *
-                                    gains[channel])) * 255), 0, 255);
-                }
-                output[outputOffset + 3] = 255;
             }
         }
         return new(output, mask);
@@ -705,6 +918,11 @@ internal static class PanoramaStitcher
     private sealed record FeatureSet(List<Feature> Features, int Width, int Height);
     private sealed record HomographyResult(double[] Matrix, List<int> Inliers);
     private sealed record RenderedCanvas(byte[] Pixels, byte[] Mask);
+    private sealed record AlignmentEdge(
+        int First, int Second, double[] Matrix, List<Match> Matches, List<int> Inliers, double[] Gains);
+    private sealed record Placement(double[] Matrix, double[] Gains);
+    private sealed record CanvasSource(double[] Matrix, double[] Inverse, int Left, int Top, int Right, int Bottom);
+    private sealed record CanvasLayout(int Width, int Height, double Scale, CanvasSource[] Sources);
 
     private static class FeatureExtractor
     {
@@ -840,6 +1058,7 @@ internal static class PanoramaStitcher
             var cosine = Math.Cos(angle);
             var sine = Math.Sin(angle);
             Span<ulong> descriptor = stackalloc ulong[4];
+            descriptor.Clear();
             for (var bit = 0; bit < 256; bit++)
             {
                 var offset = bit * 4;

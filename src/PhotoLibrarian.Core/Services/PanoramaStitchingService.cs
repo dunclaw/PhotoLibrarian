@@ -1,5 +1,4 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
-using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
@@ -10,22 +9,33 @@ namespace PhotoLibrarian.Core.Services;
 
 public sealed record PanoramaStitchProgress(string Stage, int Percent);
 
+public sealed record PanoramaSourcePlacement(
+    int DecodedWidth,
+    int DecodedHeight,
+    IReadOnlyList<double> Transform,
+    IReadOnlyList<double> ExposureGains);
+
 public sealed record PanoramaStitchResult(
     byte[] Pixels,
     int Width,
     int Height,
-    string FirstSourcePath,
-    string SecondSourcePath,
+    IReadOnlyList<string> SourcePaths,
     int MatchCount,
     int InlierCount,
     double InlierRatio,
-    double ExposureGain);
+    IReadOnlyList<double> ExposureGains,
+    double OutputScale,
+    double RetainedArea,
+    IReadOnlyList<PanoramaSourcePlacement> SourcePlacements);
 
-/// <summary>Builds and saves a local two-photo panorama without changing either source.</summary>
+/// <summary>Builds and saves a local multi-photo panorama without changing its sources.</summary>
 public static class PanoramaStitchingService
 {
     public const uint MaximumInputDimension = 2400;
+    public const int MaximumSourceCount = 64;
+    public const int MaximumDecodedPixels = 48_000_000;
     public const int MaximumOutputPixels = 16_000_000;
+    public const int MaximumOutputDimension = 32_000;
     public const int MaximumInputFileBytes = 512 * 1024 * 1024;
     public const int MaximumXmpBytes = 60_000;
 
@@ -37,32 +47,33 @@ public static class PanoramaStitchingService
         SupportedExtensions.Contains(Path.GetExtension(path));
 
     public static async Task<PanoramaStitchResult> CreatePreviewAsync(
-        string firstPath,
-        string secondPath,
+        IReadOnlyList<string> sourcePaths,
         IProgress<PanoramaStitchProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(firstPath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(secondPath);
-        if (string.Equals(Path.GetFullPath(firstPath), Path.GetFullPath(secondPath),
-                StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Choose two different photos.");
-        ValidateInput(firstPath);
-        ValidateInput(secondPath);
+        ArgumentNullException.ThrowIfNull(sourcePaths);
+        if (sourcePaths.Count < 2 || sourcePaths.Count > MaximumSourceCount)
+            throw new ArgumentException($"Select 2 to {MaximumSourceCount} overlapping photos.", nameof(sourcePaths));
+        var paths = sourcePaths.Select(Path.GetFullPath).ToArray();
+        if (paths.Distinct(StringComparer.OrdinalIgnoreCase).Count() != paths.Length)
+            throw new ArgumentException("Each selected photo must be different.", nameof(sourcePaths));
+        foreach (var path in paths)
+            ValidateInput(path);
 
-        progress?.Report(new("Reading first photo", 5));
-        var first = await WindowsImagingCodec.DecodeAsync(
-            firstPath, MaximumInputDimension, cancellationToken);
-        progress?.Report(new("Reading second photo", 18));
-        var second = await WindowsImagingCodec.DecodeAsync(
-            secondPath, MaximumInputDimension, cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var result = await Task.Run(
-            () => PanoramaStitcher.Stitch(
-                first, second, firstPath, secondPath, progress, cancellationToken),
-            cancellationToken);
-        return result;
+        // A per-photo square bound also bounds the total decoded working set, including portrait inputs.
+        var dimension = (uint)Math.Min(
+            MaximumInputDimension, Math.Floor(Math.Sqrt((double)MaximumDecodedPixels / paths.Length)));
+        return await Task.Run(async () =>
+        {
+            var images = new List<WindowsImagingCodec.DecodedImage>(paths.Length);
+            for (var index = 0; index < paths.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                progress?.Report(new($"Reading photo {index + 1} of {paths.Length}", index * 15 / paths.Length));
+                images.Add(await WindowsImagingCodec.DecodeAsync(paths[index], dimension, cancellationToken));
+            }
+            return PanoramaStitcher.Stitch(images, paths, progress, cancellationToken);
+        }, cancellationToken);
     }
 
     public static async Task<string> SaveAsync(
@@ -71,6 +82,14 @@ public static class PanoramaStitchingService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(panorama);
+        if (panorama.Width < 1 || panorama.Height < 1 ||
+            panorama.Width > MaximumOutputDimension || panorama.Height > MaximumOutputDimension ||
+            (long)panorama.Width * panorama.Height > MaximumOutputPixels ||
+            panorama.Pixels.LongLength != (long)panorama.Width * panorama.Height * 4 ||
+            panorama.SourcePaths.Count < 2 || panorama.SourcePaths.Count > MaximumSourceCount ||
+            panorama.ExposureGains.Count != panorama.SourcePaths.Count ||
+            panorama.SourcePlacements.Count != panorama.SourcePaths.Count)
+            throw new InvalidDataException("The panorama pixels or source provenance are invalid.");
         ArgumentException.ThrowIfNullOrWhiteSpace(outputFolder);
         if (!Path.IsPathFullyQualified(outputFolder))
             throw new ArgumentException("Choose a fully qualified output folder.", nameof(outputFolder));
@@ -99,7 +118,7 @@ public static class PanoramaStitchingService
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var sourceName = Path.GetFileNameWithoutExtension(panorama.FirstSourcePath);
+            var sourceName = Path.GetFileNameWithoutExtension(panorama.SourcePaths[0]);
             var safeStem = string.Concat(sourceName.Select(character =>
                 Path.GetInvalidFileNameChars().Contains(character) ? '_' : character)).Trim().TrimEnd('.');
             if (string.IsNullOrWhiteSpace(safeStem))
@@ -201,13 +220,26 @@ public static class PanoramaStitchingService
         var xmp = XmpCore.XmpMetaFactory.Create();
         xmp.SetProperty(dc, "format", "image/jpeg");
         xmp.SetProperty(namespaceName, "CreatedBy", "PhotoLibrarian");
-        xmp.SetProperty(namespaceName, "Method", "Managed feature matching, RANSAC homography, feather blending; baked");
-        xmp.SetProperty(namespaceName, "SourceFile1", Path.GetFileName(panorama.FirstSourcePath));
-        xmp.SetProperty(namespaceName, "SourceFile2", Path.GetFileName(panorama.SecondSourcePath));
+        xmp.SetProperty(namespaceName, "Method", "Managed overlap graph, cycle-checked projective homographies, linear-light feather blending, rectangular crop; baked; source edit recipes not applied");
+        xmp.SetProperty(namespaceName, "SourceCount", panorama.SourcePaths.Count.ToString(CultureInfo.InvariantCulture));
+        for (var index = 0; index < panorama.SourcePaths.Count; index++)
+        {
+            xmp.SetProperty(namespaceName, $"SourceFile{index + 1}", Path.GetFileName(panorama.SourcePaths[index]));
+            xmp.SetProperty(namespaceName, $"ExposureGain{index + 1}",
+                panorama.ExposureGains[index].ToString("F4", CultureInfo.InvariantCulture));
+            var placement = panorama.SourcePlacements[index];
+            xmp.SetProperty(namespaceName, $"DecodedDimensions{index + 1}",
+                $"{placement.DecodedWidth} x {placement.DecodedHeight}");
+            xmp.SetProperty(namespaceName, $"NormalizedSourceToOutput{index + 1}",
+                string.Join(" ", placement.Transform.Select(value => value.ToString("G10", CultureInfo.InvariantCulture))));
+            xmp.SetProperty(namespaceName, $"BgrExposureGains{index + 1}",
+                string.Join(" ", placement.ExposureGains.Select(value => value.ToString("G6", CultureInfo.InvariantCulture))));
+        }
         xmp.SetProperty(namespaceName, "FeatureMatches", panorama.MatchCount.ToString(CultureInfo.InvariantCulture));
         xmp.SetProperty(namespaceName, "HomographyInliers", panorama.InlierCount.ToString(CultureInfo.InvariantCulture));
         xmp.SetProperty(namespaceName, "InlierRatio", panorama.InlierRatio.ToString("F4", CultureInfo.InvariantCulture));
-        xmp.SetProperty(namespaceName, "SecondPhotoExposureGain", panorama.ExposureGain.ToString("F4", CultureInfo.InvariantCulture));
+        xmp.SetProperty(namespaceName, "OutputScale", panorama.OutputScale.ToString("F4", CultureInfo.InvariantCulture));
+        xmp.SetProperty(namespaceName, "RetainedArea", panorama.RetainedArea.ToString("F4", CultureInfo.InvariantCulture));
         xmp.SetProperty(namespaceName, "PixelDimensions", $"{panorama.Width} x {panorama.Height}");
         return XmpCore.XmpMetaFactory.SerializeToString(
             xmp, new XmpCore.Options.SerializeOptions { OmitPacketWrapper = true });

@@ -693,7 +693,8 @@ public sealed partial class ImageGridView : UserControl
         {
             Text = PanoramaStrings.Get("PanoramaMenuAction"),
             Icon = new FontIcon { Glyph = "\uE91B" },
-            IsEnabled = selected.Count == 2 &&
+            IsEnabled = selected.Count >= 2 &&
+                selected.Count <= Core.Services.PanoramaStitchingService.MaximumSourceCount &&
                 selected.All(vm => vm.Entry.MediaType == MediaType.Image) &&
                 !_isStitching
         };
@@ -780,7 +781,8 @@ public sealed partial class ImageGridView : UserControl
     private async Task ShowPanoramaPreviewAsync(
         IReadOnlyList<ImageThumbnailViewModel> selected)
     {
-        if (_isStitching || selected.Count != 2)
+        if (_isStitching || selected.Count < 2 ||
+            selected.Count > Core.Services.PanoramaStitchingService.MaximumSourceCount)
             return;
 
         _isStitching = true;
@@ -805,21 +807,52 @@ public sealed partial class ImageGridView : UserControl
         };
         var previewImage = new Image
         {
-            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
-            MaxWidth = 1120,
-            MaxHeight = 560,
-            Visibility = Visibility.Collapsed
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
         };
         AutomationProperties.SetName(
             previewImage,
             PanoramaStrings.Get("PanoramaPreviewAutomationName"));
+        var previewWidth = Math.Min(1000, Math.Max(240, XamlRoot.Size.Width - 120));
+        var previewHeight = Math.Min(400, Math.Max(160, XamlRoot.Size.Height * 0.4));
+        var previewScroll = new ScrollViewer
+        {
+            Content = previewImage,
+            Width = previewWidth,
+            Height = previewHeight,
+            ZoomMode = ZoomMode.Enabled,
+            MinZoomFactor = 1,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetAutomationId(previewScroll, "PanoramaPreviewScroll");
+        AutomationProperties.SetName(
+            previewScroll, PanoramaStrings.Get("PanoramaPreviewAutomationName"));
+        var zoom = new Slider
+        {
+            Header = PanoramaStrings.Get("PanoramaZoom"),
+            Minimum = 1,
+            Maximum = 16,
+            Value = 1,
+            StepFrequency = 0.25,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetAutomationId(zoom, "PanoramaZoom");
+        AutomationProperties.SetName(zoom, PanoramaStrings.Get("PanoramaZoom"));
+        zoom.ValueChanged += (_, args) =>
+            previewScroll.ChangeView(null, null, (float)args.NewValue);
+        previewScroll.ViewChanged += (_, args) =>
+        {
+            if (!args.IsIntermediate && Math.Abs(zoom.Value - previewScroll.ZoomFactor) > 0.01)
+                zoom.Value = previewScroll.ZoomFactor;
+        };
         var dialog = new ContentDialog
         {
             Title = PanoramaStrings.Get("PanoramaStitchTitle"),
             Content = new StackPanel
             {
                 Spacing = 12,
-                Children = { progressLabel, progressBar, previewImage }
+                Children = { progressLabel, progressBar, previewScroll, zoom }
             },
             PrimaryButtonText = PanoramaStrings.Get("PanoramaSaveButton"),
             CloseButtonText = PanoramaStrings.Get("PanoramaCancelButton"),
@@ -828,6 +861,7 @@ public sealed partial class ImageGridView : UserControl
             XamlRoot = XamlRoot,
             RequestedTheme = ActualTheme
         };
+        dialog.Resources["ContentDialogMaxWidth"] = previewWidth + 48;
         var panoramaReady = false;
         dialog.Closing += (_, _) =>
         {
@@ -845,14 +879,15 @@ public sealed partial class ImageGridView : UserControl
             progressBar.Value = update.Percent;
         });
 
+        Windows.Foundation.IAsyncOperation<ContentDialogResult>? showing = null;
         try
         {
-            var showing = dialog.ShowAsync();
+            showing = dialog.ShowAsync();
             Core.Services.PanoramaStitchResult panorama;
             try
             {
                 panorama = await Core.Services.PanoramaStitchingService.CreatePreviewAsync(
-                    paths[0], paths[1], progress, cancellation.Token);
+                    paths, progress, cancellation.Token);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
@@ -873,7 +908,8 @@ public sealed partial class ImageGridView : UserControl
                 return;
             }
 
-            var bitmap = SoftwareBitmap.CreateCopyFromBuffer(
+            cancellation.Token.ThrowIfCancellationRequested();
+            using var bitmap = SoftwareBitmap.CreateCopyFromBuffer(
                 panorama.Pixels.AsBuffer(),
                 BitmapPixelFormat.Bgra8,
                 panorama.Width,
@@ -881,9 +917,15 @@ public sealed partial class ImageGridView : UserControl
                 BitmapAlphaMode.Ignore);
             var bitmapSource = new SoftwareBitmapSource();
             await bitmapSource.SetBitmapAsync(bitmap);
-            bitmap.Dispose();
             previewImage.Source = bitmapSource;
-            previewImage.Visibility = Visibility.Visible;
+            var previewScale = Math.Min(1, Math.Min(
+                previewWidth / panorama.Width, previewHeight / panorama.Height));
+            previewImage.Width = panorama.Width * previewScale;
+            previewImage.Height = panorama.Height * previewScale;
+            previewScroll.MaxZoomFactor = (float)Math.Max(16, 1 / previewScale);
+            zoom.Maximum = previewScroll.MaxZoomFactor;
+            previewScroll.Visibility = Visibility.Visible;
+            zoom.Visibility = Visibility.Visible;
             progressBar.Visibility = Visibility.Collapsed;
             progressLabel.Text = PanoramaStrings.Format(
                 "PanoramaPreviewDetails",
@@ -891,7 +933,10 @@ public sealed partial class ImageGridView : UserControl
                 panorama.Height,
                 panorama.InlierCount,
                 panorama.MatchCount,
-                panorama.InlierRatio);
+                panorama.InlierRatio,
+                panorama.SourcePaths.Count,
+                panorama.OutputScale,
+                panorama.RetainedArea);
             dialog.Title = PanoramaStrings.Get("PanoramaReviewTitle");
             dialog.IsPrimaryButtonEnabled = true;
             panoramaReady = true;
@@ -1002,10 +1047,16 @@ public sealed partial class ImageGridView : UserControl
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
+            dialog.Hide();
+            if (showing is not null)
+                await showing;
             App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaCancelled");
         }
         catch (Exception ex)
         {
+            dialog.Hide();
+            if (showing is not null)
+                await showing;
             DebugLog.WriteLine($"[PANORAMA] Save failed: {ex}");
             App.ViewModel.StatusText = PanoramaStrings.Format("PanoramaSaveFailed", ex.Message);
             await new ContentDialog
@@ -1019,6 +1070,7 @@ public sealed partial class ImageGridView : UserControl
         }
         finally
         {
+            dialog.Hide();
             _isStitching = false;
         }
     }
