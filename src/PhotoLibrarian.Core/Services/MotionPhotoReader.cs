@@ -112,13 +112,13 @@ public static class MotionPhotoReader
             {
                 // Gain maps may precede the final motion item. Shared/other layouts are not guessed.
                 if (Value(items[i], "Semantic") != "GainMap" || Value(items[i], "Mime") != "image/jpeg" ||
-                    Value(items[i], "Padding") is not null)
+                    ParseNonNegative(Value(items[i], "Padding") ?? "0") != 0)
                     throw new InvalidDataException("Unsupported intermediate motion-photo item.");
                 precedingLength = checked(precedingLength + ParsePositive(Value(items[i], "Length")));
             }
             var video = items[^1];
             if (Value(video, "Semantic") != "MotionPhoto" || Value(video, "Mime") != "video/mp4" ||
-                Value(video, "Padding") is not null)
+                ParseNonNegative(Value(video, "Padding") ?? "0") != 0)
                 throw new InvalidDataException("Only a final embedded MP4 motion item is supported.");
             lengthBytes = ParsePositive(Value(video, "Length"));
             if (precedingLength > stream.Length - lengthBytes - stream.Position)
@@ -128,8 +128,10 @@ public static class MotionPhotoReader
             lengthBytes = ParsePositive(Property(metadata, Camera + "MicroVideoOffset"));
 
         long offset = stream.Length - lengthBytes;
-        if (lengthBytes > MaximumVideoBytes || offset < stream.Position)
-            throw new InvalidDataException("Motion video is truncated or exceeds the 64 MiB limit.");
+        if (lengthBytes > MaximumVideoBytes)
+            throw new InvalidDataException("Embedded motion video exceeds the 64 MiB limit.");
+        if (offset < stream.Position)
+            throw new InvalidDataException("Motion video offset overlaps the JPEG metadata or exceeds the file.");
         string? timestamp = Property(metadata, Camera + (modern
             ? "MotionPhotoPresentationTimestampUs" : "MicroVideoPresentationTimestampUs"));
         long? timestampUs = null;

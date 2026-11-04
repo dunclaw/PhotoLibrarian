@@ -142,6 +142,30 @@ public partial class App
             Check(SHA256.HashData(original).SequenceEqual(SHA256.HashData(afterPlayback)) &&
                 written == File.GetLastWriteTimeUtc(motion.FilePath), "All playback lifecycle operations leave source bytes and timestamp unchanged");
             Check(Directory.GetFiles(folder).Length == 5, "Playback creates no extracted library artifacts");
+            string[] arguments = Environment.GetCommandLineArgs();
+            int sampleArgument = Array.IndexOf(arguments, "--motion-photo-sample");
+            string? samplePath = sampleArgument >= 0 ? arguments[sampleArgument + 1] : null;
+            if (!string.IsNullOrWhiteSpace(samplePath))
+            {
+                byte[] sampleBefore = SHA256.HashData(await File.ReadAllBytesAsync(samplePath));
+                DateTime sampleWritten = File.GetLastWriteTimeUtc(samplePath);
+                var sample = new ImageEntry { FilePath = samplePath, FileName = Path.GetFileName(samplePath), MediaType = MediaType.Image };
+                viewer.OpenImage(sample, [sample]);
+                await UntilAsync(() => button.Visibility == Visibility.Visible || status.IsOpen);
+                if (status.IsOpen) throw new InvalidOperationException($"Opt-in sample detection failed: {status.Message}");
+                Check(!status.IsOpen, "Opt-in sample detection succeeds");
+                Invoke(button);
+                await UntilAsync(() => player.Visibility == Visibility.Visible || status.IsOpen);
+                if (status.IsOpen) throw new InvalidOperationException($"Opt-in sample playback failed: {status.Message}");
+                Check(player.MediaPlayer is not null, "Opt-in sample native playback succeeds");
+                await Task.Delay(250);
+                Check(!status.IsOpen && player.MediaPlayer!.PlaybackSession.Position > TimeSpan.Zero,
+                    "Opt-in sample native playback advances");
+                viewer.CloseCommand.Execute(null);
+                byte[] sampleAfter = SHA256.HashData(await File.ReadAllBytesAsync(samplePath));
+                Check(sampleBefore.SequenceEqual(sampleAfter) && sampleWritten == File.GetLastWriteTimeUtc(samplePath),
+                    "Opt-in sample source hash and timestamp remain unchanged");
+            }
         }
         catch (Exception error)
         {
@@ -222,7 +246,7 @@ public partial class App
             <rdf:Description c:MotionPhoto="1" c:MotionPhotoVersion="1" c:MotionPhotoPresentationTimestampUs="500000">
             <container:Directory><rdf:Seq>
             <rdf:li><container:Item item:Mime="image/jpeg" item:Semantic="Primary" /></rdf:li>
-            <rdf:li><container:Item item:Mime="video/mp4" item:Semantic="MotionPhoto" item:Length="{length}" /></rdf:li>
+            <rdf:li><container:Item item:Mime="video/mp4" item:Semantic="MotionPhoto" item:Length="{length}" item:Padding="0" /></rdf:li>
             </rdf:Seq></container:Directory></rdf:Description></rdf:RDF>
             """;
         byte[] payload = Encoding.UTF8.GetBytes("http://ns.adobe.com/xap/1.0/\0" + xmp);

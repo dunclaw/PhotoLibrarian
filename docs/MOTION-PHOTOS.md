@@ -15,6 +15,8 @@ Google/Pixel JPEG motion photos with a standard JPEG APP1 XMP packet:
   container directory beginning with a JPEG `Primary` item and ending with a
   `MotionPhoto` item with MIME `video/mp4` and a positive `Length`.
   Optional primary padding and intermediate JPEG `GainMap` items are supported.
+  Secondary items may explicitly specify `Padding="0"` (as Pixel files do);
+  nonzero secondary padding is not supported.
   Video offset is calculated from the final item's length, not by scanning for
   MP4 signatures. Modern directories take precedence over obsolete legacy
   offsets.
@@ -83,6 +85,11 @@ Format references:
 ## Generated regression fixtures
 
 No user's photo library is read or modified by these tests.
+
+An explicitly supplied local sample can also be validated read-only by passing
+`-MotionPhotoValidationPath 'D:\path\sample.jpg'` with `-MotionPhoto`. This opt-in
+check verifies detection, advancing native playback, and unchanged source hash
+and timestamp; the file is never copied into fixtures or written by the test.
 
 ```powershell
 dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 -- -class PhotoLibrarian.Tests.MotionPhotoReaderTests -class PhotoLibrarian.Tests.MotionPhotoViewerTests -class PhotoLibrarian.Tests.VideoWorkflowTests -class PhotoLibrarian.Tests.ImageViewerNavigationTests -class PhotoLibrarian.Tests.ImageViewerOverlayFocusTests -parallelMode none

@@ -3,10 +3,18 @@ param(
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
     [switch]$Preview,
-    [switch]$MotionPhoto
+    [switch]$MotionPhoto,
+    [string]$MotionPhotoValidationPath
 )
 
 $ErrorActionPreference = 'Stop'
+if ($MotionPhotoValidationPath -and -not $MotionPhoto) {
+    throw '-MotionPhotoValidationPath requires -MotionPhoto.'
+}
+if ($MotionPhotoValidationPath) {
+    $MotionPhotoValidationPath = (Resolve-Path -LiteralPath $MotionPhotoValidationPath).Path
+    if ($MotionPhotoValidationPath.Contains('"')) { throw 'Validation path must not contain quotes.' }
+}
 $project = Join-Path $PSScriptRoot '..\src\PhotoLibrarian.AccessibilityTests\PhotoLibrarian.AccessibilityTests.csproj'
 Get-Command dotnet, winapp -ErrorAction Stop | Out-Null
 
@@ -31,6 +39,9 @@ try {
         '--exe', 'PhotoLibrarian.AccessibilityTests.exe', '--unregister-on-exit')
     if ($MotionPhoto) {
         $testArguments = if ($Preview) { '--motion-photo --preview' } else { '--motion-photo' }
+        if ($MotionPhotoValidationPath) {
+            $testArguments += ' --motion-photo-sample "' + $MotionPhotoValidationPath + '"'
+        }
         $arguments += @('--args', $testArguments)
     }
     elseif ($Preview) { $arguments += @('--args', '--preview') }

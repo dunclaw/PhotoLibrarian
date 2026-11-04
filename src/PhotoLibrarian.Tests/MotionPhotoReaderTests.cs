@@ -33,6 +33,35 @@ public sealed class MotionPhotoReaderTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(24)]
+    public async Task PixelDirectoryAllowsExplicitZeroPaddingOnSecondaryItems(int gainMapLength)
+    {
+        string metadata = Metadata(Mp4().Length, gainMapLength: gainMapLength)
+            .Replace("item:Semantic=\"MotionPhoto\"", "item:Semantic=\"MotionPhoto\" item:Padding=\"0\"")
+            .Replace("item:Semantic=\"GainMap\"", "item:Semantic=\"GainMap\" item:Padding=\"0\"");
+        using var fixture = Fixture(metadata, Mp4(), gainMapLength);
+        var result = Assert.IsType<MotionPhotoInfo>(await MotionPhotoReader.ReadAsync(fixture));
+        Assert.Equal(fixture.Length - Mp4().Length, result.VideoOffset);
+        Assert.Equal(Mp4().Length, result.VideoLength);
+    }
+
+    [Theory]
+    [InlineData("MotionPhoto", "1")]
+    [InlineData("MotionPhoto", "-1")]
+    [InlineData("MotionPhoto", "invalid")]
+    [InlineData("GainMap", "1")]
+    [InlineData("GainMap", "-1")]
+    [InlineData("GainMap", "invalid")]
+    public async Task SecondaryPaddingMustBeAbsentOrZero(string semantic, string padding)
+    {
+        string metadata = Metadata(Mp4().Length, gainMapLength: 24)
+            .Replace($"item:Semantic=\"{semantic}\"", $"item:Semantic=\"{semantic}\" item:Padding=\"{padding}\"");
+        using var fixture = Fixture(metadata, Mp4(), 24);
+        await Assert.ThrowsAsync<InvalidDataException>(() => MotionPhotoReader.ReadAsync(fixture));
+    }
+
+    [Theory]
     [InlineData(null, null)]
     [InlineData("-1", null)]
     [InlineData("0", 0L)]

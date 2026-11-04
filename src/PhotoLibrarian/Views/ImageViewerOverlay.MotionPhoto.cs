@@ -194,7 +194,9 @@ public sealed partial class ImageViewerOverlay
     {
         DebugLog.WriteLine($"Motion photo: {key}: {error}");
         StopMotionPlayback();
-        MotionPhotoStatus.Message = MotionPhotoStrings.Get(key);
+        MotionPhotoStatus.Message = key == "MotionPhotoUnavailable"
+            ? string.Format(System.Globalization.CultureInfo.CurrentCulture, MotionPhotoStrings.Get(key), error?.Message)
+            : MotionPhotoStrings.Get(key);
         MotionPhotoStatus.IsOpen = true;
         MotionPhotoTools.Visibility = Visibility.Visible;
     }
