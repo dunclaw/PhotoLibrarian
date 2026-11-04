@@ -1,6 +1,8 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
@@ -21,11 +23,13 @@ public sealed partial class ImageViewerOverlay
     private MediaSource? _motionSource;
     private MediaPlayer? _motionPlayer;
     private DispatcherTimer? _motionOpenTimer;
+    private bool _motionPaused;
 
     private void InitializeMotionPhotos()
     {
         Loaded += OnMotionViewerLoaded;
         Unloaded += OnMotionViewerUnloaded;
+        MotionPlayer.AddHandler(UIElement.TappedEvent, new TappedEventHandler(OnMotionImageTapped), true);
         SetMotionButtonLabel(false);
     }
 
@@ -74,7 +78,8 @@ public sealed partial class ImageViewerOverlay
             if (IsCurrentMotion(path, lifetime))
             {
                 MotionPhotoButton.Visibility = info is null ? Visibility.Collapsed : Visibility.Visible;
-                MotionPhotoTools.Visibility = MotionPhotoButton.Visibility;
+                if (info is not null && !_motionPaused)
+                    await StartMotionPlaybackAsync(path, lifetime);
             }
         }
         catch (OperationCanceledException)
@@ -89,16 +94,30 @@ public sealed partial class ImageViewerOverlay
 
     private async void OnMotionPhotoClick(object sender, RoutedEventArgs args)
     {
-        if (_motionPlayer is not null)
+        if (_motionPlayer is not null || _motionPlaybackCancellation is not null)
         {
             StopMotionPlayback();
             return;
         }
-        if (_motionPath is not { } path || _motionLifetime is not { } lifetime ||
+        if (_motionPath is { } path && _motionLifetime is { } lifetime)
+            await StartMotionPlaybackAsync(path, lifetime);
+    }
+
+    private void OnMotionImageTapped(object sender, TappedRoutedEventArgs args)
+    {
+        if (_motionPlayer is null) return;
+        StopMotionPlayback();
+        args.Handled = true;
+    }
+
+    private async Task StartMotionPlaybackAsync(string path, CancellationTokenSource lifetime)
+    {
+        if (_motionPlayer is not null || _motionPlaybackCancellation is not null ||
             !IsCurrentMotion(path, lifetime) || IsCropping || IsStraightening ||
             IsRedEyeRemoving || IsManualFaceTagging) return;
 
-        MotionPhotoButton.IsEnabled = false;
+        _motionPaused = false;
+        SetMotionButtonLabel(true);
         MotionPhotoStatus.IsOpen = false;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         _motionPlaybackCancellation = timeout;
@@ -114,11 +133,10 @@ public sealed partial class ImageViewerOverlay
             }
             _motionStream = clip.Video;
             _motionSource = MediaSource.CreateFromStream(clip.Video.AsRandomAccessStream(), "video/mp4");
-            var player = new MediaPlayer { AutoPlay = false, IsLoopingEnabled = false };
+            var player = new MediaPlayer { AutoPlay = false, IsLoopingEnabled = true };
             _motionPlayer = player;
             player.MediaOpened += OnMotionMediaOpened;
             player.MediaFailed += OnMotionMediaFailed;
-            player.MediaEnded += OnMotionMediaEnded;
             MotionPlayer.SetMediaPlayer(player);
             player.Source = _motionSource;
             _motionOpenTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
@@ -176,14 +194,6 @@ public sealed partial class ImageViewerOverlay
         });
     }
 
-    private void OnMotionMediaEnded(MediaPlayer sender, object args)
-    {
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            if (ReferenceEquals(sender, _motionPlayer)) StopMotionPlayback();
-        });
-    }
-
     private void OnMotionOpenTimeout(object? sender, object args)
     {
         if (_motionOpenTimer is not null && ReferenceEquals(sender, _motionOpenTimer))
@@ -198,14 +208,14 @@ public sealed partial class ImageViewerOverlay
             ? string.Format(System.Globalization.CultureInfo.CurrentCulture, MotionPhotoStrings.Get(key), error?.Message)
             : MotionPhotoStrings.Get(key);
         MotionPhotoStatus.IsOpen = true;
-        MotionPhotoTools.Visibility = Visibility.Visible;
     }
 
     private void SetMotionButtonLabel(bool playing)
     {
-        string label = MotionPhotoStrings.Get(playing ? "MotionPhotoShowStill" : "MotionPhotoPlay");
-        MotionPhotoButton.Content = label;
+        string label = MotionPhotoStrings.Get(playing ? "MotionPhotoPause" : "MotionPhotoPlay");
+        MotionPhotoIcon.Glyph = playing ? "\uE769" : "\uE768";
         AutomationProperties.SetName(MotionPhotoButton, label);
+        ToolTipService.SetToolTip(MotionPhotoButton, label);
     }
 
     private void StopMotionOpenTimer()
@@ -218,6 +228,7 @@ public sealed partial class ImageViewerOverlay
 
     private void StopMotionPlayback()
     {
+        _motionPaused = true;
         _motionPlaybackCancellation?.Cancel();
         _motionPlaybackCancellation = null;
         StopMotionOpenTimer();
@@ -229,7 +240,6 @@ public sealed partial class ImageViewerOverlay
         {
             player.MediaOpened -= OnMotionMediaOpened;
             player.MediaFailed -= OnMotionMediaFailed;
-            player.MediaEnded -= OnMotionMediaEnded;
             player.Pause();
             player.Source = null;
             player.Dispose();
@@ -250,8 +260,8 @@ public sealed partial class ImageViewerOverlay
         _motionLifetime?.Dispose();
         _motionLifetime = null;
         StopMotionPlayback();
+        _motionPaused = false;
         MotionPhotoButton.Visibility = Visibility.Collapsed;
-        MotionPhotoTools.Visibility = Visibility.Collapsed;
         MotionPhotoStatus.IsOpen = false;
     }
 }

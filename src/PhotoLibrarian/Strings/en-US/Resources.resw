@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
   <data name="MotionPhotoPlay" xml:space="preserve"><value>Play motion</value></data>
-  <data name="MotionPhotoShowStill" xml:space="preserve"><value>Show still photo</value></data>
+  <data name="MotionPhotoPause" xml:space="preserve"><value>Pause motion and show still photo</value></data>
   <data name="MotionPhotoPlayer.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Motion photo playback</value></data>
   <data name="MotionPhotoUnavailable" xml:space="preserve"><value>Motion could not be opened: {0} The still photo is unchanged.</value></data>
   <data name="MotionPhotoTimeout" xml:space="preserve"><value>Motion took too long to open. Showing the unchanged still photo.</value></data>

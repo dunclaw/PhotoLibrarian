@@ -1,9 +1,14 @@
 # Motion photos
 
-Open a supported JPEG in full view and choose **Play motion**. The original
-high-resolution still remains the default cover. **Show still photo**, the end
-of playback, navigation, close, and leaving the viewer stop motion and release
-its resources. Playback includes audio when the embedded video has it.
+Open a supported JPEG in the full-photo viewer to automatically play its motion
+on a loop. A small play/pause icon appears in the header alongside the other
+viewer controls; no bottom button row or video transport panel is added.
+**Pause motion and show still photo**, or clicking the playing image, stops
+playback and displays the original high-resolution still, not a frozen video
+frame. The header's **Play motion** action restarts looping playback from the
+beginning. A paused photo stays still until Play is chosen or the photo is
+opened again. Navigation, close, leaving the viewer, and photo edit modes stop
+motion and release its resources. Playback includes audio when present.
 
 ## Supported layouts
 
@@ -30,7 +35,7 @@ arbitrary trailing bytes.
 The original still is always used as the cover, rather than a lossy video
 frame. The reader retains the optional presentation timestamp in microseconds
 (`-1`/missing means unspecified). It does not rewrite, round, or use that value
-as an offset into the file. Explicit motion playback starts at the beginning;
+as an offset into the file. Motion playback starts at the beginning;
 this feature does not implement timestamp-track scoring, automatic key-frame
 selection, or motion editing.
 
@@ -38,7 +43,7 @@ selection, or motion editing.
 
 All work is local using the Windows media stack. There are no downloads,
 external executable requirements, exports, or library writes. The embedded
-MP4 is copied into a read-only in-memory stream only when playback is requested;
+MP4 is copied into a read-only in-memory stream when the full viewer starts playback;
 no extracted file is created anywhere. Source metadata is revalidated using
 the same read-only file handle used for extraction.
 
@@ -101,8 +106,9 @@ timing, byte/header/box limits, truncated inputs, malformed XML/containers,
 cancellation, unchanged source hash/timestamp, and absence of extracted files.
 The isolated WinUI suite uses Windows-generated JPEG and H.264/AAC MP4 fixtures
 and an injected viewer ViewModel, not `MainViewModel`, a library database, or
-default user preference stores. It exercises actual playback handoff, still
-return, media end, navigation, close during extraction, stale detection,
+default user preference stores. It exercises automatic playback, looping across
+clip boundaries, header play/pause, image-tap still return, navigation, close
+during extraction, stale detection,
 malformed metadata, decoder failure, standalone video, unload, and source
 invariance. It does not establish compatibility with every physical Pixel model,
 HEVC codec configuration, Apple pair, or unsupported container variant.

@@ -70,7 +70,6 @@
                  viewport used for best-fit is the space the image actually gets. -->
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -99,6 +98,12 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                <Button x:Name="MotionPhotoButton"
+                        AutomationProperties.AutomationId="ViewerMotionPhoto"
+                        Visibility="Collapsed" Padding="8"
+                        Click="OnMotionPhotoClick">
+                    <FontIcon x:Name="MotionPhotoIcon" Glyph="&#xE768;" FontSize="14" />
+                </Button>
                 <Button x:Name="ZoomOutButton"
                         AutomationProperties.AutomationId="ViewerZoomOut"
                         AutomationProperties.Name="Zoom out"
@@ -347,18 +352,12 @@
                             x:Uid="MotionPhotoPlayer"
                             Grid.Row="1"
                             Visibility="Collapsed"
-                            AreTransportControlsEnabled="True"
+                            AreTransportControlsEnabled="False"
                             AutoPlay="False" />
-        <StackPanel x:Name="MotionPhotoTools" Grid.Row="2" Grid.ColumnSpan="2"
-                    HorizontalAlignment="Center" Visibility="Collapsed"
-                    Margin="16,8" Spacing="8" MaxWidth="640">
-            <InfoBar x:Name="MotionPhotoStatus" IsOpen="False" Severity="Warning"
-                     AutomationProperties.AutomationId="ViewerMotionStatus" />
-            <Button x:Name="MotionPhotoButton"
-                    AutomationProperties.AutomationId="ViewerMotionPhoto"
-                    HorizontalAlignment="Center" Visibility="Collapsed"
-                    Click="OnMotionPhotoClick" />
-        </StackPanel>
+        <InfoBar x:Name="MotionPhotoStatus" Grid.Row="1"
+                 VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                 Margin="64,16" MaxWidth="640" IsOpen="False" Severity="Warning"
+                 AutomationProperties.AutomationId="ViewerMotionStatus" />
 
         <!-- Navigation arrows -->
         <Button x:Name="PreviousButton" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left"

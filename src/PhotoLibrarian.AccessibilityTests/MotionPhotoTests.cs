@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Views;
@@ -51,32 +52,44 @@ public partial class App
             List<ImageEntry> entries = [motion, still, malformed, badMedia, video];
 
             viewer.OpenImage(motion, entries);
-            await UntilAsync(() => button.Visibility == Visibility.Visible && viewer.CurrentImage is not null);
-            Check(player.Visibility == Visibility.Collapsed && !viewer.IsVideo,
-                "Motion photo opens as an ordinary still cover");
+            await UntilAsync(() => player.Visibility == Visibility.Visible && viewer.CurrentImage is not null);
+            Check(!viewer.IsVideo && player.MediaPlayer.IsLoopingEnabled,
+                "Motion photo automatically plays on loop while retaining its original still cover");
             Check(AutomationProperties.GetAutomationId(button) == "ViewerMotionPhoto" &&
                 !string.IsNullOrEmpty(AutomationProperties.GetName(button)), "Motion action has a localized accessible name");
-            Invoke(button);
-            await UntilAsync(() => player.Visibility == Visibility.Visible);
             Check(player.MediaPlayer.PlaybackSession.NaturalVideoWidth == 640,
                 "Generated JPEG embedded H.264 MP4 plays through the actual viewer");
             Check(!((Button)overlay.FindName("ZoomInButton")).IsEnabled,
                 "Photo zoom controls do not silently change the hidden cover during playback");
             if (Environment.GetCommandLineArgs().Contains("--preview"))
             {
-                player.MediaPlayer.Pause();
                 await Task.Delay(TimeSpan.FromSeconds(20));
             }
             Invoke(button);
             Check(player.Visibility == Visibility.Collapsed && player.MediaPlayer is null &&
-                viewer.CurrentImage is not null, "Show still detaches and disposes motion playback");
+                viewer.CurrentImage is not null &&
+                ReferenceEquals(((Image)overlay.FindName("FullImage")).Source, viewer.CurrentImage),
+                "Header pause detaches and disposes motion playback and shows the original still");
+            Check(AutomationProperties.GetName(button) == "Play motion", "Paused header action offers play");
+            await Task.Delay(1500);
+            Check(player.MediaPlayer is null, "Paused motion stays on the still without automatically restarting");
             Check(((Button)overlay.FindName("ZoomInButton")).IsEnabled,
                 "Returning to the still restores photo zoom controls");
 
             Invoke(button);
             await UntilAsync(() => player.Visibility == Visibility.Visible);
-            await UntilAsync(() => player.Visibility == Visibility.Collapsed);
-            Check(viewer.CurrentImage is not null && !status.IsOpen, "Motion end returns to the cover without an error");
+            var loopingPlayer = player.MediaPlayer;
+            await Task.Delay(2500);
+            Check(ReferenceEquals(loopingPlayer, player.MediaPlayer) && player.Visibility == Visibility.Visible &&
+                player.MediaPlayer.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing &&
+                !status.IsOpen, "Playback continues across multiple clip durations instead of returning to the still");
+            Check(AutomationProperties.GetName(button) == "Pause motion and show still photo",
+                "Playing header action offers pause");
+            var tap = new TappedRoutedEventArgs();
+            typeof(ImageViewerOverlay).GetMethod("OnMotionImageTapped", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(overlay, [player, tap]);
+            Check(tap.Handled && player.MediaPlayer is null && viewer.CurrentImage is not null,
+                "Tapping the playing image stops motion and shows the still");
 
             Invoke(button);
             await UntilAsync(() => player.Visibility == Visibility.Visible);
@@ -90,7 +103,6 @@ public partial class App
 
             viewer.OpenImage(motion, entries);
             await UntilAsync(() => button.Visibility == Visibility.Visible);
-            Invoke(button);
             overlay.EnterCropMode();
             overlay.ExitCropMode();
             await Task.Delay(250);
@@ -99,6 +111,9 @@ public partial class App
 
             viewer.OpenImage(motion, entries);
             await UntilAsync(() => button.Visibility == Visibility.Visible);
+            Invoke(button);
+            await Task.Delay(150);
+            Check(player.MediaPlayer is null, "Header pause cancels automatic playback during extraction or opening");
             Invoke(button);
             viewer.CloseCommand.Execute(null);
             await Task.Delay(250);
@@ -115,8 +130,6 @@ public partial class App
             await UntilAsync(() => status.IsOpen && viewer.CurrentImage is not null);
             Check(player.MediaPlayer is null, "Malformed motion metadata reports a limitation while retaining the still");
             viewer.OpenImage(badMedia, entries);
-            await UntilAsync(() => button.Visibility == Visibility.Visible);
-            Invoke(button);
             await UntilAsync(() => status.IsOpen);
             Check(player.MediaPlayer is null && viewer.CurrentImage is not null,
                 "Invalid media accepted structurally falls back after native decoder failure");
@@ -128,16 +141,14 @@ public partial class App
             viewer.CloseCommand.Execute(null);
 
             viewer.OpenImage(motion, entries);
-            await UntilAsync(() => button.Visibility == Visibility.Visible);
-            Invoke(button);
             await UntilAsync(() => player.Visibility == Visibility.Visible);
             _window.Content = new Grid();
             await UntilAsync(() => !overlay.IsLoaded);
             await UntilAsync(() => player.MediaPlayer is null);
             Check(player.MediaPlayer is null, "Unloading the viewer disposes native playback");
             _window.Content = overlay;
-            await UntilAsync(() => overlay.IsLoaded && button.Visibility == Visibility.Visible);
-            Check(player.MediaPlayer is null, "Reloading the viewer restores detection without autoplay or duplicate subscriptions");
+            await UntilAsync(() => overlay.IsLoaded && player.Visibility == Visibility.Visible);
+            Check(player.MediaPlayer.IsLoopingEnabled, "Reloading the full viewer restores automatic looping playback");
             byte[] afterPlayback = await File.ReadAllBytesAsync(motion.FilePath);
             Check(SHA256.HashData(original).SequenceEqual(SHA256.HashData(afterPlayback)) &&
                 written == File.GetLastWriteTimeUtc(motion.FilePath), "All playback lifecycle operations leave source bytes and timestamp unchanged");
@@ -154,13 +165,12 @@ public partial class App
                 await UntilAsync(() => button.Visibility == Visibility.Visible || status.IsOpen);
                 if (status.IsOpen) throw new InvalidOperationException($"Opt-in sample detection failed: {status.Message}");
                 Check(!status.IsOpen, "Opt-in sample detection succeeds");
-                Invoke(button);
                 await UntilAsync(() => player.Visibility == Visibility.Visible || status.IsOpen);
                 if (status.IsOpen) throw new InvalidOperationException($"Opt-in sample playback failed: {status.Message}");
                 Check(player.MediaPlayer is not null, "Opt-in sample native playback succeeds");
                 await Task.Delay(250);
                 Check(!status.IsOpen && player.MediaPlayer!.PlaybackSession.Position > TimeSpan.Zero,
-                    "Opt-in sample native playback advances");
+                    "Opt-in sample automatic native playback advances");
                 viewer.CloseCommand.Execute(null);
                 byte[] sampleAfter = SHA256.HashData(await File.ReadAllBytesAsync(samplePath));
                 Check(sampleBefore.SequenceEqual(sampleAfter) && sampleWritten == File.GetLastWriteTimeUtc(samplePath),

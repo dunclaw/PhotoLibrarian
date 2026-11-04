@@ -32,18 +32,21 @@ public sealed class MotionPhotoViewerTests
             .Descendants().ToList();
         var player = controls.Single(element => (string?)element.Attribute(x + "Name") == "MotionPlayer");
         Assert.Equal("False", (string?)player.Attribute("AutoPlay"));
+        Assert.Equal("False", (string?)player.Attribute("AreTransportControlsEnabled"));
         Assert.Equal("ViewerMotionPlayer", (string?)player.Attribute("AutomationProperties.AutomationId"));
         var button = controls.Single(element => (string?)element.Attribute(x + "Name") == "MotionPhotoButton");
         Assert.Equal("ViewerMotionPhoto", (string?)button.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("OnMotionPhotoClick", (string?)button.Attribute("Click"));
         Assert.Equal("Collapsed", (string?)button.Attribute("Visibility"));
-        var tools = controls.Single(element => (string?)element.Attribute(x + "Name") == "MotionPhotoTools");
-        Assert.NotEqual((string?)player.Attribute("Grid.Row"), (string?)tools.Attribute("Grid.Row"));
-        Assert.Equal("Collapsed", (string?)tools.Attribute("Visibility"));
+        Assert.Contains(button.Ancestors(), element => (string?)element.Attribute(x + "Name") == "TopBar");
+        Assert.Single(button.Elements(), element => element.Name.LocalName == "FontIcon");
+        Assert.DoesNotContain(controls, element => (string?)element.Attribute(x + "Name") == "MotionPhotoTools");
+        var rootGrid = controls.Single(element => (string?)element.Attribute(x + "Name") == "RootGrid");
+        Assert.Equal(2, rootGrid.Elements().Single(element => element.Name.LocalName == "Grid.RowDefinitions").Elements().Count());
         var standalone = controls.Single(element => (string?)element.Attribute(x + "Name") == "VideoPlayer");
         Assert.Equal("True", (string?)standalone.Attribute("AutoPlay"));
         var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"));
-        foreach (string key in new[] { "MotionPhotoPlay", "MotionPhotoShowStill", "MotionPhotoUnavailable",
+        foreach (string key in new[] { "MotionPhotoPlay", "MotionPhotoPause", "MotionPhotoUnavailable",
             "MotionPhotoTimeout", "MotionPhotoMediaLimit", "MotionPhotoCodecUnavailable",
             "MotionPhotoPlayer.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" })
         {
