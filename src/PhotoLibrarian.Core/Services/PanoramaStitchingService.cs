@@ -9,11 +9,15 @@ namespace PhotoLibrarian.Core.Services;
 
 public sealed record PanoramaStitchProgress(string Stage, int Percent);
 
+public sealed record PanoramaCameraCalibration(
+    IReadOnlyList<double> Intrinsic, IReadOnlyList<double> Rotation);
+
 public sealed record PanoramaSourcePlacement(
     int DecodedWidth,
     int DecodedHeight,
     IReadOnlyList<double> Transform,
-    IReadOnlyList<double> ExposureGains);
+    IReadOnlyList<double> ExposureGains,
+    PanoramaCameraCalibration? Camera = null);
 
 public sealed record PanoramaStitchResult(
     byte[] Pixels,
@@ -26,7 +30,11 @@ public sealed record PanoramaStitchResult(
     IReadOnlyList<double> ExposureGains,
     double OutputScale,
     double RetainedArea,
-    IReadOnlyList<PanoramaSourcePlacement> SourcePlacements);
+    IReadOnlyList<PanoramaSourcePlacement> SourcePlacements,
+    string Projection = "Projective",
+    double WarpScale = 0,
+    int WarpOffsetX = 0,
+    int WarpOffsetY = 0);
 
 /// <summary>Builds and saves a local multi-photo panorama without changing its sources.</summary>
 public static class PanoramaStitchingService
@@ -90,6 +98,22 @@ public static class PanoramaStitchingService
             panorama.ExposureGains.Count != panorama.SourcePaths.Count ||
             panorama.SourcePlacements.Count != panorama.SourcePaths.Count)
             throw new InvalidDataException("The panorama pixels or source provenance are invalid.");
+        if (panorama.Projection is not ("Projective" or "Spherical") ||
+            panorama.Projection == "Spherical" &&
+                (!double.IsFinite(panorama.WarpScale) || panorama.WarpScale <= 0))
+            throw new InvalidDataException("The panorama projection is invalid.");
+        foreach (var placement in panorama.SourcePlacements)
+        {
+            var geometryIsValid = panorama.Projection == "Projective"
+                ? placement.Camera is null && placement.Transform.Count == 9 &&
+                    placement.Transform.All(double.IsFinite)
+                : placement.Transform.Count == 0 && placement.Camera is { } camera &&
+                    camera.Intrinsic.Count == 9 && camera.Rotation.Count == 9 &&
+                    camera.Intrinsic.All(double.IsFinite) && camera.Rotation.All(double.IsFinite);
+            if (!geometryIsValid || placement.ExposureGains.Count != 3 ||
+                placement.ExposureGains.Any(gain => !double.IsFinite(gain) || gain <= 0))
+                throw new InvalidDataException("The panorama camera or exposure provenance is invalid.");
+        }
         ArgumentException.ThrowIfNullOrWhiteSpace(outputFolder);
         if (!Path.IsPathFullyQualified(outputFolder))
             throw new ArgumentException("Choose a fully qualified output folder.", nameof(outputFolder));
@@ -220,7 +244,14 @@ public static class PanoramaStitchingService
         var xmp = XmpCore.XmpMetaFactory.Create();
         xmp.SetProperty(dc, "format", "image/jpeg");
         xmp.SetProperty(namespaceName, "CreatedBy", "PhotoLibrarian");
-        xmp.SetProperty(namespaceName, "Method", "Managed overlap graph, cycle-checked projective homographies, linear-light feather blending, rectangular crop; baked; source edit recipes not applied");
+        xmp.SetProperty(namespaceName, "Method",
+            $"OpenCV 4.12.0 SIFT, camera/overlap alignment, {panorama.Projection} projection, graph-cut seams, exposure compensation, multiband blending, rectangular crop; baked; source edit recipes not applied");
+        xmp.SetProperty(namespaceName, "Projection", panorama.Projection);
+        if (panorama.Projection == "Spherical")
+        {
+            xmp.SetProperty(namespaceName, "SphericalWarpScale", panorama.WarpScale.ToString("G10", CultureInfo.InvariantCulture));
+            xmp.SetProperty(namespaceName, "SphericalWarpOffset", $"{panorama.WarpOffsetX} {panorama.WarpOffsetY}");
+        }
         xmp.SetProperty(namespaceName, "SourceCount", panorama.SourcePaths.Count.ToString(CultureInfo.InvariantCulture));
         for (var index = 0; index < panorama.SourcePaths.Count; index++)
         {
@@ -230,8 +261,18 @@ public static class PanoramaStitchingService
             var placement = panorama.SourcePlacements[index];
             xmp.SetProperty(namespaceName, $"DecodedDimensions{index + 1}",
                 $"{placement.DecodedWidth} x {placement.DecodedHeight}");
-            xmp.SetProperty(namespaceName, $"NormalizedSourceToOutput{index + 1}",
-                string.Join(" ", placement.Transform.Select(value => value.ToString("G10", CultureInfo.InvariantCulture))));
+            if (placement.Camera is { } camera)
+            {
+                xmp.SetProperty(namespaceName, $"CameraIntrinsic{index + 1}",
+                    string.Join(" ", camera.Intrinsic.Select(value => value.ToString("G10", CultureInfo.InvariantCulture))));
+                xmp.SetProperty(namespaceName, $"CameraRotation{index + 1}",
+                    string.Join(" ", camera.Rotation.Select(value => value.ToString("G10", CultureInfo.InvariantCulture))));
+            }
+            else
+            {
+                xmp.SetProperty(namespaceName, $"NormalizedSourceToOutput{index + 1}",
+                    string.Join(" ", placement.Transform.Select(value => value.ToString("G10", CultureInfo.InvariantCulture))));
+            }
             xmp.SetProperty(namespaceName, $"BgrExposureGains{index + 1}",
                 string.Join(" ", placement.ExposureGains.Select(value => value.ToString("G6", CultureInfo.InvariantCulture))));
         }

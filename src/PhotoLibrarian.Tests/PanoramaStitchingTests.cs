@@ -7,6 +7,112 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class PanoramaStitchingTests
 {
+    [Fact]
+    public async Task Stitch_ResampledCameraSweep_AlignsFourViewsAndSavesHonestCalibration()
+    {
+        const int width = 1280;
+        const int height = 960;
+        const double focal = 1088;
+        var scene = CreateStructuredScene(3200, 1400);
+        double[] yaws = [-0.55, -0.18, 0.18, 0.55];
+        var images = yaws.Select(yaw => RenderCameraView(
+            scene, 3200, 1400, width, height, focal, yaw)).ToArray();
+        Darken(images[1].Pixels, 0.82);
+        AddOcclusion(images[2].Pixels, width, 560, 600, 100, 100, 19);
+        var originals = images.Select(image => (byte[])image.Pixels.Clone()).ToArray();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = PanoramaStitcher.Stitch(images,
+            ["sweep-left.png", "sweep-middle-left.png", "sweep-middle-right.png", "sweep-right.png"],
+            null, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Spherical", result.Projection);
+        Assert.Equal(4, result.SourcePlacements.Count);
+        Assert.InRange(result.Width, 2000, 2800);
+        Assert.InRange(result.Height, 600, 1000);
+        Assert.True(result.RetainedArea > 0.6);
+        var errors = new List<double>();
+        for (var longitude = -0.6; longitude <= 0.6; longitude += 0.15)
+        {
+            for (var latitude = -0.2; latitude <= 0.2; latitude += 0.2)
+            {
+                var projections = new List<(double X, double Y)>();
+                for (var index = 0; index < yaws.Length; index++)
+                {
+                    var delta = longitude - yaws[index];
+                    var x = width / 2d + focal * Math.Tan(delta);
+                    var y = height / 2d + focal * Math.Tan(latitude) / Math.Cos(delta);
+                    if (x < 100 || x > width - 100 || y < 100 || y > height - 100)
+                        continue;
+                    projections.Add(ProjectCamera(result, index, x, y));
+                }
+                for (var index = 1; index < projections.Count; index++)
+                    errors.Add(Math.Sqrt(Math.Pow(projections[0].X - projections[index].X, 2) +
+                        Math.Pow(projections[0].Y - projections[index].Y, 2)));
+            }
+        }
+        Assert.True(errors.Count >= 12);
+        Assert.True(errors.Average() < 3, $"Known camera rays disagree by {errors.Average():F2}px.");
+        for (var index = 0; index < images.Length; index++)
+        {
+            Assert.Equal(originals[index], images[index].Pixels);
+            Assert.Empty(result.SourcePlacements[index].Transform);
+            Assert.InRange(result.SourcePlacements[index].Camera!.Intrinsic[0], focal * 0.93, focal * 1.07);
+        }
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(30));
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"Four resampled camera views: {result.Width}x{result.Height}, " +
+            $"{errors.Average():F2}px ray error, {stopwatch.Elapsed.TotalSeconds:F2}s");
+        var folder = Path.Combine(Path.GetTempPath(), $"panorama-spherical-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var path = await PanoramaStitchingService.SaveAsync(result, folder, TestContext.Current.CancellationToken);
+            var text = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
+            Assert.Contains("SphericalWarpScale", text);
+            Assert.Contains("SphericalWarpOffset", text);
+            Assert.Contains("CameraIntrinsic4", text);
+            Assert.Contains("CameraRotation4", text);
+            Assert.DoesNotContain("NormalizedSourceToOutput", text);
+        }
+        finally
+        {
+            foreach (var path in Directory.GetFiles(folder))
+                File.Delete(path);
+            Directory.Delete(folder);
+        }
+    }
+
+    [Theory]
+    [InlineData("Refining camera alignment")]
+    [InlineData("Finding seams and compensating exposure")]
+    [InlineData("Checking the clean crop")]
+    public void Stitch_CancellationAtNativeStage_ReleasesResources(string stage)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var scene = CreateScene(480, 240, 771);
+        var images = new[]
+        {
+            Image(Crop(scene, 480, 0, 360, 240), 360, 240),
+            Image(Crop(scene, 480, 120, 360, 240), 360, 240)
+        };
+        Assert.Throws<OperationCanceledException>(() => PanoramaStitcher.Stitch(
+            images, ["left.png", "right.png"], new CancelOnProgress(cancellation, stage), cancellation.Token));
+        var retry = PanoramaStitcher.Stitch(images, ["left.png", "right.png"], null, CancellationToken.None);
+        Assert.InRange(retry.Width, 475, 485);
+    }
+
+    [Fact]
+    public void Stitch_ProgressFailure_DoesNotUnwindThroughNativeCode()
+    {
+        var expected = new InvalidOperationException("Progress consumer failed.");
+        var scene = CreateScene(480, 240, 771);
+        var exception = Assert.Throws<InvalidOperationException>(() => PanoramaStitcher.Stitch(
+            Image(Crop(scene, 480, 0, 360, 240), 360, 240),
+            Image(Crop(scene, 480, 120, 360, 240), 360, 240),
+            "left.png", "right.png", new ThrowOnProgress(expected), CancellationToken.None));
+        Assert.Same(expected, exception);
+    }
+
     [Theory]
     [InlineData(32, 1, 360, 240, 220, 0)]
     [InlineData(1, 24, 180, 180, 0, 80)]
@@ -41,9 +147,9 @@ public sealed class PanoramaStitchingTests
         Assert.InRange(result.Width, sceneWidth - 8, sceneWidth + 8);
         Assert.InRange(result.Height, sceneHeight - 8, sceneHeight + 8);
         Assert.True(result.RetainedArea > 0.95);
-        Assert.True(
-            FindBestSceneMeanError(result, scene, sceneWidth, sceneHeight, -1, -1) < 15,
-            $"The {inputs.Count}-photo panorama must preserve the known scene, not just its dimensions.");
+        var meanError = FindBestSceneMeanError(result, scene, sceneWidth, sceneHeight, -1, -1);
+        Assert.True(meanError < 15,
+            $"The {inputs.Count}-photo panorama must preserve the known scene, not just its dimensions. Mean error={meanError:F2}.");
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(120),
             $"{inputs.Count} photos took {stopwatch.Elapsed.TotalSeconds:F2}s.");
         for (var index = 0; index < inputs.Count; index++)
@@ -300,7 +406,7 @@ public sealed class PanoramaStitchingTests
         Assert.True(result.MatchCount >= 12);
         Assert.True(result.InlierCount >= 12);
         Assert.True(result.InlierRatio >= 0.2);
-        Assert.InRange(result.ExposureGains[1], 1.2, 1.55);
+        Assert.InRange(result.ExposureGains[1] / result.ExposureGains[0], 1.2, 1.55);
         Assert.True(
             FindBestSceneMeanError(result, scene, sceneWidth, height, 270, 332) < 30,
             "The panorama should preserve the known scene outside the occluded patch.");
@@ -486,6 +592,79 @@ public sealed class PanoramaStitchingTests
         return pixels;
     }
 
+    private static byte[] CreateStructuredScene(int width, int height)
+    {
+        var pixels = CreateScene(width, height, 482);
+        var random = new Random(91);
+        for (var building = 0; building < 250; building++)
+        {
+            var left = random.Next(width - 80);
+            var top = random.Next(80, height - 80);
+            var rectangleWidth = random.Next(15, 80);
+            var rectangleHeight = random.Next(15, 80);
+            var color = random.Next(45, 205);
+            for (var y = top; y < Math.Min(top + rectangleHeight, height); y++)
+            {
+                for (var x = left; x < Math.Min(left + rectangleWidth, width); x++)
+                {
+                    var value = (byte)Math.Clamp(color + (x % 11 < 3 || y % 13 < 3 ? 35 : -25), 0, 255);
+                    var offset = (y * width + x) * 4;
+                    pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = value;
+                }
+            }
+        }
+        return pixels;
+    }
+
+    private static WindowsImagingCodec.DecodedImage RenderCameraView(
+        byte[] scene, int sceneWidth, int sceneHeight, int width, int height, double focal, double yaw)
+    {
+        var pixels = new byte[width * height * 4];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var rayX = (x - width / 2d) / focal;
+                var rayY = (y - height / 2d) / focal;
+                var worldX = Math.Cos(yaw) * rayX + Math.Sin(yaw);
+                var worldZ = -Math.Sin(yaw) * rayX + Math.Cos(yaw);
+                var longitude = Math.Atan2(worldX, worldZ);
+                var latitude = Math.Atan2(rayY, Math.Sqrt(worldX * worldX + worldZ * worldZ));
+                var sx = (longitude + 1.3) * sceneWidth / 2.6;
+                var sy = (latitude + 0.65) * sceneHeight / 1.3;
+                var left = (int)sx;
+                var top = (int)sy;
+                var offset = (y * width + x) * 4;
+                for (var channel = 0; channel < 3; channel++)
+                {
+                    var source = (top * sceneWidth + left) * 4 + channel;
+                    var upper = scene[source] + (scene[source + 4] - scene[source]) * (sx - left);
+                    var lower = scene[source + sceneWidth * 4] +
+                        (scene[source + sceneWidth * 4 + 4] - scene[source + sceneWidth * 4]) * (sx - left);
+                    pixels[offset + channel] = (byte)Math.Round(upper + (lower - upper) * (sy - top));
+                }
+                pixels[offset + 3] = 255;
+            }
+        }
+        return Image(pixels, width, height);
+    }
+
+    private static (double X, double Y) ProjectCamera(PanoramaStitchResult result, int index, double x, double y)
+    {
+        var camera = result.SourcePlacements[index].Camera!;
+        var intrinsic = camera.Intrinsic;
+        var rotation = camera.Rotation;
+        var nx = (x - intrinsic[2]) / intrinsic[0];
+        var ny = (y - intrinsic[5]) / intrinsic[4];
+        var rx = rotation[0] * nx + rotation[1] * ny + rotation[2];
+        var ry = rotation[3] * nx + rotation[4] * ny + rotation[5];
+        var rz = rotation[6] * nx + rotation[7] * ny + rotation[8];
+        var length = Math.Sqrt(rx * rx + ry * ry + rz * rz);
+        return (
+            result.WarpScale * Math.Atan2(rx, rz) - result.WarpOffsetX,
+            result.WarpScale * (Math.PI - Math.Acos(ry / length)) - result.WarpOffsetY);
+    }
+
     private static byte[] Crop(byte[] source, int sourceWidth, int left, int width, int height, int top = 0)
     {
         var result = new byte[width * height * 4];
@@ -577,5 +756,10 @@ public sealed class PanoramaStitchingTests
             if (value.Stage == targetStage)
                 cancellation.Cancel();
         }
+    }
+
+    private sealed class ThrowOnProgress(Exception exception) : IProgress<PanoramaStitchProgress>
+    {
+        public void Report(PanoramaStitchProgress value) => throw exception;
     }
 }

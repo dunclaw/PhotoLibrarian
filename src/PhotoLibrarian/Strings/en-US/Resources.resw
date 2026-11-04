@@ -210,7 +210,7 @@
   <data name="ShareMailSubject" xml:space="preserve"><value>Photos</value></data>
   <data name="ShareMailBody" xml:space="preserve"><value>Attach the resized JPEG copies from the PhotoLibrarian folder opened in File Explorer before sending this message. No photos have been attached automatically.</value></data>
   <data name="PanoramaMenuAction" xml:space="preserve"><value>Stitch panorama (2-64 photos)</value></data>
-  <data name="PanoramaProgressStarting" xml:space="preserve"><value>Preparing all selected photos. Order does not matter; every photo must overlap the connected set. Projective panoramas only, not 360-degree spherical views.</value></data>
+  <data name="PanoramaProgressStarting" xml:space="preserve"><value>Preparing all selected photos. Order does not matter; every photo must overlap the connected set. Camera sweeps use spherical projection; flatter sets use projective alignment. Review seams and the automatic crop before saving.</value></data>
   <data name="PanoramaProgress" xml:space="preserve"><value>{0} ({1}%)</value></data>
   <data name="PanoramaProgressAutomationName" xml:space="preserve"><value>Panorama progress</value></data>
   <data name="PanoramaPreviewAutomationName" xml:space="preserve"><value>Stitched panorama preview</value></data>
