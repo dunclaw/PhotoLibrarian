@@ -33,6 +33,11 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if (Environment.GetCommandLineArgs().Contains("--motion-photo"))
+        {
+            await RunMotionPhotoSuiteAsync();
+            return;
+        }
         string? failure = null;
         try
         {
