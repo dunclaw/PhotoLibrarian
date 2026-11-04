@@ -2,7 +2,8 @@ param(
     [ValidateSet('x64', 'ARM64')]
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
-    [switch]$Preview
+    [switch]$Preview,
+    [switch]$MotionPhoto
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,18 +25,24 @@ try {
         --publisher-name 'CN=PhotoLibrarianTests' --executable .\PhotoLibrarian.AccessibilityTests.exe --if-exists Skip
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate test-only package identity.' }
     $resultPath = Join-Path $output 'AppX\accessibility-results.json'
+    if ($MotionPhoto) { $resultPath = Join-Path $output 'AppX\motion-photo-results.json' }
     if (Test-Path $resultPath) { Remove-Item -LiteralPath $resultPath }
     $arguments = @('run', '.', '--manifest', '.\Package.appxmanifest',
         '--exe', 'PhotoLibrarian.AccessibilityTests.exe', '--unregister-on-exit')
-    if ($Preview) { $arguments += @('--args', '--preview') }
+    if ($MotionPhoto) {
+        $testArguments = if ($Preview) { '--motion-photo --preview' } else { '--motion-photo' }
+        $arguments += @('--args', $testArguments)
+    }
+    elseif ($Preview) { $arguments += @('--args', '--preview') }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
-    if (-not $Preview) {
+    if (-not $Preview -or $MotionPhoto) {
         if (-not (Test-Path $resultPath)) { throw 'Accessibility test host did not produce results.' }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        Write-Host "Passed $($result.passed.Count) grid accessibility checks."
+        $suite = if ($MotionPhoto) { 'motion-photo lifecycle' } else { 'grid accessibility' }
+        Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }
 finally {

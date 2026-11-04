@@ -20,7 +20,8 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class ImageViewerOverlay : UserControl
 {
-    private ImageViewerViewModel? ViewModel => App.ViewModel?.ImageViewer;
+    private readonly ImageViewerViewModel? _providedViewModel;
+    private ImageViewerViewModel? ViewModel => _providedViewModel ?? App.ViewModel?.ImageViewer;
     private ImageZoomPanController? _zoomPan;
     private uint _currentImagePixelWidth;
     private uint _currentImagePixelHeight;
@@ -55,6 +56,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterRedEyeMode()
     {
+        StopMotionPlayback();
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsCropping) ExitCropMode();
         if (IsStraightening) ExitStraightenMode();
@@ -83,6 +85,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterCropMode()
     {
+        StopMotionPlayback();
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsStraightening) ExitStraightenMode();
         if (IsRedEyeRemoving) ExitRedEyeMode();
@@ -130,6 +133,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterStraightenMode()
     {
+        StopMotionPlayback();
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsCropping) ExitCropMode();
         if (IsRedEyeRemoving) ExitRedEyeMode();
@@ -156,6 +160,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterManualFaceTagging()
     {
+        StopMotionPlayback();
         if (ViewModel?.CurrentEntry?.MediaType != MediaType.Image) return;
         if (ViewModel.CurrentImage is null ||
             _currentImagePixelWidth == 0 ||
@@ -227,12 +232,18 @@ public sealed partial class ImageViewerOverlay : UserControl
     public ImageViewerOverlay()
     {
         this.InitializeComponent();
+        InitializeMotionPhotos();
         this.Loaded += OnLoaded;
         ImageHost.SizeChanged += (_, _) =>
         {
             if (IsStraightening)
                 UpdateStraightenClip();
         };
+    }
+
+    internal ImageViewerOverlay(ImageViewerViewModel viewModel) : this()
+    {
+        _providedViewModel = viewModel;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -664,7 +675,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping || IsStraightening) return;
+        if (IsCropping || IsStraightening || _motionPlayer is not null) return;
         DebugLog.WriteLine($"ImageViewerOverlay: Wheel changed, delta={e.GetCurrentPoint(RootGrid).Properties.MouseWheelDelta}");
         _zoomPan?.HandlePointerWheelChanged(e);
     }
@@ -976,7 +987,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void SetZoomControlsEnabled(bool isEnabled)
     {
-        isEnabled = isEnabled && _currentImagePixelWidth > 0 && _currentImagePixelHeight > 0;
+        isEnabled = isEnabled && _motionPlayer is null && _currentImagePixelWidth > 0 && _currentImagePixelHeight > 0;
         ZoomOutButton.IsEnabled = isEnabled;
         ZoomFitButton.IsEnabled = isEnabled;
         ZoomInButton.IsEnabled = isEnabled;

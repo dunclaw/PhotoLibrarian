@@ -70,6 +70,7 @@
                  viewport used for best-fit is the space the image actually gets. -->
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -340,6 +341,24 @@
                             AutoPlay="True"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Stretch" />
+
+        <MediaPlayerElement x:Name="MotionPlayer"
+                            AutomationProperties.AutomationId="ViewerMotionPlayer"
+                            x:Uid="MotionPhotoPlayer"
+                            Grid.Row="1"
+                            Visibility="Collapsed"
+                            AreTransportControlsEnabled="True"
+                            AutoPlay="False" />
+        <StackPanel x:Name="MotionPhotoTools" Grid.Row="2" Grid.ColumnSpan="2"
+                    HorizontalAlignment="Center" Visibility="Collapsed"
+                    Margin="16,8" Spacing="8" MaxWidth="640">
+            <InfoBar x:Name="MotionPhotoStatus" IsOpen="False" Severity="Warning"
+                     AutomationProperties.AutomationId="ViewerMotionStatus" />
+            <Button x:Name="MotionPhotoButton"
+                    AutomationProperties.AutomationId="ViewerMotionPhoto"
+                    HorizontalAlignment="Center" Visibility="Collapsed"
+                    Click="OnMotionPhotoClick" />
+        </StackPanel>
 
         <!-- Navigation arrows -->
         <Button x:Name="PreviousButton" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left"
