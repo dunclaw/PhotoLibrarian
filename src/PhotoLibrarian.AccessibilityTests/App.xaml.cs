@@ -36,6 +36,11 @@ public partial class App : Application
         string? failure = null;
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--retouch"))
+            {
+                _window = await RetouchEditorFixture.OpenAsync(this);
+                return;
+            }
             _grid = new VirtualizingPhotoGrid { ItemSize = 120 };
             var group = new PhotoGroup { Header = "Synthetic photos" };
             for (int i = 0; i < 10_000; i++)

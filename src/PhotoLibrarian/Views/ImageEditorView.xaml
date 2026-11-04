@@ -20,7 +20,7 @@
             </Grid.RowDefinitions>
 
             <!-- Top bar -->
-            <Grid Padding="12,8"
+            <Grid Height="48" Padding="12,8"
                   Background="{ThemeResource LayerFillColorDefaultBrush}"
                   BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                   BorderThickness="0,0,0,1">
@@ -86,7 +86,7 @@
                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
                     </Button>
                     <Button x:Name="CloseBtn" Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8"
-                            AutomationProperties.Name="Close editor">
+                            AutomationProperties.Name="Close editor" AutomationProperties.AutomationId="EditorClose">
                         <FontIcon Glyph="&#xE711;" FontSize="14" />
                     </Button>
                 </StackPanel>
@@ -94,6 +94,7 @@
 
             <canvas:CanvasControl x:Name="EditCanvas" Grid.Row="1" Margin="16"
                                    AutomationProperties.Name="Edit preview"
+                                   AutomationProperties.AutomationId="EditorPreview"
                                    Draw="OnCanvasDraw"
                                    CreateResources="OnCanvasCreateResources"
                                    SizeChanged="OnEditCanvasSizeChanged"
@@ -101,7 +102,7 @@
                                    PointerPressed="OnEditCanvasPointerPressed"
                                    PointerMoved="OnEditCanvasPointerMoved"
                                    PointerReleased="OnEditCanvasPointerReleased"
-                                   PointerCanceled="OnEditCanvasPointerReleased"
+                                   PointerCanceled="OnEditCanvasPointerCanceled"
                                    PointerCaptureLost="OnEditCanvasPointerCaptureLost"
                                    DoubleTapped="OnEditCanvasDoubleTapped" />
         </Grid>
@@ -156,6 +157,18 @@
                 </StackPanel>
 
                 <StackPanel x:Name="RasterAdjustmentsPanel" Spacing="12">
+                <ToggleButton x:Name="RetouchToggle" Content="Spot retouch" Click="OnRetouchToggled"
+                              AutomationProperties.Name="Spot retouch mode"
+                              AutomationProperties.AutomationId="EditorRetouch" />
+                <TextBlock Text="Brush radius (source pixels)" Style="{StaticResource CaptionTextBlockStyle}" />
+                <Slider x:Name="RetouchRadius" Minimum="2" Maximum="24" Value="8" StepFrequency="1"
+                        AutomationProperties.Name="Retouch brush radius in source pixels"
+                        AutomationProperties.AutomationId="EditorRetouchRadius" />
+                <TextBlock Text="Click or drag over a small blemish on a smooth surface, covering it completely. No texture or object reconstruction. Middle-drag to pan; Escape cancels. RAW: export a raster first. Limit: 24 MP, 32 short strokes per save."
+                           TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                <InfoBar x:Name="RetouchStatus" IsOpen="False" IsClosable="True" Severity="Warning"
+                         AutomationProperties.AutomationId="EditorRetouchStatus"
+                         AutomationProperties.LiveSetting="Polite" />
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Tone section -->

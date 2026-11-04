@@ -26,7 +26,8 @@ public sealed partial class ImageEditorView : UserControl
 {
     private CanvasBitmap? _sourceBitmap;
     private byte[]? _sourcePixels;
-    private ImageEditorViewModel? ViewModel => App.ViewModel?.ImageEditor;
+    private readonly ImageEditorViewModel? _providedViewModel;
+    private ImageEditorViewModel? ViewModel => _providedViewModel ?? App.ViewModel?.ImageEditor;
     private bool _suppressSliderEvents;
     private int _draggedHistogramAnchor;
     private readonly EditorViewport _viewport = new();
@@ -38,6 +39,12 @@ public sealed partial class ImageEditorView : UserControl
     private readonly RawPreviewSession _rawPreview = new();
     private CancellationTokenSource? _previewRequest;
     private bool _exportingRaw;
+    private CanvasBitmap? _retouchedBitmap;
+    private List<RetouchStroke> _previewStrokes = [];
+    private CancellationTokenSource? _retouchRequest;
+    private readonly RetouchGesture _retouchGesture = new();
+    private bool _retouchPreviewFailed;
+    private bool _pendingRetouch;
 
     public ImageEditorView()
     {
@@ -57,6 +64,9 @@ public sealed partial class ImageEditorView : UserControl
         AddNavigationAccelerator(Windows.System.VirtualKey.PageUp);
         AddNavigationAccelerator(Windows.System.VirtualKey.PageDown);
     }
+
+    public ImageEditorView(ImageEditorViewModel viewModel) : this() =>
+        _providedViewModel = viewModel;
 
     private void AddNavigationAccelerator(Windows.System.VirtualKey key)
     {
@@ -101,6 +111,14 @@ public sealed partial class ImageEditorView : UserControl
     public async Task HandleEditorKeyAsync(KeyRoutedEventArgs args, DependencyObject? focused)
     {
         if (Visibility != Visibility.Visible || ViewModel?.IsOpen != true) return;
+        if (args.Key == Windows.System.VirtualKey.Escape && RetouchToggle.IsChecked == true)
+        {
+            CancelRetouchGesture();
+            if (_pendingRetouch) _retouchRequest?.Cancel();
+            RetouchToggle.IsChecked = false;
+            args.Handled = true;
+            return;
+        }
         if (args.Key is not (Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)) return;
         var isEditingControl = false;
         for (var current = focused; current is not null; current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current))
@@ -157,6 +175,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        ClearRetouchPreview();
         ViewModel?.CancelRawExport();
         _previewRequest?.Cancel();
         _rawPreview.Invalidate();
@@ -215,6 +234,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnParametersChanged(object? sender, EventArgs e)
     {
+        CancelRetouchGesture();
         SyncSlidersFromViewModel();
         if (ViewModel?.IsRawPreview == true)
         {
@@ -223,6 +243,7 @@ public sealed partial class ImageEditorView : UserControl
         }
         DispatcherQueue.TryEnqueue(() => EditCanvas.Invalidate());
         DispatcherQueue.TryEnqueue(() => HistogramCanvas.Invalidate());
+        _ = RefreshRetouchPreviewAsync();
     }
 
     private void UpdateHistoryControls()
@@ -249,6 +270,12 @@ public sealed partial class ImageEditorView : UserControl
         AdjustmentsPanel.IsEnabled = !isSaving || _exportingRaw;
         RawExposureSlider.IsEnabled = !isSaving;
         RawWhitePointSlider.IsEnabled = !isSaving;
+        RetouchToggle.IsEnabled = !isRaw && !isSaving && _sourceBitmap is not null &&
+            _sourceBitmap.Size.Width * _sourceBitmap.Size.Height <= SpotRetouchProcessor.MaxImagePixels &&
+            ViewModel?.ImagePath is { } path && ImageEditRenderer.IsSupported(path);
+        RetouchRadius.IsEnabled = RetouchToggle.IsEnabled;
+        if (!RetouchToggle.IsEnabled && !isSaving) RetouchToggle.IsChecked = false;
+        if (_retouchPreviewFailed) SaveBtn.IsEnabled = false;
     }
 
     private void OnUndo(SplitButton sender, SplitButtonClickEventArgs args) =>
@@ -320,20 +347,23 @@ public sealed partial class ImageEditorView : UserControl
         }
         ImageEditRenderPass.Draw(
             args.DrawingSession,
-            _sourceBitmap,
+            _retouchedBitmap ?? _sourceBitmap,
             p,
             new Vector2((float)imageSize.Width, (float)imageSize.Height),
             transform);
+        DrawRetouchStroke(args.DrawingSession, new Vector2((float)imageSize.Width, (float)imageSize.Height));
     }
 
     private void OnEditCanvasSizeChanged(object sender, SizeChangedEventArgs e)
     {
+        CancelRetouchGesture();
         _viewport.SetCanvasSize(new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height));
         UpdateZoomText();
     }
 
     private void OnEditCanvasPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
+        if (_retouchGesture.PointerId is not null) { e.Handled = true; return; }
         var point = e.GetCurrentPoint(EditCanvas);
         var delta = point.Properties.MouseWheelDelta;
         if (delta == 0 || _sourceBitmap is null) return;
@@ -347,7 +377,22 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnEditCanvasPointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (_retouchGesture.PointerId is not null) { e.Handled = true; return; }
         var point = e.GetCurrentPoint(EditCanvas);
+        if (RetouchToggle.IsChecked == true && point.Properties.IsLeftButtonPressed)
+        {
+            if (ViewModel?.IsBusy == true || !RetouchToggle.IsEnabled || !TryRetouchPoint(point.Position, out var sourcePoint))
+                return;
+            if (!EditCanvas.CapturePointer(e.Pointer)) return;
+            _retouchGesture.Begin(e.Pointer.PointerId, (int)_sourceBitmap!.SizeInPixels.Width,
+                (int)_sourceBitmap.SizeInPixels.Height, (int)RetouchRadius.Value, sourcePoint);
+            RetouchStatus.IsOpen = false;
+            ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Cross);
+            EditCanvas.Invalidate();
+            e.Handled = true;
+            return;
+        }
+        if (RetouchToggle.IsChecked == true && !point.Properties.IsMiddleButtonPressed) return;
         if (_viewport.IsFit || !(point.Properties.IsLeftButtonPressed || point.Properties.IsMiddleButtonPressed || point.IsInContact))
             return;
         if (!EditCanvas.CapturePointer(e.Pointer)) return;
@@ -359,6 +404,13 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnEditCanvasPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_retouchGesture.PointerId == e.Pointer.PointerId)
+        {
+            AddRetouchPoint(e.GetCurrentPoint(EditCanvas).Position);
+            EditCanvas.Invalidate();
+            e.Handled = true;
+            return;
+        }
         if (_panPointerId != e.Pointer.PointerId) return;
         var position = e.GetCurrentPoint(EditCanvas).Position;
         var current = new Vector2((float)position.X, (float)position.Y);
@@ -368,8 +420,18 @@ public sealed partial class ImageEditorView : UserControl
         e.Handled = true;
     }
 
-    private void OnEditCanvasPointerReleased(object sender, PointerRoutedEventArgs e)
+    private async void OnEditCanvasPointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_retouchGesture.PointerId == e.Pointer.PointerId)
+        {
+            AddRetouchPoint(e.GetCurrentPoint(EditCanvas).Position);
+            var stroke = _retouchGesture.Complete(e.Pointer.PointerId);
+            CancelRetouchGesture();
+            if (stroke is null) return;
+            await RefreshRetouchPreviewAsync(stroke);
+            e.Handled = true;
+            return;
+        }
         if (_panPointerId != e.Pointer.PointerId) return;
         EditCanvas.ReleasePointerCapture(e.Pointer);
         EndPan();
@@ -377,7 +439,147 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnEditCanvasPointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
+        if (_retouchGesture.PointerId == e.Pointer.PointerId) CancelRetouchGesture();
         if (_panPointerId == e.Pointer.PointerId) EndPan();
+    }
+
+    private void OnEditCanvasPointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        CancelRetouchGesture();
+        EditCanvas.ReleasePointerCapture(e.Pointer);
+        EndPan();
+    }
+
+    private void OnRetouchToggled(object sender, RoutedEventArgs e) => CancelRetouchGesture();
+
+    private bool TryRetouchPoint(Point position, out RetouchPoint point)
+    {
+        point = default;
+        if (_sourceBitmap is null || ViewModel is null) return false;
+        return EditorImageCoordinates.TryGetSourcePoint(new Vector2((float)position.X, (float)position.Y),
+            new Vector2((float)_sourceBitmap.Size.Width, (float)_sourceBitmap.Size.Height),
+            ViewModel.RotationAngle, _viewport.Scale, _viewport.ContentOrigin, out point);
+    }
+
+    private void AddRetouchPoint(Point position)
+    {
+        if (!TryRetouchPoint(position, out var point))
+        {
+            CancelRetouchGesture();
+            ShowRetouchError("Stroke cancelled outside the image. Keep the entire stroke inside the photo.");
+            return;
+        }
+        try { _retouchGesture.Add(point); }
+        catch (InvalidDataException ex)
+        {
+            CancelRetouchGesture();
+            ShowRetouchError(ex.Message);
+        }
+    }
+
+    private void CancelRetouchGesture()
+    {
+        _retouchGesture.Cancel();
+        EditCanvas.ReleasePointerCaptures();
+        ProtectedCursor = null;
+        EditCanvas.Invalidate();
+    }
+
+    private void ShowRetouchError(string message)
+    {
+        RetouchStatus.Message = message;
+        RetouchStatus.IsOpen = true;
+        SetStatus(message);
+    }
+
+    private void ClearRetouchPreview()
+    {
+        CancelRetouchGesture();
+        _retouchRequest?.Cancel();
+        _retouchRequest = null;
+        _pendingRetouch = false;
+        _retouchedBitmap?.Dispose();
+        _retouchedBitmap = null;
+        _previewStrokes = [];
+        _retouchPreviewFailed = false;
+        if (ViewModel is { } vm) vm.IsRetouching = false;
+    }
+
+    private async Task RefreshRetouchPreviewAsync(RetouchStroke? pending = null)
+    {
+        var vm = ViewModel;
+        var source = _sourceBitmap;
+        if (vm is null || source is null || vm.IsRawPreview) return;
+        var path = vm.ImagePath;
+        var strokes = vm.GetCurrentParameters().RetouchStrokes;
+        if (pending is not null) strokes.Add(pending);
+        if (RetouchStroke.SequenceEqual(strokes, _previewStrokes))
+        {
+            if (_retouchPreviewFailed) RetouchStatus.IsOpen = false;
+            _retouchPreviewFailed = false;
+            UpdateHistoryControls();
+            return;
+        }
+        _retouchRequest?.Cancel();
+        using var request = new CancellationTokenSource();
+        _retouchRequest = request;
+        _pendingRetouch = pending is not null;
+        vm.IsRetouching = true;
+        try
+        {
+            var bitmap = await ImageEditRenderer.CreateRetouchedAsync(EditCanvas, source, strokes, request.Token);
+            if (_retouchRequest != request || _sourceBitmap != source || vm.ImagePath != path)
+            {
+                bitmap?.Dispose();
+                return;
+            }
+            _retouchedBitmap?.Dispose();
+            _retouchedBitmap = bitmap;
+            _sourcePixels = (bitmap ?? source).GetPixelBytes();
+            _previewStrokes = strokes;
+            _retouchPreviewFailed = false;
+            RetouchStatus.IsOpen = false;
+            vm.IsRetouching = false;
+            if (pending is not null) vm.AddRetouchStroke(pending);
+            EditCanvas.Invalidate();
+            HistogramCanvas.Invalidate();
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (_retouchRequest != request) return;
+            System.Diagnostics.Debug.WriteLine($"[RETOUCH PREVIEW] {ex}");
+            _retouchPreviewFailed = pending is null;
+            ShowRetouchError($"Retouch not applied: {ex.Message}" +
+                (_retouchPreviewFailed ? " Undo or reset the recipe before saving." : ""));
+        }
+        finally
+        {
+            if (_retouchRequest == request)
+            {
+                _retouchRequest = null;
+                _pendingRetouch = false;
+                vm.IsRetouching = false;
+                UpdateHistoryControls();
+            }
+        }
+    }
+
+    private void DrawRetouchStroke(CanvasDrawingSession session, Vector2 sourceSize)
+    {
+        if (_retouchGesture.Points.Count == 0 || ViewModel is null) return;
+        session.Transform = EditorImageCoordinates.SourceToCanvas(sourceSize, ViewModel.RotationAngle,
+            _viewport.Scale, _viewport.ContentOrigin);
+        var color = GetResourceColor("SystemColorHighlightColorBrush", Microsoft.UI.Colors.CornflowerBlue);
+        var thickness = 1.5f / _viewport.Scale;
+        foreach (var point in _retouchGesture.Points)
+            session.DrawCircle(point.X + 0.5f, point.Y + 0.5f, _retouchGesture.Radius, color, thickness);
+        for (var i = 1; i < _retouchGesture.Points.Count; i++)
+        {
+            var start = _retouchGesture.Points[i - 1];
+            var end = _retouchGesture.Points[i];
+            session.DrawLine(start.X + 0.5f, start.Y + 0.5f, end.X + 0.5f, end.Y + 0.5f, color, thickness);
+        }
     }
 
     private void EndPan()
@@ -388,6 +590,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnEditCanvasDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
+        if (RetouchToggle.IsChecked == true) { e.Handled = true; return; }
         if (_sourceBitmap is null) return;
         if (_viewport.IsFit)
         {
@@ -410,6 +613,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void ZoomBy(bool zoomIn)
     {
+        CancelRetouchGesture();
         if (_sourceBitmap is null) return;
         UpdateActualSizeScale();
         if (zoomIn) _viewport.ZoomIn();
@@ -419,12 +623,14 @@ public sealed partial class ImageEditorView : UserControl
 
     private void ZoomFit()
     {
+        CancelRetouchGesture();
         _viewport.Fit();
         OnViewportChanged();
     }
 
     private void ZoomActual()
     {
+        CancelRetouchGesture();
         if (_sourceBitmap is null) return;
         UpdateActualSizeScale();
         _viewport.ZoomTo(_viewport.ActualSizeScale);
@@ -458,6 +664,9 @@ public sealed partial class ImageEditorView : UserControl
 
     private async Task LoadImageAsync(string? path)
     {
+        ClearRetouchPreview();
+        RetouchToggle.IsChecked = false;
+        RetouchStatus.IsOpen = false;
         _previewRequest?.Cancel();
         using var request = new CancellationTokenSource();
         _previewRequest = request;
@@ -514,6 +723,8 @@ public sealed partial class ImageEditorView : UserControl
             UpdateZoomText();
             EditCanvas.Invalidate();
             HistogramCanvas.Invalidate();
+            await RefreshRetouchPreviewAsync();
+            UpdateHistoryControls();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
@@ -793,6 +1004,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnReset(object sender, RoutedEventArgs e)
     {
+        CancelRetouchGesture();
         ViewModel?.ResetAllCommand.Execute(null);
         SyncSlidersFromViewModel();
     }
@@ -823,6 +1035,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private async void OnSave(object sender, RoutedEventArgs e)
     {
+        CancelRetouchGesture();
         if (ViewModel is null || ViewModel.IsBusy) return;
         if (ViewModel.IsRawPreview)
         {
@@ -866,6 +1079,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private Task<(uint Width, uint Height)> RenderForSaveAsync(string path, EditParameters parameters)
     {
+        ClearRetouchPreview();
         // Cancel old loads and release our handle before the renderer rewrites the file.
         _previewRequest?.Cancel();
         _sourceBitmap?.Dispose();
@@ -903,6 +1117,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private async Task NavigateAsync(int direction)
     {
+        CancelRetouchGesture();
         var vm = ViewModel;
         if (vm?.CanNavigate != true) return;
         var path = vm.ImagePath;
@@ -928,6 +1143,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private async void OnClose(object sender, RoutedEventArgs e)
     {
+        CancelRetouchGesture();
         var vm = ViewModel;
         if (vm is null || vm.IsBusy) return;
         try

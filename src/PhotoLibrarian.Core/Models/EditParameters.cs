@@ -45,6 +45,7 @@ public sealed class EditParameters
     // Crop & Rotation
     public double RotationAngle { get; set; }
     public CropRect? Crop { get; set; }
+    public List<RetouchStroke> RetouchStrokes { get; set; } = [];
 
     public bool HasAdjustments =>
         Brightness != 0 || Contrast != 0 || Exposure != 0 ||
@@ -54,7 +55,7 @@ public sealed class EditParameters
         SharpeningMode != PhotoLibrarian.Core.Models.SharpeningMode.Legacy || UnsharpMaskAmount != 0 ||
         UnsharpMaskRadius != 1.0 || UnsharpMaskThreshold != 0.02 ||
         BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 ||
-        RotationAngle != 0 || Crop is not null;
+        RotationAngle != 0 || Crop is not null || RetouchStrokes.Count != 0;
 
     public EditParameters Clone() => new()
     {
@@ -79,7 +80,8 @@ public sealed class EditParameters
         WhitePoint = WhitePoint,
         Midtones = Midtones,
         RotationAngle = RotationAngle,
-        Crop = Crop?.Clone()
+        Crop = Crop?.Clone(),
+        RetouchStrokes = RetouchStrokes.Select(stroke => stroke.Copy()).ToList()
     };
 
     public void Reset()
@@ -98,6 +100,7 @@ public sealed class EditParameters
         Midtones = 0.5;
         RotationAngle = 0;
         Crop = null;
+        RetouchStrokes.Clear();
     }
 
     // XMP namespace for PhotoLibrarian edit parameters

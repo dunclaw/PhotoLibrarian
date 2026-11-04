@@ -167,6 +167,7 @@ public static class ImageEditRenderer
         using var source = await LoadOrientedAsync(device, filePath);
         var sourceWidth = source.SizeInPixels.Width;
         var sourceHeight = source.SizeInPixels.Height;
+        using var retouched = await CreateRetouchedAsync(device, source, parameters.RetouchStrokes);
 
         Vector2 offset;
         uint outWidth;
@@ -204,7 +205,7 @@ public static class ImageEditRenderer
                 : Microsoft.UI.Colors.White);
             ImageEditRenderPass.Draw(
                 session,
-                source,
+                retouched ?? source,
                 parameters,
                 new Vector2(sourceWidth, sourceHeight),
                 Matrix3x2.CreateTranslation(offset));
@@ -214,6 +215,24 @@ public static class ImageEditRenderer
     }
 
     internal readonly record struct RenderedPixels(uint Width, uint Height, byte[] Pixels);
+
+    /// <summary>Source-resolution CPU stage shared by editor preview and export, before tone/detail/rotation.</summary>
+    internal static async Task<CanvasBitmap?> CreateRetouchedAsync(
+        ICanvasResourceCreator device, CanvasBitmap source, IReadOnlyList<RetouchStroke> strokes,
+        CancellationToken cancellationToken = default)
+    {
+        if (strokes.Count == 0) return null;
+        SpotRetouchProcessor.Validate(strokes);
+        var width = checked((int)source.SizeInPixels.Width);
+        var height = checked((int)source.SizeInPixels.Height);
+        if ((long)width * height > SpotRetouchProcessor.MaxImagePixels)
+            throw new InvalidDataException("Retouch supports images up to 24 megapixels.");
+        var pixels = source.GetPixelBytes();
+        await Task.Run(() => SpotRetouchProcessor.Apply(pixels, width, height, strokes, cancellationToken), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return CanvasBitmap.CreateFromBytes(device, pixels, width, height,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+    }
 
     /// <summary>
     /// Writes <paramref name="pixels"/> (BGRA8, premultiplied) over the file, transcoding from the
