@@ -947,22 +947,6 @@ public sealed partial class ImageGridView : UserControl
                 return;
             }
 
-            var window = App.MainWindow
-                ?? throw new InvalidOperationException("The main window is no longer available.");
-            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(
-                WinRT.Interop.WindowNative.GetWindowHandle(window));
-            var picker = new Microsoft.Windows.Storage.Pickers.FolderPicker(windowId)
-            {
-                SuggestedStartLocation =
-                    Microsoft.Windows.Storage.Pickers.PickerLocationId.PicturesLibrary
-            };
-            var outputFolder = await picker.PickSingleFolderAsync();
-            if (outputFolder is null)
-            {
-                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaSaveNotStarted");
-                return;
-            }
-
             using var saveCancellation = new System.Threading.CancellationTokenSource();
             var saveLabel = new TextBlock
             {
@@ -1003,7 +987,7 @@ public sealed partial class ImageGridView : UserControl
             try
             {
                 outputPath = await Core.Services.PanoramaStitchingService.SaveAsync(
-                    panorama, outputFolder.Path, saveCancellation.Token);
+                    panorama, saveCancellation.Token);
             }
             catch (OperationCanceledException) when (saveCancellation.IsCancellationRequested)
             {
@@ -1040,10 +1024,8 @@ public sealed partial class ImageGridView : UserControl
                     XamlRoot = XamlRoot,
                     RequestedTheme = ActualTheme
                 }.ShowAsync();
-                Services.PhotoOperationsService.RevealInExplorer(outputPath);
                 return;
             }
-            Services.PhotoOperationsService.RevealInExplorer(outputPath);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {

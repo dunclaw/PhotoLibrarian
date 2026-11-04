@@ -1208,6 +1208,7 @@ public partial class MainViewModel : ObservableObject
                 $"The panorama at '{path}' could not be added to the library.");
         ImageGrid.RevealExportedImage(entry.FilePath);
         await RefreshAfterIndexAsync();
+        ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
         StatusText = PanoramaStrings.Format("PanoramaCreatedStatus", entry.FileName);
     }
 

@@ -86,6 +86,19 @@ public static class PanoramaStitchingService
 
     public static async Task<string> SaveAsync(
         PanoramaStitchResult panorama,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(panorama);
+        var firstSource = panorama.SourcePaths.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(firstSource) || !Path.IsPathFullyQualified(firstSource))
+            throw new InvalidDataException("The first panorama source must have a fully qualified path.");
+        var folder = Path.GetDirectoryName(firstSource)
+            ?? throw new InvalidDataException("The first panorama source has no parent folder.");
+        return await SaveAsync(panorama, folder, cancellationToken);
+    }
+
+    public static async Task<string> SaveAsync(
+        PanoramaStitchResult panorama,
         string outputFolder,
         CancellationToken cancellationToken = default)
     {
@@ -282,7 +295,8 @@ public static class PanoramaStitchingService
         xmp.SetProperty(namespaceName, "OutputScale", panorama.OutputScale.ToString("F4", CultureInfo.InvariantCulture));
         xmp.SetProperty(namespaceName, "RetainedArea", panorama.RetainedArea.ToString("F4", CultureInfo.InvariantCulture));
         xmp.SetProperty(namespaceName, "PixelDimensions", $"{panorama.Width} x {panorama.Height}");
+        // WIC rejects a UTF-8 BOM at the start of a JPEG XMP payload.
         return XmpCore.XmpMetaFactory.SerializeToString(
-            xmp, new XmpCore.Options.SerializeOptions { OmitPacketWrapper = true });
+            xmp, new XmpCore.Options.SerializeOptions { OmitPacketWrapper = true }).TrimStart('\uFEFF');
     }
 }

@@ -219,10 +219,10 @@
   <data name="PanoramaStitchTitle" xml:space="preserve"><value>Stitch panorama</value></data>
   <data name="PanoramaSavingTitle" xml:space="preserve"><value>Saving panorama</value></data>
   <data name="PanoramaReviewTitle" xml:space="preserve"><value>Review panorama</value></data>
-  <data name="PanoramaSaveButton" xml:space="preserve"><value>Save panorama...</value></data>
+  <data name="PanoramaSaveButton" xml:space="preserve"><value>Save panorama</value></data>
   <data name="PanoramaCancelButton" xml:space="preserve"><value>Cancel</value></data>
   <data name="PanoramaCloseButton" xml:space="preserve"><value>Close</value></data>
-  <data name="PanoramaPreviewDetails" xml:space="preserve"><value>{5:N0} photos aligned into {0:N0} x {1:N0} pixels. {2:N0} of {3:N0} overlap matches agree ({4:P0}). Output scale: {6:P0}; clean crop retains {7:P0} of the canvas. Check the entire view, seams, and crop before saving. Only a new JPEG is saved; all originals stay unchanged. Source edit recipes are not applied.</value></data>
+  <data name="PanoramaPreviewDetails" xml:space="preserve"><value>{5:N0} photos aligned into {0:N0} x {1:N0} pixels. {2:N0} of {3:N0} overlap matches agree ({4:P0}). Output scale: {6:P0}; clean crop retains {7:P0} of the canvas. Check the entire view, seams, and crop before saving. A new JPEG is saved beside the first photo and opened in the viewer; all originals stay unchanged. Source edit recipes are not applied.</value></data>
   <data name="PanoramaSaveNotStarted" xml:space="preserve"><value>Panorama not saved</value></data>
   <data name="PanoramaCancelled" xml:space="preserve"><value>Panorama cancelled</value></data>
   <data name="PanoramaFailed" xml:space="preserve"><value>Panorama failed: {0}</value></data>

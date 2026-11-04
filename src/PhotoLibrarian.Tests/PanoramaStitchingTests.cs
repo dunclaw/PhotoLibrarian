@@ -7,6 +7,216 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class PanoramaStitchingTests
 {
+    [Theory]
+    [InlineData("caption", false)]
+    [InlineData("rating", false)]
+    [InlineData("date", false)]
+    [InlineData("flag", false)]
+    [InlineData("tags", false)]
+    [InlineData("caption", true)]
+    [InlineData("rating", true)]
+    [InlineData("date", true)]
+    [InlineData("flag", true)]
+    [InlineData("tags", true)]
+    public async Task SaveAsync_MetadataRemainsEditableWithoutSidecar(string property, bool legacyBom)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"panorama-metadata-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var panorama = CreateSaveTestPanorama(["first.jpg", "second.jpg"]);
+            var path = await PanoramaStitchingService.SaveAsync(
+                panorama, folder, TestContext.Current.CancellationToken);
+            if (legacyBom)
+                AddLegacyXmpByteOrderMark(path);
+            var before = await WindowsImagingCodec.DecodeAsync(path, 120, TestContext.Current.CancellationToken);
+            var notices = new List<MetadataWriteFallbackEventArgs>();
+            void OnFallback(object? sender, MetadataWriteFallbackEventArgs e)
+            {
+                if (e.ImagePath == path) notices.Add(e);
+            }
+            MetadataWriterService.SidecarFallback += OnFallback;
+            try
+            {
+                await WriteTestMetadataAsync(path, property);
+                var after = await WindowsImagingCodec.DecodeAsync(path, 120, TestContext.Current.CancellationToken);
+                Assert.Equal(before.Pixels, after.Pixels);
+                Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
+                Assert.Empty(notices);
+                var metadata = MetadataExtractor.ImageMetadataReader.ReadMetadata(path)
+                    .OfType<MetadataExtractor.Formats.Xmp.XmpDirectory>().Single().XmpMeta!;
+                Assert.Equal("2", metadata.GetPropertyString(
+                    "https://photolibrarian.app/ns/panorama/1.0/", "SourceCount"));
+                Assert.Equal("second.jpg", metadata.GetPropertyString(
+                    "https://photolibrarian.app/ns/panorama/1.0/", "SourceFile2"));
+                switch (property)
+                {
+                    case "caption":
+                        Assert.Equal(new string('A', 5000), MetadataWriterService.ReadCaptionFromSidecar(path));
+                        break;
+                    case "rating":
+                        Assert.Equal(4, metadata.GetPropertyInteger("http://ns.adobe.com/xap/1.0/", "Rating"));
+                        break;
+                    case "date":
+                        Assert.StartsWith("2006-03-05T12:30:00",
+                            metadata.GetPropertyString("http://ns.adobe.com/exif/1.0/", "DateTimeOriginal"));
+                        break;
+                    case "flag":
+                        Assert.Equal("True", metadata.GetPropertyString(
+                            MetadataWriterService.PhotoLibrarianNamespace, "Flagged"));
+                        break;
+                    case "tags":
+                        Assert.Equal("Travel", metadata.GetArrayItem("http://purl.org/dc/elements/1.1/", "subject", 1).Value);
+                        Assert.NotNull(metadata.GetPropertyString(
+                            MetadataWriterService.PhotoLibrarianNamespace, "TagMetadata"));
+                        break;
+                }
+            }
+            finally
+            {
+                MetadataWriterService.SidecarFallback -= OnFallback;
+            }
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_DefaultDestination_IsBesideFirstSourceWithoutOverwriting()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"panorama-destination-{Guid.NewGuid():N}");
+        var firstFolder = Path.Combine(folder, "first");
+        var secondFolder = Path.Combine(folder, "second");
+        Directory.CreateDirectory(firstFolder);
+        Directory.CreateDirectory(secondFolder);
+        try
+        {
+            var sources = new[] { Path.Combine(firstFolder, "initial.jpg"), Path.Combine(secondFolder, "other.jpg") };
+            foreach (var source in sources)
+                await File.WriteAllTextAsync(source, "untouched source", TestContext.Current.CancellationToken);
+            var panorama = CreateSaveTestPanorama(sources);
+            var first = await PanoramaStitchingService.SaveAsync(panorama, TestContext.Current.CancellationToken);
+            var firstBytes = await File.ReadAllBytesAsync(first, TestContext.Current.CancellationToken);
+            var second = await PanoramaStitchingService.SaveAsync(panorama, TestContext.Current.CancellationToken);
+            Assert.Equal(Path.Combine(firstFolder, "initial - Panorama.jpg"), first);
+            Assert.Equal(Path.Combine(firstFolder, "initial - Panorama (2).jpg"), second);
+            Assert.Equal(firstBytes, await File.ReadAllBytesAsync(first, TestContext.Current.CancellationToken));
+            foreach (var source in sources)
+                Assert.Equal("untouched source", await File.ReadAllTextAsync(source, TestContext.Current.CancellationToken));
+            Assert.Single(Directory.GetFiles(secondFolder));
+            Assert.Empty(Directory.GetFiles(folder, "*.tmp", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_LockedPanorama_ReportsOnlyAnActuallySavedSidecar()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"panorama-sidecar-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        MetadataWriteFallbackEventArgs? notice = null;
+        var savedWhenReported = false;
+        var path = await PanoramaStitchingService.SaveAsync(
+            CreateSaveTestPanorama(["first.jpg", "second.jpg"]), folder, TestContext.Current.CancellationToken);
+        void OnFallback(object? sender, MetadataWriteFallbackEventArgs e)
+        {
+            if (e.ImagePath != path) return;
+            notice = e;
+            savedWhenReported = File.Exists(e.SidecarPath);
+        }
+        MetadataWriterService.SidecarFallback += OnFallback;
+        try
+        {
+            using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                await MetadataWriterService.WriteCaptionAsync(path, "Sidecar caption");
+            Assert.NotNull(notice);
+            Assert.True(savedWhenReported);
+            Assert.Equal(Path.ChangeExtension(path, ".xmp"), notice.SidecarPath);
+            var metadata = XmpCore.XmpMetaFactory.ParseFromString(
+                await File.ReadAllTextAsync(notice.SidecarPath, TestContext.Current.CancellationToken));
+            Assert.Equal("Sidecar caption", metadata.GetLocalizedText(
+                "http://purl.org/dc/elements/1.1/", "description", "", "x-default").Value);
+        }
+        finally
+        {
+            MetadataWriterService.SidecarFallback -= OnFallback;
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_InvalidXmp_PreservesImageAndReportsTheSavedSidecar()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"panorama-invalid-xmp-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        var path = await PanoramaStitchingService.SaveAsync(
+            CreateSaveTestPanorama(["first.jpg", "second.jpg"]), folder, TestContext.Current.CancellationToken);
+        var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
+        var payloadOffset = 6 + Encoding.ASCII.GetByteCount("http://ns.adobe.com/xap/1.0/\0");
+        original[payloadOffset] = (byte)'!';
+        await File.WriteAllBytesAsync(path, original, TestContext.Current.CancellationToken);
+        MetadataWriteFallbackEventArgs? notice = null;
+        void OnFallback(object? sender, MetadataWriteFallbackEventArgs e)
+        {
+            if (e.ImagePath == path) notice = e;
+        }
+        MetadataWriterService.SidecarFallback += OnFallback;
+        try
+        {
+            await MetadataWriterService.WriteCaptionAsync(path, "Sidecar caption");
+            Assert.NotNull(notice);
+            Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
+            var metadata = XmpCore.XmpMetaFactory.ParseFromString(
+                await File.ReadAllTextAsync(notice.SidecarPath, TestContext.Current.CancellationToken));
+            Assert.Equal("Sidecar caption", metadata.GetLocalizedText(
+                "http://purl.org/dc/elements/1.1/", "description", "", "x-default").Value);
+        }
+        finally
+        {
+            MetadataWriterService.SidecarFallback -= OnFallback;
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    private static PanoramaStitchResult CreateSaveTestPanorama(IReadOnlyList<string> paths)
+    {
+        double[] identity = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+        var placement = new PanoramaSourcePlacement(120, 120, identity, [1, 1, 1]);
+        return new PanoramaStitchResult(
+            CreateScene(120, 120, 7), 120, 120, paths,
+            40, 35, 0.875, [1, 1], 1, 1, [placement, placement]);
+    }
+
+    private static Task WriteTestMetadataAsync(string path, string property) => property switch
+    {
+        "caption" => MetadataWriterService.WriteCaptionAsync(path, new string('A', 5000)),
+        "rating" => MetadataWriterService.WriteRatingAsync(path, 4),
+        "date" => MetadataWriterService.WriteDateTakenAsync(path, new DateTime(2006, 3, 5, 12, 30, 0)),
+        "flag" => MetadataWriterService.WriteFlagAsync(path, true),
+        "tags" => TagWriterService.WriteTagsToSidecarAsync(path, ["Travel"], [], "test-version"),
+        _ => throw new ArgumentOutOfRangeException(nameof(property))
+    };
+
+    private static void AddLegacyXmpByteOrderMark(string path)
+    {
+        var jpeg = File.ReadAllBytes(path);
+        Assert.Equal(0xe1, jpeg[3]);
+        var segmentLength = (jpeg[4] << 8 | jpeg[5]) + 3;
+        jpeg[4] = (byte)(segmentLength >> 8);
+        jpeg[5] = (byte)segmentLength;
+        var payloadOffset = 6 + Encoding.ASCII.GetByteCount("http://ns.adobe.com/xap/1.0/\0");
+        using var output = new MemoryStream();
+        output.Write(jpeg, 0, payloadOffset);
+        output.Write([0xef, 0xbb, 0xbf]);
+        output.Write(jpeg, payloadOffset, jpeg.Length - payloadOffset);
+        File.WriteAllBytes(path, output.ToArray());
+    }
+
     [Fact]
     public async Task Stitch_ResampledCameraSweep_AlignsFourViewsAndSavesHonestCalibration()
     {
