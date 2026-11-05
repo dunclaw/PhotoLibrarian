@@ -85,7 +85,7 @@ jobs:
       - name: Run xUnit tests
         run: |
           New-Item artifacts\test-results -ItemType Directory -Force | Out-Null
-          dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 --no-build -- -result-xml artifacts\test-results\tests.xml
+          dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 --no-build -- -longRunning 60 -result-xml artifacts\test-results\tests.xml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload test results
         if: always()
