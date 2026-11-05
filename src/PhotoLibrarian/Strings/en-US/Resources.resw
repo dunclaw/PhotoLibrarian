@@ -7,6 +7,12 @@
   <data name="MotionPhotoTimeout" xml:space="preserve"><value>Motion took too long to open. Showing the unchanged still photo.</value></data>
   <data name="MotionPhotoMediaLimit" xml:space="preserve"><value>Motion playback is limited to 30 seconds and 4096 pixels per side. Showing the still photo.</value></data>
   <data name="MotionPhotoCodecUnavailable" xml:space="preserve"><value>Windows could not decode this motion video. Its codec may be unavailable, or the video may be damaged. Showing the still photo.</value></data>
+  <data name="AppleLivePhotoMissingMovie" xml:space="preserve"><value>This still has an Apple Live Photo identifier, but no matching MOV was found in the same folder. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoAmbiguous" xml:space="preserve"><value>More than one MOV has this Apple Live Photo identifier. Playback is unavailable rather than guessing. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoMissingTiming" xml:space="preserve"><value>The matching MOV does not contain Apple's still-image-time metadata. Playback is unavailable. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoSearchLimit" xml:space="preserve"><value>This folder has too many video files to search safely for the Live Photo partner. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoUnsupportedStillFormat" xml:space="preserve"><value>Apple Live Photo pairing is not verified for HEIC/HEIF still images yet. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoUnavailable" xml:space="preserve"><value>The Apple Live Photo pair could not be verified. The still photo is unchanged.</value></data>
   <data name="PhotoGridName" xml:space="preserve"><value>Photos</value></data>
   <data name="PhotoGridHelp" xml:space="preserve"><value>Use arrow keys to move, Space to select, Enter to open, and Shift+F10 for photo actions. Hold Control to move without changing selection or Shift to select a range.</value></data>
   <data name="PhotoGridItemHelp" xml:space="preserve"><value>Enter to open. Shift+F10 for photo actions.</value></data>

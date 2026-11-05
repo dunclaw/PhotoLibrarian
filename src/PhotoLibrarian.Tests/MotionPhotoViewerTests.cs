@@ -48,6 +48,8 @@ public sealed class MotionPhotoViewerTests
         var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"));
         foreach (string key in new[] { "MotionPhotoPlay", "MotionPhotoPause", "MotionPhotoUnavailable",
             "MotionPhotoTimeout", "MotionPhotoMediaLimit", "MotionPhotoCodecUnavailable",
+            "AppleLivePhotoMissingMovie", "AppleLivePhotoAmbiguous", "AppleLivePhotoMissingTiming",
+            "AppleLivePhotoSearchLimit", "AppleLivePhotoUnsupportedStillFormat", "AppleLivePhotoUnavailable",
             "MotionPhotoPlayer.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" })
         {
             Assert.Contains(resources.Descendants("data"), element =>

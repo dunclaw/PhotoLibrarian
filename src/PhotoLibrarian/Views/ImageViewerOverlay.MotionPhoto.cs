@@ -19,6 +19,7 @@ public sealed partial class ImageViewerOverlay
     private CancellationTokenSource? _motionLifetime;
     private CancellationTokenSource? _motionPlaybackCancellation;
     private string? _motionPath;
+    private AppleLivePhotoPair? _appleLivePhotoPair;
     private MemoryStream? _motionStream;
     private MediaSource? _motionSource;
     private MediaPlayer? _motionPlayer;
@@ -55,8 +56,7 @@ public sealed partial class ImageViewerOverlay
         ResetMotionPhoto();
         if (ViewModel?.IsOpen != true || entry?.MediaType != MediaType.Image) return;
         string extension = Path.GetExtension(entry.FilePath);
-        if (!extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) &&
-            !extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)) return;
+        if (!IsMotionPhotoStillExtension(extension)) return;
         _motionPath = entry.FilePath;
         var lifetime = new CancellationTokenSource();
         _motionLifetime = lifetime;
@@ -74,12 +74,44 @@ public sealed partial class ImageViewerOverlay
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            var info = await Task.Run(() => MotionPhotoReader.ReadAsync(path, timeout.Token), timeout.Token);
-            if (IsCurrentMotion(path, lifetime))
+            var pixelInfo = IsPixelMotionPhotoStillExtension(Path.GetExtension(path))
+                ? await Task.Run(
+                    () => MotionPhotoReader.ReadAsync(path, timeout.Token), timeout.Token)
+                : null;
+            if (pixelInfo is not null)
             {
-                MotionPhotoButton.Visibility = info is null ? Visibility.Collapsed : Visibility.Visible;
-                if (info is not null && !_motionPaused)
-                    await StartMotionPlaybackAsync(path, lifetime);
+                if (IsCurrentMotion(path, lifetime))
+                {
+                    MotionPhotoButton.Visibility = Visibility.Visible;
+                    if (!_motionPaused)
+                        await StartMotionPlaybackAsync(path, lifetime);
+                }
+                return;
+            }
+
+            var applePair = await AppleLivePhotoReader.FindPairAsync(path, timeout.Token);
+            if (!IsCurrentMotion(path, lifetime)) return;
+            if (applePair.State == AppleLivePhotoPairState.NotLivePhoto) return;
+
+            if (applePair.State == AppleLivePhotoPairState.Paired)
+            {
+                _appleLivePhotoPair = applePair;
+                _motionPaused = true;
+                MotionPhotoButton.Visibility = Visibility.Visible;
+                SetMotionButtonLabel(false);
+            }
+            else
+            {
+                MotionPhotoStatus.Message = MotionPhotoStrings.Get(applePair.State switch
+                {
+                    AppleLivePhotoPairState.MissingMovie => "AppleLivePhotoMissingMovie",
+                    AppleLivePhotoPairState.AmbiguousMovies => "AppleLivePhotoAmbiguous",
+                    AppleLivePhotoPairState.MissingStillImageTime => "AppleLivePhotoMissingTiming",
+                    AppleLivePhotoPairState.DiscoveryLimitExceeded => "AppleLivePhotoSearchLimit",
+                    AppleLivePhotoPairState.UnsupportedStillFormat => "AppleLivePhotoUnsupportedStillFormat",
+                    _ => "AppleLivePhotoUnavailable"
+                });
+                MotionPhotoStatus.IsOpen = true;
             }
         }
         catch (OperationCanceledException)
@@ -125,14 +157,35 @@ public sealed partial class ImageViewerOverlay
         var token = timeout.Token;
         try
         {
-            var clip = await Task.Run(() => MotionPhotoReader.OpenVideoAsync(path, token), token);
+            MediaSource source;
+            if (_appleLivePhotoPair is { } applePair)
+            {
+                await AppleLivePhotoReader.ValidatePairAsync(applePair, token);
+                string moviePath = applePair.MoviePath
+                    ?? throw new InvalidDataException("The verified Live Photo movie path is missing.");
+                var storageFile = await Windows.Storage.StorageFile.GetFileFromPathAsync(moviePath)
+                    .AsTask(token);
+                source = MediaSource.CreateFromStorageFile(storageFile);
+            }
+            else
+            {
+                var clip = await Task.Run(
+                    () => MotionPhotoReader.OpenVideoAsync(path, token), token);
+                if (!IsCurrentMotion(path, lifetime) || token.IsCancellationRequested)
+                {
+                    clip.Video.Dispose();
+                    return;
+                }
+                _motionStream = clip.Video;
+                source = MediaSource.CreateFromStream(clip.Video.AsRandomAccessStream(), "video/mp4");
+            }
+
             if (!IsCurrentMotion(path, lifetime) || token.IsCancellationRequested)
             {
-                clip.Video.Dispose();
+                source.Dispose();
                 return;
             }
-            _motionStream = clip.Video;
-            _motionSource = MediaSource.CreateFromStream(clip.Video.AsRandomAccessStream(), "video/mp4");
+            _motionSource = source;
             var player = new MediaPlayer { AutoPlay = false, IsLoopingEnabled = true };
             _motionPlayer = player;
             player.MediaOpened += OnMotionMediaOpened;
@@ -256,6 +309,7 @@ public sealed partial class ImageViewerOverlay
     private void ResetMotionPhoto()
     {
         _motionPath = null;
+        _appleLivePhotoPair = null;
         _motionLifetime?.Cancel();
         _motionLifetime?.Dispose();
         _motionLifetime = null;
@@ -264,4 +318,14 @@ public sealed partial class ImageViewerOverlay
         MotionPhotoButton.Visibility = Visibility.Collapsed;
         MotionPhotoStatus.IsOpen = false;
     }
+
+    private static bool IsMotionPhotoStillExtension(string extension) =>
+        extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+        extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+        extension.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
+        extension.Equals(".heif", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPixelMotionPhotoStillExtension(string extension) =>
+        extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+        extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
 }
