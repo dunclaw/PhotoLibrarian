@@ -182,14 +182,16 @@ public sealed class VideoTrimmingTests : IDisposable
         await CreateVideoFixtureAsync(withAudio: false, durationSeconds: 30);
         byte[] sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(Source));
         using var cancellation = new CancellationTokenSource();
-        var progress = new CancelOnProgress(cancellation);
+        var progress = new FirstProgressSignal();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new VideoTrimmingService().TrimAsync(
-                Source, Output, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(29),
-                progress, cancellation.Token));
+        var export = new VideoTrimmingService().TrimAsync(
+            Source, Output, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(29),
+            progress, cancellation.Token);
+        await progress.Reported.Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+        // Windows cancellation must not re-enter the native transcode from its progress callback.
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => export);
 
-        Assert.True(progress.WasReported);
         Assert.Equal(sourceHash, SHA256.HashData(await File.ReadAllBytesAsync(Source)));
         Assert.False(File.Exists(Output));
         AssertNoTemporaryFiles();
@@ -273,14 +275,11 @@ public sealed class VideoTrimmingTests : IDisposable
         await prepared.TranscodeAsync().AsTask(TestContext.Current.CancellationToken);
     }
 
-    private sealed class CancelOnProgress(CancellationTokenSource cancellation) : IProgress<double>
+    private sealed class FirstProgressSignal : IProgress<double>
     {
-        public bool WasReported { get; private set; }
+        public TaskCompletionSource Reported { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public void Report(double value)
-        {
-            WasReported = true;
-            cancellation.Cancel();
-        }
+        public void Report(double value) => Reported.TrySetResult();
     }
 }
