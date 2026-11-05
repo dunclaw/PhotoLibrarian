@@ -26,10 +26,10 @@ public sealed partial class ImageRepository
                                 date_taken, date_modified, camera_make, camera_model, lens_model,
                                 focal_length, aperture, exposure_time, iso, gps_latitude, gps_longitude,
                                 rating, orientation, media_type, video_duration, is_flagged, caption, title,
-                                search_metadata_indexed)
+                                search_metadata_indexed, source_identity, metadata_stamp, metadata_hash)
             VALUES ($path, $name, $hash, $size, $w, $h, $taken, $modified,
                     $make, $model, $lens, $focal, $aperture, $exposure, $iso,
-                    $lat, $lon, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title, 1)
+                    $lat, $lon, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title, 1, $sourceIdentity, $metadataStamp, $metadataHash)
             ON CONFLICT(file_path) DO UPDATE SET
                 file_name=excluded.file_name, caption=excluded.caption, title=excluded.title,
                 search_metadata_indexed=1,
@@ -43,15 +43,21 @@ public sealed partial class ImageRepository
                 gps_longitude=excluded.gps_longitude, rating=excluded.rating,
                 orientation=excluded.orientation, media_type=excluded.media_type,
                 video_duration=excluded.video_duration,
+                source_identity=excluded.source_identity,
+                metadata_stamp=excluded.metadata_stamp, metadata_hash=excluded.metadata_hash,
                 face_scan_version=CASE
-                    WHEN images.file_size <> excluded.file_size
-                      OR images.date_modified <> excluded.date_modified
+                    WHEN (excluded.source_identity IS NOT NULL AND
+                          images.source_identity IS NOT excluded.source_identity)
+                      OR (excluded.source_identity IS NULL AND
+                          (images.file_size <> excluded.file_size OR images.date_modified <> excluded.date_modified))
                     THEN NULL
                     ELSE images.face_scan_version
                 END,
                 auto_tag_scan_version=CASE
-                    WHEN images.file_size <> excluded.file_size
-                      OR images.date_modified <> excluded.date_modified
+                    WHEN (excluded.source_identity IS NOT NULL AND
+                          images.source_identity IS NOT excluded.source_identity)
+                      OR (excluded.source_identity IS NULL AND
+                          (images.file_size <> excluded.file_size OR images.date_modified <> excluded.date_modified))
                     THEN NULL
                     ELSE images.auto_tag_scan_version
                 END
@@ -63,6 +69,9 @@ public sealed partial class ImageRepository
         cmd.Parameters.AddWithValue("$path", image.FilePath);
         cmd.Parameters.AddWithValue("$name", image.FileName);
         cmd.Parameters.AddWithValue("$hash", (object?)image.FileHash ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$sourceIdentity", (object?)image.SourceIdentity ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$metadataStamp", (object?)image.MetadataStamp ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$metadataHash", (object?)image.MetadataHash ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$size", image.FileSize);
         cmd.Parameters.AddWithValue("$w", image.Width);
         cmd.Parameters.AddWithValue("$h", image.Height);
@@ -389,6 +398,9 @@ public sealed partial class ImageRepository
             SearchMetadataIndexed = ReadBoolean(reader, "search_metadata_indexed"),
             FileHash = reader.IsDBNull(reader.GetOrdinal("file_hash")) ? null : reader.GetString(reader.GetOrdinal("file_hash")),
             FileSize = reader.GetInt64(reader.GetOrdinal("file_size")),
+            SourceIdentity = ReadNullableString(reader, "source_identity"),
+            MetadataStamp = ReadNullableString(reader, "metadata_stamp"),
+            MetadataHash = ReadNullableString(reader, "metadata_hash"),
             Width = reader.GetInt32(reader.GetOrdinal("width")),
             Height = reader.GetInt32(reader.GetOrdinal("height")),
             DateTaken = reader.IsDBNull(reader.GetOrdinal("date_taken"))

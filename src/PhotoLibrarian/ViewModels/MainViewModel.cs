@@ -1089,7 +1089,8 @@ public partial class MainViewModel : ObservableObject
                 await TagWriterService.WriteTagsToSidecarAsync(path,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
-                    entry.AutoTagScanVersion);
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
 
                 applied++;
             }

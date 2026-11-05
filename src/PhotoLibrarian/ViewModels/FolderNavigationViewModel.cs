@@ -222,7 +222,7 @@ public partial class FolderNavigationViewModel : ObservableObject
                 try
                 {
                     DebugLog.WriteLine($"RefreshAsync [Background]: Calling IndexFolderAsync for '{folder.Path}'");
-                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct);
+                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct, verifyContent: true);
                     DebugLog.WriteLine($"RefreshAsync [Background]: IndexFolderAsync completed for '{folder.Path}'");
                     App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
                     {

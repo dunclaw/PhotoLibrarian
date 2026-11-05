@@ -768,7 +768,8 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
-                    entry.AutoTagScanVersion);
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
             }
         }
 
@@ -797,7 +798,8 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
-                    entry.AutoTagScanVersion);
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
             }
         }
 

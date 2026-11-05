@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.Core.Models;
 
 /// <summary>
@@ -9,6 +10,9 @@ public sealed class ImageEntry
     public required string FilePath { get; set; }
     public required string FileName { get; set; }
     public string? FileHash { get; set; }
+    public string? SourceIdentity { get; set; }
+    public string? MetadataStamp { get; set; }
+    public string? MetadataHash { get; set; }
     public string? Caption { get; set; }
     public string? Title { get; set; }
     public bool SearchMetadataIndexed { get; set; }
