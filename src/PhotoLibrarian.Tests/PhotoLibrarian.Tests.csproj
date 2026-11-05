@@ -28,6 +28,9 @@
     <None Include="..\PhotoLibrarian\MainWindow.xaml"
           Link="TestAssets\MainWindow.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
+          Link="TestAssets\MainWindow.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageGridView.xaml"
           Link="TestAssets\ImageGridView.xaml"
           CopyToOutputDirectory="PreserveNewest" />

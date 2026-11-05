@@ -944,6 +944,10 @@ public sealed partial class ImageViewerOverlay : UserControl
             case Windows.System.VirtualKey.Subtract:
                 if (ZoomOutButton.IsEnabled && !ViewModel.IsVideo) _zoomPan?.ZoomOut();
                 return true;
+            case Windows.System.VirtualKey.Number0 or Windows.System.VirtualKey.NumberPad0
+                when IsKeyDown(Windows.System.VirtualKey.Control):
+                if (ZoomFitButton.IsEnabled) OnZoomFit(this, new RoutedEventArgs());
+                return true;
             case Windows.System.VirtualKey.A:
                 OnZoomActualSize(this, new RoutedEventArgs());
                 return true;

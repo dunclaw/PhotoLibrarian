@@ -594,6 +594,43 @@ public sealed partial class ImageGridView : UserControl
     private void OnSlideshowClick(object sender, RoutedEventArgs e) =>
         SlideshowRequested?.Invoke(this, null);
 
+    public Task DeleteSelectedAsync() => DeleteItemsAsync(GetSelectedItems());
+
+    public Task RotateSelectedAsync(bool clockwise) =>
+        RotateItemsAsync(GetSelectedItems(), clockwise);
+
+    private IReadOnlyList<ImageThumbnailViewModel> GetSelectedItems()
+    {
+        if (ViewModel is null) return Array.Empty<ImageThumbnailViewModel>();
+        if (ViewModel.SelectedImages.Count > 0) return ViewModel.SelectedImages.ToArray();
+        return ViewModel.SelectedImage is { } selected
+            ? [selected]
+            : Array.Empty<ImageThumbnailViewModel>();
+    }
+
+    private async Task DeleteItemsAsync(IReadOnlyList<ImageThumbnailViewModel> selected)
+    {
+        if (ViewModel is null || selected.Count == 0) return;
+        var deleted = await App.ViewModel!.PhotoOps.DeleteToRecycleBinAsync(
+            selected.Select(vm => vm.Entry));
+        if (deleted.Count > 0)
+            await ViewModel.LoadImagesAsync();
+    }
+
+    private async Task RotateItemsAsync(
+        IReadOnlyList<ImageThumbnailViewModel> selected,
+        bool clockwise)
+    {
+        if (selected.Count == 0) return;
+        var ops = App.ViewModel!.PhotoOps;
+        foreach (var vm in selected)
+        {
+            var size = await ops.RotateAsync(vm.Entry, clockwise);
+            await App.ViewModel.RefreshAfterPixelEditAsync(
+                vm.Entry.FilePath, size.Width, size.Height, "Rotated");
+        }
+    }
+
     // =================================================================
     //  Right-click context menu
     // =================================================================
@@ -657,27 +694,11 @@ public sealed partial class ImageGridView : UserControl
         menu.Items.Add(wallpaper);
 
         var rotateRight = new MenuFlyoutItem { Text = "Rotate right" };
-        rotateRight.Click += async (_, _) =>
-        {
-            foreach (var vm in selected)
-            {
-                var size = await ops.RotateAsync(vm.Entry, clockwise: true);
-                await App.ViewModel!.RefreshAfterPixelEditAsync(
-                    vm.Entry.FilePath, size.Width, size.Height, "Rotated");
-            }
-        };
+        rotateRight.Click += async (_, _) => await RotateItemsAsync(selected, clockwise: true);
         menu.Items.Add(rotateRight);
 
         var rotateLeft = new MenuFlyoutItem { Text = "Rotate left" };
-        rotateLeft.Click += async (_, _) =>
-        {
-            foreach (var vm in selected)
-            {
-                var size = await ops.RotateAsync(vm.Entry, clockwise: false);
-                await App.ViewModel!.RefreshAfterPixelEditAsync(
-                    vm.Entry.FilePath, size.Width, size.Height, "Rotated");
-            }
-        };
+        rotateLeft.Click += async (_, _) => await RotateItemsAsync(selected, clockwise: false);
         menu.Items.Add(rotateLeft);
 
         var resize = new MenuFlyoutItem
@@ -752,15 +773,7 @@ public sealed partial class ImageGridView : UserControl
 
         // Delete
         var delete = new MenuFlyoutItem { Text = isMulti ? $"Delete ({selected.Count})" : "Delete" };
-        delete.Click += async (_, _) =>
-        {
-            var deleted = await ops.DeleteToRecycleBinAsync(selected.Select(vm => vm.Entry));
-            if (deleted.Count > 0)
-            {
-                // Refresh the grid; deleted IDs are gone from DB already
-                await ViewModel.LoadImagesAsync();
-            }
-        };
+        delete.Click += async (_, _) => await DeleteItemsAsync(selected);
         menu.Items.Add(delete);
 
         var rename = new MenuFlyoutItem { Text = isMulti ? $"Rename ({selected.Count})…" : "Rename…" };
