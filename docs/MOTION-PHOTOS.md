@@ -68,19 +68,34 @@ playback support is not a promise of motion-preserving editing.
 
 ## Apple Live Photos and other unsupported variants
 
-**Apple Live Photo pairing/playback is not supported by this implementation.**
-Apple uses separate HEIC/JPEG still and MOV video resources with pairing/content
-identifiers and timed still-image metadata. It is not the Google appended-MP4
-layout. Matching basenames alone would risk playing the wrong clip. Proper
-identifier-based pairing, missing/ambiguous partner handling, and portable
-library behavior are tracked separately in [#174](https://github.com/dunclaw/PhotoLibrarian/issues/174).
-The image and MOV continue to open independently through their ordinary paths.
+JPEG Apple Live Photos can be paired with a separate MOV in the same folder.
+Pairing uses the Apple MakerNote content identifier and QuickTime
+`com.apple.quicktime.content.identifier`; filenames are never pairing evidence.
+Discovery is limited to 2048 folder entries, 256 MOV candidates, and an 8 MiB
+QuickTime movie header. The MOV must contain a valid Apple
+`com.apple.quicktime.still-image-time` metadata item; a key declaration alone is
+not accepted. Missing, ambiguous, changed, or unavailable pairs leave the still
+visible and explain why playback cannot proceed. Renaming files does not affect
+a valid pair; moving a partner to another folder makes it undiscoverable.
+
+Apple playback is explicit: the still remains visible until **Play motion** is
+chosen. The MOV is opened through Windows Media Foundation without extracting
+or changing either source file. Playback starts at the beginning of the MOV;
+this implementation validates the still-image-time value but does not parse its
+timed sample or seek to a synchronized presentation frame. Windows codec
+availability is machine-dependent, and a decoder failure leaves the still
+unchanged.
+
+Generated tests validate the JPEG MakerNote and MOV metadata structures and
+exercise local viewer playback without a personal photo library. HEIC/HEIF
+MakerNote parsing and Windows HEIC/MOV compatibility have not been verified;
+HEIC/HEIF Live Photo pairing is explicitly reported as unsupported. This
+feature does not extract, rename, delete, upload, or rewrite either original.
 
 HEIC/AVIF motion-photo containers (`mpvd`), embedded QuickTime/MOV motion items,
 extended XMP, vendor-specific Samsung trailers, and nonstandard/shared-resource
 directories are not implemented. Ordinary HEIC/JPEG stills and standalone
-videos retain their existing viewer paths. Unsupported HEIC/AVIF motion variants
-are treated as stills, not advertised as detected motion photos.
+videos retain their existing viewer paths.
 
 Format references:
 [Android Motion Photo format](https://developer.android.com/media/platform/motion-photo-format),

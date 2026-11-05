@@ -35,6 +35,14 @@ public partial class App
             await CreateMotionFixturesAsync(folder);
             byte[] original = await File.ReadAllBytesAsync(Path.Combine(folder, "motion.jpg"));
             DateTime written = File.GetLastWriteTimeUtc(Path.Combine(folder, "motion.jpg"));
+            string appleStillPath = Path.Combine(folder, "apple-still.jpg");
+            string appleMoviePath = Path.Combine(folder, "apple-unrelated-name.mov");
+            byte[] appleStillOriginal = await File.ReadAllBytesAsync(appleStillPath);
+            byte[] appleMovieOriginal = await File.ReadAllBytesAsync(appleMoviePath);
+            byte[] appleStillHash = SHA256.HashData(appleStillOriginal);
+            byte[] appleMovieHash = SHA256.HashData(appleMovieOriginal);
+            DateTime appleStillWritten = File.GetLastWriteTimeUtc(appleStillPath);
+            DateTime appleMovieWritten = File.GetLastWriteTimeUtc(appleMoviePath);
             viewer = new ImageViewerViewModel();
             var overlay = new ImageViewerOverlay(viewer);
             _window = new Window { Title = "Generated motion photo lifecycle", Content = overlay };
@@ -49,7 +57,8 @@ public partial class App
             var malformed = Entry(folder, "malformed.jpg");
             var badMedia = Entry(folder, "bad-media.jpg");
             var video = Entry(folder, "generated.mp4", MediaType.Video);
-            List<ImageEntry> entries = [motion, still, malformed, badMedia, video];
+            var appleStill = Entry(folder, "apple-still.jpg");
+            List<ImageEntry> entries = [motion, still, malformed, badMedia, video, appleStill];
 
             viewer.OpenImage(motion, entries);
             await UntilAsync(() => player.Visibility == Visibility.Visible && viewer.CurrentImage is not null);
@@ -80,8 +89,9 @@ public partial class App
             await UntilAsync(() => player.Visibility == Visibility.Visible);
             var loopingPlayer = player.MediaPlayer;
             await Task.Delay(2500);
-            Check(ReferenceEquals(loopingPlayer, player.MediaPlayer) && player.Visibility == Visibility.Visible &&
-                player.MediaPlayer.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing &&
+            var currentPlayer = player.MediaPlayer;
+            Check(ReferenceEquals(loopingPlayer, currentPlayer) && player.Visibility == Visibility.Visible &&
+                currentPlayer?.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing &&
                 !status.IsOpen, "Playback continues across multiple clip durations instead of returning to the still");
             Check(AutomationProperties.GetName(button) == "Pause motion and show still photo",
                 "Playing header action offers pause");
@@ -91,7 +101,50 @@ public partial class App
             Check(tap.Handled && player.MediaPlayer is null && viewer.CurrentImage is not null,
                 "Tapping the playing image stops motion and shows the still");
 
+            viewer.OpenImage(appleStill, entries);
+            await UntilAsync(() => button.Visibility == Visibility.Visible);
+            await Task.Delay(200);
+            Check(player.MediaPlayer is null && viewer.CurrentImage is not null && !status.IsOpen,
+                "A verified Apple pair keeps the still visible without autoplay");
+            Check(AutomationProperties.GetName(button) == "Play motion",
+                "Apple motion playback is an explicit accessible action");
             Invoke(button);
+            await UntilAsync(() => player.Visibility == Visibility.Visible);
+            await UntilAsync(() => player.MediaPlayer?.PlaybackSession.Position > TimeSpan.Zero);
+            var applePlayer = player.MediaPlayer;
+            Check(applePlayer is not null && viewer.CurrentImage is not null &&
+                applePlayer.PlaybackSession.NaturalVideoWidth == 640,
+                "Generated Apple JPEG/MOV pair plays through the still-first viewer");
+            Invoke(button);
+            Check(player.MediaPlayer is null && viewer.CurrentImage is not null,
+                "Stopping Apple motion returns to the original still");
+            byte[] appleStillAfterHash = SHA256.HashData(await File.ReadAllBytesAsync(appleStillPath));
+            byte[] appleMovieAfterHash = SHA256.HashData(await File.ReadAllBytesAsync(appleMoviePath));
+            Check(appleStillHash.SequenceEqual(appleStillAfterHash) &&
+                appleMovieHash.SequenceEqual(appleMovieAfterHash) &&
+                appleStillWritten == File.GetLastWriteTimeUtc(appleStillPath) &&
+                appleMovieWritten == File.GetLastWriteTimeUtc(appleMoviePath),
+                "Apple still and MOV source bytes and timestamps remain unchanged");
+
+            viewer.OpenImage(appleStill, entries);
+            await UntilAsync(() => button.Visibility == Visibility.Visible);
+            Invoke(button);
+            await UntilAsync(() => player.Visibility == Visibility.Visible);
+            viewer.OpenImage(still, entries);
+            await UntilAsync(() => player.MediaPlayer is null &&
+                button.Visibility == Visibility.Collapsed && viewer.CurrentImage is not null);
+            Check(viewer.CurrentImage is not null && !status.IsOpen,
+                "Navigating away from Apple playback releases its local MOV source");
+
+            viewer.OpenImage(appleStill, entries);
+            await UntilAsync(() => button.Visibility == Visibility.Visible);
+            Invoke(button);
+            await UntilAsync(() => player.Visibility == Visibility.Visible);
+            viewer.CloseCommand.Execute(null);
+            await UntilAsync(() => player.MediaPlayer is null && button.Visibility == Visibility.Collapsed);
+            Check(!status.IsOpen, "Closing during Apple playback cancels work and releases the MOV");
+
+            viewer.OpenImage(motion, entries);
             await UntilAsync(() => player.Visibility == Visibility.Visible);
             await viewer.NextImageCommand.ExecuteAsync(null);
             await Task.Delay(150);
@@ -148,11 +201,11 @@ public partial class App
             Check(player.MediaPlayer is null, "Unloading the viewer disposes native playback");
             _window.Content = overlay;
             await UntilAsync(() => overlay.IsLoaded && player.Visibility == Visibility.Visible);
-            Check(player.MediaPlayer.IsLoopingEnabled, "Reloading the full viewer restores automatic looping playback");
+            Check(player.MediaPlayer?.IsLoopingEnabled == true, "Reloading the full viewer restores automatic looping playback");
             byte[] afterPlayback = await File.ReadAllBytesAsync(motion.FilePath);
             Check(SHA256.HashData(original).SequenceEqual(SHA256.HashData(afterPlayback)) &&
                 written == File.GetLastWriteTimeUtc(motion.FilePath), "All playback lifecycle operations leave source bytes and timestamp unchanged");
-            Check(Directory.GetFiles(folder).Length == 5, "Playback creates no extracted library artifacts");
+            Check(Directory.GetFiles(folder).Length == 7, "Playback creates no extracted library artifacts");
             string[] arguments = Environment.GetCommandLineArgs();
             int sampleArgument = Array.IndexOf(arguments, "--motion-photo-sample");
             string? samplePath = sampleArgument >= 0 ? arguments[sampleArgument + 1] : null;
@@ -185,7 +238,9 @@ public partial class App
         {
             viewer?.CloseCommand.Execute(null);
             // Only explicitly named generated fixtures belong to this isolated test directory.
-            foreach (string name in new[] { "motion.jpg", "still.jpg", "malformed.jpg", "bad-media.jpg", "generated.mp4" })
+            foreach (string name in new[]
+                { "motion.jpg", "still.jpg", "malformed.jpg", "bad-media.jpg", "generated.mp4",
+                  "apple-still.jpg", "apple-unrelated-name.mov" })
             {
                 string path = Path.Combine(folder, name);
                 if (File.Exists(path)) File.Delete(path);
@@ -244,7 +299,156 @@ public partial class App
             0, 0, 0, 8, (byte)'m', (byte)'o', (byte)'o', (byte)'v',
             0, 0, 0, 8, (byte)'m', (byte)'d', (byte)'a', (byte)'t'];
         await File.WriteAllBytesAsync(Path.Combine(folder, "bad-media.jpg"), Embed(image, invalid, invalid.Length));
+        const string appleIdentifier = "123e4567-e89b-12d3-a456-426614174000";
+        await File.WriteAllBytesAsync(Path.Combine(folder, "apple-still.jpg"),
+            AddAppleExif(image, appleIdentifier));
+        await File.WriteAllBytesAsync(Path.Combine(folder, "apple-unrelated-name.mov"),
+            AddAppleMetadataToMovie(video, appleIdentifier));
     }
+
+    private static byte[] AddAppleExif(byte[] jpeg, string identifier)
+    {
+        byte[] makerNote = CreateAppleMakerNote(identifier);
+        const int makeOffset = 38;
+        const int exifIfdOffset = 44;
+        const int makerNoteOffset = 62;
+        var tiff = new byte[makerNoteOffset + makerNote.Length];
+        tiff[0] = (byte)'I';
+        tiff[1] = (byte)'I';
+        WriteUInt16LittleEndian(tiff, 2, 42);
+        WriteUInt32LittleEndian(tiff, 4, 8);
+        WriteUInt16LittleEndian(tiff, 8, 2);
+        WriteIfdEntry(tiff, 10, 0x010f, 2, 6, makeOffset);
+        WriteIfdEntry(tiff, 22, 0x8769, 4, 1, exifIfdOffset);
+        WriteUInt32LittleEndian(tiff, 34, 0);
+        Encoding.ASCII.GetBytes("Apple\0").CopyTo(tiff, makeOffset);
+        WriteUInt16LittleEndian(tiff, exifIfdOffset, 1);
+        WriteIfdEntry(tiff, exifIfdOffset + 2, 0x927c, 7, makerNote.Length, makerNoteOffset);
+        WriteUInt32LittleEndian(tiff, exifIfdOffset + 14, 0);
+        makerNote.CopyTo(tiff, makerNoteOffset);
+
+        byte[] prefix = Encoding.ASCII.GetBytes("Exif\0\0");
+        using var output = new MemoryStream();
+        output.Write(jpeg.AsSpan(0, 2));
+        output.Write([0xff, 0xe1]);
+        WriteUInt16BigEndian(output, checked(2 + prefix.Length + tiff.Length));
+        output.Write(prefix);
+        output.Write(tiff);
+        output.Write(jpeg.AsSpan(2));
+        return output.ToArray();
+    }
+
+    private static byte[] CreateAppleMakerNote(string identifier)
+    {
+        byte[] text = Encoding.ASCII.GetBytes(identifier + "\0");
+        var note = new byte[18 + text.Length];
+        WriteUInt16LittleEndian(note, 0, 1);
+        WriteIfdEntry(note, 2, 0x0011, 2, text.Length, 18);
+        WriteUInt32LittleEndian(note, 14, 0);
+        text.CopyTo(note, 18);
+        return note;
+    }
+
+    private static byte[] AddAppleMetadataToMovie(byte[] movie, string identifier)
+    {
+        byte[] identifierKey = Encoding.UTF8.GetBytes("com.apple.quicktime.content.identifier");
+        byte[] stillTimeKey = Encoding.UTF8.GetBytes("com.apple.quicktime.still-image-time");
+        var keys = new List<byte>();
+        keys.AddRange(new byte[4]);
+        WriteUInt32BigEndian(keys, 2);
+        AddQuickTimeKey(keys, identifierKey);
+        AddQuickTimeKey(keys, stillTimeKey);
+
+        byte[] identifierData = Atom("data",
+            [.. UInt32BigEndian(1), .. new byte[4], .. Encoding.UTF8.GetBytes(identifier)]);
+        byte[] timingData = Atom("data", [.. UInt32BigEndian(21), .. new byte[4], 0xff]);
+        byte[] itemList = [.. Atom(1, identifierData), .. Atom(2, timingData)];
+        byte[] handler = Atom("hdlr",
+            [.. new byte[8], .. Encoding.ASCII.GetBytes("mdta"), .. new byte[4]]);
+        byte[] metadata = Atom("meta",
+            [.. new byte[4], .. handler, .. Atom("keys", keys.ToArray()), .. Atom("ilst", itemList)]);
+
+        using var output = new MemoryStream();
+        int position = 0;
+        bool inserted = false;
+        while (position < movie.Length)
+        {
+            if (movie.Length - position < 8)
+                throw new InvalidDataException("Generated MP4 has a truncated top-level atom.");
+            uint size = BinaryPrimitives.ReadUInt32BigEndian(movie.AsSpan(position, 4));
+            if (size < 8 || size > movie.Length - position)
+                throw new InvalidDataException("Generated MP4 has an invalid top-level atom size.");
+            if (Encoding.ASCII.GetString(movie, position + 4, 4) == "moov")
+            {
+                if (inserted)
+                    throw new InvalidDataException("Generated MP4 has multiple movie atoms.");
+                WriteUInt32BigEndian(output, checked(size + (uint)metadata.Length));
+                output.Write(movie.AsSpan(position + 4, 4));
+                output.Write(movie.AsSpan(position + 8, checked((int)size - 8)));
+                output.Write(metadata);
+                inserted = true;
+            }
+            else
+                output.Write(movie.AsSpan(position, checked((int)size)));
+            position = checked(position + (int)size);
+        }
+        if (!inserted)
+            throw new InvalidDataException("Generated MP4 has no movie atom.");
+        return output.ToArray();
+    }
+
+    private static void AddQuickTimeKey(List<byte> keys, byte[] key)
+    {
+        WriteUInt32BigEndian(keys, checked((uint)(key.Length + 8)));
+        keys.AddRange(Encoding.ASCII.GetBytes("mdta"));
+        keys.AddRange(key);
+    }
+
+    private static byte[] Atom(string type, byte[] payload) =>
+        Atom(BinaryPrimitives.ReadUInt32BigEndian(Encoding.ASCII.GetBytes(type)), payload);
+
+    private static byte[] Atom(uint type, byte[] payload)
+    {
+        using var atom = new MemoryStream();
+        WriteUInt32BigEndian(atom, checked((uint)(payload.Length + 8)));
+        WriteUInt32BigEndian(atom, type);
+        atom.Write(payload);
+        return atom.ToArray();
+    }
+
+    private static byte[] UInt32BigEndian(uint value)
+    {
+        var bytes = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(bytes, value);
+        return bytes;
+    }
+
+    private static void WriteIfdEntry(byte[] bytes, int offset, ushort tag, ushort type, int count, int value)
+    {
+        WriteUInt16LittleEndian(bytes, offset, tag);
+        WriteUInt16LittleEndian(bytes, offset + 2, type);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset + 4), checked((uint)count));
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset + 8), checked((uint)value));
+    }
+
+    private static void WriteUInt16LittleEndian(byte[] bytes, int offset, int value) =>
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset), checked((ushort)value));
+
+    private static void WriteUInt16BigEndian(Stream stream, int value)
+    {
+        Span<byte> bytes = stackalloc byte[2];
+        BinaryPrimitives.WriteUInt16BigEndian(bytes, checked((ushort)value));
+        stream.Write(bytes);
+    }
+
+    private static void WriteUInt32LittleEndian(byte[] bytes, int offset, int value) =>
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset), checked((uint)value));
+
+    private static void WriteUInt32BigEndian(List<byte> bytes, uint value) =>
+        bytes.AddRange(UInt32BigEndian(value));
+
+    private static void WriteUInt32BigEndian(Stream stream, uint value) =>
+        stream.Write(UInt32BigEndian(value));
 
     private static byte[] Embed(byte[] image, byte[] video, long length)
     {
