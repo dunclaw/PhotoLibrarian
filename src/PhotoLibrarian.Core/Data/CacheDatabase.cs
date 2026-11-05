@@ -83,6 +83,7 @@ public sealed class CacheDatabase : IDisposable
                 iso             INTEGER,
                 gps_latitude    REAL,
                 gps_longitude   REAL,
+                place_name      TEXT,
                 rating          INTEGER,
                 orientation     INTEGER NOT NULL DEFAULT 1,
                 media_type      INTEGER NOT NULL DEFAULT 0,
@@ -193,6 +194,7 @@ public sealed class CacheDatabase : IDisposable
     {
         await AddColumnIfMissingAsync(conn, "images", "caption", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "title", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "place_name", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "search_metadata_indexed", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");

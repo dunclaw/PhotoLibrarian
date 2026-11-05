@@ -40,6 +40,8 @@ public sealed class ImageEntry
     public int? Iso { get; set; }
     public double? GpsLatitude { get; set; }
     public double? GpsLongitude { get; set; }
+    // IPTC/XMP label only; this is not reverse-geocoded.
+    public string? PlaceName { get; set; }
     public int? Rating { get; set; }
     public int Orientation { get; set; } = 1;
 

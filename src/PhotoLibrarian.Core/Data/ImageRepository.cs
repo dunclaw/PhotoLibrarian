@@ -25,11 +25,12 @@ public sealed partial class ImageRepository
             INSERT INTO images (file_path, file_name, file_hash, file_size, width, height,
                                 date_taken, date_modified, camera_make, camera_model, lens_model,
                                 focal_length, aperture, exposure_time, iso, gps_latitude, gps_longitude,
-                                rating, orientation, media_type, video_duration, is_flagged, caption, title,
+                                place_name, rating, orientation, media_type, video_duration, is_flagged, caption, title,
                                 search_metadata_indexed, source_identity, metadata_stamp, metadata_hash)
             VALUES ($path, $name, $hash, $size, $w, $h, $taken, $modified,
                     $make, $model, $lens, $focal, $aperture, $exposure, $iso,
-                    $lat, $lon, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title, 1, $sourceIdentity, $metadataStamp, $metadataHash)
+                    $lat, $lon, $place, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title,
+                    1, $sourceIdentity, $metadataStamp, $metadataHash)
             ON CONFLICT(file_path) DO UPDATE SET
                 file_name=excluded.file_name, caption=excluded.caption, title=excluded.title,
                 search_metadata_indexed=1,
@@ -40,7 +41,7 @@ public sealed partial class ImageRepository
                 lens_model=excluded.lens_model, focal_length=excluded.focal_length,
                 aperture=excluded.aperture, exposure_time=excluded.exposure_time,
                 iso=excluded.iso, gps_latitude=excluded.gps_latitude,
-                gps_longitude=excluded.gps_longitude, rating=excluded.rating,
+                gps_longitude=excluded.gps_longitude, place_name=excluded.place_name, rating=excluded.rating,
                 orientation=excluded.orientation, media_type=excluded.media_type,
                 video_duration=excluded.video_duration,
                 source_identity=excluded.source_identity,
@@ -86,6 +87,7 @@ public sealed partial class ImageRepository
         cmd.Parameters.AddWithValue("$iso", (object?)image.Iso ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lat", (object?)image.GpsLatitude ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lon", (object?)image.GpsLongitude ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$place", (object?)image.PlaceName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$rating", (object?)image.Rating ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$orient", image.Orientation);
         cmd.Parameters.AddWithValue("$mediatype", (int)image.MediaType);
@@ -386,6 +388,16 @@ public sealed partial class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdatePlaceNameAsync(long imageId, string placeName)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET place_name = $place WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$place", placeName);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     internal static ImageEntry ReadImageEntry(SqliteDataReader reader)
     {
         return new ImageEntry
@@ -428,6 +440,7 @@ public sealed partial class ImageRepository
             Iso = reader.IsDBNull(reader.GetOrdinal("iso")) ? null : reader.GetInt32(reader.GetOrdinal("iso")),
             GpsLatitude = reader.IsDBNull(reader.GetOrdinal("gps_latitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_latitude")),
             GpsLongitude = reader.IsDBNull(reader.GetOrdinal("gps_longitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_longitude")),
+            PlaceName = ReadNullableString(reader, "place_name"),
             Rating = reader.IsDBNull(reader.GetOrdinal("rating")) ? null : reader.GetInt32(reader.GetOrdinal("rating")),
             Orientation = reader.GetInt32(reader.GetOrdinal("orientation")),
             MediaType = (MediaType)reader.GetInt32(reader.GetOrdinal("media_type")),
