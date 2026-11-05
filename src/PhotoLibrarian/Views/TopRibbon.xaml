@@ -115,6 +115,16 @@
                         <TextBlock Text="Stabilize" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button Click="OnTrimVideoClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonTrimVideo"
+                        x:Uid="RibbonTrimVideo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7C3;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="RibbonTrimVideoLabel"
+                                   Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
 
             <!-- ===== Crop sub-mode (replaces ViewerTools when crop is active) ===== -->

@@ -34,6 +34,13 @@ Backup: {3}
   <data name="MigrationUnsafePacket" xml:space="preserve"><value>Skipped: this packet/container cannot be preserved safely (for example extended/duplicate XMP, compressed PNG XMP, unsupported RDF, or invalid XML). Keep the sidecar.</value></data>
   <data name="MigrationVerificationFailed" xml:space="preserve"><value>Not migrated: packet or non-XMP byte verification failed. Original sidecar retained; inspect error details and backups.</value></data>
   <data name="MigrationFileError" xml:space="preserve"><value>Not migrated: file access or metadata error. Check permissions, close other editors, and inspect details. If recovery is required, restore from the reported backup before retrying.</value></data>
+  <data name="MotionPhotoPlay" xml:space="preserve"><value>Play motion</value></data>
+  <data name="MotionPhotoPause" xml:space="preserve"><value>Pause motion and show still photo</value></data>
+  <data name="MotionPhotoPlayer.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Motion photo playback</value></data>
+  <data name="MotionPhotoUnavailable" xml:space="preserve"><value>Motion could not be opened: {0} The still photo is unchanged.</value></data>
+  <data name="MotionPhotoTimeout" xml:space="preserve"><value>Motion took too long to open. Showing the unchanged still photo.</value></data>
+  <data name="MotionPhotoMediaLimit" xml:space="preserve"><value>Motion playback is limited to 30 seconds and 4096 pixels per side. Showing the still photo.</value></data>
+  <data name="MotionPhotoCodecUnavailable" xml:space="preserve"><value>Windows could not decode this motion video. Its codec may be unavailable, or the video may be damaged. Showing the still photo.</value></data>
   <data name="PhotoGridName" xml:space="preserve"><value>Photos</value></data>
   <data name="PhotoGridHelp" xml:space="preserve"><value>Use arrow keys to move, Space to select, Enter to open, and Shift+F10 for photo actions. Hold Control to move without changing selection or Shift to select a range.</value></data>
   <data name="PhotoGridItemHelp" xml:space="preserve"><value>Enter to open. Shift+F10 for photo actions.</value></data>
@@ -243,6 +250,32 @@ Backup: {3}
   <data name="ShareFailed" xml:space="preserve"><value>Could not share photos: {0}</value></data>
   <data name="ShareMailSubject" xml:space="preserve"><value>Photos</value></data>
   <data name="ShareMailBody" xml:space="preserve"><value>Attach the resized JPEG copies from the PhotoLibrarian folder opened in File Explorer before sending this message. No photos have been attached automatically.</value></data>
+  <data name="PanoramaMenuAction" xml:space="preserve"><value>Stitch panorama (2-64 photos)</value></data>
+  <data name="PanoramaProgressStarting" xml:space="preserve"><value>Preparing all selected photos. Order does not matter; every photo must overlap the connected set. Camera sweeps use spherical projection; flatter sets use projective alignment. Review seams and the automatic crop before saving.</value></data>
+  <data name="PanoramaProgress" xml:space="preserve"><value>{0} ({1}%)</value></data>
+  <data name="PanoramaProgressAutomationName" xml:space="preserve"><value>Panorama progress</value></data>
+  <data name="PanoramaPreviewAutomationName" xml:space="preserve"><value>Stitched panorama preview</value></data>
+  <data name="PanoramaZoom" xml:space="preserve"><value>Zoom to inspect seams (1 fits the entire panorama)</value></data>
+  <data name="PanoramaSaveProgressAutomationName" xml:space="preserve"><value>Panorama save progress</value></data>
+  <data name="PanoramaStitchTitle" xml:space="preserve"><value>Stitch panorama</value></data>
+  <data name="PanoramaSavingTitle" xml:space="preserve"><value>Saving panorama</value></data>
+  <data name="PanoramaReviewTitle" xml:space="preserve"><value>Review panorama</value></data>
+  <data name="PanoramaSaveButton" xml:space="preserve"><value>Save panorama</value></data>
+  <data name="PanoramaCancelButton" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PanoramaCloseButton" xml:space="preserve"><value>Close</value></data>
+  <data name="PanoramaPreviewDetails" xml:space="preserve"><value>{5:N0} photos aligned into {0:N0} x {1:N0} pixels. {2:N0} of {3:N0} overlap matches agree ({4:P0}). Output scale: {6:P0}; clean crop retains {7:P0} of the canvas. Check the entire view, seams, and crop before saving. A new JPEG is saved beside the first photo and opened in the viewer; all originals stay unchanged. Source edit recipes are not applied.</value></data>
+  <data name="PanoramaSaveNotStarted" xml:space="preserve"><value>Panorama not saved</value></data>
+  <data name="PanoramaCancelled" xml:space="preserve"><value>Panorama cancelled</value></data>
+  <data name="PanoramaFailed" xml:space="preserve"><value>Panorama failed: {0}</value></data>
+  <data name="PanoramaPreviewFailed" xml:space="preserve"><value>Could not create a safe panorama: {0}</value></data>
+  <data name="PanoramaEncodingProgress" xml:space="preserve"><value>Encoding the panorama JPEG...</value></data>
+  <data name="PanoramaSaveCancelling" xml:space="preserve"><value>Cancelling and removing the temporary output...</value></data>
+  <data name="PanoramaSaveCancelled" xml:space="preserve"><value>Panorama save cancelled</value></data>
+  <data name="PanoramaSavedButNotIndexedTitle" xml:space="preserve"><value>Panorama saved but not indexed</value></data>
+  <data name="PanoramaSavedButNotIndexed" xml:space="preserve"><value>Saved panorama at {0}, but could not add it to the library: {1}</value></data>
+  <data name="PanoramaSaveFailedTitle" xml:space="preserve"><value>Could not save panorama</value></data>
+  <data name="PanoramaSaveFailed" xml:space="preserve"><value>Could not save panorama: {0}</value></data>
+  <data name="PanoramaCreatedStatus" xml:space="preserve"><value>Created panorama {0}</value></data>
   <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
   <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Repair moves and remove stale index entries for files verified missing from accessible watched folders. Unavailable locations are retained. Photos and sidecars are never changed. This repairs the existing index, not a clean rebuild.</value></data>
   <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>
@@ -334,4 +367,37 @@ Backup: {3}
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
+  <data name="VideoTrimDialog.Title" xml:space="preserve"><value>Trim video</value></data>
+  <data name="VideoTrimDialog.PrimaryButtonText" xml:space="preserve"><value>Export trimmed copy</value></data>
+  <data name="VideoTrimDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
+  <data name="RibbonTrimVideo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Trim video</value></data>
+  <data name="RibbonTrimVideo.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Save an in/out selection as a new video copy</value></data>
+  <data name="RibbonTrimVideoLabel.Text" xml:space="preserve"><value>Trim</value></data>
+  <data name="VideoTrimIntro.Text" xml:space="preserve"><value>Choose where the new clip starts and ends. The source video is never changed.</value></data>
+  <data name="VideoTrimStartLabel.Text" xml:space="preserve"><value>In point</value></data>
+  <data name="VideoTrimEndLabel.Text" xml:space="preserve"><value>Out point</value></data>
+  <data name="VideoTrimStartSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video in point</value></data>
+  <data name="VideoTrimEndSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video out point</value></data>
+  <data name="VideoTrimStartSeconds.Header" xml:space="preserve"><value>In point (seconds)</value></data>
+  <data name="VideoTrimStartSeconds.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video in point in seconds</value></data>
+  <data name="VideoTrimEndSeconds.Header" xml:space="preserve"><value>Out point (seconds)</value></data>
+  <data name="VideoTrimEndSeconds.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video out point in seconds</value></data>
+  <data name="VideoTrimOutput.Header" xml:space="preserve"><value>New MP4 file</value></data>
+  <data name="VideoTrimOutput.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>New trimmed video path</value></data>
+  <data name="VideoTrimChooseFolder.Content" xml:space="preserve"><value>Choose output folder...</value></data>
+  <data name="VideoTrimChooseFolder.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose output folder for trimmed copy</value></data>
+  <data name="VideoTrimPolicy.Text" xml:space="preserve"><value>Exports a locally re-encoded H.264/AAC MP4; trim points are rounded to the nearest source video frame. Audio is re-encoded when present. Ratings, tags and descriptive metadata are copied to the new file. Subtitles, extra tracks, HDR fidelity and camera-specific embedded metadata are not preserved. Windows must support the source codecs. Re-encoding removes keyframe-only trim limits. There is no fixed duration limit; processing time and output size depend on clip length and available storage. Existing files are never overwritten.</value></data>
+  <data name="VideoTrimProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Trimming video</value></data>
+  <data name="VideoTrimError.Title" xml:space="preserve"><value>Could not trim video</value></data>
+  <data name="VideoTrimStatus.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video trim status</value></data>
+  <data name="VideoTrimRangeReady" xml:space="preserve"><value>Video duration: {0}. The end point must be after the start point.</value></data>
+  <data name="VideoTrimOpenFailed" xml:space="preserve"><value>Could not read the video: {0}</value></data>
+  <data name="VideoTrimFolderFailed" xml:space="preserve"><value>Could not choose an output folder: {0}</value></data>
+  <data name="VideoTrimRangeUnavailable" xml:space="preserve"><value>Video duration is unavailable. Close this dialog and try again.</value></data>
+  <data name="VideoTrimCancelExport" xml:space="preserve"><value>Cancel export</value></data>
+  <data name="VideoTrimStarting" xml:space="preserve"><value>Preparing trimmed copy...</value></data>
+  <data name="VideoTrimProgressFormat" xml:space="preserve"><value>Exporting trimmed copy: {0:F0}%</value></data>
+  <data name="VideoTrimCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
+  <data name="VideoTrimCanceling" xml:space="preserve"><value>Canceling export...</value></data>
+  <data name="VideoTrimClose" xml:space="preserve"><value>Close</value></data>
 </root>
