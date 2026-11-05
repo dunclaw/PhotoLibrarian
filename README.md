@@ -98,6 +98,44 @@ If a filesystem or database error occurs during a batch, the failed photo's move
 rolled back and processing stops; earlier successful renames remain in place and the
 error reports how many completed.
 
+### Migrate legacy XMP sidecars
+
+In **Settings > Migrate XMP sidecars...**, choose a local folder, review the
+recursive preview, check the authorization box, and choose **Migrate ready files**.
+The operation does not use SQLite as a metadata source. JPEG and PNG are supported
+through lossless XMP packet replacement, not WIC transcoding: all non-XMP bytes,
+including compressed pixels, EXIF orientation, ICC profiles, and other metadata,
+must compare byte-for-byte before committing. Whole XMP properties are retained,
+including tags/source/confidence/scan version, faces/review/representative choices,
+flags, and unknown namespaces. Neither side wins a conflicting property; the
+complete file/sidecar pair is skipped instead. Native EXIF/IPTC are not rewritten
+or reconciled with XMP. Both sidecar naming conventions are recognized, but shared
+basenames or simultaneous `photo.xmp` and `photo.jpg.xmp` are ambiguous and skipped.
+
+RAW, video, TIFF, HEIC, JPEG-XR, reparse/cloud-placeholder paths, extended/duplicate
+XMP, unsupported RDF, orientation overrides, oversized files/packets, and
+PhotoLibrarian edit recipes are visibly skipped with their sidecars intact.
+Recipe packets are retained because the raster editor currently clears baked
+recipes from sidecars only; embedding them could double-apply later edits.
+Inspection is bounded to 256 MiB per media file and 1 MiB per XMP packet; JPEG
+packets must fit a single APP1 segment. This is intentionally narrower than the
+ordinary metadata writer's supported formats.
+
+Original media and sidecar bytes are flushed to unique recovery folders under
+`.photolibrarian-migration-backups` beside the photos before any live write.
+Staging uses the existing atomic packet writer. The final live write uses a
+write/replace-denying handle, rather than a path-based atomic replacement, to
+preserve the Windows file ID and prevent newer edits from being overwritten.
+It is **not power-loss atomic**: a crash during that write may require manually
+restoring `filename.original` from the reported recovery folder. On ordinary
+write/read-back failure, the locked original is restored and verified. The
+locked sidecar is deleted only after complete embedded packet and non-XMP byte
+read-back verification; an access/deletion failure retains it. Keep backups until
+you have reviewed the photos; they are never automatically pruned. Cancellation
+finishes a committing file safely and leaves the remaining files untouched.
+Results show each path, skipped/failed reason, and recovery location. Migration
+never runs automatically, and the user remains responsible for authorizing it.
+
 ### Portable people tags
 
 Face edits write MWG Region XMP plus Microsoft Photo 1.2 People Tags
