@@ -143,15 +143,9 @@ public sealed class RawToneMappingTests
             RawToneMappingService.RenderAsync(source, width, height, new EditParameters(), mapCancellation.Token));
         var result = await RawToneMappingService.RenderAsync(source, width, height, new EditParameters());
         using var encodeCancellation = new CancellationTokenSource();
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var encoding = Task.Run(() =>
-        {
-            started.SetResult();
-            return result.ToPreviewBgra8(encodeCancellation.Token);
-        });
-        await started.Task;
-        encodeCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => encoding);
+        encodeCancellation.CancelAfter(TimeSpan.FromMilliseconds(10));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            Task.Run(() => result.ToPreviewBgra8(encodeCancellation.Token)));
     }
 
     [Fact]
