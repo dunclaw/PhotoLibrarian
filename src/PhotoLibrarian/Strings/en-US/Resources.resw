@@ -333,4 +333,37 @@
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
+  <data name="VideoTrimDialog.Title" xml:space="preserve"><value>Trim video</value></data>
+  <data name="VideoTrimDialog.PrimaryButtonText" xml:space="preserve"><value>Export trimmed copy</value></data>
+  <data name="VideoTrimDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
+  <data name="RibbonTrimVideo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Trim video</value></data>
+  <data name="RibbonTrimVideo.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Save an in/out selection as a new video copy</value></data>
+  <data name="RibbonTrimVideoLabel.Text" xml:space="preserve"><value>Trim</value></data>
+  <data name="VideoTrimIntro.Text" xml:space="preserve"><value>Choose where the new clip starts and ends. The source video is never changed.</value></data>
+  <data name="VideoTrimStartLabel.Text" xml:space="preserve"><value>In point</value></data>
+  <data name="VideoTrimEndLabel.Text" xml:space="preserve"><value>Out point</value></data>
+  <data name="VideoTrimStartSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video in point</value></data>
+  <data name="VideoTrimEndSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video out point</value></data>
+  <data name="VideoTrimStartSeconds.Header" xml:space="preserve"><value>In point (seconds)</value></data>
+  <data name="VideoTrimStartSeconds.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video in point in seconds</value></data>
+  <data name="VideoTrimEndSeconds.Header" xml:space="preserve"><value>Out point (seconds)</value></data>
+  <data name="VideoTrimEndSeconds.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video out point in seconds</value></data>
+  <data name="VideoTrimOutput.Header" xml:space="preserve"><value>New MP4 file</value></data>
+  <data name="VideoTrimOutput.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>New trimmed video path</value></data>
+  <data name="VideoTrimChooseFolder.Content" xml:space="preserve"><value>Choose output folder...</value></data>
+  <data name="VideoTrimChooseFolder.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose output folder for trimmed copy</value></data>
+  <data name="VideoTrimPolicy.Text" xml:space="preserve"><value>Exports a locally re-encoded H.264/AAC MP4; trim points are rounded to the nearest source video frame. Audio is re-encoded when present. Ratings, tags and descriptive metadata are copied to the new file. Subtitles, extra tracks, HDR fidelity and camera-specific embedded metadata are not preserved. Windows must support the source codecs. Re-encoding removes keyframe-only trim limits. There is no fixed duration limit; processing time and output size depend on clip length and available storage. Existing files are never overwritten.</value></data>
+  <data name="VideoTrimProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Trimming video</value></data>
+  <data name="VideoTrimError.Title" xml:space="preserve"><value>Could not trim video</value></data>
+  <data name="VideoTrimStatus.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video trim status</value></data>
+  <data name="VideoTrimRangeReady" xml:space="preserve"><value>Video duration: {0}. The end point must be after the start point.</value></data>
+  <data name="VideoTrimOpenFailed" xml:space="preserve"><value>Could not read the video: {0}</value></data>
+  <data name="VideoTrimFolderFailed" xml:space="preserve"><value>Could not choose an output folder: {0}</value></data>
+  <data name="VideoTrimRangeUnavailable" xml:space="preserve"><value>Video duration is unavailable. Close this dialog and try again.</value></data>
+  <data name="VideoTrimCancelExport" xml:space="preserve"><value>Cancel export</value></data>
+  <data name="VideoTrimStarting" xml:space="preserve"><value>Preparing trimmed copy...</value></data>
+  <data name="VideoTrimProgressFormat" xml:space="preserve"><value>Exporting trimmed copy: {0:F0}%</value></data>
+  <data name="VideoTrimCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
+  <data name="VideoTrimCanceling" xml:space="preserve"><value>Canceling export...</value></data>
+  <data name="VideoTrimClose" xml:space="preserve"><value>Close</value></data>
 </root>
