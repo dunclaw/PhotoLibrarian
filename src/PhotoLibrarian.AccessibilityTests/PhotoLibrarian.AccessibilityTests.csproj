@@ -23,5 +23,9 @@
     </ItemGroup>
     <Copy SourceFiles="@(_GridResource)" DestinationFolder="$(TargetDir)Controls" />
     <Copy SourceFiles="@(_PhotoResources)" DestinationFolder="$(TargetDir)" />
+    <ItemGroup>
+      <_ViewerResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\*.xbf" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ViewerResource)" DestinationFolder="$(TargetDir)Views" />
   </Target>
 </Project>

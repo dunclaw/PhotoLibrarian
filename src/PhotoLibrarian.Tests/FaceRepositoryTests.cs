@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -8,6 +9,51 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class FaceRepositoryTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImportFaceMetadata_PreservesEmbeddingsUnlessGeometryChanges(bool changeGeometry)
+    {
+        var path = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(path);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            var image = CreateImage(MediaType.Image);
+            image.Id = await images.UpsertImageAsync(image);
+            await faces.TryReplaceFaceRegionsAsync(image.Id, image.FileSize, image.DateModified,
+                [new FaceRegion
+                {
+                    ImageId = image.Id, X = 0.1, Y = 0.2, Width = 0.3, Height = 0.4,
+                    Embedding = [0.25f, 0.75f]
+                }], "current");
+
+            await faces.ImportFaceMetadataAsync(image.Id, new PhotoFaceMetadata(100, 100,
+                [new PortableFaceMetadata(0, changeGeometry ? 0.11 : 0.1, 0.2, 0.3, 0.4,
+                    "Alex", true, true, [], true)]));
+            var face = Assert.Single(await faces.GetFacesForImageAsync(image.Id));
+            Assert.Equal("Alex", face.PersonName);
+            Assert.True(face.IsMetadataManaged);
+            Assert.Contains(face.Id, await faces.GetHiddenFaceSuggestionIdsAsync());
+            if (changeGeometry)
+            {
+                Assert.Null(face.Embedding);
+                Assert.Single(await faces.GetImagesNeedingFaceScanAsync("current"));
+            }
+            else
+            {
+                Assert.Equal([0.25f, 0.75f], face.Embedding);
+                Assert.Empty(await faces.GetImagesNeedingFaceScanAsync("current"));
+            }
+        }
+        finally
+        {
+            DeleteDatabase(path);
+        }
+    }
+
     [Fact]
     public async Task GetFacesForImage_ReturnsAssignedPersonAndRegion()
     {
@@ -606,7 +652,7 @@ public sealed class FaceRepositoryTests
             Assert.Empty(
                 await faces.GetHiddenFaceSuggestionIdsAsync(cancellationToken));
             Assert.Empty(await faces.GetAllPersonsAsync());
-            Assert.Contains(
+            Assert.DoesNotContain(
                 image.Id,
                 (await faces.GetImagesNeedingFaceScanAsync(
                     "pipeline-v1",

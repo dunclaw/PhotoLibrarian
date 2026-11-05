@@ -46,6 +46,8 @@ public sealed partial class MetadataPanel : UserControl
         this.Loaded += OnLoaded;
     }
 
+    public bool FocusNewTagInput() => NewTagBox.Focus(FocusState.Programmatic);
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null) return;

@@ -199,6 +199,9 @@ public sealed class CacheDatabase : IDisposable
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "auto_tag_scan_version", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "source_identity", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "metadata_stamp", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "metadata_hash", "TEXT");
         await AddColumnIfMissingAsync(
             conn,
             "images",
