@@ -272,6 +272,14 @@ See [Windows CI and Store releases](docs/STORE-RELEASE.md) for workflow triggers
 versioning, local packaging, and Partner Center submission instructions.
 Microsoft signs the Store-distributed package; CI does not need a certificate.
 
+The RAW native build uses the build script's exit status, not diagnostic-looking
+text from dependency tools: vcpkg may report a failed mirror before successfully
+downloading from another. Logs remain intact; native command failures, script
+errors, missing artifacts and checksum failures still fail the build.
+Run `.\tools\Test-RawDecoderBuildContract.ps1` to exercise this MSBuild contract
+with Windows PowerShell and PowerShell 7 (both required for this developer test).
+CI runs the same regression check before building the application and tests.
+
 ### First run
 
 1. Click the gear icon → **Manage folders** and add the root(s) you want to index.
