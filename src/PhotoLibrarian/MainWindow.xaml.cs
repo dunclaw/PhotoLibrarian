@@ -355,6 +355,7 @@ public sealed partial class MainWindow : Window
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
+        TopRibbon.RetouchClicked += OnRibbonRetouchClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
         TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
@@ -694,9 +695,22 @@ public sealed partial class MainWindow : Window
     }
 
     private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
+        => await OpenRasterEditorAsync(retouch: false);
+
+    private async void OnRibbonRetouchClicked(object? sender, EventArgs e)
+        => await OpenRasterEditorAsync(retouch: true);
+
+    private async Task OpenRasterEditorAsync(bool retouch)
     {
         var entry = ViewModel.ImageViewer.CurrentEntry;
         if (entry is null || ViewModel.ImageViewer.IsVideo) return;
+        if (retouch && !ImageEditRenderer.IsSupported(entry.FilePath))
+        {
+            ViewModel.StatusText = RawToneMappingService.IsRaw(entry.FilePath)
+                ? "Export a JPEG or PNG derivative before retouching a RAW photo."
+                : $"Retouch not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
+            return;
+        }
         if (!ImageEditRenderer.IsSupported(entry.FilePath) && !RawToneMappingService.IsRaw(entry.FilePath))
         {
             ViewModel.StatusText = $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
@@ -723,6 +737,7 @@ public sealed partial class MainWindow : Window
         {
             ViewModel.ImageEditor.UpdateLibraryImages(ViewModel.ImageGrid.GetViewerImages());
             await ViewModel.ImageEditor.OpenForEditAsync(entry);
+            EditorOverlay.SetRetouchWorkspace(retouch);
         }
         catch (Exception ex)
         {

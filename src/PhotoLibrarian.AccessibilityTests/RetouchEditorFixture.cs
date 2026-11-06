@@ -1,5 +1,6 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ViewModels;
@@ -44,19 +45,43 @@ internal static class RetouchEditorFixture
         var vm = new ImageEditorViewModel(new OriginalBackupService(Path.Combine(directory, "originals")));
         await vm.OpenForEditAsync(new ImageEntry { FilePath = path, FileName = Path.GetFileName(path) });
         var editor = new ImageEditorView(vm);
-        var window = new Window { Title = "Isolated spot retouch fixture", Content = editor };
+        var ribbon = new TopRibbon();
+        ribbon.RetouchClicked += (_, _) => editor.SetRetouchWorkspace(true);
+        ribbon.AdjustClicked += (_, _) => editor.SetRetouchWorkspace(false);
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition());
+        layout.Children.Add(ribbon);
+        layout.Children.Add(editor);
+        Grid.SetRow(editor, 1);
+        var window = new Window { Title = "Isolated spot retouch fixture", Content = layout };
         window.AppWindow.Resize(new SizeInt32(1920, 1200));
         vm.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(vm.IsOpen) && !vm.IsOpen)
                 editor.DispatcherQueue.TryEnqueue(window.Close);
         };
-        window.Closed += (_, _) =>
+        window.Closed += OnWindowClosed;
+        window.Activate();
+        return window;
+
+        async void OnWindowClosed(object sender, WindowEventArgs args)
         {
             var saved = !original.SequenceEqual(File.ReadAllBytes(path));
+            bool centerHealed;
+            using (var savedStream = File.OpenRead(path).AsRandomAccessStream())
+            {
+                var decoder = await BitmapDecoder.CreateAsync(savedStream);
+                var decoded = await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                    new BitmapTransform(), ExifOrientationMode.RespectExifOrientation, ColorManagementMode.DoNotColorManage);
+                var savedPixels = decoded.DetachPixelData();
+                var centerOffset = (64 * 128 + 64) * 4;
+                centerHealed = savedPixels.AsSpan(centerOffset, 4).SequenceEqual(new byte[] { 90, 140, 190, 255 });
+            }
             var result = new
             {
                 saved,
+                centerHealed,
                 backupCreated = Directory.EnumerateFiles(Path.Combine(directory, "originals"), "*", SearchOption.AllDirectories).Any(),
                 pendingRetouchCount = ImageEditService.ReadEditParameters(path).RetouchStrokes.Count,
                 userLibraryOpened = false
@@ -65,8 +90,6 @@ internal static class RetouchEditorFixture
                 JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
             Directory.Delete(directory, recursive: true);
             application.Exit();
-        };
-        window.Activate();
-        return window;
+        }
     }
 }

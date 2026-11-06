@@ -45,6 +45,8 @@ public sealed partial class ImageEditorView : UserControl
     private readonly RetouchGesture _retouchGesture = new();
     private bool _retouchPreviewFailed;
     private bool _pendingRetouch;
+    private bool _retouchWorkspace;
+    private Vector2? _brushPosition;
 
     public ImageEditorView()
     {
@@ -67,6 +69,14 @@ public sealed partial class ImageEditorView : UserControl
 
     public ImageEditorView(ImageEditorViewModel viewModel) : this() =>
         _providedViewModel = viewModel;
+
+    public void SetRetouchWorkspace(bool enabled)
+    {
+        _retouchWorkspace = enabled;
+        RetouchToggle.IsChecked = enabled;
+        CancelRetouchGesture();
+        UpdateHistoryControls();
+    }
 
     private void AddNavigationAccelerator(Windows.System.VirtualKey key)
     {
@@ -116,6 +126,7 @@ public sealed partial class ImageEditorView : UserControl
             CancelRetouchGesture();
             if (_pendingRetouch) _retouchRequest?.Cancel();
             RetouchToggle.IsChecked = false;
+            UpdateBrushCursor();
             args.Handled = true;
             return;
         }
@@ -256,6 +267,9 @@ public sealed partial class ImageEditorView : UserControl
         AdjustmentsPanel.IsEnabled = !isSaving;
         CloseBtn.IsEnabled = !isSaving;
         var isRaw = ViewModel?.IsRawPreview == true;
+        var fullWidthRetouch = _retouchWorkspace && !isRaw;
+        AdjustmentsColumn.Width = new GridLength(fullWidthRetouch ? 0 : 300);
+        AdjustmentsPanel.Visibility = fullWidthRetouch ? Visibility.Collapsed : Visibility.Visible;
         SaveBtn.IsEnabled = ViewModel?.CanSavePixels == true;
         ToolTipService.SetToolTip(SaveBtn, isRaw ? ViewModel!.SaveDisabledReason : "Save edits");
         RawPreviewPanel.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
@@ -271,11 +285,12 @@ public sealed partial class ImageEditorView : UserControl
         RawExposureSlider.IsEnabled = !isSaving;
         RawWhitePointSlider.IsEnabled = !isSaving;
         RetouchToggle.IsEnabled = !isRaw && !isSaving && _sourceBitmap is not null &&
-            _sourceBitmap.Size.Width * _sourceBitmap.Size.Height <= SpotRetouchProcessor.MaxImagePixels &&
             ViewModel?.ImagePath is { } path && ImageEditRenderer.IsSupported(path);
+        RetouchToolbar.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
         RetouchRadius.IsEnabled = RetouchToggle.IsEnabled;
-        if (!RetouchToggle.IsEnabled && !isSaving) RetouchToggle.IsChecked = false;
         if (_retouchPreviewFailed) SaveBtn.IsEnabled = false;
+        UpdateBrushCursor();
+        if (_brushPosition is not null) EditCanvas.Invalidate();
     }
 
     private void OnUndo(SplitButton sender, SplitButtonClickEventArgs args) =>
@@ -358,6 +373,7 @@ public sealed partial class ImageEditorView : UserControl
     {
         CancelRetouchGesture();
         _viewport.SetCanvasSize(new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height));
+        UpdateBrushCursor();
         UpdateZoomText();
     }
 
@@ -387,7 +403,7 @@ public sealed partial class ImageEditorView : UserControl
             _retouchGesture.Begin(e.Pointer.PointerId, (int)_sourceBitmap!.SizeInPixels.Width,
                 (int)_sourceBitmap.SizeInPixels.Height, (int)RetouchRadius.Value, sourcePoint);
             RetouchStatus.IsOpen = false;
-            ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Cross);
+            UpdateBrushPosition(point.Position);
             EditCanvas.Invalidate();
             e.Handled = true;
             return;
@@ -404,6 +420,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnEditCanvasPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        UpdateBrushPosition(e.GetCurrentPoint(EditCanvas).Position);
         if (_retouchGesture.PointerId == e.Pointer.PointerId)
         {
             AddRetouchPoint(e.GetCurrentPoint(EditCanvas).Position);
@@ -450,7 +467,45 @@ public sealed partial class ImageEditorView : UserControl
         EndPan();
     }
 
-    private void OnRetouchToggled(object sender, RoutedEventArgs e) => CancelRetouchGesture();
+    private void OnRetouchToggled(object sender, RoutedEventArgs e)
+    {
+        CancelRetouchGesture();
+        UpdateBrushCursor();
+    }
+
+    private void OnRetouchRadiusChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (RetouchRadiusText is null) return;
+        RetouchRadiusText.Text = $"{e.NewValue:0} px";
+        EditCanvas?.Invalidate();
+    }
+
+    private void OnEditCanvasPointerEntered(object sender, PointerRoutedEventArgs e) =>
+        UpdateBrushPosition(e.GetCurrentPoint(EditCanvas).Position);
+
+    private void OnEditCanvasPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _brushPosition = null;
+        UpdateBrushCursor();
+        EditCanvas.Invalidate();
+    }
+
+    private void UpdateBrushPosition(Point position)
+    {
+        _brushPosition = new Vector2((float)position.X, (float)position.Y);
+        UpdateBrushCursor();
+        if (RetouchToggle.IsChecked == true) EditCanvas.Invalidate();
+    }
+
+    private void UpdateBrushCursor()
+    {
+        if (_panPointerId is not null) return;
+        // The canvas draws a DPI/zoom-correct brush outline; hide the unrelated arrow while over the photo.
+        ProtectedCursor = RetouchToggle.IsChecked == true && ViewModel?.IsBusy == false &&
+            _brushPosition is { } position &&
+            TryRetouchPoint(new Point(position.X, position.Y), out _)
+            ? null : InputSystemCursor.Create(InputSystemCursorShape.Arrow);
+    }
 
     private bool TryRetouchPoint(Point position, out RetouchPoint point)
     {
@@ -481,7 +536,7 @@ public sealed partial class ImageEditorView : UserControl
     {
         _retouchGesture.Cancel();
         EditCanvas.ReleasePointerCaptures();
-        ProtectedCursor = null;
+        UpdateBrushCursor();
         EditCanvas.Invalidate();
     }
 
@@ -494,6 +549,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void ClearRetouchPreview()
     {
+        _brushPosition = null;
         CancelRetouchGesture();
         _retouchRequest?.Cancel();
         _retouchRequest = null;
@@ -527,7 +583,12 @@ public sealed partial class ImageEditorView : UserControl
         vm.IsRetouching = true;
         try
         {
-            var bitmap = await ImageEditRenderer.CreateRetouchedAsync(EditCanvas, source, strokes, request.Token);
+            // New strokes build on the cached full-resolution result. Undo/reload replays the recipe.
+            var incremental = pending is not null && _retouchedBitmap is not null &&
+                RetouchStroke.SequenceEqual(strokes.Take(strokes.Count - 1).ToList(), _previewStrokes);
+            var bitmap = await ImageEditRenderer.CreateRetouchedAsync(EditCanvas,
+                incremental ? _retouchedBitmap! : source,
+                incremental ? [pending!] : strokes, request.Token);
             if (_retouchRequest != request || _sourceBitmap != source || vm.ImagePath != path)
             {
                 bitmap?.Dispose();
@@ -567,7 +628,17 @@ public sealed partial class ImageEditorView : UserControl
 
     private void DrawRetouchStroke(CanvasDrawingSession session, Vector2 sourceSize)
     {
-        if (_retouchGesture.Points.Count == 0 || ViewModel is null) return;
+        if (ViewModel is null) return;
+        if (RetouchToggle.IsChecked == true && ViewModel.IsBusy == false && _brushPosition is { } position &&
+            TryRetouchPoint(new Point(position.X, position.Y), out _))
+        {
+            session.Transform = Matrix3x2.Identity;
+            var radius = (float)RetouchRadius.Value * _viewport.Scale;
+            // A contrasting double outline stays legible on both light and dark photo content.
+            session.DrawCircle(position, radius, Microsoft.UI.Colors.Black, 3);
+            session.DrawCircle(position, radius, Microsoft.UI.Colors.White, 1);
+        }
+        if (_retouchGesture.Points.Count == 0) return;
         session.Transform = EditorImageCoordinates.SourceToCanvas(sourceSize, ViewModel.RotationAngle,
             _viewport.Scale, _viewport.ContentOrigin);
         var color = GetResourceColor("SystemColorHighlightColorBrush", Microsoft.UI.Colors.CornflowerBlue);
@@ -585,7 +656,7 @@ public sealed partial class ImageEditorView : UserControl
     private void EndPan()
     {
         _panPointerId = null;
-        ProtectedCursor = null;
+        UpdateBrushCursor();
     }
 
     private void OnEditCanvasDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
@@ -646,6 +717,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnViewportChanged()
     {
+        UpdateBrushCursor();
         UpdateZoomText();
         EditCanvas.Invalidate();
     }
@@ -665,7 +737,8 @@ public sealed partial class ImageEditorView : UserControl
     private async Task LoadImageAsync(string? path)
     {
         ClearRetouchPreview();
-        RetouchToggle.IsChecked = false;
+        RetouchToggle.IsChecked = _retouchWorkspace;
+        _brushPosition = null;
         RetouchStatus.IsOpen = false;
         _previewRequest?.Cancel();
         using var request = new CancellationTokenSource();

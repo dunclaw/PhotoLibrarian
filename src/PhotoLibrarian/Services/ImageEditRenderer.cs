@@ -225,8 +225,6 @@ public static class ImageEditRenderer
         SpotRetouchProcessor.Validate(strokes);
         var width = checked((int)source.SizeInPixels.Width);
         var height = checked((int)source.SizeInPixels.Height);
-        if ((long)width * height > SpotRetouchProcessor.MaxImagePixels)
-            throw new InvalidDataException("Retouch supports images up to 24 megapixels.");
         var pixels = source.GetPixelBytes();
         await Task.Run(() => SpotRetouchProcessor.Apply(pixels, width, height, strokes, cancellationToken), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();

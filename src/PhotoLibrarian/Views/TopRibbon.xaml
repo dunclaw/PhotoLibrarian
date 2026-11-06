@@ -81,6 +81,16 @@
                         <TextBlock Text="Adjust" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="RetouchButton" Click="OnRetouchClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonRetouch"
+                        AutomationProperties.Name="Spot retouch"
+                        ToolTipService.ToolTip="Heal small blemishes on smooth surfaces">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE70F;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Retouch" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="RedEyeButton" Click="OnRedEyeClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonRedEye"

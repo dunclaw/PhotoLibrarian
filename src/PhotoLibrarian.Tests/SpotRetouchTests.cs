@@ -1,5 +1,6 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Numerics;
+using System.Xml.Linq;
 using Microsoft.Graphics.Canvas;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
@@ -110,10 +111,10 @@ public sealed class SpotRetouchTests : IDisposable
     {
         SpotRetouchProcessor.Validate(Enumerable.Repeat(Stroke(), 32).ToList());
         SpotRetouchProcessor.Validate([new(6000, 4000, 24, [new(60, 60)])]);
-        Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate(Enumerable.Repeat(Stroke(), 33).ToList()));
+        SpotRetouchProcessor.Validate(Enumerable.Repeat(Stroke(), 256).ToList());
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([Stroke(25)]));
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([Stroke(1)]));
-        Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([new(6000, 4001, 8, [new(60, 60)])]));
+        SpotRetouchProcessor.Validate([new(12000, 8000, 8, [new(60, 60)])]);
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([Stroke(8, new RetouchPoint(-1, 3))]));
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([Stroke(8, new RetouchPoint[129])]));
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Apply(
@@ -161,7 +162,7 @@ public sealed class SpotRetouchTests : IDisposable
         Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
         xmp.SetProperty(EditParameters.XmpNamespace, "pledit:SpotRetouchV1", "{invalid}");
         Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
-        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:SpotRetouchV1", new string(' ', SpotRetouchProcessor.MaxRecipeCharacters + 1));
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:SpotRetouchV1", " ");
         Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
     }
 
@@ -230,7 +231,9 @@ public sealed class SpotRetouchTests : IDisposable
         var reopened = new ImageEditorViewModel(backups);
         await reopened.OpenForEditAsync(new ImageEntry { FilePath = path, FileName = "history.png" });
         Assert.Single(reopened.GetCurrentParameters().RetouchStrokes);
-        Assert.True(await reopened.SaveAsync(ImageEditRenderer.RenderToFileAsync));
+        using var device = new CanvasDevice();
+        Assert.True(await reopened.SaveAsync((file, parameters) =>
+            ImageEditRenderer.RenderToFileAsync(file, parameters, device)));
         Assert.Empty(ImageEditService.ReadEditParameters(path).RetouchStrokes);
         Assert.False(reopened.HasChanges);
         Assert.True(reopened.HasBackup);
@@ -240,6 +243,95 @@ public sealed class SpotRetouchTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => vm.AddRetouchStroke(Stroke()));
         Assert.False(ImageEditRenderer.IsSupported(rawPath));
         Assert.False(ImageEditRenderer.IsSupported("animated.gif"));
+    }
+
+    [Fact]
+    public async Task MoreThan32Strokes_RoundTripUndoRedoAndSaveWithoutACountOrRecipeLengthLimit()
+    {
+        var path = Path.Combine(_directory, "many-strokes.png");
+        await RenderQualityFixtures.WriteImageAsync(path, Size, Size, Surface(false));
+        var backups = new OriginalBackupService(Path.Combine(_directory, "originals"));
+        var vm = new ImageEditorViewModel(backups);
+        await vm.OpenForEditAsync(new ImageEntry { FilePath = path, FileName = Path.GetFileName(path) });
+        for (var i = 0; i < 80; i++)
+            vm.AddRetouchStroke(Stroke(2, Enumerable.Repeat(new RetouchPoint(64, 64), 128).ToArray()));
+        Assert.Equal(80, vm.UndoHistory.Count);
+        await new ImageEditService(backups).SaveEditParametersAsync(path, vm.GetCurrentParameters());
+        Assert.True(new FileInfo(Path.ChangeExtension(path, ".xmp")).Length > 160_000);
+        Assert.Equal(80, ImageEditService.ReadEditParameters(path).RetouchStrokes.Count);
+        vm.UndoSteps(50);
+        Assert.Equal(30, vm.GetCurrentParameters().RetouchStrokes.Count);
+        vm.RedoSteps(50);
+        Assert.Equal(80, vm.GetCurrentParameters().RetouchStrokes.Count);
+        using var device = new CanvasDevice();
+        Assert.True(await vm.SaveAsync((file, parameters) =>
+            ImageEditRenderer.RenderToFileAsync(file, parameters, device)));
+        Assert.Empty(ImageEditService.ReadEditParameters(path).RetouchStrokes);
+    }
+
+    [Fact]
+    public async Task FortyFiveMegapixelSource_RetouchesAtFullResolutionWithoutAnImageSizeGate()
+    {
+        const int width = 8256;
+        const int height = 5504;
+        var pixels = new byte[width * height * 4];
+        Array.Fill(pixels, (byte)255);
+        var center = new RetouchPoint(width / 2, height / 2);
+        var offset = (center.Y * width + center.X) * 4;
+        pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = 0;
+        using var device = new CanvasDevice();
+        using var source = CanvasBitmap.CreateFromBytes(device, pixels, width, height,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96,
+            CanvasAlphaMode.Premultiplied);
+        using var result = await ImageEditRenderer.CreateRetouchedAsync(device, source,
+            [new RetouchStroke(width, height, 8, [center])]);
+        Assert.NotNull(result);
+        Assert.Equal((uint)width, result.SizeInPixels.Width);
+        Assert.Equal((uint)height, result.SizeInPixels.Height);
+        Assert.Equal(new byte[] { 255, 255, 255, 255 }, result.GetPixelBytes(center.X, center.Y, 1, 1));
+        Assert.Equal(new byte[] { 0, 0, 0, 255 }, source.GetPixelBytes(center.X, center.Y, 1, 1));
+    }
+
+    [Fact]
+    public void FullPhotoRibbon_ExposesRetouchAndBrushControlsAreOutsideAdjustments()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var ribbon = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml"));
+        var command = Assert.Single(ribbon.Descendants().Where(element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "RibbonRetouch"));
+        Assert.Equal("OnRetouchClick", (string?)command.Attribute("Click"));
+        Assert.Equal("ViewerTools", (string?)command.Parent?.Attribute(x + "Name"));
+
+        var editor = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageEditorView.xaml"));
+        var toolbar = Assert.Single(editor.Descendants().Where(element =>
+            (string?)element.Attribute(x + "Name") == "RetouchToolbar"));
+        Assert.Contains(toolbar.Descendants(), element => (string?)element.Attribute(x + "Name") == "RetouchRadius");
+        Assert.DoesNotContain(toolbar.Ancestors(), element =>
+            (string?)element.Attribute(x + "Name") == "AdjustmentsPanel");
+        var canvas = Assert.Single(editor.Descendants().Where(element =>
+            (string?)element.Attribute(x + "Name") == "EditCanvas"));
+        Assert.Equal("OnEditCanvasPointerEntered", (string?)canvas.Attribute("PointerEntered"));
+        Assert.Equal("OnEditCanvasPointerExited", (string?)canvas.Attribute("PointerExited"));
+        var warning = Assert.Single(editor.Descendants().Where(element =>
+            (string?)element.Attribute(x + "Name") == "RetouchStatus"));
+        Assert.Equal((string?)canvas.Attribute("Grid.Row"), (string?)warning.Attribute("Grid.Row"));
+        Assert.Equal("1", (string?)warning.Attribute("Canvas.ZIndex"));
+    }
+
+    [Fact]
+    public async Task IncrementalPreviewAndFullRecipeReplayProduceIdenticalPixels()
+    {
+        var pixels = Surface(true);
+        Blemish(pixels);
+        using var device = new CanvasDevice();
+        using var source = CanvasBitmap.CreateFromBytes(device, pixels, Size, Size,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96,
+            CanvasAlphaMode.Premultiplied);
+        var strokes = new[] { Stroke(), Stroke(4, new RetouchPoint(32, 32)) };
+        using var first = await ImageEditRenderer.CreateRetouchedAsync(device, source, [strokes[0]]);
+        using var incremental = await ImageEditRenderer.CreateRetouchedAsync(device, first!, [strokes[1]]);
+        using var replayed = await ImageEditRenderer.CreateRetouchedAsync(device, source, strokes);
+        Assert.Equal(replayed!.GetPixelBytes(), incremental!.GetPixelBytes());
     }
 
     [Theory]
@@ -271,7 +363,8 @@ public sealed class SpotRetouchTests : IDisposable
         Assert.Equal(expected, rendered.Pixels);
         var backups = new OriginalBackupService(Path.Combine(_directory, "originals"));
         var hash = await OriginalBackupService.ComputeFileHashAsync(path);
-        await new ImageEditService(backups).ApplyEditsAsync(path, p, ImageEditRenderer.RenderToFileAsync);
+        await new ImageEditService(backups).ApplyEditsAsync(path, p,
+            (file, parameters) => ImageEditRenderer.RenderToFileAsync(file, parameters, device));
         using var reopened = await ImageEditRenderer.LoadOrientedAsync(device, path);
         var savedPixels = reopened.GetPixelBytes();
         if (orientation == 1) Assert.Equal(expected, savedPixels);
@@ -288,6 +381,9 @@ public sealed class SpotRetouchTests : IDisposable
     [Fact]
     public async Task NavigationAndClose_RespectPendingStrokesAndBusyEvaluation()
     {
+        using var device = new CanvasDevice();
+        Task<(uint Width, uint Height)> RenderAsync(string file, EditParameters parameters) =>
+            ImageEditRenderer.RenderToFileAsync(file, parameters, device);
         var backups = new OriginalBackupService(Path.Combine(_directory, "originals"));
         var vm = new ImageEditorViewModel(backups);
         var entries = new List<ImageEntry>();
@@ -301,26 +397,26 @@ public sealed class SpotRetouchTests : IDisposable
         await vm.OpenForEditAsync(entries[0]);
         vm.AddRetouchStroke(Stroke());
         Assert.False(await vm.NavigateAsync(1, () => Task.FromResult(PendingEditDecision.Cancel),
-            ImageEditRenderer.RenderToFileAsync));
+            RenderAsync));
         Assert.Same(entries[0], vm.CurrentEntry);
         Assert.Single(vm.GetCurrentParameters().RetouchStrokes);
         vm.IsRetouching = true;
         Assert.False(vm.CanNavigate);
         Assert.False(vm.CanUndo);
-        Assert.False(await vm.SaveAsync(ImageEditRenderer.RenderToFileAsync));
+        Assert.False(await vm.SaveAsync(RenderAsync));
         await Assert.ThrowsAsync<InvalidOperationException>(() => vm.OpenForEditAsync(entries[1]));
         vm.IsRetouching = false;
         Assert.True(await vm.NavigateAsync(1, () => Task.FromResult(PendingEditDecision.Save),
-            ImageEditRenderer.RenderToFileAsync));
+            RenderAsync));
         Assert.Empty(vm.GetCurrentParameters().RetouchStrokes);
         Assert.False(vm.HasChanges);
         Assert.Empty(ImageEditService.ReadEditParameters(entries[0].FilePath).RetouchStrokes);
         vm.AddRetouchStroke(Stroke());
         Assert.False(await vm.TryCloseAsync(() => Task.FromResult(PendingEditDecision.Cancel),
-            ImageEditRenderer.RenderToFileAsync));
+            RenderAsync));
         Assert.True(vm.HasChanges);
         Assert.True(await vm.TryCloseAsync(() => Task.FromResult(PendingEditDecision.Discard),
-            ImageEditRenderer.RenderToFileAsync));
+            RenderAsync));
         Assert.False(vm.IsOpen);
     }
 }

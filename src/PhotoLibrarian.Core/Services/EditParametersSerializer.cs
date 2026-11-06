@@ -130,8 +130,8 @@ public static class EditParametersSerializer
         if (xmp.DoesPropertyExist(Ns, $"{Pre}:SpotRetouchV1"))
         {
             var json = xmp.GetPropertyString(Ns, $"{Pre}:SpotRetouchV1");
-            if (json is null || json.Length > SpotRetouchProcessor.MaxRecipeCharacters)
-                throw new InvalidDataException("Retouch recipe is empty or oversized.");
+            if (string.IsNullOrWhiteSpace(json))
+                throw new InvalidDataException("Retouch recipe is empty.");
             try
             {
                 p.RetouchStrokes = JsonSerializer.Deserialize<List<RetouchStroke>>(json)

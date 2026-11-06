@@ -1,9 +1,14 @@
 # Spot retouch
 
-Open a supported raster photo in the editor and turn on **Spot retouch**. Choose a
-brush radius of 2-24 **source pixels**, then click a blemish or drag a short stroke
-that completely covers it. Zoom in for precise placement; middle-drag pans while
-retouch is enabled. The outline shows the selected radius and stroke path.
+In full-photo view, click **Retouch** in the main toolbar (beside Adjust and
+Red eye). This opens a full-width retouch workspace without the Adjust sidebar.
+Brush controls, Undo/Redo, Save and Close are in the top toolbar; opening Adjust
+is not required. Choose a brush radius of 2-24 **source pixels**, then click a
+blemish or drag a short stroke that completely covers it. Zoom in for precise
+placement; middle-drag pans while
+retouch is enabled. A contrasting circular brush cursor follows the pointer
+before and during a stroke, showing the actual radius at the current zoom/DPI.
+Changing the brush radius or zoom updates the outline immediately.
 Turn the mode off to return to normal left-drag panning.
 
 This is a local **smooth-surface blemish tool**, not general content-aware fill.
@@ -56,13 +61,21 @@ edges and texture; they are not a semantic or perceptual quality guarantee.
 There is no texture synthesis, model, network request, download or external
 executable dependency.
 
-Work is bounded to 24 million source pixels, 32 strokes per save, 128 recorded
-points per stroke, a 192 x 192 pixel local work extent (including the ring), and
+There is **no megapixel/image-size gate or stroke-count limit**, and no recipe
+length limit that indirectly caps the number of edits. Actual allocation,
+decoder or GPU platform errors are reported explicitly, not replaced with
+arbitrary image-size cutoffs.
+
+The local smooth-surface algorithm supports 128 recorded points per stroke,
+a 192 x 192 pixel local work extent (including the ring), and
 8,192 masked pixels per stroke. Exceeding a limit rejects the stroke rather than
 silently truncating it. Preview caches a source-sized retouched bitmap, reused
-when tone/detail/rotation controls change. Rebuilding needs an owned BGRA8
-scratch buffer (up to 96 MB) in addition to the editor's existing source,
-histogram pixels and GPU bitmap resources. Cancellation is checked per mask row.
+when tone/detail/rotation controls change. Each new stroke builds on the cached
+result rather than replaying all previous strokes; Undo/reload replays the
+stored recipe. Rebuilding needs an owned BGRA8 scratch buffer (four bytes per
+source pixel) in addition to the editor's existing source, histogram pixels and
+GPU bitmap resources. Local mask/fit work depends on stroke geometry, not image
+dimensions. Cancellation is checked per mask row.
 
 ## Verification
 
@@ -72,7 +85,9 @@ within one 8-bit channel level of the clean reference with exact preservation
 outside the mask. Other tests cover edge/texture/alpha/boundary rejection,
 resource bounds, recipes, cancellation, history, RAW/format gating, rotated and
 EXIF-oriented preview/save equality before encoding, lossless PNG reopen and
-original-backup recovery.
+original-backup recovery. A generated 8256 x 5504 (~45 MP) full-resolution source
+is retouched through the shared renderer. An 80-stroke history/sidecar (>160 KB)
+round-trips, undoes/redoes and saves, exercising both former caps.
 
 ```powershell
 dotnet build src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64
@@ -93,10 +108,12 @@ winapp run . --manifest .\Package.appxmanifest --exe PhotoLibrarian.Accessibilit
 Pop-Location
 ```
 
-UIA IDs are `EditorRetouch`, `EditorRetouchRadius`, `EditorPreview`,
+UIA IDs are `RibbonRetouch`, `EditorRetouch`, `EditorRetouchRadius`, `EditorPreview`,
 `EditorRetouchStatus`, `EditorUndo`, `EditorRedo`, `EditorReset` and `EditorSave`.
-Click the center blemish, inspect Undo/Redo and save, then close the **fixture
+Click `RibbonRetouch`, then the center blemish, inspect the brush cursor at
+different radii and Undo/Redo, and save, then close the **fixture
 window**. The host writes `AppX\retouch-ui-results.json` with save/backup/recipe
-checks and removes its temporary image directory. This fixture has also been
+checks and an exact saved-center-pixel check (`centerHealed`),
+and removes its temporary image directory. This fixture has also been
 exercised with real pointer clicks, Undo/Redo and Save, with before/after
 screenshots inspected for layout and the removed spot.

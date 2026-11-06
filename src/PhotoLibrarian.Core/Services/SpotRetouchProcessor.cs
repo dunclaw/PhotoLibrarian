@@ -10,22 +10,16 @@ namespace PhotoLibrarian.Core.Services;
 /// </summary>
 public static class SpotRetouchProcessor
 {
-    public const int MaxImagePixels = 24_000_000;
-    public const int MaxStrokes = 32;
     public const int MaxPoints = 128;
     public const int MaxRadius = 24;
     public const int MaxExtent = 192;
     public const int MaxMaskPixels = 8192;
-    public const int MaxRecipeCharacters = 160_000;
 
     public static void Validate(IReadOnlyList<RetouchStroke> strokes)
     {
-        if (strokes.Count > MaxStrokes)
-            throw new InvalidDataException($"Retouch is limited to {MaxStrokes} strokes per save.");
         foreach (var stroke in strokes)
         {
             if (stroke is null || stroke.ImageWidth <= 0 || stroke.ImageHeight <= 0 ||
-                (long)stroke.ImageWidth * stroke.ImageHeight > MaxImagePixels ||
                 stroke.Radius is < 2 or > MaxRadius || stroke.Points is null ||
                 stroke.Points.Length is < 1 or > MaxPoints)
                 throw new InvalidDataException("Invalid or oversized retouch stroke.");
