@@ -3,34 +3,50 @@ using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Core.Services;
 
+public enum RetouchStatus
+{
+    Applied,
+    TransparentPixels,
+    NoSurroundingPixels
+}
+
+public readonly record struct RetouchResult(RetouchStatus Status)
+{
+    public bool Succeeded => Status == RetouchStatus.Applied;
+    public string? Message => Status switch
+    {
+        RetouchStatus.TransparentPixels => "Retouch needs opaque pixels in the painted area and its immediate surroundings.",
+        RetouchStatus.NoSurroundingPixels => "Leave some unpainted pixels around the area so retouch has a source to fill from.",
+        _ => null
+    };
+}
+
 /// <summary>
-/// Bounded planar inpainting for small blemishes on smooth, opaque surfaces.
-/// Fits each color channel to a two-pixel ring outside the entire stroke, never to its interior.
-/// Rejects non-planar surroundings rather than inventing texture or continuing strong edges.
+/// Harmonic inpainting of the complete painted mask from its unpainted boundary.
+/// Solves the discrete Laplace equation; never samples the content being removed.
 /// </summary>
 public static class SpotRetouchProcessor
 {
-    public const int MaxPoints = 128;
     public const int MaxRadius = 24;
-    public const int MaxExtent = 192;
-    public const int MaxMaskPixels = 8192;
 
     public static void Validate(IReadOnlyList<RetouchStroke> strokes)
     {
         foreach (var stroke in strokes)
         {
             if (stroke is null || stroke.ImageWidth <= 0 || stroke.ImageHeight <= 0 ||
-                stroke.Radius is < 2 or > MaxRadius || stroke.Points is null ||
-                stroke.Points.Length is < 1 or > MaxPoints)
-                throw new InvalidDataException("Invalid or oversized retouch stroke.");
+                stroke.Radius is < 2 or > MaxRadius || stroke.Points is null || stroke.Points.Length == 0)
+                throw new InvalidDataException("Invalid retouch stroke.");
             foreach (var point in stroke.Points)
                 if (point.X < 0 || point.Y < 0 || point.X >= stroke.ImageWidth || point.Y >= stroke.ImageHeight)
                     throw new InvalidDataException("Retouch point is outside its source image.");
         }
     }
 
-    /// <summary>Applies validated recipes in order. Call on an owned buffer; a rejected stroke writes nothing.</summary>
-    public static void Apply(byte[] pixels, int width, int height, IReadOnlyList<RetouchStroke> strokes,
+    /// <summary>
+    /// Applies recipes in order on an owned buffer. Unsupported image content returns a result,
+    /// not an exception. Discard the buffer on failure; earlier strokes may already be applied.
+    /// </summary>
+    public static RetouchResult Apply(byte[] pixels, int width, int height, IReadOnlyList<RetouchStroke> strokes,
         CancellationToken cancellationToken = default)
     {
         Validate(strokes);
@@ -41,122 +57,166 @@ public static class SpotRetouchProcessor
             if (stroke.ImageWidth != width || stroke.ImageHeight != height)
                 throw new InvalidDataException("Retouch recipe dimensions do not match the oriented source.");
             cancellationToken.ThrowIfCancellationRequested();
-            ApplyStroke(pixels, width, height, stroke, cancellationToken);
+            var result = ApplyStroke(pixels, width, height, stroke, cancellationToken);
+            if (!result.Succeeded) return result;
         }
+        return new(RetouchStatus.Applied);
     }
 
-    private static void ApplyStroke(byte[] pixels, int width, int height, RetouchStroke stroke,
+    private static RetouchResult ApplyStroke(byte[] pixels, int width, int height, RetouchStroke stroke,
         CancellationToken cancellationToken)
     {
-        var r = stroke.Radius;
-        var left = stroke.Points.Min(p => p.X) - r - 2;
-        var top = stroke.Points.Min(p => p.Y) - r - 2;
-        var right = stroke.Points.Max(p => p.X) + r + 2;
-        var bottom = stroke.Points.Max(p => p.Y) + r + 2;
-        if (left < 0 || top < 0 || right >= width || bottom >= height)
-            throw new InvalidDataException("Retouch needs an intact surrounding ring. Move away from the image edge.");
+        var radius = stroke.Radius;
+        var left = Math.Max(0, stroke.Points.Min(p => p.X) - radius - 1);
+        var top = Math.Max(0, stroke.Points.Min(p => p.Y) - radius - 1);
+        var right = (int)Math.Min(width - 1L, (long)stroke.Points.Max(p => p.X) + radius + 1);
+        var bottom = (int)Math.Min(height - 1L, (long)stroke.Points.Max(p => p.Y) + radius + 1);
         var w = right - left + 1;
         var h = bottom - top + 1;
-        if (w > MaxExtent || h > MaxExtent)
-            throw new InvalidDataException("Retouch stroke is too long. Use a shorter stroke.");
+        var indices = new int[checked(w * h)];
+        Array.Fill(indices, -1);
 
-        var mask = new bool[w * h];
-        var ring = new bool[w * h];
-        // Distance to connected segments makes a continuous capsule even with sparse pointer events.
-        for (var y = 0; y < h; y++)
-        for (var x = 0; x < w; x++)
+        // Rasterize each capsule only in its own bounds, not points x entire bounding rectangle.
+        for (var i = 0; i < stroke.Points.Length; i++)
         {
-            if (x == 0) cancellationToken.ThrowIfCancellationRequested();
-            double distance = double.MaxValue;
-            var px = x + left;
-            var py = y + top;
-            for (var i = 0; i < stroke.Points.Length; i++)
+            cancellationToken.ThrowIfCancellationRequested();
+            var a = stroke.Points[Math.Max(0, i - 1)];
+            var b = stroke.Points[i];
+            var dx = (double)b.X - a.X;
+            var dy = (double)b.Y - a.Y;
+            var lengthSquared = dx * dx + dy * dy;
+            var x0 = Math.Max(left, Math.Min(a.X, b.X) - radius);
+            var y0 = Math.Max(top, Math.Min(a.Y, b.Y) - radius);
+            var x1 = Math.Min(right, (long)Math.Max(a.X, b.X) + radius);
+            var y1 = Math.Min(bottom, (long)Math.Max(a.Y, b.Y) + radius);
+            for (var y = y0; y <= y1; y++)
             {
-                var a = stroke.Points[Math.Max(0, i - 1)];
-                var b = stroke.Points[i];
-                var dx = b.X - a.X;
-                var dy = b.Y - a.Y;
-                var lengthSquared = (double)dx * dx + (double)dy * dy;
-                var t = lengthSquared == 0 ? 0 : Math.Clamp(
-                    ((px - a.X) * (double)dx + (py - a.Y) * (double)dy) / lengthSquared, 0, 1);
-                var ex = px - a.X - t * dx;
-                var ey = py - a.Y - t * dy;
-                distance = Math.Min(distance, ex * ex + ey * ey);
+                cancellationToken.ThrowIfCancellationRequested();
+                for (var x = x0; x <= x1; x++)
+                {
+                    var t = lengthSquared == 0 ? 0 : Math.Clamp(
+                        ((x - a.X) * dx + (y - a.Y) * dy) / lengthSquared, 0, 1);
+                    var ex = x - a.X - t * dx;
+                    var ey = y - a.Y - t * dy;
+                    if (ex * ex + ey * ey <= radius * radius)
+                        indices[(y - top) * w + x - left] = -2;
+                }
             }
-            mask[y * w + x] = distance <= r * r;
-            ring[y * w + x] = distance > r * r && distance <= (r + 2) * (r + 2);
         }
-        if (mask.Count(value => value) > MaxMaskPixels)
-            throw new InvalidDataException("Retouch area is too large. Use a smaller brush or shorter stroke.");
 
-        var samples = new List<(double X, double Y, int Offset)>();
-        double meanX = 0, meanY = 0;
-        for (var y = 0; y < h; y++)
-        for (var x = 0; x < w; x++)
+        var selected = new List<int>();
+        for (var i = 0; i < indices.Length; i++)
         {
-            var index = y * w + x;
-            if (!mask[index] && !ring[index]) continue;
-            var offset = ((top + y) * width + left + x) * 4;
-            if (pixels[offset + 3] != 255)
-                throw new InvalidDataException("Retouch requires an opaque selection and surrounding ring.");
-            if (!ring[index]) continue;
-            samples.Add((x, y, offset));
-            meanX += x;
-            meanY += y;
+            if (i % w == 0) cancellationToken.ThrowIfCancellationRequested();
+            if (indices[i] != -2) continue;
+            indices[i] = selected.Count;
+            selected.Add(i);
         }
-        meanX /= samples.Count;
-        meanY /= samples.Count;
-        double xx = 0, xy = 0, yy = 0;
-        foreach (var sample in samples)
+        if (selected.Count == (long)width * height)
+            return new(RetouchStatus.NoSurroundingPixels);
+
+        var neighbours = new int[checked(selected.Count * 4)];
+        Array.Fill(neighbours, -1);
+        var degree = new int[selected.Count];
+        var boundary = new double[checked(selected.Count * 3)];
+        var offsets = new int[selected.Count];
+        double sumB = 0, sumG = 0, sumR = 0;
+        var boundaryCount = 0;
+        var transparentBoundary = false;
+        for (var i = 0; i < selected.Count; i++)
         {
-            var x = sample.X - meanX;
-            var y = sample.Y - meanY;
-            xx += x * x;
-            xy += x * y;
-            yy += y * y;
+            if (i % 256 == 0) cancellationToken.ThrowIfCancellationRequested();
+            var x = selected[i] % w + left;
+            var y = selected[i] / w + top;
+            offsets[i] = (y * width + x) * 4;
+            if (pixels[offsets[i] + 3] != 255) return new(RetouchStatus.TransparentPixels);
+            AddNeighbour(i, x - 1, y, 0);
+            AddNeighbour(i, x + 1, y, 1);
+            AddNeighbour(i, x, y - 1, 2);
+            AddNeighbour(i, x, y + 1, 3);
         }
-        var determinant = xx * yy - xy * xy;
-        if (determinant <= 0)
-            throw new InvalidDataException("Retouch cannot fit this surrounding ring.");
-        var planes = new (double Mean, double X, double Y)[3];
+        if (boundaryCount == 0) return new(RetouchStatus.NoSurroundingPixels);
+        // Check the entire stencil before solving or writing any selected pixels.
+        if (transparentBoundary) return new(RetouchStatus.TransparentPixels);
+
+        var solution = new double[boundary.Length];
+        var residual = new double[selected.Count];
+        var direction = new double[selected.Count];
+        var product = new double[selected.Count];
         for (var channel = 0; channel < 3; channel++)
         {
-            double sum = 0, xc = 0, yc = 0;
-            foreach (var sample in samples)
-            {
-                var value = pixels[sample.Offset + channel];
-                sum += value;
-                xc += (sample.X - meanX) * value;
-                yc += (sample.Y - meanY) * value;
-            }
-            var plane = (Mean: sum / samples.Count,
-                X: (xc * yy - yc * xy) / determinant,
-                Y: (yc * xx - xc * xy) / determinant);
-            double squaredError = 0, maxError = 0;
-            foreach (var sample in samples)
-            {
-                var error = Math.Abs(pixels[sample.Offset + channel] -
-                    (plane.Mean + plane.X * (sample.X - meanX) + plane.Y * (sample.Y - meanY)));
-                squaredError += error * error;
-                maxError = Math.Max(maxError, error);
-            }
-            if (Math.Sqrt(squaredError / samples.Count) > 4 || maxError > 12 ||
-                Math.Abs(plane.X) > 4 || Math.Abs(plane.Y) > 4)
-                throw new InvalidDataException(
-                    "Surroundings are too textured or cross an edge. Retouch supports small blemishes on smooth surfaces only.");
-            planes[channel] = plane;
+            var mean = (channel == 0 ? sumB : channel == 1 ? sumG : sumR) / boundaryCount;
+            Solve(channel, mean);
         }
-        // No writes occur until every channel and the complete stroke have passed the quality gate.
-        for (var y = 0; y < h; y++)
-        for (var x = 0; x < w; x++)
+        cancellationToken.ThrowIfCancellationRequested();
+        for (var i = 0; i < selected.Count; i++)
+        for (var channel = 0; channel < 3; channel++)
+            pixels[offsets[i] + channel] = (byte)Math.Clamp(Math.Round(solution[i * 3 + channel]), 0, 255);
+        return new(RetouchStatus.Applied);
+
+        void AddNeighbour(int index, int x, int y, int side)
         {
-            if (!mask[y * w + x]) continue;
-            var offset = ((top + y) * width + left + x) * 4;
-            for (var channel = 0; channel < 3; channel++)
+            if (x < 0 || y < 0 || x >= width || y >= height) return;
+            degree[index]++;
+            var neighbour = indices[(y - top) * w + x - left];
+            neighbours[index * 4 + side] = neighbour;
+            if (neighbour >= 0) return;
+            var offset = (y * width + x) * 4;
+            if (pixels[offset + 3] != 255)
+                transparentBoundary = true;
+            boundary[index * 3] += pixels[offset];
+            boundary[index * 3 + 1] += pixels[offset + 1];
+            boundary[index * 3 + 2] += pixels[offset + 2];
+            sumB += pixels[offset];
+            sumG += pixels[offset + 1];
+            sumR += pixels[offset + 2];
+            boundaryCount++;
+        }
+
+        void Solve(int channel, double initial)
+        {
+            double residualNorm = 0;
+            for (var i = 0; i < selected.Count; i++)
             {
-                var plane = planes[channel];
-                pixels[offset + channel] = (byte)Math.Clamp(Math.Round(
-                    plane.Mean + plane.X * (x - meanX) + plane.Y * (y - meanY)), 0, 255);
+                solution[i * 3 + channel] = initial;
+                var knownNeighbours = degree[i];
+                for (var side = 0; side < 4; side++)
+                    if (neighbours[i * 4 + side] >= 0) knownNeighbours--;
+                residual[i] = boundary[i * 3 + channel] - knownNeighbours * initial;
+                direction[i] = residual[i] / degree[i];
+                residualNorm += residual[i] * direction[i];
+            }
+            // Preconditioned conjugate gradients on the positive-definite masked Laplacian.
+            // The stopping condition measures numerical residual, not photo texture or a quality gate.
+            for (var iteration = 0; residualNorm > 1e-8 * selected.Count; iteration++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                double denominator = 0;
+                for (var i = 0; i < selected.Count; i++)
+                {
+                    var value = degree[i] * direction[i];
+                    for (var side = 0; side < 4; side++)
+                    {
+                        var neighbour = neighbours[i * 4 + side];
+                        if (neighbour >= 0) value -= direction[neighbour];
+                    }
+                    product[i] = value;
+                    denominator += direction[i] * value;
+                }
+                if (!double.IsFinite(denominator) || denominator <= 0 || iteration > selected.Count * 2L)
+                    throw new ArithmeticException("The retouch interpolation solver did not converge.");
+                var step = residualNorm / denominator;
+                double nextNorm = 0;
+                for (var i = 0; i < selected.Count; i++)
+                {
+                    solution[i * 3 + channel] += step * direction[i];
+                    residual[i] -= step * product[i];
+                    nextNorm += residual[i] * residual[i] / degree[i];
+                }
+                var beta = nextNorm / residualNorm;
+                for (var i = 0; i < selected.Count; i++)
+                    direction[i] = residual[i] / degree[i] + beta * direction[i];
+                residualNorm = nextNorm;
             }
         }
     }

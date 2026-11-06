@@ -221,15 +221,30 @@ public static class ImageEditRenderer
         ICanvasResourceCreator device, CanvasBitmap source, IReadOnlyList<RetouchStroke> strokes,
         CancellationToken cancellationToken = default)
     {
-        if (strokes.Count == 0) return null;
+        var preview = await TryCreateRetouchedAsync(device, source, strokes, cancellationToken);
+        // A saved recipe that cannot be replayed is a save failure, never an unretouched success.
+        if (!preview.Result.Succeeded) throw new InvalidDataException(preview.Result.Message);
+        return preview.Bitmap;
+    }
+
+    internal readonly record struct RetouchPreviewResult(CanvasBitmap? Bitmap, RetouchResult Result);
+
+    internal static async Task<RetouchPreviewResult> TryCreateRetouchedAsync(
+        ICanvasResourceCreator device, CanvasBitmap source, IReadOnlyList<RetouchStroke> strokes,
+        CancellationToken cancellationToken = default)
+    {
+        if (strokes.Count == 0) return new(null, new(RetouchStatus.Applied));
         SpotRetouchProcessor.Validate(strokes);
         var width = checked((int)source.SizeInPixels.Width);
         var height = checked((int)source.SizeInPixels.Height);
         var pixels = source.GetPixelBytes();
-        await Task.Run(() => SpotRetouchProcessor.Apply(pixels, width, height, strokes, cancellationToken), cancellationToken);
+        var result = await Task.Run(() => SpotRetouchProcessor.Apply(pixels, width, height, strokes, cancellationToken),
+            cancellationToken);
+        if (!result.Succeeded) return new(null, result);
         cancellationToken.ThrowIfCancellationRequested();
-        return CanvasBitmap.CreateFromBytes(device, pixels, width, height,
+        var bitmap = CanvasBitmap.CreateFromBytes(device, pixels, width, height,
             DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+        return new(bitmap, result);
     }
 
     /// <summary>

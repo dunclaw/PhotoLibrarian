@@ -112,7 +112,7 @@
                         AutomationProperties.Name="Retouch brush radius in source pixels"
                         AutomationProperties.AutomationId="EditorRetouchRadius" />
                 <TextBlock x:Name="RetouchRadiusText" Grid.Column="3" Text="8 px" MinWidth="40" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="4" Text="Smooth surfaces only. Middle-drag to pan; Escape cancels."
+                <TextBlock Grid.Column="4" Text="Paint over the whole spot; release to heal. Middle-drag to pan; Escape cancels."
                            VerticalAlignment="Center" TextWrapping="Wrap" />
             </Grid>
             <InfoBar x:Name="RetouchStatus" Grid.Row="2" Canvas.ZIndex="1" VerticalAlignment="Top"

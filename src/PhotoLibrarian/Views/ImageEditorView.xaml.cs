@@ -65,6 +65,9 @@ public sealed partial class ImageEditorView : UserControl
         AddZoomAccelerator(Windows.System.VirtualKey.Number1, ZoomActual);
         AddNavigationAccelerator(Windows.System.VirtualKey.PageUp);
         AddNavigationAccelerator(Windows.System.VirtualKey.PageDown);
+        var cancelRetouch = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Escape };
+        cancelRetouch.Invoked += OnCancelRetouchInvoked;
+        KeyboardAccelerators.Add(cancelRetouch);
     }
 
     public ImageEditorView(ImageEditorViewModel viewModel) : this() =>
@@ -123,10 +126,7 @@ public sealed partial class ImageEditorView : UserControl
         if (Visibility != Visibility.Visible || ViewModel?.IsOpen != true) return;
         if (args.Key == Windows.System.VirtualKey.Escape && RetouchToggle.IsChecked == true)
         {
-            CancelRetouchGesture();
-            if (_pendingRetouch) _retouchRequest?.Cancel();
-            RetouchToggle.IsChecked = false;
-            UpdateBrushCursor();
+            ExitRetouchMode();
             args.Handled = true;
             return;
         }
@@ -158,6 +158,21 @@ public sealed partial class ImageEditorView : UserControl
         if (direction == 0) return;
         args.Handled = true;
         await NavigateAsync(direction);
+    }
+
+    private void OnCancelRetouchInvoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (Visibility != Visibility.Visible || ViewModel?.IsOpen != true || RetouchToggle.IsChecked != true) return;
+        ExitRetouchMode();
+        args.Handled = true;
+    }
+
+    private void ExitRetouchMode()
+    {
+        CancelRetouchGesture();
+        if (_pendingRetouch) _retouchRequest?.Cancel();
+        RetouchToggle.IsChecked = false;
+        UpdateBrushCursor();
     }
 
     private void AddZoomAccelerator(Windows.System.VirtualKey key, Action action)
@@ -399,6 +414,7 @@ public sealed partial class ImageEditorView : UserControl
         {
             if (ViewModel?.IsBusy == true || !RetouchToggle.IsEnabled || !TryRetouchPoint(point.Position, out var sourcePoint))
                 return;
+            FocusEditor();
             if (!EditCanvas.CapturePointer(e.Pointer)) return;
             _retouchGesture.Begin(e.Pointer.PointerId, (int)_sourceBitmap!.SizeInPixels.Width,
                 (int)_sourceBitmap.SizeInPixels.Height, (int)RetouchRadius.Value, sourcePoint);
@@ -524,11 +540,10 @@ public sealed partial class ImageEditorView : UserControl
             ShowRetouchError("Stroke cancelled outside the image. Keep the entire stroke inside the photo.");
             return;
         }
-        try { _retouchGesture.Add(point); }
-        catch (InvalidDataException ex)
+        if (!_retouchGesture.Add(point))
         {
             CancelRetouchGesture();
-            ShowRetouchError(ex.Message);
+            ShowRetouchError("Stroke cancelled outside the image. Keep the entire stroke inside the photo.");
         }
     }
 
@@ -586,12 +601,20 @@ public sealed partial class ImageEditorView : UserControl
             // New strokes build on the cached full-resolution result. Undo/reload replays the recipe.
             var incremental = pending is not null && _retouchedBitmap is not null &&
                 RetouchStroke.SequenceEqual(strokes.Take(strokes.Count - 1).ToList(), _previewStrokes);
-            var bitmap = await ImageEditRenderer.CreateRetouchedAsync(EditCanvas,
+            var preview = await ImageEditRenderer.TryCreateRetouchedAsync(EditCanvas,
                 incremental ? _retouchedBitmap! : source,
                 incremental ? [pending!] : strokes, request.Token);
+            var bitmap = preview.Bitmap;
             if (_retouchRequest != request || _sourceBitmap != source || vm.ImagePath != path)
             {
                 bitmap?.Dispose();
+                return;
+            }
+            if (!preview.Result.Succeeded)
+            {
+                _retouchPreviewFailed = pending is null;
+                ShowRetouchError(preview.Result.Message! +
+                    (_retouchPreviewFailed ? " Undo or reset the recipe before saving." : ""));
                 return;
             }
             _retouchedBitmap?.Dispose();
@@ -641,16 +664,8 @@ public sealed partial class ImageEditorView : UserControl
         if (_retouchGesture.Points.Count == 0) return;
         session.Transform = EditorImageCoordinates.SourceToCanvas(sourceSize, ViewModel.RotationAngle,
             _viewport.Scale, _viewport.ContentOrigin);
-        var color = GetResourceColor("SystemColorHighlightColorBrush", Microsoft.UI.Colors.CornflowerBlue);
-        var thickness = 1.5f / _viewport.Scale;
-        foreach (var point in _retouchGesture.Points)
-            session.DrawCircle(point.X + 0.5f, point.Y + 0.5f, _retouchGesture.Radius, color, thickness);
-        for (var i = 1; i < _retouchGesture.Points.Count; i++)
-        {
-            var start = _retouchGesture.Points[i - 1];
-            var end = _retouchGesture.Points[i];
-            session.DrawLine(start.X + 0.5f, start.Y + 0.5f, end.X + 0.5f, end.Y + 0.5f, color, thickness);
-        }
+        using var selection = RetouchStrokeGeometry.Create(session, _retouchGesture.Points, _retouchGesture.Radius);
+        session.FillGeometry(selection, Windows.UI.Color.FromArgb(72, 255, 255, 255));
     }
 
     private void EndPan()

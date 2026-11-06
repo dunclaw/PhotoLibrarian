@@ -85,7 +85,7 @@
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonRetouch"
                         AutomationProperties.Name="Spot retouch"
-                        ToolTipService.ToolTip="Heal small blemishes on smooth surfaces">
+                        ToolTipService.ToolTip="Paint over small blemishes to fill them from surrounding pixels">
                     <StackPanel Spacing="4">
                         <FontIcon Glyph="&#xE70F;" Style="{StaticResource RibbonIconStyle}" />
                         <TextBlock Text="Retouch" Style="{StaticResource RibbonCaptionStyle}" />

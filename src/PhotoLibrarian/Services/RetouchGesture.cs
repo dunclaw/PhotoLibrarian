@@ -1,6 +1,5 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
-using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.Services;
 
@@ -24,17 +23,18 @@ internal sealed class RetouchGesture
         Add(point);
     }
 
-    public void Add(RetouchPoint point)
+    public bool Add(RetouchPoint point)
     {
-        if (PointerId is null) return;
-        if (_points.Count > 0 && _points[^1] == point) return;
-        if (_points.Count == SpotRetouchProcessor.MaxPoints || point.X < 0 || point.Y < 0 ||
+        if (PointerId is null) return false;
+        if (_points.Count > 0 && _points[^1] == point) return true;
+        if (point.X < 0 || point.Y < 0 ||
             point.X >= _width || point.Y >= _height)
         {
             Cancel();
-            throw new InvalidDataException("Stroke cancelled: outside the image or too long. Use a shorter stroke.");
+            return false;
         }
         _points.Add(point);
+        return true;
     }
 
     public RetouchStroke? Complete(uint pointerId)

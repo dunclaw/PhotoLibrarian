@@ -3,7 +3,7 @@ namespace PhotoLibrarian.Core.Models;
 
 public readonly record struct RetouchPoint(int X, int Y);
 
-/// <summary>Version 1 smooth-surface retouch in EXIF-oriented source pixels, before editor rotation.</summary>
+/// <summary>Version 1 retouch mask in EXIF-oriented source pixels, before editor rotation.</summary>
 public sealed record RetouchStroke(int ImageWidth, int ImageHeight, int Radius, RetouchPoint[] Points)
 {
     public RetouchStroke Copy() => this with { Points = Points.ToArray() };

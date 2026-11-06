@@ -58,7 +58,7 @@ public sealed class SpotRetouchTests : IDisposable
         Blemish(damaged, 60, drag ? 85 : 68);
         var before = damaged.ToArray();
         var stroke = drag ? Stroke(8, new(64, 64), new(82, 64)) : Stroke();
-        SpotRetouchProcessor.Apply(damaged, Size, Size, [stroke]);
+        Assert.True(SpotRetouchProcessor.Apply(damaged, Size, Size, [stroke]).Succeeded);
         var changed = 0;
         for (var y = 0; y < Size; y++)
         for (var x = 0; x < Size; x++)
@@ -77,37 +77,23 @@ public sealed class SpotRetouchTests : IDisposable
     }
 
     [Theory]
-    [InlineData("edge")]
-    [InlineData("texture")]
     [InlineData("alpha")]
     [InlineData("ring-alpha")]
-    [InlineData("boundary")]
-    [InlineData("extent")]
-    public void UnsuitableRegions_AreRejectedWithoutAnyWrites(string kind)
+    public void Transparency_ReturnsAnExpectedResultWithoutThrowingOrWriting(string kind)
     {
         var pixels = Surface(false);
         var stroke = Stroke();
-        if (kind == "edge" || kind == "texture")
-        {
-            for (var y = 0; y < Size; y++)
-            for (var x = 0; x < Size; x++)
-            {
-                var value = kind == "edge" ? (x < 64 ? 20 : 220) : ((x + y) % 2 == 0 ? 20 : 220);
-                pixels[(y * Size + x) * 4] = (byte)value;
-            }
-        }
         if (kind == "alpha") pixels[(64 * Size + 64) * 4 + 3] = 128;
         if (kind == "ring-alpha") pixels[(64 * Size + 73) * 4 + 3] = 128;
-        if (kind == "boundary") stroke = Stroke(8, new RetouchPoint(3, 64));
-        if (kind == "extent")
-            stroke = new(400, 400, 24, [new(30, 30), new(300, 30)]);
         var before = pixels.ToArray();
-        Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Apply(pixels, Size, Size, [stroke]));
+        var result = SpotRetouchProcessor.Apply(pixels, Size, Size, [stroke]);
+        Assert.Equal(RetouchStatus.TransparentPixels, result.Status);
+        Assert.NotEmpty(result.Message!);
         Assert.Equal(before, pixels);
     }
 
     [Fact]
-    public void ResourceAndRecipeBounds_AreEnforced()
+    public void InvalidRecipesFailButStrokeLengthPointCountAndAreaAreNotCapped()
     {
         SpotRetouchProcessor.Validate(Enumerable.Repeat(Stroke(), 32).ToList());
         SpotRetouchProcessor.Validate([new(6000, 4000, 24, [new(60, 60)])]);
@@ -116,17 +102,173 @@ public sealed class SpotRetouchTests : IDisposable
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([Stroke(1)]));
         SpotRetouchProcessor.Validate([new(12000, 8000, 8, [new(60, 60)])]);
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([Stroke(8, new RetouchPoint(-1, 3))]));
-        Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Validate([Stroke(8, new RetouchPoint[129])]));
+        SpotRetouchProcessor.Validate([Stroke(8, Enumerable.Repeat(new RetouchPoint(64, 64), 1024).ToArray())]);
         Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Apply(
             Surface(false), Size, Size, [new(127, 128, 8, [new(64, 64)])]));
         var large = new byte[400 * 400 * 4];
         Array.Fill(large, (byte)255);
         var tooLong = new RetouchStroke(400, 400, 8, [new(30, 30), new(220, 30)]);
-        Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Apply(large, 400, 400, [tooLong]));
+        Assert.True(SpotRetouchProcessor.Apply(large, 400, 400, [tooLong]).Succeeded);
         var tooWide = new RetouchStroke(400, 400, 24, [new(40, 40), new(175, 40), new(175, 175), new(40, 175)]);
-        Assert.Throws<InvalidDataException>(() => SpotRetouchProcessor.Apply(large, 400, 400, [tooWide]));
+        Assert.True(SpotRetouchProcessor.Apply(large, 400, 400, [tooWide]).Succeeded);
         var cancelled = new CancellationToken(canceled: true);
         Assert.Throws<OperationCanceledException>(() => SpotRetouchProcessor.Apply(Surface(false), Size, Size, [Stroke()], cancelled));
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(127, 64)]
+    [InlineData(64, 127)]
+    public void ImageBoundary_UsesAvailableSurroundings(int x, int y)
+    {
+        var pixels = Surface(false);
+        var reference = pixels.ToArray();
+        pixels[(y * Size + x) * 4] = 0;
+        Assert.True(SpotRetouchProcessor.Apply(pixels, Size, Size, [Stroke(8, new RetouchPoint(x, y))]).Succeeded);
+        Assert.Equal(reference, pixels);
+    }
+
+    [Fact]
+    public void EntireImagePainted_ReturnsNoSurroundingsWithoutAnException()
+    {
+        var pixels = Enumerable.Repeat((byte)255, 4 * 4 * 4).ToArray();
+        var before = pixels.ToArray();
+        var result = SpotRetouchProcessor.Apply(pixels, 4, 4, [new(4, 4, 8, [new(2, 2)])]);
+        Assert.Equal(RetouchStatus.NoSurroundingPixels, result.Status);
+        Assert.NotEmpty(result.Message!);
+        Assert.Equal(before, pixels);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NoisyNonplanarBackground_HealsPaintedStoplightWithoutTextureRejection(bool denseStroke)
+    {
+        var random = new Random(23175);
+        var reference = Surface(false);
+        for (var y = 0; y < Size; y++)
+        for (var x = 0; x < Size; x++)
+        for (var channel = 0; channel < 3; channel++)
+        {
+            var noise = random.Next(-7, 8);
+            if ((x + y) % 19 == 0) noise += 16; // Noise/compression-like boundary outliers defeated the old max-error gate.
+            var value = 100 + channel * 35 + 8 * Math.Sin(x * 0.1) + y * 0.2 + noise;
+            reference[(y * Size + x) * 4 + channel] = (byte)Math.Clamp(Math.Round(value), 0, 255);
+        }
+        var damaged = reference.ToArray();
+        // A small red light and dark housing, completely covered by the painted capsule.
+        for (var y = 59; y <= 69; y++)
+        for (var x = 60; x <= 80; x++)
+        {
+            var offset = (y * Size + x) * 4;
+            damaged[offset] = 10;
+            damaged[offset + 1] = 10;
+            damaged[offset + 2] = x < 67 ? (byte)230 : (byte)10;
+        }
+        var before = damaged.ToArray();
+        var points = denseStroke
+            ? Enumerable.Range(0, 512).Select(i => new RetouchPoint(64 + i * 12 / 511, 64)).ToArray()
+            : new[] { new RetouchPoint(64, 64), new RetouchPoint(76, 64) };
+        Assert.True(SpotRetouchProcessor.Apply(damaged, Size, Size, [Stroke(10, points)]).Succeeded);
+        double error = 0;
+        var count = 0;
+        for (var y = 0; y < Size; y++)
+        for (var x = 0; x < Size; x++)
+        {
+            var dx = x - Math.Clamp(x, 64, 76);
+            var inside = dx * dx + (y - 64) * (y - 64) <= 100;
+            for (var channel = 0; channel < 4; channel++)
+            {
+                var offset = (y * Size + x) * 4 + channel;
+                if (!inside || channel == 3) Assert.Equal(before[offset], damaged[offset]);
+                else
+                {
+                    error += Math.Pow(damaged[offset] - reference[offset], 2);
+                    count++;
+                }
+            }
+        }
+        Assert.InRange(Math.Sqrt(error / count), 0, 7);
+        Assert.InRange(damaged[(64 * Size + 64) * 4 + 2], 120, 220);
+    }
+
+    [Fact]
+    public void TexturedAndEdgeRegions_AreFilledRatherThanRejectedByAPlaneFit()
+    {
+        var pixels = Surface(false);
+        for (var y = 0; y < Size; y++)
+        for (var x = 0; x < Size; x++)
+            pixels[(y * Size + x) * 4] = (byte)((x < 64 ? 50 : 200) + (x + y) % 7);
+        Blemish(pixels);
+        Assert.True(SpotRetouchProcessor.Apply(pixels, Size, Size, [Stroke()]).Succeeded);
+        Assert.InRange(pixels[(64 * Size + 64) * 4], 90, 160);
+    }
+
+    [Fact]
+    public void StrokeFeedback_IsOneFilledCapsuleWithoutRingsOrDarkerOverlaps()
+    {
+        using var device = new CanvasDevice();
+        using var target = new CanvasRenderTarget(device, Size, Size, 96);
+        using var selection = RetouchStrokeGeometry.Create(device,
+            [new(30, 64), new(45, 64), new(60, 64), new(45, 64), new(90, 64)], 8);
+        using (var session = target.CreateDrawingSession())
+        {
+            session.Clear(Microsoft.UI.Colors.Transparent);
+            session.FillGeometry(selection, Windows.UI.Color.FromArgb(72, 255, 255, 255));
+        }
+        var pixels = target.GetPixelBytes();
+        for (var x = 24; x <= 96; x++)
+        for (var y = 61; y <= 67; y++)
+            Assert.Equal(new byte[] { 72, 72, 72, 72 }, pixels.AsSpan((y * Size + x) * 4, 4).ToArray());
+        Assert.Equal(new byte[] { 0, 0, 0, 0 }, pixels.AsSpan((40 * Size + 60) * 4, 4).ToArray());
+    }
+
+    [Fact]
+    public async Task UnsupportedPreview_ReturnsAStatusWithoutPublishingAPartialBitmap()
+    {
+        var pixels = Surface(false);
+        pixels[(64 * Size + 64) * 4 + 3] = 128;
+        using var device = new CanvasDevice();
+        using var source = CanvasBitmap.CreateFromBytes(device, pixels, Size, Size,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96,
+            CanvasAlphaMode.Premultiplied);
+        var original = source.GetPixelBytes();
+        var result = await ImageEditRenderer.TryCreateRetouchedAsync(device, source,
+            [Stroke(4, new RetouchPoint(32, 32)), Stroke()]);
+        Assert.Equal(RetouchStatus.TransparentPixels, result.Result.Status);
+        Assert.Null(result.Bitmap);
+        Assert.Equal(original, source.GetPixelBytes());
+    }
+
+    [Fact]
+    public async Task JpegNoiseAndCompression_DoNotPreventPreviewOrSavedInfill()
+    {
+        var path = Path.Combine(_directory, "noisy-stoplight.jpg");
+        var pixels = Surface(true);
+        var random = new Random(23175);
+        for (var i = 0; i < pixels.Length; i += 4)
+        for (var channel = 0; channel < 3; channel++)
+            pixels[i + channel] = (byte)Math.Clamp(pixels[i + channel] + random.Next(-12, 13), 0, 255);
+        Blemish(pixels);
+        await RenderQualityFixtures.WriteImageAsync(path, Size, Size, pixels);
+        using var device = new CanvasDevice();
+        using var source = await ImageEditRenderer.LoadOrientedAsync(device, path);
+        var result = await ImageEditRenderer.TryCreateRetouchedAsync(device, source, [Stroke(12)]);
+        Assert.True(result.Result.Succeeded);
+        using var preview = result.Bitmap!;
+        var center = preview.GetPixelBytes(64, 64, 1, 1);
+        Assert.InRange(center[0], 80, 110);
+        Assert.InRange(center[1], 90, 120);
+        Assert.InRange(center[2], 70, 100);
+        var parameters = new EditParameters { RetouchStrokes = [Stroke(12)] };
+        var backups = new OriginalBackupService(Path.Combine(_directory, "originals"));
+        await new ImageEditService(backups).ApplyEditsAsync(path, parameters,
+            (file, edits) => ImageEditRenderer.RenderToFileAsync(file, edits, device));
+        using var saved = await ImageEditRenderer.LoadOrientedAsync(device, path);
+        var savedCenter = saved.GetPixelBytes(64, 64, 1, 1);
+        for (var channel = 0; channel < 3; channel++)
+            Assert.InRange(Math.Abs(center[channel] - savedCenter[channel]), 0, 5);
+        Assert.Empty(ImageEditService.ReadEditParameters(path).RetouchStrokes);
     }
 
     [Theory]
@@ -186,7 +328,7 @@ public sealed class SpotRetouchTests : IDisposable
     }
 
     [Fact]
-    public void Gesture_ClickDragCancelCaptureLossAndOverflowNeverLeakPartialEdits()
+    public void Gesture_ClickDragCancelCaptureLossAndLongDrawingNeverLeakPartialEdits()
     {
         var gesture = new RetouchGesture();
         gesture.Begin(1, Size, Size, 8, new(60, 64));
@@ -201,12 +343,11 @@ public sealed class SpotRetouchTests : IDisposable
         gesture.Begin(3, Size, Size, 4, new(32, 32));
         Assert.Single(gesture.Complete(3)!.Points);
         gesture.Begin(4, Size, Size, 4, new(32, 32));
-        Assert.Throws<InvalidDataException>(() => gesture.Add(new(-1, 32)));
+        Assert.False(gesture.Add(new(-1, 32)));
         Assert.Null(gesture.Complete(4));
         gesture.Begin(5, Size, Size, 4, new(32, 32));
-        for (var i = 1; i < 128; i++) gesture.Add(new(i % 2 + 32, 33));
-        Assert.Throws<InvalidDataException>(() => gesture.Add(new(40, 40)));
-        Assert.Null(gesture.Complete(5));
+        for (var i = 1; i < 1024; i++) Assert.True(gesture.Add(new(i % 2 + 32, 33)));
+        Assert.Equal(1024, gesture.Complete(5)!.Points.Length);
     }
 
     [Fact]
