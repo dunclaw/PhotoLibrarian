@@ -9,6 +9,7 @@ namespace PhotoLibrarian.Views;
 public sealed partial class ImageViewerOverlay
 {
     private bool _isPhotoContextMenuOpen;
+    internal bool IsPhotoContextMenuOpen => _isPhotoContextMenuOpen;
 
     public event Action<MenuFlyout, PhotoContextMenuTarget>? PhotoContextMenuOpening;
 

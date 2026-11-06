@@ -95,6 +95,12 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                <Button x:Name="MotionPhotoButton"
+                        AutomationProperties.AutomationId="ViewerMotionPhoto"
+                        Visibility="Collapsed" Padding="8"
+                        Click="OnMotionPhotoClick">
+                    <FontIcon x:Name="MotionPhotoIcon" Glyph="&#xE768;" FontSize="14" />
+                </Button>
                 <Button x:Name="ZoomOutButton"
                         AutomationProperties.AutomationId="ViewerZoomOut"
                         AutomationProperties.Name="Zoom out"
@@ -337,6 +343,18 @@
                             AutoPlay="True"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Stretch" />
+
+        <MediaPlayerElement x:Name="MotionPlayer"
+                            AutomationProperties.AutomationId="ViewerMotionPlayer"
+                            x:Uid="MotionPhotoPlayer"
+                            Grid.Row="1"
+                            Visibility="Collapsed"
+                            AreTransportControlsEnabled="False"
+                            AutoPlay="False" />
+        <InfoBar x:Name="MotionPhotoStatus" Grid.Row="1"
+                 VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                 Margin="64,16" MaxWidth="640" IsOpen="False" Severity="Warning"
+                 AutomationProperties.AutomationId="ViewerMotionStatus" />
 
         <!-- Navigation arrows -->
         <Button x:Name="PreviousButton" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Left"

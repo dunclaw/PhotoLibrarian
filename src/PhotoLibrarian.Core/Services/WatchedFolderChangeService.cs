@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Diagnostics;
 
@@ -85,7 +86,7 @@ public sealed class WatchedFolderChangeService : IDisposable
                 {
                     if (Directory.Exists(directory))
                     {
-                        await _indexer.IndexFolderAsync(directory, true, _shutdown.Token);
+                        await _indexer.IndexFolderAsync(directory, true, _shutdown.Token, verifyContent: true);
                         changed = true;
                     }
                     else

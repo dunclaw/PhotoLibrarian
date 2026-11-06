@@ -28,6 +28,9 @@
     <None Include="..\PhotoLibrarian\MainWindow.xaml"
           Link="TestAssets\MainWindow.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
+          Link="TestAssets\MainWindow.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageGridView.xaml"
           Link="TestAssets\ImageGridView.xaml"
           CopyToOutputDirectory="PreserveNewest" />
@@ -42,6 +45,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\MetadataPanel.xaml"
           Link="TestAssets\MetadataPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\SidecarMigrationPanel.xaml"
+          Link="TestAssets\SidecarMigrationPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\FolderNavigationPanel.xaml"
           Link="TestAssets\FolderNavigationPanel.xaml"
@@ -69,6 +75,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\VideoStabilizationDialog.xaml"
           Link="TestAssets\VideoStabilizationDialog.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\VideoTrimDialog.xaml"
+          Link="TestAssets\VideoTrimDialog.xaml"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

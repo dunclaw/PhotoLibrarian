@@ -176,6 +176,8 @@ public sealed class PhotoContextMenuTests
         Assert.DoesNotContain("KeyDown", source);
         var viewer = File.ReadAllText(Asset("ImageViewerOverlay.xaml.cs"));
         Assert.Contains("if (_isPhotoContextMenuOpen) return false;", viewer);
+        Assert.Contains("if (ViewerOverlay.IsPhotoContextMenuOpen) return;",
+            File.ReadAllText(Asset("MainWindow.xaml.cs")));
     }
 
     [Fact]

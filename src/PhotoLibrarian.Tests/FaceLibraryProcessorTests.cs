@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ML.Services;
@@ -176,7 +177,8 @@ public sealed class FaceLibraryProcessorTests
             DateTime expectedDateModified,
             IReadOnlyCollection<FaceRegion> faces,
             string scanVersion,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string? expectedSourceIdentity = null)
         {
             Saved.Add((imageId, faces, scanVersion));
             return Task.FromResult(AcceptSave);
