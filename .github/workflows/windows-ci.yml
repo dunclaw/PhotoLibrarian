@@ -80,6 +80,8 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
+      - name: Test RAW native build failure detection
+        run: .\tools\Test-RawDecoderBuildContract.ps1
       - name: Build application and test projects
         run: dotnet build src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64
       - name: Run xUnit tests

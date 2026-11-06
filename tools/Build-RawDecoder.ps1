@@ -66,6 +66,9 @@ if (-not (Test-Path (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat'))) {
 }
 
 $checkedOutCommit = (& git -C $vcpkgRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not read the pinned vcpkg checkout commit: $LASTEXITCODE"
+}
 if ($checkedOutCommit -ne $vcpkgCommit) {
     throw "Expected vcpkg $vcpkgCommit but found $checkedOutCommit at $vcpkgRoot."
 }
@@ -95,6 +98,9 @@ if (-not (Test-Path $vswhere)) {
 }
 
 $vsInstall = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Visual Studio toolset discovery failed with exit code $LASTEXITCODE."
+}
 if (-not $vsInstall) {
     throw 'A Visual Studio C++ toolset was not found. Install the Desktop development with C++ workload.'
 }
@@ -121,11 +127,11 @@ $configureArguments = @(
 $quotedConfigureArguments = $configureArguments | ForEach-Object { '"' + $_.Replace('"', '""') + '"' }
 $buildCommand = @(
     "call `"$vsDevCmd`" -arch=$targetArch -host_arch=amd64",
-    "if errorlevel 1 exit /b %errorlevel%",
+    'if not "%errorlevel%"=="0" exit /b %errorlevel%',
     "`"$cmake`" $($quotedConfigureArguments -join ' ')",
-    "if errorlevel 1 exit /b %errorlevel%",
+    'if not "%errorlevel%"=="0" exit /b %errorlevel%',
     "`"$cmake`" --build `"$buildRoot`" --target PhotoLibrarian.RawDecoder",
-    "if errorlevel 1 exit /b %errorlevel%"
+    'if not "%errorlevel%"=="0" exit /b %errorlevel%'
 ) -join "`r`n"
 Set-Content -Path $commandFile -Value "@echo off`r`n$buildCommand`r`n" -Encoding Ascii
 & $env:ComSpec /d /c "`"$commandFile`""
