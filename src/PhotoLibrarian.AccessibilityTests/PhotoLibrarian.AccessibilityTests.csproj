@@ -19,9 +19,12 @@
   <Target Name="CopyPhotoGridResources" AfterTargets="Build">
     <ItemGroup>
       <_GridResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Controls\VirtualizingPhotoGrid.xbf" />
+      <_EditorResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\ImageEditorView.xbf" />
+      <_EditorResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\TopRibbon.xbf" />
       <_PhotoResources Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\PhotoLibrarian.pri" />
     </ItemGroup>
     <Copy SourceFiles="@(_GridResource)" DestinationFolder="$(TargetDir)Controls" />
+    <Copy SourceFiles="@(_EditorResource)" DestinationFolder="$(TargetDir)Views" />
     <Copy SourceFiles="@(_PhotoResources)" DestinationFolder="$(TargetDir)" />
     <ItemGroup>
       <_ViewerResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\*.xbf" />
