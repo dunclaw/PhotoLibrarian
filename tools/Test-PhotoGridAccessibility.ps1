@@ -3,6 +3,7 @@ param(
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
     [switch]$Preview,
+    [switch]$ViewerContextMenu,
     [switch]$MotionPhoto,
     [string]$MotionPhotoValidationPath
 )
@@ -45,6 +46,7 @@ try {
         $arguments += @('--args', $testArguments)
     }
     elseif ($Preview) { $arguments += @('--args', '--preview') }
+    elseif ($ViewerContextMenu) { $arguments += @('--args', '--viewer-context-menu') }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
     if (-not $Preview -or $MotionPhoto) {
@@ -52,7 +54,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($MotionPhoto) { 'motion-photo lifecycle' } else { 'grid accessibility' }
+        $suite = if ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } else { 'grid accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }

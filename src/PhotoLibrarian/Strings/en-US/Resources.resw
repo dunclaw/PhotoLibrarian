@@ -373,6 +373,17 @@ Backup: {3}
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
+  <data name="PhotoContextUnavailable" xml:space="preserve"><value>No file actions available</value></data>
+  <data name="ViewerPhotoSurface.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Full photo viewer</value></data>
+  <data name="PhotoContextStale" xml:space="preserve"><value>The displayed file has changed. Open the menu again.</value></data>
+  <data name="PhotoContextFailed" xml:space="preserve"><value>{0} failed: {1}</value></data>
+  <data name="PhotoContextWallpaperFailed" xml:space="preserve"><value>Could not set the desktop background.</value></data>
+  <data name="PhotoContextRecycleTitle" xml:space="preserve"><value>Move file to Recycle Bin?</value></data>
+  <data name="PhotoContextRecycle" xml:space="preserve"><value>Move to Recycle Bin</value></data>
+  <data name="PhotoContextCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PhotoContextCancelled" xml:space="preserve"><value>Delete cancelled. The file was not changed.</value></data>
+  <data name="PhotoContextRecycled" xml:space="preserve"><value>Moved file to the Recycle Bin.</value></data>
+  <data name="PhotoContextNotRecycled" xml:space="preserve"><value>The file was not moved to the Recycle Bin. The operation may have been cancelled or the file may be unavailable.</value></data>
   <data name="VideoTrimDialog.Title" xml:space="preserve"><value>Trim video</value></data>
   <data name="VideoTrimDialog.PrimaryButtonText" xml:space="preserve"><value>Export trimmed copy</value></data>
   <data name="VideoTrimDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>

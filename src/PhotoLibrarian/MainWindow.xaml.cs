@@ -354,6 +354,7 @@ public sealed partial class MainWindow : Window
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
         TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
+        ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
@@ -508,6 +509,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (ViewerOverlay.IsPhotoContextMenuOpen) return;
         if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
         {
             var editorFocus = GetFocusedElement();
