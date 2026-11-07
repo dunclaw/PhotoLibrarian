@@ -62,6 +62,7 @@ internal static class VideoDerivativeMetadata
             ("http://ns.adobe.com/photoshop/1.0/", "City"),
             ("http://ns.adobe.com/photoshop/1.0/", "State"),
             ("http://ns.adobe.com/photoshop/1.0/", "Country"),
+            (MetadataWriterService.PhotoLibrarianNamespace, EmbeddedMetadataWriter.PhotoTagMetadataPropertyName),
             (MetadataWriterService.PhotoLibrarianNamespace, "Flagged")
         })
         {

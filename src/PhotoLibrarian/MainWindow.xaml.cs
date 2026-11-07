@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Input;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
@@ -354,11 +355,14 @@ public sealed partial class MainWindow : Window
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
+        TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
+        ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         ImageGridPanel.ImportRequested += OnImportRequested;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
+        TopRibbon.RetouchClicked += OnRibbonRetouchClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
         TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
@@ -628,14 +632,18 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (ViewerOverlay.IsPhotoContextMenuOpen) return;
         if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
         {
-            var editorFocus = Content?.XamlRoot is { } editorRoot
-                ? FocusManager.GetFocusedElement(editorRoot) as DependencyObject
-                : null;
+            var editorFocus = GetFocusedElement();
+            if (TryHandleEditorHistoryShortcut(e, editorFocus)) return;
             await EditorOverlay.HandleEditorKeyAsync(e, editorFocus);
             return;
         }
+
+        var focused = GetFocusedElement();
+        if (await HandlePhotoLibraryShortcutAsync(e, focused)) return;
+
         if (!ViewModel.ImageViewer.IsOpen
             || ViewModel.Settings.IsOpen
             || ViewModel.PeopleReview.IsOpen
@@ -643,10 +651,7 @@ public sealed partial class MainWindow : Window
             || ViewerOverlay.HasFocusWithin())
             return;
 
-        var focused = Content?.XamlRoot is { } root
-            ? FocusManager.GetFocusedElement(root) as DependencyObject
-            : null;
-        if (focused is TextBox or PasswordBox or AutoSuggestBox or ComboBox or Slider
+        if (IsInputOrDialogFocused(focused)
             || IsWithin(focused, FolderNavPanel)
             || IsWithin(focused, MetadataDetailPanel)
             || IsWithin(focused, TopRibbon))
@@ -658,6 +663,184 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.FocusViewer();
         }
     }
+
+    private bool TryHandleEditorHistoryShortcut(KeyRoutedEventArgs e, DependencyObject? focused)
+    {
+        if (e.Handled || !TryGetEditorHistoryShortcut(
+            e.Key,
+            GetCurrentModifiers(),
+            IsInputOrDialogFocused(focused),
+            out bool isUndo))
+            return false;
+
+        if (isUndo)
+        {
+            if (!ViewModel.ImageEditor.CanUndo) return false;
+            ViewModel.ImageEditor.UndoCommand.Execute(null);
+        }
+        else
+        {
+            if (!ViewModel.ImageEditor.CanRedo) return false;
+            ViewModel.ImageEditor.RedoCommand.Execute(null);
+        }
+
+        e.Handled = true;
+        return true;
+    }
+
+    internal static bool TryGetEditorHistoryShortcut(
+        Windows.System.VirtualKey key,
+        Windows.System.VirtualKeyModifiers modifiers,
+        bool isInputFocused,
+        out bool isUndo)
+    {
+        isUndo = false;
+        if (isInputFocused || modifiers != Windows.System.VirtualKeyModifiers.Control)
+            return false;
+
+        if (key == Windows.System.VirtualKey.Z)
+        {
+            isUndo = true;
+            return true;
+        }
+
+        return key == Windows.System.VirtualKey.Y;
+    }
+
+    private async Task<bool> HandlePhotoLibraryShortcutAsync(
+        KeyRoutedEventArgs e,
+        DependencyObject? focused)
+    {
+        if (e.Handled || !CanRunPhotoLibraryShortcut() || IsInputOrDialogFocused(focused))
+            return false;
+
+        var modifiers = GetCurrentModifiers();
+        if (ViewModel.ImageViewer.IsOpen &&
+            e.Key is Windows.System.VirtualKey.Number0 or Windows.System.VirtualKey.NumberPad0 &&
+            modifiers == Windows.System.VirtualKeyModifiers.Control &&
+            ViewerOverlay.HandleViewerKey(e.Key))
+        {
+            e.Handled = true;
+            return true;
+        }
+
+        var grid = ViewModel.ImageGrid;
+        bool hasSelection = grid.SelectedImages.Count > 0 || grid.SelectedImage is not null;
+        if (TryGetRatingShortcut(e.Key, modifiers, out var rating))
+        {
+            if (!hasSelection) return false;
+            e.Handled = true;
+            await ViewModel.MetadataPanel.SetRatingFromShortcutAsync(rating);
+            return true;
+        }
+
+        if (modifiers == Windows.System.VirtualKeyModifiers.Control)
+        {
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.R when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.RotateSelectedAsync(clockwise: true);
+                    return true;
+                case Windows.System.VirtualKey.L when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.RotateSelectedAsync(clockwise: false);
+                    return true;
+                case Windows.System.VirtualKey.T when hasSelection:
+                    e.Handled = true;
+                    if (ViewModel.ImageViewer.IsOpen &&
+                        !ViewModel.ImageViewer.IsInformationPaneVisible)
+                    {
+                        ViewModel.ImageViewer.IsInformationPaneVisible = true;
+                        DispatcherQueue.TryEnqueue(() => MetadataDetailPanel.FocusNewTagInput());
+                    }
+                    else
+                    {
+                        MetadataDetailPanel.FocusNewTagInput();
+                    }
+                    return true;
+            }
+        }
+        else if (modifiers == Windows.System.VirtualKeyModifiers.None)
+        {
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.F2 when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.RenameSelectedAsync();
+                    return true;
+                case Windows.System.VirtualKey.Delete when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.DeleteSelectedAsync();
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool CanRunPhotoLibraryShortcut() =>
+        !_isClosing && _slideshow is null &&
+        !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen &&
+        !ViewModel.DuplicateReview.IsOpen && !ViewModel.ImageEditor.IsOpen &&
+        !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening &&
+        !ViewerOverlay.IsRedEyeRemoving && !ViewerOverlay.IsManualFaceTagging;
+
+    internal static bool TryGetRatingShortcut(
+        Windows.System.VirtualKey key,
+        Windows.System.VirtualKeyModifiers modifiers,
+        out int rating)
+    {
+        rating = key switch
+        {
+            Windows.System.VirtualKey.Number0 or Windows.System.VirtualKey.NumberPad0 => 0,
+            Windows.System.VirtualKey.Number1 or Windows.System.VirtualKey.NumberPad1 => 1,
+            Windows.System.VirtualKey.Number2 or Windows.System.VirtualKey.NumberPad2 => 2,
+            Windows.System.VirtualKey.Number3 or Windows.System.VirtualKey.NumberPad3 => 3,
+            Windows.System.VirtualKey.Number4 or Windows.System.VirtualKey.NumberPad4 => 4,
+            Windows.System.VirtualKey.Number5 or Windows.System.VirtualKey.NumberPad5 => 5,
+            _ => -1
+        };
+
+        return rating >= 0 &&
+            (modifiers == Windows.System.VirtualKeyModifiers.None ||
+             (modifiers == Windows.System.VirtualKeyModifiers.Control && rating > 0));
+    }
+
+    private DependencyObject? GetFocusedElement() =>
+        Content?.XamlRoot is { } root
+            ? FocusManager.GetFocusedElement(root) as DependencyObject
+            : null;
+
+    private static bool IsInputOrDialogFocused(DependencyObject? focused)
+    {
+        for (var current = focused; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is TextBox or PasswordBox or AutoSuggestBox or ComboBox or
+                NumberBox or RichEditBox or ContentDialog)
+                return true;
+        }
+        return false;
+    }
+
+    private static Windows.System.VirtualKeyModifiers GetCurrentModifiers()
+    {
+        var modifiers = Windows.System.VirtualKeyModifiers.None;
+        if (IsKeyDown(Windows.System.VirtualKey.Control))
+            modifiers |= Windows.System.VirtualKeyModifiers.Control;
+        if (IsKeyDown(Windows.System.VirtualKey.Shift))
+            modifiers |= Windows.System.VirtualKeyModifiers.Shift;
+        if (IsKeyDown(Windows.System.VirtualKey.Menu))
+            modifiers |= Windows.System.VirtualKeyModifiers.Menu;
+        if (IsKeyDown(Windows.System.VirtualKey.LeftWindows) ||
+            IsKeyDown(Windows.System.VirtualKey.RightWindows))
+            modifiers |= Windows.System.VirtualKeyModifiers.Windows;
+        return modifiers;
+    }
+
+    private static bool IsKeyDown(Windows.System.VirtualKey key) =>
+        (InputKeyboardSource.GetKeyStateForCurrentThread(key) &
+         Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
     private static bool IsWithin(DependencyObject? element, DependencyObject ancestor)
     {
@@ -819,9 +1002,22 @@ public sealed partial class MainWindow : Window
     }
 
     private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
+        => await OpenRasterEditorAsync(retouch: false);
+
+    private async void OnRibbonRetouchClicked(object? sender, EventArgs e)
+        => await OpenRasterEditorAsync(retouch: true);
+
+    private async Task OpenRasterEditorAsync(bool retouch)
     {
         var entry = ViewModel.ImageViewer.CurrentEntry;
         if (entry is null || ViewModel.ImageViewer.IsVideo) return;
+        if (retouch && !ImageEditRenderer.IsSupported(entry.FilePath))
+        {
+            ViewModel.StatusText = RawToneMappingService.IsRaw(entry.FilePath)
+                ? "Export a JPEG or PNG derivative before retouching a RAW photo."
+                : $"Retouch not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
+            return;
+        }
         if (!ImageEditRenderer.IsSupported(entry.FilePath) && !RawToneMappingService.IsRaw(entry.FilePath))
         {
             ViewModel.StatusText = $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
@@ -848,6 +1044,7 @@ public sealed partial class MainWindow : Window
         {
             ViewModel.ImageEditor.UpdateLibraryImages(ViewModel.ImageGrid.GetViewerImages());
             await ViewModel.ImageEditor.OpenForEditAsync(entry);
+            EditorOverlay.SetRetouchWorkspace(retouch);
         }
         catch (Exception ex)
         {

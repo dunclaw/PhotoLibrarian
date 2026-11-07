@@ -15,9 +15,18 @@
 
   <PropertyGroup>
     <RawDecoderBuildDirectory>$(MSBuildProjectDirectory)\obj\RawDecoder\$(Platform)\$(Configuration)</RawDecoderBuildDirectory>
+    <PanoramaBuildDirectory>$(MSBuildProjectDirectory)\obj\Panorama\$(Platform)\$(Configuration)</PanoramaBuildDirectory>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="$(PanoramaBuildDirectory)\PhotoLibrarian.Panorama.dll"
+             Link="PhotoLibrarian.Panorama.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(PanoramaBuildDirectory)\ThirdPartyNotices.Panorama.txt"
+             Link="ThirdPartyNotices\Panorama.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(RawDecoderBuildDirectory)\PhotoLibrarian.RawDecoder.dll"
              Link="PhotoLibrarian.RawDecoder.dll"
              CopyToOutputDirectory="PreserveNewest"
@@ -58,6 +67,12 @@
 
   <Target Name="BuildRawDecoderNative" BeforeTargets="PrepareForBuild"
           Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-RawDecoder.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(RawDecoderBuildDirectory)&quot;" />
+    <!-- vcpkg can log recoverable mirror errors. The script checks native exit codes and required artifacts. -->
+    <Exec IgnoreStandardErrorWarningFormat="true"
+          Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-RawDecoder.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(RawDecoderBuildDirectory)&quot;" />
+  </Target>
+  <Target Name="BuildPanoramaNative" BeforeTargets="PrepareForBuild"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-Panorama.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(PanoramaBuildDirectory)&quot;" />
   </Target>
 </Project>

@@ -79,7 +79,8 @@ public sealed class TagRepository : IAutoTagStore
     public async Task SetAutoTagScanVersionAsync(
         long imageId,
         string scanVersion,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? expectedSourceIdentity = null)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -87,10 +88,13 @@ public sealed class TagRepository : IAutoTagStore
             UPDATE images
             SET auto_tag_scan_version = $scanVersion
             WHERE id = $id
+              AND ($sourceIdentity IS NULL OR source_identity = $sourceIdentity)
             """;
         cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$sourceIdentity", (object?)expectedSourceIdentity ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$scanVersion", scanVersion);
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        if (await cmd.ExecuteNonQueryAsync(cancellationToken) != 1)
+            throw new InvalidOperationException("The photo content changed before tagging completed.");
     }
 
     public async Task<bool> TryRestoreAutoTagsAsync(
@@ -143,6 +147,7 @@ public sealed class TagRepository : IAutoTagStore
                   AND file_size = $fileSize
                   AND date_modified = $dateModified
                   AND auto_tag_scan_version IS NULL
+                  AND source_identity IS $sourceIdentity
                 """;
             mark.Parameters.AddWithValue(
                 "$scanVersion",
@@ -150,6 +155,7 @@ public sealed class TagRepository : IAutoTagStore
                     ? DBNull.Value
                     : previousScanVersion);
             mark.Parameters.AddWithValue("$id", expectedImage.Id);
+            mark.Parameters.AddWithValue("$sourceIdentity", (object?)expectedImage.SourceIdentity ?? DBNull.Value);
             mark.Parameters.AddWithValue("$fileSize", expectedImage.FileSize);
             mark.Parameters.AddWithValue(
                 "$dateModified",
@@ -431,6 +437,7 @@ public sealed class TagRepository : IAutoTagStore
                 WHERE id = $id
                   AND file_size = $fileSize
                   AND date_modified = $dateModified
+                  AND source_identity IS $sourceIdentity
                 """;
             if (expectedAutoTags is not null)
                 mark.CommandText += " AND auto_tag_scan_version IS $expectedScanVersion";
@@ -446,6 +453,7 @@ public sealed class TagRepository : IAutoTagStore
                         : expectedScanVersion);
             }
             mark.Parameters.AddWithValue("$id", expectedImage.Id);
+            mark.Parameters.AddWithValue("$sourceIdentity", (object?)expectedImage.SourceIdentity ?? DBNull.Value);
             mark.Parameters.AddWithValue("$fileSize", expectedImage.FileSize);
             mark.Parameters.AddWithValue(
                 "$dateModified",
@@ -518,9 +526,11 @@ public sealed class TagRepository : IAutoTagStore
                 WHERE id = $id
                   AND file_size = $fileSize
                   AND date_modified = $dateModified
+                  AND source_identity IS $sourceIdentity
                 """;
             mark.Parameters.AddWithValue("$scanVersion", scanVersion);
             mark.Parameters.AddWithValue("$id", expectedImage.Id);
+            mark.Parameters.AddWithValue("$sourceIdentity", (object?)expectedImage.SourceIdentity ?? DBNull.Value);
             mark.Parameters.AddWithValue("$fileSize", expectedImage.FileSize);
             mark.Parameters.AddWithValue(
                 "$dateModified",

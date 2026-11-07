@@ -24,6 +24,9 @@
                       VerticalScrollBarVisibility="Auto">
             <StackPanel Padding="24,0,24,16"
                         Spacing="16">
+                <Button x:Uid="MigrationPreviewButton"
+                        AutomationProperties.AutomationId="MigrationPreviewButton"
+                        Click="OnPreviewSidecarMigration" />
 
                 <StackPanel Spacing="8">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}"

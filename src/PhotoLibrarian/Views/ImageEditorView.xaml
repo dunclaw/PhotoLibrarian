@@ -9,18 +9,19 @@
     <Grid Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="300" />
+            <ColumnDefinition x:Name="AdjustmentsColumn" Width="300" />
         </Grid.ColumnDefinitions>
 
         <!-- Win2D Canvas for real-time preview -->
         <Grid Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
             <!-- Top bar -->
-            <Grid Padding="12,8"
+            <Grid Height="48" Padding="12,8"
                   Background="{ThemeResource LayerFillColorDefaultBrush}"
                   BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                   BorderThickness="0,0,0,1">
@@ -86,22 +87,51 @@
                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
                     </Button>
                     <Button x:Name="CloseBtn" Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8"
-                            AutomationProperties.Name="Close editor">
+                            AutomationProperties.Name="Close editor" AutomationProperties.AutomationId="EditorClose">
                         <FontIcon Glyph="&#xE711;" FontSize="14" />
                     </Button>
                 </StackPanel>
             </Grid>
 
-            <canvas:CanvasControl x:Name="EditCanvas" Grid.Row="1" Margin="16"
+            <Grid x:Name="RetouchToolbar" Grid.Row="1" ColumnSpacing="12" Padding="12,4"
+                  Background="{ThemeResource LayerFillColorDefaultBrush}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <ToggleButton x:Name="RetouchToggle" Content="Retouch" Click="OnRetouchToggled"
+                              VerticalAlignment="Center"
+                              AutomationProperties.Name="Spot retouch mode"
+                              AutomationProperties.AutomationId="EditorRetouch" />
+                <TextBlock Grid.Column="1" Text="Brush radius" VerticalAlignment="Center" />
+                <Slider x:Name="RetouchRadius" Grid.Column="2" Minimum="2" Maximum="24" Value="8" StepFrequency="1"
+                        ValueChanged="OnRetouchRadiusChanged"
+                        AutomationProperties.Name="Retouch brush radius in source pixels"
+                        AutomationProperties.AutomationId="EditorRetouchRadius" />
+                <TextBlock x:Name="RetouchRadiusText" Grid.Column="3" Text="8 px" MinWidth="40" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="4" Text="Paint over the whole spot; release to heal. Middle-drag to pan; Escape cancels."
+                           VerticalAlignment="Center" TextWrapping="Wrap" />
+            </Grid>
+            <InfoBar x:Name="RetouchStatus" Grid.Row="2" Canvas.ZIndex="1" VerticalAlignment="Top"
+                     IsOpen="False" IsClosable="True" Severity="Warning"
+                     AutomationProperties.AutomationId="EditorRetouchStatus"
+                     AutomationProperties.LiveSetting="Polite" />
+            <canvas:CanvasControl x:Name="EditCanvas" Grid.Row="2" Margin="16"
                                    AutomationProperties.Name="Edit preview"
+                                   AutomationProperties.AutomationId="EditorPreview"
                                    Draw="OnCanvasDraw"
                                    CreateResources="OnCanvasCreateResources"
                                    SizeChanged="OnEditCanvasSizeChanged"
                                    PointerWheelChanged="OnEditCanvasPointerWheelChanged"
                                    PointerPressed="OnEditCanvasPointerPressed"
                                    PointerMoved="OnEditCanvasPointerMoved"
+                                   PointerEntered="OnEditCanvasPointerEntered"
+                                   PointerExited="OnEditCanvasPointerExited"
                                    PointerReleased="OnEditCanvasPointerReleased"
-                                   PointerCanceled="OnEditCanvasPointerReleased"
+                                   PointerCanceled="OnEditCanvasPointerCanceled"
                                    PointerCaptureLost="OnEditCanvasPointerCaptureLost"
                                    DoubleTapped="OnEditCanvasDoubleTapped" />
         </Grid>
