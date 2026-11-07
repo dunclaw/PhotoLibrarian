@@ -373,6 +373,9 @@ Backup: {3}
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
+  <data name="ViewerPhotoSurface.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve">
+    <value>Use Left and Right to browse photos. Tab moves to viewer controls and the ribbon.</value>
+  </data>
   <data name="GridImportButton.Content" xml:space="preserve"><value>Import</value></data>
   <data name="GridImportButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Import photos from a camera or card</value></data>
   <data name="GridImportButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Copy photos and videos from a mounted camera or memory card</value></data>

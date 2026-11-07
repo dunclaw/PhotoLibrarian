@@ -3,6 +3,7 @@ param(
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
     [switch]$Preview,
+    [switch]$ViewerPreview,
     [switch]$Slideshow,
     [switch]$ViewerContextMenu,
     [switch]$MotionPhoto,
@@ -10,6 +11,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($ViewerPreview -and ($Preview -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto)) {
+    throw '-ViewerPreview cannot be combined with another suite or preview.'
+}
 if ($MotionPhotoValidationPath -and -not $MotionPhoto) {
     throw '-MotionPhotoValidationPath requires -MotionPhoto.'
 }
@@ -50,14 +54,15 @@ try {
     elseif ($Slideshow) { $arguments += @('--args', '--slideshow') }
     elseif ($Preview) { $arguments += @('--args', '--preview') }
     elseif ($ViewerContextMenu) { $arguments += @('--args', '--viewer-context-menu') }
+    elseif ($ViewerPreview) { $arguments += @('--args', '--viewer-preview') }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
-    if (-not $Preview -or $MotionPhoto) {
+    if ((-not $Preview -or $MotionPhoto) -and -not $ViewerPreview) {
         if (-not (Test-Path $resultPath)) { throw 'Accessibility test host did not produce results.' }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } else { 'grid accessibility' }
+        $suite = if ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } else { 'grid and viewer command accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }
