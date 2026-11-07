@@ -27,11 +27,23 @@
                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                     Visibility="Collapsed" />
             <Grid x:Name="PhotoViewport" Grid.Row="1" SizeChanged="OnPhotoViewportSizeChanged">
-                <Grid x:Name="PreviousPhotoLayer">
+                <Grid x:Name="PreviousPhotoLayer" RenderTransformOrigin="0.5,0.5">
+                    <Grid.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform x:Name="PreviousPhotoScale" />
+                            <TranslateTransform x:Name="PreviousPhotoTranslation" />
+                        </TransformGroup>
+                    </Grid.RenderTransform>
                     <Image x:Name="PreviousPhotoImage" Stretch="Uniform"
                            AutomationProperties.AccessibilityView="Raw" />
                 </Grid>
-                <Grid x:Name="CurrentPhotoLayer">
+                <Grid x:Name="CurrentPhotoLayer" RenderTransformOrigin="0.5,0.5">
+                    <Grid.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform x:Name="CurrentPhotoScale" />
+                            <TranslateTransform x:Name="CurrentPhotoTranslation" />
+                        </TransformGroup>
+                    </Grid.RenderTransform>
                     <Image x:Name="CurrentPhotoImage" Stretch="Uniform"
                            AutomationProperties.Name="Slideshow photo" />
                 </Grid>
@@ -44,20 +56,14 @@
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    TextWrapping="Wrap" Margin="24"
                    AutomationProperties.LiveSetting="Polite" />
-        <Grid Grid.Row="1" Padding="16" ColumnSpacing="16" RowSpacing="8">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+        <Grid x:Name="SlideshowToolbar" Grid.Row="1" Padding="8,4" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Text="{x:Bind ViewModel.PhotoLabel, Mode=OneWay}"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-            <TextBlock Grid.Row="1" Text="Arrow keys: step photos   Esc: exit"
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-            <StackPanel Grid.Column="1" Grid.RowSpan="2"
+            <StackPanel Grid.Column="1"
                         Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <Button x:Name="PreviousButton" Content="Previous" Command="{x:Bind ViewModel.PreviousCommand}"
                         AutomationProperties.AutomationId="SlideshowPrevious" />
@@ -66,7 +72,7 @@
                         AutomationProperties.AutomationId="SlideshowPause" />
                 <Button Content="Next" Command="{x:Bind ViewModel.NextCommand}"
                         AutomationProperties.AutomationId="SlideshowNext" />
-                <ComboBox x:Name="ThemePicker" Header="Slideshow theme" MinWidth="168"
+                <ComboBox x:Name="ThemePicker" MinWidth="168"
                           SelectionChanged="OnThemeSelectionChanged"
                           AutomationProperties.Name="Slideshow theme"
                           AutomationProperties.AutomationId="SlideshowTheme"
@@ -79,9 +85,8 @@
                     <ComboBoxItem Content="Sepia" Tag="Sepia" />
                 </ComboBox>
                 <NumberBox Value="{x:Bind ViewModel.IntervalSeconds, Mode=TwoWay}"
-                           Header="Seconds per photo"
                            Minimum="1" Maximum="60" SmallChange="1"
-                           SpinButtonPlacementMode="Inline" Width="144"
+                           SpinButtonPlacementMode="Compact" Width="80"
                            AutomationProperties.Name="Seconds per photo"
                            AutomationProperties.AutomationId="SlideshowInterval"
                            ToolTipService.ToolTip="Seconds per photo (1-60)" />

@@ -1,16 +1,14 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Composition;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using System.ComponentModel;
-using System.Numerics;
 using Windows.UI.ViewManagement;
 
 namespace PhotoLibrarian.Views;
@@ -22,12 +20,10 @@ public sealed partial class SlideshowWindow : Window
     private bool _active;
     private bool _closed;
     private bool _isTransitioning;
-    private int _transitionVersion;
-    private float _panDirection = 1f;
-    private CompositionScopedBatch? _transitionBatch;
-    private AnimationController? _scaleController;
-    private AnimationController? _panController;
-    private bool _motionStarted;
+    private double _panDirection = 1;
+    private Storyboard? _transition;
+    private Storyboard? _motion;
+    private bool _motionPaused;
     private bool _selectingTheme;
 
     public SlideshowViewModel ViewModel { get; }
@@ -39,8 +35,6 @@ public sealed partial class SlideshowWindow : Window
     {
         ViewModel = new SlideshowViewModel(sequence, intervalSeconds, theme);
         InitializeComponent();
-        ElementCompositionPreview.SetIsTranslationEnabled(CurrentPhotoLayer, true);
-        ElementCompositionPreview.SetIsTranslationEnabled(PreviousPhotoLayer, true);
         UpdateThemeControls();
         _timer = DispatcherQueue.CreateTimer();
         _timer.IsRepeating = false;
@@ -95,6 +89,10 @@ public sealed partial class SlideshowWindow : Window
     private void UpdateDisplayedPhoto()
     {
         var image = ViewModel.CurrentImage;
+        var previousScaleX = CurrentPhotoScale.ScaleX;
+        var previousScaleY = CurrentPhotoScale.ScaleY;
+        var previousTranslationX = CurrentPhotoTranslation.X;
+        var previousTranslationY = CurrentPhotoTranslation.Y;
         StopPhotoAnimations();
         if (image is null)
         {
@@ -106,6 +104,10 @@ public sealed partial class SlideshowWindow : Window
         var previous = CurrentPhotoImage.Source;
         CurrentPhotoImage.Source = image;
         PhotoViewport.UpdateLayout();
+        PreviousPhotoScale.ScaleX = previousScaleX;
+        PreviousPhotoScale.ScaleY = previousScaleY;
+        PreviousPhotoTranslation.X = previousTranslationX;
+        PreviousPhotoTranslation.Y = previousTranslationY;
         if (previous is null || ViewModel.Theme == SlideshowTheme.PanAndZoom ||
             !_uiSettings.AnimationsEnabled)
         {
@@ -120,38 +122,34 @@ public sealed partial class SlideshowWindow : Window
 
     private void StartCrossfade()
     {
-        var compositor = ElementCompositionPreview.GetElementVisual(CurrentPhotoLayer).Compositor;
-        var previousVisual = ElementCompositionPreview.GetElementVisual(PreviousPhotoLayer);
-        var currentVisual = ElementCompositionPreview.GetElementVisual(CurrentPhotoLayer);
-        previousVisual.StopAnimation("Opacity");
-        currentVisual.StopAnimation("Opacity");
-        previousVisual.Opacity = 1;
-        currentVisual.Opacity = 0;
+        CurrentPhotoLayer.Opacity = 0;
         _isTransitioning = true;
-        var version = ++_transitionVersion;
-        var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
-        _transitionBatch = batch;
-        batch.Completed += (_, _) => DispatcherQueue.TryEnqueue(() =>
-        {
-            if (_closed || version != _transitionVersion) return;
-            PreviousPhotoImage.Source = null;
-            previousVisual.Opacity = 1;
-            currentVisual.Opacity = 1;
-            _isTransitioning = false;
-            _transitionBatch = null;
-            batch.Dispose();
-            StartThemeAnimation();
-        });
+        _transition = new Storyboard();
+        AddAnimation(_transition, PreviousPhotoLayer, "Opacity", 1, 0, 0.35);
+        AddAnimation(_transition, CurrentPhotoLayer, "Opacity", 0, 1, 0.35);
+        _transition.Completed += OnTransitionCompleted;
+        _transition.Begin();
+    }
 
-        using var fadeOut = compositor.CreateScalarKeyFrameAnimation();
-        fadeOut.Duration = TimeSpan.FromMilliseconds(350);
-        fadeOut.InsertKeyFrame(1f, 0f);
-        using var fadeIn = compositor.CreateScalarKeyFrameAnimation();
-        fadeIn.Duration = TimeSpan.FromMilliseconds(350);
-        fadeIn.InsertKeyFrame(1f, 1f);
-        previousVisual.StartAnimation("Opacity", fadeOut);
-        currentVisual.StartAnimation("Opacity", fadeIn);
-        batch.End();
+    private void OnTransitionCompleted(object? sender, object args)
+    {
+        if (_closed || !ReferenceEquals(sender, _transition)) return;
+        StopTransition();
+        StartThemeAnimation();
+    }
+
+    private void StopTransition()
+    {
+        if (_transition is not null)
+        {
+            _transition.Completed -= OnTransitionCompleted;
+            _transition.Stop();
+            _transition = null;
+        }
+        _isTransitioning = false;
+        PreviousPhotoLayer.Opacity = 1;
+        CurrentPhotoLayer.Opacity = 1;
+        PreviousPhotoImage.Source = null;
     }
 
     private void StartThemeAnimation()
@@ -159,73 +157,72 @@ public sealed partial class SlideshowWindow : Window
         if (_closed) return;
         if (!_active || ViewModel.IsPaused || ViewModel.IsLoading)
         {
-            _scaleController?.Pause();
-            _panController?.Pause();
+            if (_motion is not null && !_motionPaused)
+            {
+                _motion.Pause();
+                _motionPaused = true;
+            }
             return;
         }
         if (_isTransitioning || CurrentPhotoImage.Source is null) return;
-        if (_motionStarted)
+        if (_motion is not null)
         {
-            _scaleController?.Resume();
-            _panController?.Resume();
+            if (_motionPaused)
+            {
+                _motion.Resume();
+                _motionPaused = false;
+            }
             return;
         }
 
-        // Layout owns Offset. Animate Translation on a full-viewport layer instead.
-        var visual = ElementCompositionPreview.GetElementVisual(CurrentPhotoLayer);
-        if (!_uiSettings.AnimationsEnabled || ViewModel.Theme != SlideshowTheme.PanAndZoom ||
+        if (!_uiSettings.AnimationsEnabled ||
+            ViewModel.Theme is not (SlideshowTheme.PanAndZoom or SlideshowTheme.Contemporary) ||
             PhotoViewport.ActualWidth <= 0 || PhotoViewport.ActualHeight <= 0) return;
-        _motionStarted = true;
 
-        visual.CenterPoint = new Vector3(
-            (float)(PhotoViewport.ActualWidth / 2),
-            (float)(PhotoViewport.ActualHeight / 2),
-            0);
+        // XAML owns animation lifetime; layout offsets remain untouched.
+        _motion = new Storyboard();
+        var targetScale = ViewModel.Theme == SlideshowTheme.PanAndZoom ? 1.12 : 1.04;
+        AddAnimation(_motion, CurrentPhotoScale, "ScaleX", CurrentPhotoScale.ScaleX,
+            targetScale, ViewModel.IntervalSeconds);
+        AddAnimation(_motion, CurrentPhotoScale, "ScaleY", CurrentPhotoScale.ScaleY,
+            targetScale, ViewModel.IntervalSeconds);
+        if (ViewModel.Theme == SlideshowTheme.PanAndZoom)
+        {
+            var direction = _panDirection;
+            _panDirection = -_panDirection;
+            AddAnimation(_motion, CurrentPhotoTranslation, "X", CurrentPhotoTranslation.X,
+                direction * 24, ViewModel.IntervalSeconds);
+            AddAnimation(_motion, CurrentPhotoTranslation, "Y", CurrentPhotoTranslation.Y,
+                direction * -12, ViewModel.IntervalSeconds);
+        }
+        _motionPaused = false;
+        _motion.Begin();
+    }
 
-        using var scale = visual.Compositor.CreateVector3KeyFrameAnimation();
-        scale.Duration = TimeSpan.FromSeconds(ViewModel.IntervalSeconds);
-        scale.InsertKeyFrame(0f, Vector3.One);
-        scale.InsertKeyFrame(1f, new Vector3(1.12f, 1.12f, 1f));
-        visual.StartAnimation("Scale", scale);
-        _scaleController = visual.TryGetAnimationController("Scale");
-
-        var direction = _panDirection;
-        _panDirection = -_panDirection;
-        using var pan = visual.Compositor.CreateVector3KeyFrameAnimation();
-        pan.Duration = TimeSpan.FromSeconds(ViewModel.IntervalSeconds);
-        pan.InsertKeyFrame(0f, Vector3.Zero);
-        pan.InsertKeyFrame(1f, new Vector3(direction * 24f, direction * -12f, 0));
-        visual.StartAnimation("Translation", pan);
-        _panController = visual.TryGetAnimationController("Translation");
+    private static void AddAnimation(Storyboard storyboard, DependencyObject target,
+        string property, double from, double to, double seconds)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = new Duration(TimeSpan.FromSeconds(seconds))
+        };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, property);
+        storyboard.Children.Add(animation);
     }
 
     private void StopPhotoAnimations()
     {
-        ++_transitionVersion;
-        _isTransitioning = false;
-        _transitionBatch?.Dispose();
-        _transitionBatch = null;
-        var previousVisual = ElementCompositionPreview.GetElementVisual(PreviousPhotoLayer);
-        var currentVisual = ElementCompositionPreview.GetElementVisual(CurrentPhotoLayer);
-        previousVisual.StopAnimation("Opacity");
-        StopThemeAnimation(currentVisual);
-        currentVisual.StopAnimation("Opacity");
-        previousVisual.Opacity = 1;
-        currentVisual.Opacity = 1;
-        PreviousPhotoImage.Source = null;
-    }
-
-    private void StopThemeAnimation(Visual visual)
-    {
-        _scaleController?.Dispose();
-        _panController?.Dispose();
-        _scaleController = null;
-        _panController = null;
-        _motionStarted = false;
-        visual.StopAnimation("Scale");
-        visual.StopAnimation("Translation");
-        visual.Scale = Vector3.One;
-        visual.Properties.InsertVector3("Translation", Vector3.Zero);
+        StopTransition();
+        _motion?.Stop();
+        _motion = null;
+        _motionPaused = false;
+        CurrentPhotoScale.ScaleX = 1;
+        CurrentPhotoScale.ScaleY = 1;
+        CurrentPhotoTranslation.X = 0;
+        CurrentPhotoTranslation.Y = 0;
     }
 
     private void OnPhotoViewportSizeChanged(object sender, SizeChangedEventArgs args)
