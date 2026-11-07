@@ -6,6 +6,19 @@ namespace PhotoLibrarian.Core.Data;
 
 public sealed class WatchedFolderRepository(CacheDatabase database)
 {
+    public async Task AddAsync(string path, bool includeSubfolders = true)
+    {
+        using var connection = database.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR IGNORE INTO watched_folders (path, include_sub)
+            VALUES ($path, $includeSubfolders)
+            """;
+        command.Parameters.AddWithValue("$path", Path.GetFullPath(path));
+        command.Parameters.AddWithValue("$includeSubfolders", includeSubfolders ? 1 : 0);
+        await command.ExecuteNonQueryAsync();
+    }
+
     public async Task<List<WatchedFolder>> GetAllAsync()
     {
         using var connection = database.CreateConnection();

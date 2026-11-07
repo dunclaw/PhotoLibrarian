@@ -13,10 +13,12 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? MakeCopyClicked;
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
+    public event EventHandler? RetouchClicked;
     public event EventHandler? RedEyeClicked;
     public event EventHandler? SlideshowClicked;
     public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
     public event EventHandler? StabilizeVideoClicked;
+    public event EventHandler? TrimVideoClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
     public event EventHandler? ApplyStraightenClicked;
@@ -95,6 +97,7 @@ public sealed partial class TopRibbon : UserControl
     private void OnStraightenClick(object sender, RoutedEventArgs e) =>
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
+    private void OnRetouchClick(object sender, RoutedEventArgs e) => RetouchClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
     private void OnSlideshowClick(SplitButton sender, SplitButtonClickEventArgs e) =>
         SlideshowClicked?.Invoke(this, EventArgs.Empty);
@@ -138,6 +141,8 @@ public sealed partial class TopRibbon : UserControl
     };
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
         StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);
+    private void OnTrimVideoClick(object sender, RoutedEventArgs e) =>
+        TrimVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnCancelCropClick(object sender, RoutedEventArgs e) => CancelCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyStraightenClick(object sender, RoutedEventArgs e) =>

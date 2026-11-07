@@ -14,6 +14,43 @@ public sealed class StabilizedVideoLibraryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task PanoramaIsIndexedOpenedAndSelectedInTheGrid(bool filtered)
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var main = library.Main;
+        var original = await library.AddVideoAsync("original.mp4");
+        await main.ImageGrid.FilterByFolderAsync(library.Photos);
+        if (filtered)
+            await main.ImageGrid.ApplySearchAsync("onlyoriginal");
+        var path = Path.Combine(library.Photos, "original - Panorama.jpg");
+        await WicTestImage.CreateAsync(path, 120, 120, jpeg: true);
+
+        await main.IndexPanoramaAsync(path);
+
+        var indexed = await library.Images.GetByPathAsync(path);
+        Assert.NotNull(indexed);
+        Assert.True(indexed.Id > 0);
+        Assert.True(main.ImageViewer.IsOpen);
+        Assert.False(main.ImageViewer.IsVideo);
+        Assert.Equal(indexed.Id, main.ImageViewer.CurrentEntry!.Id);
+        Assert.Equal(path, main.ImageGrid.SelectedImage!.Entry.FilePath);
+        Assert.Equal(path, main.MetadataPanel.FilePath);
+        Assert.Contains(main.ImageGrid.DisplayedEntries, entry => entry.FilePath == path);
+        await main.RefreshAfterIndexAsync();
+        Assert.Equal(path, main.ImageViewer.CurrentEntry!.FilePath);
+        main.ImageViewer.CloseCommand.Execute(null);
+        Assert.Equal(path, Assert.Single(main.ImageGrid.SelectedImages).Entry.FilePath);
+        Assert.Equal("original", File.ReadAllText(original.FilePath));
+        if (filtered)
+        {
+            await main.ImageGrid.ApplySearchAsync("no-matching-file");
+            Assert.Empty(main.ImageGrid.Images);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task CopyIsIndexedRevealedAndSelectedAfterViewerCloses(bool outsideFolder)
     {
         await using var library = await LibraryFixture.CreateAsync();
@@ -143,6 +180,29 @@ public sealed class StabilizedVideoLibraryTests
         Assert.Equal(original.FilePath, main.ImageGrid.SelectedImage!.Entry.FilePath);
         Assert.Equal("original", File.ReadAllText(original.FilePath));
         Assert.Single(main.ImageGrid.Images);
+    }
+
+    [Fact]
+    public async Task TrimmedCopyIsIndexedRevealedAndOpenedInTheViewer()
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var original = await library.AddVideoAsync("original.mp4");
+        var main = library.Main;
+        await main.ImageGrid.FilterByFolderAsync(library.Photos);
+        main.ImageViewer.OpenImage(original, main.ImageGrid.GetViewerImages());
+        string copyPath = Path.Combine(library.Photos, "original-trimmed.mp4");
+        await File.WriteAllTextAsync(copyPath, "encoded trimmed copy");
+        await MetadataWriterService.WriteCaptionAsync(copyPath, "Trimmed caption");
+
+        await main.OpenTrimmedVideoAsync(copyPath);
+
+        var indexed = await library.Images.GetByPathAsync(copyPath);
+        Assert.NotNull(indexed);
+        Assert.Equal(indexed.Id, main.ImageViewer.CurrentEntry!.Id);
+        Assert.Equal(copyPath, main.ImageViewer.VideoPath);
+        Assert.Equal(copyPath, main.ImageGrid.SelectedImage!.Entry.FilePath);
+        Assert.Equal("Trimmed caption", main.ImageViewer.CurrentEntry.Caption);
+        Assert.Equal("original", await File.ReadAllTextAsync(original.FilePath));
     }
 
     private sealed class DeferredContinuationContext : SynchronizationContext
