@@ -21,6 +21,7 @@ public sealed partial class ImageGridView : UserControl
     private ImageGridViewModel? ViewModel => App.ViewModel?.ImageGrid;
     public event RoutedEventHandler? PeopleReviewRequested;
     public event RoutedEventHandler? DuplicateReviewRequested;
+    public event RoutedEventHandler? ImportRequested;
     private bool _isInitialized;
     private bool _isExporting;
     private bool _isSharing;
@@ -39,6 +40,9 @@ public sealed partial class ImageGridView : UserControl
 
     private void OnDuplicateReviewClick(object sender, RoutedEventArgs e) =>
         DuplicateReviewRequested?.Invoke(sender, e);
+
+    private void OnImportClick(object sender, RoutedEventArgs e) =>
+        ImportRequested?.Invoke(sender, e);
 
     /// <summary>Highlights the given face's rectangle over its image's grid thumbnail, if
     /// currently rendered. Pass null to clear. Forwarded from the Browse panel on hover.</summary>
