@@ -666,7 +666,9 @@ it before starting. The choice is remembered until the app closes. Themes are
 display-only; no photo bytes or metadata are changed.
 
 - **Contemporary** (default): subtle colour/contrast enhancement, a gentle centered zoom, and a short crossfade.
-- **Pan and Zoom**: a gentle centered zoom with alternating pan direction, clipped to the photo area.
+- **Pan and Zoom**: cycles through zoom-in and zoom-out shots with left/right and
+  up/down pans. Motion scales with the displayed photo size and stays clipped to
+  the photo area.
 - **Cinematic**: subdued colour/contrast with letterbox bars and a short crossfade.
 - **Fade**: original colours with a short crossfade.
 - **Black and White / Sepia**: monochrome or warm-toned display effects with a short crossfade.

@@ -109,7 +109,7 @@ public partial class App
                 vm.IntervalSeconds = 5;
                 vm.IsPaused = false;
                 await Task.Delay(500);
-                Check(scale.ScaleX > 1 && scale.ScaleX <= 1.12 &&
+                Check(scale.ScaleX >= 1.08 && scale.ScaleX <= 1.22 &&
                     layer.RenderTransformOrigin == new Windows.Foundation.Point(0.5, 0.5),
                     "Pan and Zoom runs around the viewport center without changing layout Offset");
                 vm.IsPaused = true;
@@ -125,6 +125,41 @@ public partial class App
                 Check(!heldFrame.SequenceEqual(resumedFrame),
                     "Resume continues motion from the paused frame");
                 vm.IsPaused = true;
+
+                var translation = (TranslateTransform)root.FindName("CurrentPhotoTranslation");
+                var motionSamples = new List<(double Zoom, double X, double Y, double NormalizedX, double NormalizedY)>();
+                vm.IntervalSeconds = 60;
+                for (var shot = 0; shot < 4; shot++)
+                {
+                    await vm.NextCommand.ExecuteAsync(null);
+                    await WaitForPhotoAsync(slideshow);
+                    var startScale = scale.ScaleX;
+                    var startX = translation.X;
+                    var startY = translation.Y;
+                    vm.IsPaused = false;
+                    await Task.Delay(500);
+                    vm.IsPaused = true;
+                    await Task.Delay(100);
+                    var deltaX = translation.X - startX;
+                    var deltaY = translation.Y - startY;
+                    motionSamples.Add((scale.ScaleX - startScale, deltaX, deltaY,
+                        deltaX / image.ActualWidth, deltaY / image.ActualHeight));
+                    Check(scale.ScaleX >= 1.08 && scale.ScaleX <= 1.22 &&
+                        Math.Abs(translation.X) <= image.ActualWidth * 0.04 &&
+                        Math.Abs(translation.Y) <= image.ActualHeight * 0.04,
+                        $"Pan and Zoom shot {shot + 1} stays inside its scaled photo margin");
+                }
+                Check(motionSamples.Any(sample => sample.Zoom > 0.0001) &&
+                    motionSamples.Any(sample => sample.Zoom < -0.0001),
+                    "Four successive Pan and Zoom photos include both zoom-in and zoom-out motion");
+                Check(motionSamples.Any(sample => sample.X > 0.1) &&
+                    motionSamples.Any(sample => sample.X < -0.1) &&
+                    motionSamples.Any(sample => sample.Y > 0.1) &&
+                    motionSamples.Any(sample => sample.Y < -0.1),
+                    "Four successive Pan and Zoom photos pan in both horizontal and vertical directions");
+                Check(motionSamples.Any(sample => Math.Abs(sample.NormalizedX) > Math.Abs(sample.NormalizedY)) &&
+                    motionSamples.Any(sample => Math.Abs(sample.NormalizedY) > Math.Abs(sample.NormalizedX)),
+                    "Pan and Zoom alternates horizontal-led and vertical-led shots");
             }
             else
             {

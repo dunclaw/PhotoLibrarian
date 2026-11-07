@@ -20,7 +20,11 @@ public sealed partial class SlideshowWindow : Window
     private bool _active;
     private bool _closed;
     private bool _isTransitioning;
-    private double _panDirection = 1;
+    private int _panZoomStep;
+    private int _currentPanZoomStep;
+    private double _panZoomTargetScale;
+    private double _panZoomTargetX;
+    private double _panZoomTargetY;
     private Storyboard? _transition;
     private Storyboard? _motion;
     private bool _motionPaused;
@@ -104,6 +108,7 @@ public sealed partial class SlideshowWindow : Window
         var previous = CurrentPhotoImage.Source;
         CurrentPhotoImage.Source = image;
         PhotoViewport.UpdateLayout();
+        PreparePanAndZoomPose();
         PreviousPhotoScale.ScaleX = previousScaleX;
         PreviousPhotoScale.ScaleY = previousScaleY;
         PreviousPhotoTranslation.X = previousTranslationX;
@@ -118,6 +123,30 @@ public sealed partial class SlideshowWindow : Window
 
         PreviousPhotoImage.Source = previous;
         StartCrossfade();
+    }
+
+    private void PreparePanAndZoomPose(bool advance = true)
+    {
+        if (ViewModel.Theme != SlideshowTheme.PanAndZoom || !_uiSettings.AnimationsEnabled) return;
+
+        if (advance)
+        {
+            _currentPanZoomStep = _panZoomStep;
+            _panZoomStep = (_panZoomStep + 1) % 4;
+        }
+        var step = _currentPanZoomStep;
+        var zoomIn = step % 2 == 0;
+        var horizontal = step < 2;
+        var direction = step is 0 or 3 ? 1 : -1;
+        // Stay inside the extra image area available at the minimum 8% zoom.
+        var panX = CurrentPhotoImage.ActualWidth * (horizontal ? 0.035 : 0.01);
+        var panY = CurrentPhotoImage.ActualHeight * (horizontal ? 0.01 : 0.035);
+        CurrentPhotoScale.ScaleX = CurrentPhotoScale.ScaleY = zoomIn ? 1.08 : 1.22;
+        CurrentPhotoTranslation.X = -direction * panX;
+        CurrentPhotoTranslation.Y = direction * panY;
+        _panZoomTargetScale = zoomIn ? 1.22 : 1.08;
+        _panZoomTargetX = direction * panX;
+        _panZoomTargetY = -direction * panY;
     }
 
     private void StartCrossfade()
@@ -181,19 +210,17 @@ public sealed partial class SlideshowWindow : Window
 
         // XAML owns animation lifetime; layout offsets remain untouched.
         _motion = new Storyboard();
-        var targetScale = ViewModel.Theme == SlideshowTheme.PanAndZoom ? 1.12 : 1.04;
+        var targetScale = ViewModel.Theme == SlideshowTheme.PanAndZoom ? _panZoomTargetScale : 1.04;
         AddAnimation(_motion, CurrentPhotoScale, "ScaleX", CurrentPhotoScale.ScaleX,
             targetScale, ViewModel.IntervalSeconds);
         AddAnimation(_motion, CurrentPhotoScale, "ScaleY", CurrentPhotoScale.ScaleY,
             targetScale, ViewModel.IntervalSeconds);
         if (ViewModel.Theme == SlideshowTheme.PanAndZoom)
         {
-            var direction = _panDirection;
-            _panDirection = -_panDirection;
             AddAnimation(_motion, CurrentPhotoTranslation, "X", CurrentPhotoTranslation.X,
-                direction * 24, ViewModel.IntervalSeconds);
+                _panZoomTargetX, ViewModel.IntervalSeconds);
             AddAnimation(_motion, CurrentPhotoTranslation, "Y", CurrentPhotoTranslation.Y,
-                direction * -12, ViewModel.IntervalSeconds);
+                _panZoomTargetY, ViewModel.IntervalSeconds);
         }
         _motionPaused = false;
         _motion.Begin();
@@ -233,6 +260,7 @@ public sealed partial class SlideshowWindow : Window
             Rect = new Windows.Foundation.Rect(0, 0, args.NewSize.Width, args.NewSize.Height)
         };
         StopPhotoAnimations();
+        PreparePanAndZoomPose(advance: false);
         StartThemeAnimation();
     }
 
@@ -242,6 +270,7 @@ public sealed partial class SlideshowWindow : Window
         {
             if (_closed) return;
             StopPhotoAnimations();
+            PreparePanAndZoomPose(advance: false);
             StartThemeAnimation();
         });
     }
