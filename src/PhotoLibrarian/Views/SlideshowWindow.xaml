@@ -26,10 +26,16 @@
             <Border x:Name="CinematicTopBar" Grid.Row="0" Height="32"
                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                     Visibility="Collapsed" />
-            <Image x:Name="PreviousPhotoImage" Grid.Row="1" Stretch="Uniform"
-                   AutomationProperties.Name="Previous slideshow photo" />
-            <Image x:Name="CurrentPhotoImage" Grid.Row="1" Stretch="Uniform"
-                   AutomationProperties.Name="Slideshow photo" />
+            <Grid x:Name="PhotoViewport" Grid.Row="1" SizeChanged="OnPhotoViewportSizeChanged">
+                <Grid x:Name="PreviousPhotoLayer">
+                    <Image x:Name="PreviousPhotoImage" Stretch="Uniform"
+                           AutomationProperties.AccessibilityView="Raw" />
+                </Grid>
+                <Grid x:Name="CurrentPhotoLayer">
+                    <Image x:Name="CurrentPhotoImage" Stretch="Uniform"
+                           AutomationProperties.Name="Slideshow photo" />
+                </Grid>
+            </Grid>
             <Border x:Name="CinematicBottomBar" Grid.Row="2" Height="32"
                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                     Visibility="Collapsed" />
@@ -60,9 +66,18 @@
                         AutomationProperties.AutomationId="SlideshowPause" />
                 <Button Content="Next" Command="{x:Bind ViewModel.NextCommand}"
                         AutomationProperties.AutomationId="SlideshowNext" />
-                <TextBlock Text="{x:Bind ViewModel.ThemeName, Mode=OneTime}"
-                           VerticalAlignment="Center"
-                           AutomationProperties.Name="Slideshow theme" />
+                <ComboBox x:Name="ThemePicker" Header="Slideshow theme" MinWidth="168"
+                          SelectionChanged="OnThemeSelectionChanged"
+                          AutomationProperties.Name="Slideshow theme"
+                          AutomationProperties.AutomationId="SlideshowTheme"
+                          ToolTipService.ToolTip="Change the display-only theme without leaving the slideshow">
+                    <ComboBoxItem Content="Pan and Zoom" Tag="PanAndZoom" />
+                    <ComboBoxItem Content="Contemporary" Tag="Contemporary" />
+                    <ComboBoxItem Content="Cinematic" Tag="Cinematic" />
+                    <ComboBoxItem Content="Fade" Tag="Fade" />
+                    <ComboBoxItem Content="Black and White" Tag="BlackAndWhite" />
+                    <ComboBoxItem Content="Sepia" Tag="Sepia" />
+                </ComboBox>
                 <NumberBox Value="{x:Bind ViewModel.IntervalSeconds, Mode=TwoWay}"
                            Header="Seconds per photo"
                            Minimum="1" Maximum="60" SmallChange="1"

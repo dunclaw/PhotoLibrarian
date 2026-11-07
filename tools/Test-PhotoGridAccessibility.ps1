@@ -2,7 +2,8 @@ param(
     [ValidateSet('x64', 'ARM64')]
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
-    [switch]$Preview
+    [switch]$Preview,
+    [switch]$Slideshow
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,11 +24,15 @@ try {
     & winapp manifest generate . --package-name PhotoLibrarian.AccessibilityTests `
         --publisher-name 'CN=PhotoLibrarianTests' --executable .\PhotoLibrarian.AccessibilityTests.exe --if-exists Skip
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate test-only package identity.' }
-    $resultPath = Join-Path $output 'AppX\accessibility-results.json'
+    $resultName = if ($Slideshow) { 'slideshow-results.json' } else { 'accessibility-results.json' }
+    $resultPath = Join-Path $output "AppX\$resultName"
     if (Test-Path $resultPath) { Remove-Item -LiteralPath $resultPath }
     $arguments = @('run', '.', '--manifest', '.\Package.appxmanifest',
         '--exe', 'PhotoLibrarian.AccessibilityTests.exe', '--unregister-on-exit')
-    if ($Preview) { $arguments += @('--args', '--preview') }
+    $appArguments = @()
+    if ($Preview) { $appArguments += '--preview' }
+    if ($Slideshow) { $appArguments += '--slideshow' }
+    if ($appArguments.Count -gt 0) { $arguments += @('--args', ($appArguments -join ' ')) }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
     if (-not $Preview) {
@@ -35,7 +40,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        Write-Host "Passed $($result.passed.Count) grid accessibility checks."
+        Write-Host "Passed $($result.passed.Count) isolated UI checks."
     }
 }
 finally {

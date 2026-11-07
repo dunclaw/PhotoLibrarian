@@ -103,7 +103,7 @@
                     </StackPanel>
                     <SplitButton.Flyout>
                         <Flyout Placement="Bottom">
-                            <StackPanel Padding="8" Spacing="4">
+                            <StackPanel x:Name="SlideshowThemeOptions" Padding="8" Spacing="4">
                                 <TextBlock Text="Slideshow theme"
                                            Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 <RadioButton Content="Pan and Zoom" Tag="PanAndZoom"

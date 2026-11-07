@@ -236,6 +236,7 @@ public sealed partial class MainWindow : Window
         if (_slideshow is null) return;
         _slideshowIntervalSeconds = _slideshow.ViewModel.IntervalSeconds;
         _slideshowTheme = _slideshow.ViewModel.Theme;
+        TopRibbon.SetSlideshowTheme(_slideshowTheme);
         _slideshow.Closed -= OnSlideshowClosed;
         _slideshow = null;
         if (!_isClosing)

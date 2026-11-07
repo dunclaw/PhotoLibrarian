@@ -99,6 +99,14 @@ public sealed partial class TopRibbon : UserControl
     private void OnSlideshowClick(SplitButton sender, SplitButtonClickEventArgs e) =>
         SlideshowClicked?.Invoke(this, EventArgs.Empty);
 
+    public void SetSlideshowTheme(SlideshowTheme theme)
+    {
+        var option = SlideshowThemeOptions.Children.OfType<RadioButton>().Single(
+            button => (string)button.Tag == theme.ToString());
+        option.IsChecked = true;
+        UpdateSlideshowThemeName(theme);
+    }
+
     private void OnSlideshowThemeChecked(object sender, RoutedEventArgs e)
     {
         if (sender is not RadioButton radioButton ||

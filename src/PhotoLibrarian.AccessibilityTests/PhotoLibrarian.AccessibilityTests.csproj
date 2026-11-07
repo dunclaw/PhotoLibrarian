@@ -19,9 +19,11 @@
   <Target Name="CopyPhotoGridResources" AfterTargets="Build">
     <ItemGroup>
       <_GridResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Controls\VirtualizingPhotoGrid.xbf" />
+      <_SlideshowResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\SlideshowWindow.xbf" />
       <_PhotoResources Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\PhotoLibrarian.pri" />
     </ItemGroup>
     <Copy SourceFiles="@(_GridResource)" DestinationFolder="$(TargetDir)Controls" />
+    <Copy SourceFiles="@(_SlideshowResource)" DestinationFolder="$(TargetDir)Views" />
     <Copy SourceFiles="@(_PhotoResources)" DestinationFolder="$(TargetDir)" />
   </Target>
 </Project>

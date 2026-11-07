@@ -660,6 +660,29 @@ auto-advance. Each photo gets a full interval after loading or manual navigation
 The interval is remembered until the app closes. Exiting returns to the unchanged
 grid or viewer; slideshow shortcuts are unavailable while editing or in settings.
 
+Use **Slideshow theme** in the full-screen toolbar to change the style while
+viewing photos, or the arrow beside **Slideshow** in the viewer ribbon to choose
+it before starting. The choice is remembered until the app closes. Themes are
+display-only; no photo bytes or metadata are changed.
+
+- **Contemporary** (default): centered, stationary photos with subtle colour/contrast enhancement and a short crossfade.
+- **Pan and Zoom**: a gentle centered zoom with alternating pan direction, clipped to the photo area.
+- **Cinematic**: subdued colour/contrast with letterbox bars and a short crossfade.
+- **Fade**: original colours with a short crossfade.
+- **Black and White / Sepia**: monochrome or warm-toned display effects with a short crossfade.
+
+Pause freezes Pan and Zoom in place; Resume continues from that position.
+Windows' animation setting disables slideshow motion and fades. Arrow keys
+operate the theme and interval controls when those controls have focus, rather
+than advancing photos.
+
+Slideshow layout/selection regressions can be checked without a live library:
+`.\tools\Test-PhotoGridAccessibility.ps1 -Slideshow`. This runs the production
+slideshow window in the isolated WinUI host with generated landscape/portrait
+images, checks centered layout, live theme changes, pause/resume rendered frames,
+rapid changes and close cancellation, and saves a Contemporary screenshot in the
+host's `AppX` output folder. It does not test Narrator or physical keyboard input.
+
 More shortcuts (Del, F2, 0-5 rating) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
 
 ---

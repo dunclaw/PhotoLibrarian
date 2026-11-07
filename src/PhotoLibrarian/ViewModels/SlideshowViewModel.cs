@@ -14,6 +14,7 @@ public partial class SlideshowViewModel : ObservableObject
     private int _loadVersion;
     private CancellationTokenSource? _activeLoad;
     private bool _closed;
+    private SlideshowTheme _theme;
 
     [ObservableProperty]
     public partial SoftwareBitmapSource? CurrentImage { get; set; }
@@ -33,7 +34,7 @@ public partial class SlideshowViewModel : ObservableObject
     [ObservableProperty]
     public partial double IntervalSeconds { get; set; } = 5;
 
-    public SlideshowTheme Theme { get; }
+    public SlideshowTheme Theme => _theme;
     public string ThemeName => Theme switch
     {
         SlideshowTheme.PanAndZoom => "Pan and Zoom",
@@ -57,7 +58,18 @@ public partial class SlideshowViewModel : ObservableObject
         if (!Enum.IsDefined(theme))
             throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown slideshow theme.");
 
-        Theme = theme;
+        _theme = theme;
+    }
+
+    public async Task ChangeThemeAsync(SlideshowTheme theme)
+    {
+        if (!Enum.IsDefined(theme))
+            throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown slideshow theme.");
+        if (_closed || theme == _theme) return;
+
+        SetProperty(ref _theme, theme, nameof(Theme));
+        OnPropertyChanged(nameof(ThemeName));
+        await LoadAsync();
     }
 
     partial void OnIsPausedChanged(bool value) => OnPropertyChanged(nameof(PauseLabel));
