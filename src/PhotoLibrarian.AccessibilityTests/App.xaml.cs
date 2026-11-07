@@ -41,6 +41,11 @@ public partial class App : Application
         string? failure = null;
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--slideshow"))
+            {
+                await RunSlideshowTestsAsync();
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--retouch"))
             {
                 _window = await RetouchEditorFixture.OpenAsync(this);

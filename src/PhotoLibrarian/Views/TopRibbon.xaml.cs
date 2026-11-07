@@ -1,6 +1,8 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using PhotoLibrarian.Core.Models;
 using System;
 
 namespace PhotoLibrarian.Views;
@@ -14,6 +16,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? RetouchClicked;
     public event EventHandler? RedEyeClicked;
     public event EventHandler? SlideshowClicked;
+    public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
     public event EventHandler? StabilizeVideoClicked;
     public event EventHandler? TrimVideoClicked;
     public event EventHandler? ApplyCropClicked;
@@ -96,7 +99,46 @@ public sealed partial class TopRibbon : UserControl
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
     private void OnRetouchClick(object sender, RoutedEventArgs e) => RetouchClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
-    private void OnSlideshowClick(object sender, RoutedEventArgs e) => SlideshowClicked?.Invoke(this, EventArgs.Empty);
+    private void OnSlideshowClick(SplitButton sender, SplitButtonClickEventArgs e) =>
+        SlideshowClicked?.Invoke(this, EventArgs.Empty);
+
+    public void SetSlideshowTheme(SlideshowTheme theme)
+    {
+        var option = SlideshowThemeOptions.Children.OfType<RadioButton>().Single(
+            button => (string)button.Tag == theme.ToString());
+        option.IsChecked = true;
+        UpdateSlideshowThemeName(theme);
+    }
+
+    private void OnSlideshowThemeChecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton radioButton ||
+            !Enum.TryParse<SlideshowTheme>(radioButton.Tag as string, out var theme))
+            return;
+
+        UpdateSlideshowThemeName(theme);
+        SlideshowThemeChanged?.Invoke(this, theme);
+    }
+
+    private void UpdateSlideshowThemeName(SlideshowTheme theme)
+    {
+        var themeName = GetThemeName(theme);
+        AutomationProperties.SetName(SlideshowButton, $"Slideshow, {themeName} theme");
+        ToolTipService.SetToolTip(
+            SlideshowButton,
+            $"Play a full-screen slideshow starting at this photo. Current theme: {themeName}. Open the arrow to change it.");
+    }
+
+    private static string GetThemeName(SlideshowTheme theme) => theme switch
+    {
+        SlideshowTheme.PanAndZoom => "Pan and Zoom",
+        SlideshowTheme.Contemporary => "Contemporary",
+        SlideshowTheme.Cinematic => "Cinematic",
+        SlideshowTheme.Fade => "Fade",
+        SlideshowTheme.BlackAndWhite => "Black and White",
+        SlideshowTheme.Sepia => "Sepia",
+        _ => throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown slideshow theme.")
+    };
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
         StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnTrimVideoClick(object sender, RoutedEventArgs e) =>

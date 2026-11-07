@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     private SlideshowWindow? _slideshow;
     private Control? _slideshowReturnFocus;
     private double _slideshowIntervalSeconds = 5;
+    private Core.Models.SlideshowTheme _slideshowTheme = Core.Models.SlideshowTheme.Contemporary;
     private PhotoPrintSession? _printSession;
     private RemovableVolumeMonitor? _removableVolumeMonitor;
     private readonly Queue<string> _detectedDeviceRoots = new();
@@ -229,7 +230,7 @@ public sealed partial class MainWindow : Window
 
         ViewerOverlay.PauseVideo();
         _slideshowReturnFocus = FocusManager.GetFocusedElement(AppRoot.XamlRoot) as Control;
-        _slideshow = new SlideshowWindow(sequence, _slideshowIntervalSeconds);
+        _slideshow = new SlideshowWindow(sequence, _slideshowIntervalSeconds, _slideshowTheme);
         _slideshow.Closed += OnSlideshowClosed;
         _slideshow.Activate();
     }
@@ -238,6 +239,8 @@ public sealed partial class MainWindow : Window
     {
         if (_slideshow is null) return;
         _slideshowIntervalSeconds = _slideshow.ViewModel.IntervalSeconds;
+        _slideshowTheme = _slideshow.ViewModel.Theme;
+        TopRibbon.SetSlideshowTheme(_slideshowTheme);
         _slideshow.Closed -= OnSlideshowClosed;
         _slideshow = null;
         if (!_isClosing)
@@ -354,6 +357,7 @@ public sealed partial class MainWindow : Window
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
+        TopRibbon.SlideshowThemeChanged += (_, theme) => _slideshowTheme = theme;
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
         TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);

@@ -3,6 +3,7 @@ param(
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
     [switch]$Preview,
+    [switch]$Slideshow,
     [switch]$ViewerContextMenu,
     [switch]$MotionPhoto,
     [string]$MotionPhotoValidationPath
@@ -34,6 +35,7 @@ try {
         --publisher-name 'CN=PhotoLibrarianTests' --executable .\PhotoLibrarian.AccessibilityTests.exe --if-exists Skip
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate test-only package identity.' }
     $resultPath = Join-Path $output 'AppX\accessibility-results.json'
+    if ($Slideshow) { $resultPath = Join-Path $output 'AppX\slideshow-results.json' }
     if ($MotionPhoto) { $resultPath = Join-Path $output 'AppX\motion-photo-results.json' }
     if (Test-Path $resultPath) { Remove-Item -LiteralPath $resultPath }
     $arguments = @('run', '.', '--manifest', '.\Package.appxmanifest',
@@ -45,6 +47,7 @@ try {
         }
         $arguments += @('--args', $testArguments)
     }
+    elseif ($Slideshow) { $arguments += @('--args', '--slideshow') }
     elseif ($Preview) { $arguments += @('--args', '--preview') }
     elseif ($ViewerContextMenu) { $arguments += @('--args', '--viewer-context-menu') }
     & winapp @arguments
@@ -54,7 +57,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } else { 'grid accessibility' }
+        $suite = if ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } else { 'grid accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }
