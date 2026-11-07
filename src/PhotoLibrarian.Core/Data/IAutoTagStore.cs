@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Core.Data;
@@ -32,7 +33,8 @@ public interface IAutoTagStore
     Task SetAutoTagScanVersionAsync(
         long imageId,
         string scanVersion,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? expectedSourceIdentity = null);
 }
 
 public sealed record GeneratedImageTag(string Tag, float Confidence);

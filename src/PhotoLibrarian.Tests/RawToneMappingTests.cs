@@ -138,20 +138,50 @@ public sealed class RawToneMappingTests
         var source = new float[width * height * 3];
         Array.Fill(source, 0.18f);
         using var mapCancellation = new CancellationTokenSource();
-        mapCancellation.CancelAfter(1);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            RawToneMappingService.RenderAsync(source, width, height, new EditParameters(), mapCancellation.Token));
+        using var mapStarted = new ManualResetEventSlim();
+        var mapCanceler = new Thread(() =>
+        {
+            mapStarted.Wait();
+            Thread.Sleep(1);
+            mapCancellation.Cancel();
+        }) { IsBackground = true };
+        mapCanceler.Start();
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.Run(async () =>
+            {
+                mapStarted.Set();
+                return await RawToneMappingService.RenderAsync(
+                    source, width, height, new EditParameters(), mapCancellation.Token);
+            }));
+        }
+        finally
+        {
+            mapCanceler.Join();
+        }
+
         var result = await RawToneMappingService.RenderAsync(source, width, height, new EditParameters());
         using var encodeCancellation = new CancellationTokenSource();
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var encoding = Task.Run(() =>
+        using var encodeStarted = new ManualResetEventSlim();
+        var encodeCanceler = new Thread(() =>
         {
-            started.SetResult();
-            return result.ToPreviewBgra8(encodeCancellation.Token);
-        });
-        await started.Task;
-        encodeCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => encoding);
+            encodeStarted.Wait();
+            Thread.Sleep(1);
+            encodeCancellation.Cancel();
+        }) { IsBackground = true };
+        encodeCanceler.Start();
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.Run(() =>
+            {
+                encodeStarted.Set();
+                return result.ToPreviewBgra8(encodeCancellation.Token);
+            }));
+        }
+        finally
+        {
+            encodeCanceler.Join();
+        }
     }
 
     [Fact]

@@ -41,13 +41,13 @@ styling. Those remain follow-up slices of #49.
 
 ## Viewer and frequent ribbon command follow-up
 
-The viewer's own focus stop now has a localized name and keyboard help.
+The viewer's existing localized focus stop now includes keyboard help.
 Its zoom, navigation, close, and information-pane controls already use named
-native Button/Invoke or ToggleButton/Toggle peers. The viewer path context menu
-already exposes a native MenuItem/Invoke action. The six photo ribbon commands
-(Make a copy, Crop, Straighten, Adjust, Red eye, Slideshow) likewise retain native
-named Button/Invoke peers; this follow-up does not replace them with custom peers
-or add IDs to decorative content.
+native Button/Invoke or ToggleButton/Toggle peers. The viewer uses the shared,
+dynamically populated photo context menu. The photo ribbon commands
+(Make a copy, Crop, Straighten, Adjust, Retouch, Red eye, Slideshow) retain native
+named peers; Slideshow is now a SplitButton with theme choices. This follow-up
+does not replace them with custom peers or add IDs to decorative content.
 
 Tab / Shift+Tab remain available while crop, straighten, red-eye, or manual
 people-tagging mode is active. The viewer no longer treats a child control's
@@ -92,8 +92,10 @@ and the production grid keyboard handler with explicit key/modifier inputs.
 Viewer checks cover names and Invoke/Toggle patterns, ribbon command invocation,
 bidirectional Tab reachability, disabled-control skipping, crop/straighten ribbon
 focus transitions, and runtime Light/Dark switching. Tab traversal uses WinUI
-FocusManager. It does **not** claim to test physical keyboard delivery, Narrator
-speech, context-menu keyboard opening/dismissal, or edit/save operations.
+FocusManager. The default suite does **not** test physical keyboard delivery,
+Narrator speech, context-menu keyboard opening/dismissal, or edit/save operations.
+The separate `-ViewerContextMenu` suite tests physical menu-key and Shift+F10
+delivery in the foreground synthetic host, including Escape and focus return.
 
 The keyboard ownership policy and contrast-resource contracts have focused xUnit
 regressions (the repository uses the executable runner with .NET 10):
@@ -157,9 +159,9 @@ desktop. Record Windows/Narrator build, app revision, scaling, theme, and result
 
 - On opening a photo, immediately Shift+Tab into the ribbon and wait at least
   one second. Confirm focus stays on the chosen command rather than returning
-  to the viewer. Tab forward into the named Photo viewer stop and through zoom,
+  to the viewer. Tab forward into the named Full photo viewer stop and through zoom,
   information-pane, close, Previous, and Next controls; reverse with Shift+Tab.
-- Activate the six photo ribbon commands with Enter and Space. For operations
+- Activate the photo ribbon commands with Enter and Space. For operations
   that would edit a file, use only copied samples and cancel instead of applying.
   Confirm each name matches its action. Verify slideshow separately in the test
   account; its themes are outside this change.
@@ -170,7 +172,7 @@ desktop. Record Windows/Narrator build, app revision, scaling, theme, and result
 - In the manual people-tag flyout, type names containing A, I, and F; the viewer
   must not zoom, toggle the information pane, or flag a photo. Tab out of each
   edit mode; Escape cancels the mode. Region drawing itself remains pointer-only.
-- Open the viewer path menu with Shift+F10 and the Menu key; confirm its name,
+- Open the viewer photo menu with Shift+F10 and the Menu key; confirm its name,
   command availability, and Escape focus return. Clipboard contents must match
   the copied test photo. Confirm Escape in an open child popup dismisses that
   popup before closing/cancelling the viewer.
@@ -183,9 +185,11 @@ desktop. Record Windows/Narrator build, app revision, scaling, theme, and result
   the isolated host is open; verify canvas/title/chrome update immediately,
   icons remain legible, and focus remains distinct from the button border.
 
-Automated follow-up evidence: x64 app/test-host builds; 58 focused xUnit cases
-and 89 isolated UI-thread grid/viewer/ribbon checks pass, including runtime
+Automated follow-up evidence after merging current master: x64 app/test-host builds;
+118 focused xUnit cases and 92 isolated UI-thread grid/viewer/ribbon checks pass, including runtime
 Light/Dark switching. Contrast dictionaries are checked structurally against
-system brush keys. Physical keyboard delivery, Narrator speech, real image
-editing/save flows, and actual Windows contrast-theme/palette switching are
-**not executed** and must not be inferred from these automated results.
+system brush keys. The separate synthetic viewer context-menu suite passed seven
+checks using physical menu-key, Shift+F10 and Escape input. Other physical keyboard
+delivery, Narrator speech, real image editing/save flows, and actual Windows
+contrast-theme/palette switching are **not executed** and must not be inferred
+from these automated results.

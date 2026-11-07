@@ -3,11 +3,24 @@ param(
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
     [switch]$SkipBuild,
     [switch]$Preview,
-    [switch]$ViewerPreview
+    [switch]$ViewerPreview,
+    [switch]$Slideshow,
+    [switch]$ViewerContextMenu,
+    [switch]$MotionPhoto,
+    [string]$MotionPhotoValidationPath
 )
 
 $ErrorActionPreference = 'Stop'
-if ($Preview -and $ViewerPreview) { throw 'Choose either grid Preview or ViewerPreview.' }
+if ($ViewerPreview -and ($Preview -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto)) {
+    throw '-ViewerPreview cannot be combined with another suite or preview.'
+}
+if ($MotionPhotoValidationPath -and -not $MotionPhoto) {
+    throw '-MotionPhotoValidationPath requires -MotionPhoto.'
+}
+if ($MotionPhotoValidationPath) {
+    $MotionPhotoValidationPath = (Resolve-Path -LiteralPath $MotionPhotoValidationPath).Path
+    if ($MotionPhotoValidationPath.Contains('"')) { throw 'Validation path must not contain quotes.' }
+}
 $project = Join-Path $PSScriptRoot '..\src\PhotoLibrarian.AccessibilityTests\PhotoLibrarian.AccessibilityTests.csproj'
 Get-Command dotnet, winapp -ErrorAction Stop | Out-Null
 
@@ -26,19 +39,31 @@ try {
         --publisher-name 'CN=PhotoLibrarianTests' --executable .\PhotoLibrarian.AccessibilityTests.exe --if-exists Skip
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate test-only package identity.' }
     $resultPath = Join-Path $output 'AppX\accessibility-results.json'
+    if ($Slideshow) { $resultPath = Join-Path $output 'AppX\slideshow-results.json' }
+    if ($MotionPhoto) { $resultPath = Join-Path $output 'AppX\motion-photo-results.json' }
     if (Test-Path $resultPath) { Remove-Item -LiteralPath $resultPath }
     $arguments = @('run', '.', '--manifest', '.\Package.appxmanifest',
         '--exe', 'PhotoLibrarian.AccessibilityTests.exe', '--unregister-on-exit')
-    if ($Preview) { $arguments += @('--args', '--preview') }
-    if ($ViewerPreview) { $arguments += @('--args', '--viewer-preview') }
+    if ($MotionPhoto) {
+        $testArguments = if ($Preview) { '--motion-photo --preview' } else { '--motion-photo' }
+        if ($MotionPhotoValidationPath) {
+            $testArguments += ' --motion-photo-sample "' + $MotionPhotoValidationPath + '"'
+        }
+        $arguments += @('--args', $testArguments)
+    }
+    elseif ($Slideshow) { $arguments += @('--args', '--slideshow') }
+    elseif ($Preview) { $arguments += @('--args', '--preview') }
+    elseif ($ViewerContextMenu) { $arguments += @('--args', '--viewer-context-menu') }
+    elseif ($ViewerPreview) { $arguments += @('--args', '--viewer-preview') }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
-    if (-not $Preview -and -not $ViewerPreview) {
+    if ((-not $Preview -or $MotionPhoto) -and -not $ViewerPreview) {
         if (-not (Test-Path $resultPath)) { throw 'Accessibility test host did not produce results.' }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        Write-Host "Passed $($result.passed.Count) grid and viewer command accessibility checks."
+        $suite = if ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } else { 'grid and viewer command accessibility' }
+        Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }
 finally {

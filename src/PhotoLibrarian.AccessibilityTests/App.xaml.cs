@@ -35,55 +35,77 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if (Environment.GetCommandLineArgs().Contains("--motion-photo"))
+        {
+            await RunMotionPhotoSuiteAsync();
+            return;
+        }
         string? failure = null;
         try
         {
-            _grid = new VirtualizingPhotoGrid { ItemSize = 120 };
-            var group = new PhotoGroup { Header = "Synthetic photos" };
-            for (int i = 0; i < 10_000; i++)
-                group.Items.Add(new ImageThumbnailViewModel(new ImageEntry
-                {
-                    Id = i + 1,
-                    FileName = $"Photo-{i:D5}.jpg",
-                    FilePath = $@"C:\SyntheticPhotos\Photo-{i:D5}.jpg"
-                }) { IsLoading = false });
-            _groups.Add(group);
-            _grid.SetGroups(_groups);
-            var layout = new Grid();
-            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            layout.RowDefinitions.Add(new RowDefinition());
-            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var before = new Button { Content = "Before grid" };
-            var after = new Button { Content = "After grid" };
-            layout.Children.Add(before);
-            layout.Children.Add(_grid);
-            layout.Children.Add(after);
-            Grid.SetRow(_grid, 1);
-            Grid.SetRow(after, 2);
-            _window = new Window { Title = "Photo grid accessibility regression", Content = layout };
-            _window.AppWindow.Resize(new SizeInt32(920, 700));
-            _window.Activate();
-            await Task.Delay(500);
-            if (Environment.GetCommandLineArgs().Contains("--preview")) return;
-            await RunTestsAsync(group, before, after);
-            await RunViewerCommandTestsAsync();
-            if (Environment.GetCommandLineArgs().Contains("--viewer-preview"))
+            if (Environment.GetCommandLineArgs().Contains("--slideshow"))
             {
-                var preview = (Grid)_window.Content;
-                var themeToggle = new Button
-                {
-                    Content = "Switch preview theme",
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Bottom,
-                    Margin = new Thickness(12)
-                };
-                AutomationProperties.SetAutomationId(themeToggle, "TestPreviewTheme");
-                themeToggle.Click += (_, _) =>
-                    preview.RequestedTheme = preview.RequestedTheme == ElementTheme.Dark
-                        ? ElementTheme.Light : ElementTheme.Dark;
-                Grid.SetRow(themeToggle, 1);
-                preview.Children.Add(themeToggle);
+                await RunSlideshowTestsAsync();
                 return;
+            }
+            if (Environment.GetCommandLineArgs().Contains("--retouch"))
+            {
+                _window = await RetouchEditorFixture.OpenAsync(this);
+                return;
+            }
+            if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
+            {
+                await RunViewerContextMenuTestsAsync();
+            }
+            else
+            {
+                _grid = new VirtualizingPhotoGrid { ItemSize = 120 };
+                var group = new PhotoGroup { Header = "Synthetic photos" };
+                for (int i = 0; i < 10_000; i++)
+                    group.Items.Add(new ImageThumbnailViewModel(new ImageEntry
+                    {
+                        Id = i + 1,
+                        FileName = $"Photo-{i:D5}.jpg",
+                        FilePath = $@"C:\SyntheticPhotos\Photo-{i:D5}.jpg"
+                    }) { IsLoading = false });
+                _groups.Add(group);
+                _grid.SetGroups(_groups);
+                var layout = new Grid();
+                layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                layout.RowDefinitions.Add(new RowDefinition());
+                layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var before = new Button { Content = "Before grid" };
+                var after = new Button { Content = "After grid" };
+                layout.Children.Add(before);
+                layout.Children.Add(_grid);
+                layout.Children.Add(after);
+                Grid.SetRow(_grid, 1);
+                Grid.SetRow(after, 2);
+                _window = new Window { Title = "Photo grid accessibility regression", Content = layout };
+                _window.AppWindow.Resize(new SizeInt32(920, 700));
+                _window.Activate();
+                await Task.Delay(500);
+                if (Environment.GetCommandLineArgs().Contains("--preview")) return;
+                await RunTestsAsync(group, before, after);
+                await RunViewerCommandTestsAsync();
+                if (Environment.GetCommandLineArgs().Contains("--viewer-preview"))
+                {
+                    var preview = (Grid)_window.Content;
+                    var themeToggle = new Button
+                    {
+                        Content = "Switch preview theme",
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Margin = new Thickness(12)
+                    };
+                    AutomationProperties.SetAutomationId(themeToggle, "TestPreviewTheme");
+                    themeToggle.Click += (_, _) =>
+                        preview.RequestedTheme = preview.RequestedTheme == ElementTheme.Dark
+                            ? ElementTheme.Light : ElementTheme.Dark;
+                    Grid.SetRow(themeToggle, 1);
+                    preview.Children.Add(themeToggle);
+                    return;
+                }
             }
         }
         catch (Exception exception)
@@ -226,7 +248,7 @@ public partial class App : Application
         _window.Content = layout;
         await Task.Delay(200);
         var viewerPeer = FrameworkElementAutomationPeer.CreatePeerForElement(viewer);
-        Check(viewerPeer.GetName() == "Photo viewer" && !string.IsNullOrWhiteSpace(viewerPeer.GetHelpText()),
+        Check(viewerPeer.GetName() == "Full photo viewer" && !string.IsNullOrWhiteSpace(viewerPeer.GetHelpText()),
             "Viewer focus stop has a name and keyboard help");
 
         foreach (var id in new[] { "ViewerZoomOut", "ViewerZoomFit", "ViewerZoomIn",
@@ -244,18 +266,12 @@ public partial class App : Application
         Check(!string.IsNullOrWhiteSpace(information.GetName()) &&
             information.GetPattern(PatternInterface.Toggle) is IToggleProvider,
             "Viewer information pane exposes named Toggle semantics");
-        var copyMenu = (MenuFlyout)viewer.ContextFlyout;
-        var copyItem = (MenuFlyoutItem)copyMenu.Items[0];
-        var copyPeer = FrameworkElementAutomationPeer.CreatePeerForElement(copyItem);
-        Check(copyPeer.GetName() == "Copy full path" &&
-            copyPeer.GetPattern(PatternInterface.Invoke) is IInvokeProvider,
-            "Viewer path context action exposes MenuItem/Invoke semantics");
-
         var calls = new List<string>();
         ribbon.MakeCopyClicked += (_, _) => calls.Add("RibbonMakeCopy");
         ribbon.CropClicked += (_, _) => calls.Add("RibbonCrop");
         ribbon.StraightenClicked += (_, _) => calls.Add("RibbonStraighten");
         ribbon.AdjustClicked += (_, _) => calls.Add("RibbonAdjust");
+        ribbon.RetouchClicked += (_, _) => calls.Add("RibbonRetouch");
         ribbon.RedEyeClicked += (_, _) => calls.Add("RibbonRedEye");
         ribbon.SlideshowClicked += (_, _) => calls.Add("RibbonSlideshow");
         ribbon.ApplyCropClicked += (_, _) => calls.Add("RibbonCropApply");
@@ -263,20 +279,20 @@ public partial class App : Application
         ribbon.ApplyStraightenClicked += (_, _) => calls.Add("RibbonStraightenApply");
         ribbon.CancelStraightenClicked += (_, _) => calls.Add("RibbonStraightenCancel");
         foreach (var id in new[] { "RibbonMakeCopy", "RibbonCrop", "RibbonStraighten",
-            "RibbonAdjust", "RibbonRedEye", "RibbonSlideshow" })
+            "RibbonAdjust", "RibbonRetouch", "RibbonRedEye", "RibbonSlideshow" })
         {
             await VerifyCommandAsync(ribbon, id, calls);
         }
 
         viewer.Focus(FocusState.Keyboard);
-        foreach (var id in new[] { "RibbonSlideshow", "RibbonRedEye", "RibbonAdjust",
+        foreach (var id in new[] { "RibbonSlideshow", "RibbonRedEye", "RibbonRetouch", "RibbonAdjust",
             "RibbonStraighten", "RibbonCrop", "RibbonMakeCopy" })
         {
             MoveFocus(FocusNavigationDirection.Previous);
             Check(FocusedId() == id, $"Shift+Tab from viewer reaches {id}");
         }
         foreach (var id in new[] { "RibbonCrop", "RibbonStraighten", "RibbonAdjust",
-            "RibbonRedEye", "RibbonSlideshow", "PhotoViewer" })
+            "RibbonRetouch", "RibbonRedEye", "RibbonSlideshow", "ViewerPhotoSurface" })
         {
             MoveFocus(FocusNavigationDirection.Next);
             Check(FocusedId() == id, $"Tab from ribbon reaches {id}");

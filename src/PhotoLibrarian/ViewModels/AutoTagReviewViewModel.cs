@@ -36,6 +36,7 @@ public sealed class AutoTagReviewPhotoViewModel : ObservableObject
     private bool _isCommitted;
 
     public ImageEntry Image { get; }
+    public string? SourceIdentity { get; }
     public string FileName => Image.FileName;
     public ObservableCollection<AutoTagReviewTagViewModel> Suggestions { get; }
     public string ErrorMessage
@@ -59,6 +60,7 @@ public sealed class AutoTagReviewPhotoViewModel : ObservableObject
     public AutoTagReviewPhotoViewModel(SelectedPhotoAutoTagReviewItem item)
     {
         Image = item.Image;
+        SourceIdentity = item.SourceIdentity;
         ErrorMessage = item.Error ?? "";
         Suggestions = new ObservableCollection<AutoTagReviewTagViewModel>(
             item.Predictions.Select(
@@ -181,7 +183,7 @@ public partial class AutoTagReviewViewModel : ObservableObject
         try
         {
             var settings = _settingsProvider();
-            _scanVersion = AutoTagModelCatalog.ForId(settings.ProfileId).PipelineVersion;
+            _scanVersion = settings.GetScanVersion();
             Photos.Clear();
             ErrorMessage = "";
             ProgressValue = 0;
@@ -354,6 +356,8 @@ public partial class AutoTagReviewViewModel : ObservableObject
 
                 try
                 {
+                    await RecognitionSourceIdentity.ValidateAsync(
+                        photo.Image.FilePath, photo.SourceIdentity, CancellationToken.None);
                     var wasSaved = await _tagRepository.TryAddReviewedAutoTagsAsync(
                         photo.Image,
                         accepted,
@@ -384,11 +388,14 @@ public partial class AutoTagReviewViewModel : ObservableObject
 
                     var allTags = await _tagRepository.GetTagsAsync(
                         photo.Image.Id);
+                    await RecognitionSourceIdentity.ValidateAsync(
+                        photo.Image.FilePath, photo.SourceIdentity, CancellationToken.None);
                     await TagWriterService.WriteTagsToSidecarAsync(
                         photo.Image.FilePath,
                         allTags.Select(tag => tag.Tag).Distinct(),
                         allTags,
-                        _scanVersion);
+                        _scanVersion,
+                        sourceIdentity: photo.SourceIdentity);
 
                     photo.IsCommitted = true;
                     savedPhotos++;
@@ -511,6 +518,7 @@ public partial class AutoTagReviewViewModel : ObservableObject
         FilePath = image.FilePath,
         FileName = image.FileName,
         FileSize = image.FileSize,
+        SourceIdentity = image.SourceIdentity,
         DateModified = image.DateModified,
         DateIndexed = image.DateIndexed,
         AutoTagScanVersion = image.AutoTagScanVersion,
