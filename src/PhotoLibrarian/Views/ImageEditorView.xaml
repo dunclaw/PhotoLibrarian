@@ -134,6 +134,7 @@
                                    PointerCanceled="OnEditCanvasPointerCanceled"
                                    PointerCaptureLost="OnEditCanvasPointerCaptureLost"
                                    DoubleTapped="OnEditCanvasDoubleTapped" />
+
         </Grid>
 
         <!-- Adjustment sliders panel -->

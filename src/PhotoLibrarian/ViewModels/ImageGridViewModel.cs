@@ -951,10 +951,11 @@ public partial class ImageGridViewModel : ObservableObject
         {
             // Use semaphore to limit concurrent operations (8 is optimal)
             var semaphore = new SemaphoreSlim(8, 8);
-            var tasks = new List<Task<(ImageThumbnailViewModel vm, byte[]? streamBytes)>>();
+            var tasks = new List<Task<(ImageThumbnailViewModel vm, byte[]? streamBytes, int version)>>();
             
             foreach (var vm in viewModels)
             {
+                var version = vm.ThumbnailVersion;
                 tasks.Add(Task.Run(async () =>
                 {
                     using (profiler.StartTimer("CACHE_WAIT", vm.FileName))
@@ -967,18 +968,18 @@ public partial class ImageGridViewModel : ObservableObject
                         using (profiler.StartTimer("CACHE_READ", vm.FileName))
                         {
                             // Get encoded thumbnail from Windows cache (instant if cached)
-                            var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                            var streamBytes = await RecipeThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180, ct);
                             if (streamBytes == null)
                             {
                                 DebugLog.WriteLine($"[WARN] Failed to get thumbnail for: {vm.FileName} at {vm.Entry.FilePath}");
                             }
-                            return (vm, streamBytes);
+                            return (vm, streamBytes, version);
                         }
                     }
                     catch (Exception ex)
                     {
                         DebugLog.WriteLine($"[ERROR] Exception loading thumbnail for {vm.FileName}: {ex.Message}");
-                        return (vm, null);
+                        return (vm, (byte[]?)null, version);
                     }
                     finally
                     {
@@ -999,15 +1000,16 @@ public partial class ImageGridViewModel : ObservableObject
         profiler.Log("STEP2_START", "Creating BitmapImages on UI thread");
         var bitmapSw = System.Diagnostics.Stopwatch.StartNew();
         
-        foreach (var (vm, streamBytes) in thumbnailData)
+        foreach (var (vm, streamBytes, version) in thumbnailData)
         {
             if (ct.IsCancellationRequested) break;
+            if (version != vm.ThumbnailVersion) continue;
             
             if (streamBytes != null && streamBytes.Length > 0)
             {
                 using (profiler.StartTimer("UI_CREATE_BITMAP", vm.FileName))
                 {
-                    await vm.LoadThumbnailFromStreamAsync(streamBytes);
+                    await vm.LoadThumbnailFromStreamAsync(streamBytes, version);
                 }
             }
             else
@@ -1150,10 +1152,17 @@ public partial class ImageGridViewModel : ObservableObject
         var vm = Images.FirstOrDefault(v => string.Equals(v.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
         if (vm == null) return;
         vm.InvalidateThumbnail();
-        var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(filePath, 180);
+        var version = vm.ThumbnailVersion;
+        var streamBytes = await RecipeThumbnailService.GetThumbnailStreamAsync(filePath, 180);
         if (streamBytes != null)
         {
-            await vm.LoadThumbnailFromStreamAsync(streamBytes);
+            await vm.LoadThumbnailFromStreamAsync(streamBytes, version);
+        }
+        else if (version == vm.ThumbnailVersion)
+        {
+            vm.IsLoading = false;
+            DebugLog.WriteLine($"[ERROR] Could not refresh thumbnail for {filePath}");
+            throw new IOException($"Could not refresh thumbnail for {vm.FileName}.");
         }
     }
 
@@ -1753,6 +1762,9 @@ public partial class ImageThumbnailViewModel : ObservableObject
 {
     private readonly CancellationToken _cancellationToken;
     private bool _thumbnailLoaded;
+    private (DateTime Modified, long Length) _recipeStamp;
+    private int _thumbnailVersion;
+    internal int ThumbnailVersion => _thumbnailVersion;
 
     public ImageEntry Entry { get; private set; }
     
@@ -1779,6 +1791,7 @@ public partial class ImageThumbnailViewModel : ObservableObject
     public ImageThumbnailViewModel(ImageEntry entry, CancellationToken cancellationToken = default)
     {
         Entry = entry;
+        _recipeStamp = RecipeThumbnailService.GetRecipeStamp(entry.FilePath);
         _cancellationToken = cancellationToken;
 
         IsLoading = true; // This initial set is OK (happens before binding)
@@ -1800,7 +1813,7 @@ public partial class ImageThumbnailViewModel : ObservableObject
         ImageEntry entry, ImageThumbnailViewModel? previous, CancellationToken cancellationToken = default)
     {
         var result = new ImageThumbnailViewModel(entry, cancellationToken);
-        if (previous is not null && CanReuseThumbnail(previous.Entry, entry))
+        if (previous is not null && result.CanReuseThumbnail(previous))
         {
             result.Thumbnail = previous.Thumbnail;
             result.IsLoading = result.Thumbnail is null;
@@ -1812,6 +1825,9 @@ public partial class ImageThumbnailViewModel : ObservableObject
         string.Equals(previous.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase) &&
         previous.DateModified == current.DateModified && previous.FileSize == current.FileSize &&
         previous.MediaType == current.MediaType;
+
+    internal bool CanReuseThumbnail(ImageThumbnailViewModel previous) =>
+        CanReuseThumbnail(previous.Entry, Entry) && previous._recipeStamp == _recipeStamp;
 
     /// <summary>
     /// Raises change notifications for the flag-derived properties after <see cref="Entry"/>'s
@@ -1831,6 +1847,8 @@ public partial class ImageThumbnailViewModel : ObservableObject
     public void InvalidateThumbnail()
     {
         _thumbnailLoaded = false;
+        _thumbnailVersion++;
+        _recipeStamp = RecipeThumbnailService.GetRecipeStamp(Entry.FilePath);
         Thumbnail = null;
         IsLoading = true;
     }
@@ -1845,7 +1863,7 @@ public partial class ImageThumbnailViewModel : ObservableObject
         if (_thumbnailLoaded)
             return;
         
-        _thumbnailLoaded = true;
+        var version = _thumbnailVersion;
         try
         {
             if (_cancellationToken.IsCancellationRequested)
@@ -1855,18 +1873,21 @@ public partial class ImageThumbnailViewModel : ObservableObject
             }
 
             // Fallback: use Windows thumbnail cache
-            var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(Entry.FilePath, 180);
+            var streamBytes = await RecipeThumbnailService.GetThumbnailStreamAsync(Entry.FilePath, 180, _cancellationToken);
             if (streamBytes != null)
             {
-                await LoadThumbnailFromStreamAsync(streamBytes);
+                await LoadThumbnailFromStreamAsync(streamBytes, version);
             }
             else
             {
+                if (version != _thumbnailVersion) return;
                 IsLoading = false;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            DebugLog.WriteLine($"LoadThumbnailAsync failed for {FileName}: {ex.Message}");
+            if (version != _thumbnailVersion) return;
             IsLoading = false;
         }
     }
@@ -1875,10 +1896,12 @@ public partial class ImageThumbnailViewModel : ObservableObject
     /// Loads a thumbnail from encoded stream bytes (PNG/BMP from Windows cache).
     /// Much faster than pixel decode - just uses BitmapImage.SetSourceAsync on pre-encoded data.
     /// </summary>
-    public async Task LoadThumbnailFromStreamAsync(byte[] streamBytes)
+    public async Task LoadThumbnailFromStreamAsync(byte[] streamBytes, int? expectedVersion = null)
     {
+        if (expectedVersion.HasValue && expectedVersion.Value != _thumbnailVersion) return;
         if (_thumbnailLoaded) return;
         _thumbnailLoaded = true;
+        var version = _thumbnailVersion;
         
         try
         {
@@ -1887,12 +1910,15 @@ public partial class ImageThumbnailViewModel : ObservableObject
             {
                 await bitmapImage.SetSourceAsync(stream.AsRandomAccessStream());
             }
+            if (version != _thumbnailVersion) return;
             Thumbnail = bitmapImage;
             IsLoading = false;
         }
         catch (Exception ex)
         {
             DebugLog.WriteLine($"LoadThumbnailFromStreamAsync failed for {FileName}: {ex.Message}");
+            if (version != _thumbnailVersion) return;
+            _thumbnailLoaded = false;
             IsLoading = false;
         }
     }

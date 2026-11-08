@@ -39,6 +39,11 @@ public static class ImageEditRenderer
     public static bool IsSupported(string filePath) =>
         SupportedExtensions.Contains(Path.GetExtension(filePath));
 
+    internal static Windows.UI.Color GetBackgroundColor(string filePath) =>
+        AlphaExtensions.Contains(Path.GetExtension(filePath))
+            ? Microsoft.UI.Colors.Transparent
+            : Microsoft.UI.Colors.White;
+
     /// <summary>
     /// Decodes an image into a Win2D bitmap with its EXIF orientation applied. Win2D's own
     /// loaders ignore orientation, which would show (and bake) sideways pixels for phone photos.
@@ -200,9 +205,7 @@ public static class ImageEditRenderer
         {
             // Rotation exposes corners that the source doesn't cover. Formats without an
             // alpha channel would flatten transparency to black, so fill them with white.
-            session.Clear(AlphaExtensions.Contains(Path.GetExtension(filePath))
-                ? Microsoft.UI.Colors.Transparent
-                : Microsoft.UI.Colors.White);
+            session.Clear(GetBackgroundColor(filePath));
             ImageEditRenderPass.Draw(
                 session,
                 retouched ?? source,

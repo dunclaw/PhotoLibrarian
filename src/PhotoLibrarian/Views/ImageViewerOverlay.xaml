@@ -44,6 +44,41 @@
 
     <Grid x:Name="RootGrid" Background="{ThemeResource ViewerCanvasBrush}">
         <Grid.Resources>
+            <Flyout x:Name="EffectsFlyout" Placement="Bottom" Closed="OnEffectsClosed">
+                <StackPanel Width="384" Spacing="8">
+                    <TextBlock x:Uid="EditorEffectsTitle" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock x:Name="EffectsStatus" TextWrapping="Wrap"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               AutomationProperties.AutomationId="EditorEffectsStatus"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <GridView x:Name="EffectsGallery" x:Uid="EditorEffectsGallery"
+                              AutomationProperties.AutomationId="EditorEffectsGallery"
+                              MaxHeight="360" SelectionMode="Single" IsItemClickEnabled="False"
+                              SelectionChanged="OnEffectSelectionChanged">
+                        <GridView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="3" />
+                            </ItemsPanelTemplate>
+                        </GridView.ItemsPanel>
+                        <GridView.ItemContainerStyle>
+                            <Style TargetType="GridViewItem" BasedOn="{StaticResource DefaultGridViewItemStyle}">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                                <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
+                            </Style>
+                        </GridView.ItemContainerStyle>
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="views:EffectGalleryItem">
+                                <StackPanel Width="104" Spacing="4">
+                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Height="72" Stretch="Uniform"
+                                           AutomationProperties.AccessibilityView="Raw" />
+                                    <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextAlignment="Center"
+                                               TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </StackPanel>
+            </Flyout>
             <Flyout x:Name="ManualFaceTagFlyout"
                     Placement="Bottom"
                     Closed="OnManualFaceTagFlyoutClosed">

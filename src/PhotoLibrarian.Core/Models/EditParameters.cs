@@ -22,6 +22,7 @@ public sealed class EditParameters
     public double Saturation { get; set; }
     public double Temperature { get; set; }
     public double Tint { get; set; }
+    public PhotoEffect Effect { get; set; }
 
     // Detail
     public double Clarity { get; set; }
@@ -48,7 +49,7 @@ public sealed class EditParameters
     public List<RetouchStroke> RetouchStrokes { get; set; } = [];
 
     public bool HasAdjustments =>
-        Brightness != 0 || Contrast != 0 || Exposure != 0 ||
+        Effect != PhotoEffect.None || Brightness != 0 || Contrast != 0 || Exposure != 0 ||
         RawExposureEv != 0 || RawWhitePoint != 4.0 ||
         Highlights != 0 || Shadows != 0 || Saturation != 0 ||
         Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
@@ -69,6 +70,7 @@ public sealed class EditParameters
         Saturation = Saturation,
         Temperature = Temperature,
         Tint = Tint,
+        Effect = Effect,
         Clarity = Clarity,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
@@ -91,6 +93,7 @@ public sealed class EditParameters
         RawWhitePoint = 4.0;
         Highlights = Shadows = 0;
         Saturation = Temperature = Tint = 0;
+        Effect = PhotoEffect.None;
         Clarity = Sharpness = NoiseReduction = UnsharpMaskAmount = 0;
         SharpeningMode = PhotoLibrarian.Core.Models.SharpeningMode.Legacy;
         UnsharpMaskRadius = 1.0;

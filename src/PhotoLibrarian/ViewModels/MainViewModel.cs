@@ -147,6 +147,7 @@ public partial class MainViewModel : ObservableObject
             this,
             new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
+        ImageViewer.EffectRecipeChanged += ImageGrid.RefreshSingleImageAsync;
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();

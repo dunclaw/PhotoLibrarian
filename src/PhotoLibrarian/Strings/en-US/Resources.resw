@@ -1,5 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="RibbonUndoCaption.Text" xml:space="preserve"><value>Undo</value></data>
+  <data name="RibbonRedoCaption.Text" xml:space="preserve"><value>Redo</value></data>
+  <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Undo</value></data>
+  <data name="RibbonRedoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Redo</value></data>
+  <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Undo photo effect (Ctrl+Z)</value></data>
+  <data name="RibbonRedoButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Redo photo effect (Ctrl+Y or Ctrl+Shift+Z)</value></data>
+  <data name="RibbonEffectsCaption.Text" xml:space="preserve"><value>Effects</value></data>
+  <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose a photo effect</value></data>
+  <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show effect previews for this photo</value></data>
+  <data name="EditorEffectsTitle.Text" xml:space="preserve"><value>Effects</value></data>
+  <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo effects</value></data>
+  <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Use arrow keys to select an effect. None removes only the effect, keeping other adjustments.</value></data>
+  <data name="EditorEffectNone" xml:space="preserve"><value>None</value></data>
+  <data name="EditorEffectBlackAndWhite" xml:space="preserve"><value>Black and white</value></data>
+  <data name="EditorEffectRedFilter" xml:space="preserve"><value>Red filter</value></data>
+  <data name="EditorEffectOrangeFilter" xml:space="preserve"><value>Orange filter</value></data>
+  <data name="EditorEffectYellowFilter" xml:space="preserve"><value>Yellow filter</value></data>
+  <data name="EditorEffectSepia" xml:space="preserve"><value>Sepia</value></data>
+  <data name="EditorEffectCyanotype" xml:space="preserve"><value>Cyanotype</value></data>
+  <data name="EditorEffectWarmTint" xml:space="preserve"><value>Warm tint</value></data>
+  <data name="EditorEffectCoolTint" xml:space="preserve"><value>Cool tint</value></data>
+  <data name="EditorEffectHistory" xml:space="preserve"><value>Effect: {0}</value></data>
+  <data name="EditorEffectsLoading" xml:space="preserve"><value>Updating previews from this photo...</value></data>
+  <data name="EditorEffectsReady" xml:space="preserve"><value>Previews include current adjustments. None keeps your other adjustments.</value></data>
+  <data name="EditorEffectsFailed" xml:space="preserve"><value>Effect previews could not be loaded: {0}</value></data>
+  <data name="EditorEffectsRawUnavailable" xml:space="preserve"><value>Effects require a supported raster photo. For RAW, export an SDR derivative and edit that copy.</value></data>
+  <data name="EditorEffectsApplyFailed" xml:space="preserve"><value>The photo effect could not be applied: {0}</value></data>
   <data name="MigrationPreviewButton.Content" xml:space="preserve"><value>Migrate XMP sidecars...</value></data>
   <data name="MigrationTitle" xml:space="preserve"><value>Migrate XMP sidecars</value></data>
   <data name="MigrationConfirm" xml:space="preserve"><value>Migrate ready files</value></data>

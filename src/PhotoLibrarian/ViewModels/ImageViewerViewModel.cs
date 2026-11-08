@@ -5,6 +5,9 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Services;
+using Windows.Graphics.Imaging;
+using Windows.Storage.Streams;
 
 namespace PhotoLibrarian.ViewModels;
 
@@ -14,6 +17,81 @@ public partial class ImageViewerViewModel : ObservableObject
     private int _currentIndex;
     private int _loadVersion;
     private string? _pendingExportPath;
+    private readonly ViewerEffectService _effects = new(new OriginalBackupService());
+    public bool IsApplyingEffect { get; private set; }
+    public bool IsEffectImageUpdate { get; private set; }
+    public bool CanUndoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanUndo(entry.FilePath);
+    public bool CanRedoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanRedo(entry.FilePath);
+    public event Func<string, Task>? EffectRecipeChanged;
+
+    private void NotifyEffectHistory()
+    {
+        OnPropertyChanged(nameof(CanUndoEffect));
+        OnPropertyChanged(nameof(CanRedoEffect));
+    }
+
+    public Task ApplyEffectAsync(PhotoEffect effect) =>
+        UpdateEffectAsync(path => _effects.SelectAsync(path, effect));
+
+    public Task UndoEffectAsync() => UpdateEffectAsync(path => _effects.MoveHistoryAsync(path, undo: true));
+    public Task RedoEffectAsync() => UpdateEffectAsync(path => _effects.MoveHistoryAsync(path, undo: false));
+
+    private async Task UpdateEffectAsync(Func<string, Task<ImageEditRenderer.RenderedPixels>> render)
+    {
+        var entry = CurrentEntry;
+        if (entry is null || IsVideo || IsApplyingEffect) return;
+        IsApplyingEffect = true;
+        NotifyEffectHistory();
+        var version = ++_loadVersion;
+        try
+        {
+            var rendered = await render(entry.FilePath);
+            var bitmap = await CreateRecipeBitmapAsync(rendered);
+            if (version == _loadVersion && ReferenceEquals(entry, CurrentEntry))
+            {
+                IsEffectImageUpdate = true;
+                try { CurrentImage = bitmap; }
+                finally { IsEffectImageUpdate = false; }
+            }
+            if (EffectRecipeChanged is { } changed) await changed(entry.FilePath);
+        }
+        finally
+        {
+            IsApplyingEffect = false;
+            NotifyEffectHistory();
+        }
+    }
+
+    private static async Task<BitmapImage> RenderRecipeAsync(string path, EditParameters recipe)
+    {
+        var rendered = await ViewerEffectService.RenderAsync(path, recipe);
+        return await CreateRecipeBitmapAsync(rendered);
+    }
+
+    private static async Task<BitmapImage> CreateRecipeBitmapAsync(ImageEditRenderer.RenderedPixels rendered)
+    {
+        using var stream = await Task.Run(async () =>
+        {
+            var buffer = new InMemoryRandomAccessStream();
+            try
+            {
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, buffer);
+                encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                    rendered.Width, rendered.Height, 96, 96, rendered.Pixels);
+                await encoder.FlushAsync();
+                buffer.Seek(0);
+                return buffer;
+            }
+            catch
+            {
+                buffer.Dispose();
+                throw;
+            }
+        });
+        var bitmap = new BitmapImage();
+        await bitmap.SetSourceAsync(stream);
+        return bitmap;
+    }
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
@@ -71,6 +149,7 @@ public partial class ImageViewerViewModel : ObservableObject
 
     private void RaiseCurrentEntryChanged()
     {
+        NotifyEffectHistory();
         OnPropertyChanged(nameof(CurrentEntry));
         CurrentEntryChanged?.Invoke(CurrentEntry);
     }
@@ -234,6 +313,18 @@ public partial class ImageViewerViewModel : ObservableObject
 
         try
         {
+            if (ImageEditRenderer.IsSupported(entry.FilePath))
+            {
+                var recipe = ImageEditService.ReadEditParameters(entry.FilePath);
+                if (recipe.HasAdjustments)
+                {
+                    var rendered = await RenderRecipeAsync(entry.FilePath, recipe);
+                    if (loadVersion != _loadVersion) return;
+                    CurrentImage = rendered;
+                    ZoomFactor = 1;
+                    return;
+                }
+            }
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(entry.FilePath);
             if (loadVersion != _loadVersion) return;
             using var stream = await file.OpenReadAsync();

@@ -44,6 +44,51 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 ---
 
+### Photo effects
+
+The full-photo view's top toolbar **Effects** button, immediately after **Adjust**,
+opens a dropdown of live previews. Selecting an effect updates the photo in the
+existing viewer without entering Adjust, replacing toolbars, or changing the
+information pane. The dropdown offers **None**, black
+and white, red/orange/yellow monochrome filters, sepia, cyanotype, and warm/cool
+tints. Selecting a preset replaces only the effect; **None** keeps your other
+adjustments. Selection, Reset, undo/redo, and pending portable XMP recipes share
+the same effect state. Old recipes without an effect retain their appearance.
+Viewer selection backs up the original and keeps a portable pending XMP recipe,
+without overwriting photo pixels. Reopening the viewer applies that recipe;
+selecting another preset replaces it rather than stacking effects. The separate
+Adjust editor can bake the recipe through its existing save flow, which clears
+pending edits after success.
+
+The main toolbar's **Undo** and **Redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
+restore previous effect selections
+in place, including returning to the effect present before the first selection.
+Effect history is per photo for the current app session, leaves other tweaks
+unchanged, and does not overwrite photo pixels. Choosing the same effect is
+not a new edit; a new selection after Undo clears Redo.
+
+Grid thumbnails render pending raster recipes too, both immediately after an
+effect change/undo and after restarting. Edited photos bypass Windows/embedded
+source thumbnails; originals and their embedded JPEG thumbnails remain untouched.
+Unedited photos still use the fast Windows thumbnail provider.
+Unified chronological undo across all photo and metadata operations is tracked
+in [#185](https://github.com/dunclaw/PhotoLibrarian/issues/185);
+toolbar viewer undo currently covers effects.
+
+Previews are generated locally from EXIF-oriented photo pixels, including
+current adjustments, not sample pictures. Thumbnail decoding and rendering
+run off the UI thread, with a 160-pixel maximum dimension and one render at a
+time. Changing photos or adjustments cancels pending work and rejects stale
+results. These small previews approximate spatial detail filters; the editor's
+main preview and save both evaluate the shared graph at source resolution.
+Creative color matrices act on the existing encoded raster RGB, preserve alpha,
+and do not add another sRGB transfer.
+
+Effects are explicitly disabled for RAW preview and RAW export; only the RAW
+controls apply there. Dormant raster recipe fields are retained, not applied to
+the RAW development. To use effects on a RAW photo, export an SDR derivative
+first and edit that copy. RAW sensor bytes are never changed.
+
 ### Noise reduction
 
 The editor's **Detail > Noise reduction** slider runs entirely locally with no

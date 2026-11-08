@@ -14,7 +14,7 @@ namespace PhotoLibrarian.Services;
 /// is what gets written to disk.
 ///
 /// Effect chain: Source → Noise Reduction → Exposure → Brightness/Contrast → Saturation →
-/// Temperature/Tint → Highlights/Shadows → Levels → Sharpness → Rotation → Output
+/// Temperature/Tint → Highlights/Shadows → Levels → Sharpness → Photo Effect → Rotation → Output
 /// </summary>
 public static class EditEffectGraph
 {
@@ -148,6 +148,8 @@ public static class EditEffectGraph
                 Threshold = 0.05f
             };
         }
+
+        current = PhotoEffectTransform.Create(current, p.Effect);
 
         // 8. Rotation
         if (p.RotationAngle != 0)
