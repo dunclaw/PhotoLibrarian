@@ -100,6 +100,9 @@ public partial class ImageGridViewModel : ObservableObject
     public ObservableCollection<PhotoGroup> GroupedImages { get; } = [];
     public ImageRefinementFilter Refinement { get; private set; } = ImageRefinementFilter.Empty;
     public bool RequiresTagData => Refinement.RequiresTags || _currentNotTaggedSelected;
+    public bool HasTagDependentFilter =>
+        RequiresTagData || _currentTagRootSelected || (_currentTagFilters?.Count > 0);
+    public bool IsUpdatingGridData => _gridDataUpdateDepth > 0;
 
     public event EventHandler? ResultsChanged;
     public event EventHandler<SelectionRestoreRequestedEventArgs>? SelectionRestoreRequested;
@@ -1596,9 +1599,6 @@ public partial class ImageGridViewModel : ObservableObject
     /// </summary>
     public void UpdateSelection(IReadOnlyList<ImageThumbnailViewModel> selected, ImageThumbnailViewModel? primary)
     {
-        if (_gridDataUpdateDepth > 0 && selected.Count == 0)
-            return;
-
         _selectedPaths.Clear();
         foreach (var item in selected)
             _selectedPaths.Add(item.Entry.FilePath);

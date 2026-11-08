@@ -235,17 +235,23 @@ public partial class MetadataPanelViewModel : ObservableObject
         {
             if (_entries.Count == 0) return "";
 
-            var coordinates = _entries
-                .Select(entry =>
-                    entry.GpsLatitude.HasValue && entry.GpsLongitude.HasValue
-                        ? $"{entry.GpsLatitude.Value.ToString("0.################", CultureInfo.InvariantCulture)}, " +
-                          entry.GpsLongitude.Value.ToString("0.################", CultureInfo.InvariantCulture)
-                        : "")
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-
-            return coordinates.Count == 1 ? coordinates[0] : "";
+            return FormatGpsCoordinates(_entries);
         }
+    }
+
+    internal static string FormatGpsCoordinates(IReadOnlyCollection<ImageEntry> entries)
+    {
+        var coordinates = entries
+            .Select(entry => (entry.GpsLatitude, entry.GpsLongitude))
+            .Distinct()
+            .ToList();
+        if (coordinates.Count != 1 ||
+            coordinates[0].GpsLatitude is not double latitude ||
+            coordinates[0].GpsLongitude is not double longitude)
+            return "";
+
+        return $"{latitude.ToString("0.######", CultureInfo.InvariantCulture)}, " +
+               longitude.ToString("0.######", CultureInfo.InvariantCulture);
     }
 
     public MetadataPanelViewModel() { }

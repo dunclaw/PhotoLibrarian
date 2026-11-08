@@ -85,8 +85,9 @@ public sealed partial class FolderNavigationPanel : UserControl
         }
     }
 
-    private void RebuildTree(TreeView tree, Action build)
+    private bool RebuildTree(TreeView tree, Action build)
     {
+        var selectedBefore = tree.SelectedNodes.Select(GetNodeKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
         CaptureTreeState(tree);
         _isRebuildingTree = true;
         try
@@ -101,7 +102,13 @@ public sealed partial class FolderNavigationPanel : UserControl
         {
             _isRebuildingTree = false;
         }
+        return HasSelectionChanged(selectedBefore, tree.SelectedNodes.Select(GetNodeKey));
     }
+
+    internal static bool HasSelectionChanged(
+        IEnumerable<string> selectedBefore,
+        IEnumerable<string> selectedAfter) =>
+        !selectedBefore.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(selectedAfter);
 
     private void RestoreNodes(TreeView tree, IList<TreeViewNode> nodes)
     {
@@ -303,7 +310,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         {
             // Snapshot expansion + selection so editing date taken (or any other refresh trigger)
             // doesn't collapse the user's open year/month and doesn't drop the active filter.
-            RebuildTree(DateTree, () =>
+            var selectionChanged = RebuildTree(DateTree, () =>
             {
                 foreach (var rootNode in App.ViewModel.DateNav.RootNodes)
                 {
@@ -311,7 +318,7 @@ public sealed partial class FolderNavigationPanel : UserControl
                     DateTree.RootNodes.Add(treeNode);
                 }
             });
-            if (!_isInitializing) UpdateGridFromSelection();
+            if (selectionChanged && !_isInitializing) UpdateGridFromSelection();
         });
     }
 
@@ -346,10 +353,11 @@ public sealed partial class FolderNavigationPanel : UserControl
 
         await RunOnDispatcherAsync(() =>
         {
+            bool selectionChanged;
             _isRefreshingPeopleTree = true;
             try
             {
-                RebuildTree(PeopleTree, () =>
+                selectionChanged = RebuildTree(PeopleTree, () =>
                 {
                     foreach (var personNode in App.ViewModel.PeopleNav.RootNodes)
                     {
@@ -362,7 +370,7 @@ public sealed partial class FolderNavigationPanel : UserControl
                 _isRefreshingPeopleTree = false;
             }
 
-            if (!_isInitializing)
+            if (selectionChanged && !_isInitializing)
                 UpdateGridFromSelection();
         });
     }
@@ -394,10 +402,11 @@ public sealed partial class FolderNavigationPanel : UserControl
             await App.ViewModel.NotTaggedNav.LoadAsync();
             await RunOnDispatcherAsync(() =>
             {
+                bool selectionChanged;
                 _isRefreshingTagTree = true;
                 try
                 {
-                    RebuildTree(TagsTree, () =>
+                    selectionChanged = RebuildTree(TagsTree, () =>
                     {
                         foreach (var tagNode in App.ViewModel.TagNav.RootTags)
                         {
@@ -410,7 +419,7 @@ public sealed partial class FolderNavigationPanel : UserControl
                 {
                     _isRefreshingTagTree = false;
                 }
-                if (!_isInitializing) UpdateGridFromSelection();
+                if (selectionChanged && !_isInitializing) UpdateGridFromSelection();
             });
         }
         finally

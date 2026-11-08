@@ -2,6 +2,7 @@
 
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Diagnostics;
+using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -83,6 +84,7 @@ public sealed class WatchedFolderChangeService : IDisposable
             var changed = false;
             var requiresGridReload = false;
             var changedImagePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<ImageEntry>? indexedImages = null;
             foreach (var directory in directories)
             {
                 try
@@ -98,8 +100,17 @@ public sealed class WatchedFolderChangeService : IDisposable
                     }
                     else
                     {
-                        changed = true;
-                        requiresGridReload = true;
+                        indexedImages ??= await _images.GetAllAsync(
+                            cancellationToken: _shutdown.Token);
+                        var prefix = Path.TrimEndingDirectorySeparator(directory);
+                        if (!Path.EndsInDirectorySeparator(prefix))
+                            prefix += Path.DirectorySeparatorChar;
+                        if (indexedImages.Any(image =>
+                            image.FilePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            changed = true;
+                            requiresGridReload = true;
+                        }
                     }
                 }
                 catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)

@@ -483,6 +483,7 @@ public sealed partial class ImageGridView : UserControl
     private void OnGridSelectionChanged(object? sender, IReadOnlyList<ImageThumbnailViewModel> selected)
     {
         if (ViewModel is null) return;
+        if (PhotoGrid.IsPhotoDataChangeNotification && ViewModel.IsUpdatingGridData) return;
         ViewModel.UpdateSelection(selected, PhotoGrid.PrimaryItem);
     }
 

@@ -30,6 +30,7 @@ public sealed partial class MetadataPanel : UserControl
     private string _lastLoadedDateText = "";
     private DispatcherQueueTimer? _geotagSaveTimer;
     private string _lastLoadedGeotagCoordinates = "";
+    private string[] _geotagSelectionPaths = [];
     private bool _suppressGeotagTextChanged;
     private bool _isSavingGeotag;
 
@@ -190,12 +191,20 @@ public sealed partial class MetadataPanel : UserControl
         // Date taken — compact text editor
         RefreshDateDisplay();
 
-        _geotagSaveTimer?.Stop();
-        _suppressGeotagTextChanged = true;
-        GeotagCoordinatesBox.Text = ViewModel.GpsCoordinates;
+        var geotagSelectionPaths = ViewModel.SelectedFilePaths.ToArray();
+        var sameGeotagSelection = _geotagSelectionPaths.SequenceEqual(
+            geotagSelectionPaths, StringComparer.OrdinalIgnoreCase);
+        if (!sameGeotagSelection ||
+            (GeotagCoordinatesBox.FocusState == FocusState.Unfocused && !_isSavingGeotag))
+        {
+            _geotagSaveTimer?.Stop();
+            _suppressGeotagTextChanged = true;
+            GeotagCoordinatesBox.Text = ViewModel.GpsCoordinates;
+            _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
+            _suppressGeotagTextChanged = false;
+        }
+        _geotagSelectionPaths = geotagSelectionPaths;
         GeotagCoordinatesBox.IsEnabled = ViewModel.CanEditGeotag;
-        _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
-        _suppressGeotagTextChanged = false;
 
         // Information section
         InfoFileName.Text = ViewModel.FileName;
@@ -296,6 +305,14 @@ public sealed partial class MetadataPanel : UserControl
     private void OnGeotagCoordinatesLostFocus(object sender, RoutedEventArgs e)
     {
         _geotagSaveTimer?.Stop();
+        if (GeotagCoordinatesBox.Text == _lastLoadedGeotagCoordinates &&
+            ViewModel is { } viewModel)
+        {
+            _suppressGeotagTextChanged = true;
+            GeotagCoordinatesBox.Text = viewModel.GpsCoordinates;
+            _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
+            _suppressGeotagTextChanged = false;
+        }
         _ = SaveGeotagCoordinatesAsync(showInvalidInput: true);
     }
 
@@ -356,6 +373,13 @@ public sealed partial class MetadataPanel : UserControl
                 GeotagCoordinatesBox.Text == submittedText)
             {
                 _lastLoadedGeotagCoordinates = submittedText;
+                if (GeotagCoordinatesBox.FocusState == FocusState.Unfocused)
+                {
+                    _suppressGeotagTextChanged = true;
+                    GeotagCoordinatesBox.Text = viewModel.GpsCoordinates;
+                    _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
+                    _suppressGeotagTextChanged = false;
+                }
             }
 
             if (result.Failures.Count > 0)

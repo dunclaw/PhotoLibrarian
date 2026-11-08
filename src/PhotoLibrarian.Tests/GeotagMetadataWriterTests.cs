@@ -1,6 +1,8 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using MetadataExtractor.Formats.Exif;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.ViewModels;
 using XmpCore;
 using Xunit;
 
@@ -15,6 +17,31 @@ public sealed class GeotagMetadataWriterTests : IDisposable
         Path.GetTempPath(), $"PhotoLibrarian-Geotag-{Guid.NewGuid():N}");
 
     public GeotagMetadataWriterTests() => Directory.CreateDirectory(_directory);
+
+    [Fact]
+    public void CoordinateDisplay_RoundsToSixPlacesWithoutChangingStoredValues()
+    {
+        var image = new ImageEntry
+        {
+            FilePath = "photo.jpg",
+            FileName = "photo.jpg",
+            GpsLatitude = 12.123456789,
+            GpsLongitude = -98.987654321
+        };
+
+        Assert.Equal("12.123457, -98.987654", MetadataPanelViewModel.FormatGpsCoordinates([image]));
+        Assert.Equal(12.123456789, image.GpsLatitude);
+        Assert.Equal(-98.987654321, image.GpsLongitude);
+
+        var other = new ImageEntry
+        {
+            FilePath = "other.jpg",
+            FileName = "other.jpg",
+            GpsLatitude = 12.123456788,
+            GpsLongitude = -98.987654321
+        };
+        Assert.Equal("", MetadataPanelViewModel.FormatGpsCoordinates([image, other]));
+    }
 
     [Theory]
     [InlineData(-91, 0, "latitude")]

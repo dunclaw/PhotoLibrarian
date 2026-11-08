@@ -1039,7 +1039,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task RefreshTagsTreeAsync()
     {
-        if (ImageGrid.RequiresTagData)
+        if (ImageGrid.HasTagDependentFilter)
             await ImageGrid.LoadImagesAsync();
 
         if (App.MainWindow is MainWindow window)
