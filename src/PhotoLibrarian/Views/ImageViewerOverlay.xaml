@@ -29,14 +29,6 @@
                                Style="{StaticResource CaptionTextBlockStyle}"
                                AutomationProperties.AutomationId="EditorEffectsStatus"
                                AutomationProperties.LiveSetting="Polite" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="UndoEffectButton" x:Uid="ViewerUndoEffect"
-                                AutomationProperties.AutomationId="ViewerUndoEffect"
-                                Click="OnUndoEffect" IsEnabled="False" />
-                        <Button x:Name="RedoEffectButton" x:Uid="ViewerRedoEffect"
-                                AutomationProperties.AutomationId="ViewerRedoEffect"
-                                Click="OnRedoEffect" IsEnabled="False" />
-                    </StackPanel>
                     <GridView x:Name="EffectsGallery" x:Uid="EditorEffectsGallery"
                               AutomationProperties.AutomationId="EditorEffectsGallery"
                               MaxHeight="360" SelectionMode="Single" IsItemClickEnabled="False"

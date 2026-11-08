@@ -356,6 +356,8 @@ public sealed partial class MainWindow : Window
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.EffectsClicked += OnRibbonEffectsClicked;
+        TopRibbon.UndoClicked += OnRibbonUndoClicked;
+        TopRibbon.RedoClicked += OnRibbonRedoClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
         TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
@@ -447,6 +449,12 @@ public sealed partial class MainWindow : Window
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isClosing) return;
+        if (e.PropertyName is nameof(ImageViewerViewModel.CanUndoEffect) or nameof(ImageViewerViewModel.CanRedoEffect))
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing)
+                    TopRibbon.SetHistoryAvailability(ViewModel.ImageViewer.CanUndoEffect, ViewModel.ImageViewer.CanRedoEffect);
+            });
 
         if (e.PropertyName == nameof(ImageViewerViewModel.ShouldShowInformationPane))
             DispatcherQueue.TryEnqueue(() =>
@@ -506,6 +514,22 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        var focus = Content?.XamlRoot is { } historyRoot
+            ? FocusManager.GetFocusedElement(historyRoot) as DependencyObject : null;
+        var ctrl = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control) &
+            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        var shift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift) &
+            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        if (ctrl && (e.Key is Windows.System.VirtualKey.Z or Windows.System.VirtualKey.Y) &&
+            ViewModel.ImageViewer.IsOpen && !ViewModel.ImageEditor.IsOpen &&
+            !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen &&
+            !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening && !ViewerOverlay.IsRedEyeRemoving &&
+            !HasNativeHistoryOrDialog(focus))
+        {
+            e.Handled = true;
+            await ViewerOverlay.MoveEffectHistoryAsync(e.Key == Windows.System.VirtualKey.Z && !shift);
+            return;
+        }
         if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
         {
             var editorFocus = Content?.XamlRoot is { } editorRoot
@@ -542,6 +566,16 @@ public sealed partial class MainWindow : Window
         for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
         {
             if (ReferenceEquals(current, ancestor)) return true;
+        }
+        return false;
+    }
+
+    private static bool HasNativeHistoryOrDialog(DependencyObject? element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is TextBox or PasswordBox or AutoSuggestBox or RichEditBox or ContentDialog)
+                return true;
         }
         return false;
     }
@@ -703,6 +737,12 @@ public sealed partial class MainWindow : Window
     {
         await ViewerOverlay.ShowEffectsAsync(TopRibbon.EffectsAnchor);
     }
+
+    private async void OnRibbonUndoClicked(object? sender, EventArgs e) =>
+        await ViewerOverlay.MoveEffectHistoryAsync(undo: true);
+
+    private async void OnRibbonRedoClicked(object? sender, EventArgs e) =>
+        await ViewerOverlay.MoveEffectHistoryAsync(undo: false);
 
     private async Task<bool> OpenRibbonEditorAsync()
     {

@@ -36,11 +36,9 @@ public sealed partial class ImageViewerOverlay
         _syncingEffect = true;
         try { EffectsFlyout.ShowAt(anchor); }
         finally { _syncingEffect = false; }
-        UndoEffectButton.IsEnabled = ViewModel?.CanUndoEffect == true;
-        RedoEffectButton.IsEnabled = ViewModel?.CanRedoEffect == true;
         if (!ImageEditRenderer.IsSupported(entry.FilePath))
         {
-            EffectsGallery.IsEnabled = UndoEffectButton.IsEnabled = RedoEffectButton.IsEnabled = false;
+            EffectsGallery.IsEnabled = false;
             EffectsStatus.Text = EditorEffectStrings.Get("EditorEffectsRawUnavailable");
             return;
         }
@@ -78,15 +76,12 @@ public sealed partial class ImageViewerOverlay
         foreach (var item in _effects) item.Thumbnail = null;
     }
 
-    private async void OnUndoEffect(object sender, RoutedEventArgs args) => await MoveEffectHistoryAsync(undo: true);
-    private async void OnRedoEffect(object sender, RoutedEventArgs args) => await MoveEffectHistoryAsync(undo: false);
-
-    private async Task MoveEffectHistoryAsync(bool undo)
+    public async Task MoveEffectHistoryAsync(bool undo)
     {
         var vm = ViewModel;
-        if (vm is null || !ReferenceEquals(_effectsEntry, vm.CurrentEntry) ||
+        if (vm is null || IsCropping || IsStraightening || IsRedEyeRemoving ||
             !(undo ? vm.CanUndoEffect : vm.CanRedoEffect)) return;
-        EffectsGallery.IsEnabled = UndoEffectButton.IsEnabled = RedoEffectButton.IsEnabled = false;
+        EffectsGallery.IsEnabled = false;
         try
         {
             if (undo) await vm.UndoEffectAsync();
@@ -97,8 +92,6 @@ public sealed partial class ImageViewerOverlay
         finally
         {
             EffectsGallery.IsEnabled = true;
-            UndoEffectButton.IsEnabled = vm.CanUndoEffect;
-            RedoEffectButton.IsEnabled = vm.CanRedoEffect;
         }
     }
 
@@ -117,8 +110,6 @@ public sealed partial class ImageViewerOverlay
         finally
         {
             EffectsGallery.IsEnabled = true;
-            UndoEffectButton.IsEnabled = ViewModel?.CanUndoEffect == true;
-            RedoEffectButton.IsEnabled = ViewModel?.CanRedoEffect == true;
         }
     }
 

@@ -57,11 +57,20 @@ selecting another preset replaces it rather than stacking effects. The separate
 Adjust editor can bake the recipe through its existing save flow, which clears
 pending edits after success.
 
-**Undo effect** and **Redo effect** in the dropdown restore previous selections
+The main toolbar's **Undo** and **Redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
+restore previous effect selections
 in place, including returning to the effect present before the first selection.
 Effect history is per photo for the current app session, leaves other tweaks
 unchanged, and does not overwrite photo pixels. Choosing the same effect is
 not a new edit; a new selection after Undo clears Redo.
+
+Grid thumbnails render pending raster recipes too, both immediately after an
+effect change/undo and after restarting. Edited photos bypass Windows/embedded
+source thumbnails; originals and their embedded JPEG thumbnails remain untouched.
+Unedited photos still use the fast Windows thumbnail provider.
+Unified chronological undo across all photo and metadata operations is tracked
+in [#185](https://github.com/dunclaw/PhotoLibrarian/issues/185);
+toolbar viewer undo currently covers effects.
 
 Previews are generated locally from EXIF-oriented photo pixels, including
 current adjustments, not sample pictures. Thumbnail decoding and rendering

@@ -12,6 +12,8 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
     public event EventHandler? EffectsClicked;
+    public event EventHandler? UndoClicked;
+    public event EventHandler? RedoClicked;
     public FrameworkElement EffectsAnchor => EffectsButton;
 
     public event EventHandler? RedEyeClicked;
@@ -26,6 +28,12 @@ public sealed partial class TopRibbon : UserControl
     public TopRibbon()
     {
         this.InitializeComponent();
+    }
+
+    public void SetHistoryAvailability(bool canUndo, bool canRedo)
+    {
+        UndoButton.IsEnabled = canUndo;
+        RedoButton.IsEnabled = canRedo;
     }
 
     /// <summary>Set the centered context label (e.g. file name being viewed).</summary>
@@ -96,6 +104,8 @@ public sealed partial class TopRibbon : UserControl
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
     private void OnEffectsClick(object sender, RoutedEventArgs e) => EffectsClicked?.Invoke(this, EventArgs.Empty);
+    private void OnUndoClick(object sender, RoutedEventArgs e) => UndoClicked?.Invoke(this, EventArgs.Empty);
+    private void OnRedoClick(object sender, RoutedEventArgs e) => RedoClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
     private void OnSlideshowClick(object sender, RoutedEventArgs e) => SlideshowClicked?.Invoke(this, EventArgs.Empty);
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>

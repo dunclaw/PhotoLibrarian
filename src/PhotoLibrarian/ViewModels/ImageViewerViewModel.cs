@@ -22,6 +22,13 @@ public partial class ImageViewerViewModel : ObservableObject
     public bool IsEffectImageUpdate { get; private set; }
     public bool CanUndoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanUndo(entry.FilePath);
     public bool CanRedoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanRedo(entry.FilePath);
+    public event Func<string, Task>? EffectRecipeChanged;
+
+    private void NotifyEffectHistory()
+    {
+        OnPropertyChanged(nameof(CanUndoEffect));
+        OnPropertyChanged(nameof(CanRedoEffect));
+    }
 
     public Task ApplyEffectAsync(PhotoEffect effect) =>
         UpdateEffectAsync(path => _effects.SelectAsync(path, effect));
@@ -34,6 +41,7 @@ public partial class ImageViewerViewModel : ObservableObject
         var entry = CurrentEntry;
         if (entry is null || IsVideo || IsApplyingEffect) return;
         IsApplyingEffect = true;
+        NotifyEffectHistory();
         var version = ++_loadVersion;
         try
         {
@@ -45,8 +53,13 @@ public partial class ImageViewerViewModel : ObservableObject
                 try { CurrentImage = bitmap; }
                 finally { IsEffectImageUpdate = false; }
             }
+            if (EffectRecipeChanged is { } changed) await changed(entry.FilePath);
         }
-        finally { IsApplyingEffect = false; }
+        finally
+        {
+            IsApplyingEffect = false;
+            NotifyEffectHistory();
+        }
     }
 
     private static async Task<BitmapImage> RenderRecipeAsync(string path, EditParameters recipe)
@@ -133,6 +146,7 @@ public partial class ImageViewerViewModel : ObservableObject
 
     private void RaiseCurrentEntryChanged()
     {
+        NotifyEffectHistory();
         OnPropertyChanged(nameof(CurrentEntry));
         CurrentEntryChanged?.Invoke(CurrentEntry);
     }

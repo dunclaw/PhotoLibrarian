@@ -7,6 +7,8 @@ using PhotoLibrarian.ViewModels;
 using System.Numerics;
 using System.Xml.Linq;
 using Windows.Graphics.DirectX;
+using Windows.Graphics.Imaging;
+using System.Runtime.InteropServices.WindowsRuntime;
 using XmpCore;
 using Xunit;
 
@@ -18,6 +20,87 @@ public sealed class PhotoEffectTests : IDisposable
 
     public PhotoEffectTests() => Directory.CreateDirectory(_directory);
     public void Dispose() => Directory.Delete(_directory, recursive: true);
+
+    [Fact]
+    public async Task GridRecipeThumbnailsSurviveRestartAndFollowUndoWithoutChangingSource()
+    {
+        var path = Path.Combine(_directory, "grid.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 9, 7,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 9, 7));
+        var original = await File.ReadAllBytesAsync(path);
+        var service = new ViewerEffectService(new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await service.SelectAsync(path, PhotoEffect.BlackAndWhite);
+        var first = await DecodeGridThumbnailAsync(path);
+        for (var i = 0; i < first.Length; i += 4)
+        {
+            Assert.Equal(first[i], first[i + 1]);
+            Assert.Equal(first[i], first[i + 2]);
+        }
+        // A fresh read has no dependency on a viewer/session or in-memory thumbnail cache.
+        Assert.Equal(first, await DecodeGridThumbnailAsync(path));
+        Assert.Equal((await ImageEditRenderer.RenderToPixelsAsync(path,
+            ImageEditService.ReadEditParameters(path))).Pixels, first);
+        await service.SelectAsync(path, PhotoEffect.Sepia);
+        Assert.NotEqual(first, await DecodeGridThumbnailAsync(path));
+        await service.MoveHistoryAsync(path, undo: true);
+        Assert.Equal(first, await DecodeGridThumbnailAsync(path));
+        await service.MoveHistoryAsync(path, undo: false);
+        Assert.NotEqual(first, await DecodeGridThumbnailAsync(path));
+        await service.SelectAsync(path, PhotoEffect.None);
+        var neutral = await DecodeGridThumbnailAsync(path);
+        Assert.Contains(Enumerable.Range(0, neutral.Length / 4), i =>
+            neutral[i * 4] != neutral[i * 4 + 1] || neutral[i * 4] != neutral[i * 4 + 2]);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+    }
+
+    private static async Task<byte[]> DecodeGridThumbnailAsync(string path)
+    {
+        var bytes = await RecipeThumbnailService.GetThumbnailStreamAsync(path, 180);
+        Assert.NotNull(bytes);
+        using var stream = new MemoryStream(bytes);
+        var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
+        Assert.InRange(decoder.PixelWidth, 1u, 180u);
+        Assert.InRange(decoder.PixelHeight, 1u, 180u);
+        return (await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+            new BitmapTransform(), ExifOrientationMode.RespectExifOrientation,
+            ColorManagementMode.DoNotColorManage)).DetachPixelData();
+    }
+
+    [Fact]
+    public async Task RecipeStampInvalidatesReuseAndStaleBatchBytesAreRejectedBeforeDecode()
+    {
+        var path = Path.Combine(_directory, "stamp.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 9, 7,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 9, 7));
+        var entry = new ImageEntry { FilePath = path, FileName = Path.GetFileName(path) };
+        var before = new ImageThumbnailViewModel(entry);
+        Assert.True(new ImageThumbnailViewModel(entry).CanReuseThumbnail(before));
+        var edits = new ImageEditService(new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await edits.SaveEditParametersAsync(path, new() { Effect = PhotoEffect.BlackAndWhite });
+        var after = new ImageThumbnailViewModel(entry);
+        Assert.False(after.CanReuseThumbnail(before));
+        var batchVersion = after.ThumbnailVersion;
+        after.InvalidateThumbnail();
+        await after.LoadThumbnailFromStreamAsync([0], batchVersion);
+        Assert.Null(after.Thumbnail);
+        Assert.True(after.IsLoading);
+    }
+
+    [Fact]
+    public async Task GridThumbnailPreservesAlphaAndRejectsBrokenRecipes()
+    {
+        var path = Path.Combine(_directory, "alpha.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 3, 2,
+            [0, 0, 0, 0, 32, 16, 8, 64, 40, 20, 10, 128,
+             12, 24, 48, 128, 20, 40, 80, 128, 40, 80, 160, 255]);
+        await new ImageEditService(new OriginalBackupService(Path.Combine(_directory, "backups")))
+            .SaveEditParametersAsync(path, new() { Effect = PhotoEffect.Cyanotype });
+        var grid = await DecodeGridThumbnailAsync(path);
+        Assert.Equal((await ImageEditRenderer.RenderToPixelsAsync(path,
+            ImageEditService.ReadEditParameters(path))).Pixels, grid);
+        await File.WriteAllTextAsync(Path.ChangeExtension(path, ".xmp"), "invalid XMP");
+        await Assert.ThrowsAnyAsync<Exception>(() => RecipeThumbnailService.GetThumbnailStreamAsync(path, 180));
+    }
 
     [Fact]
     public void GalleryUsesSelectableLocalizedAccessibleItemsAndLiveThumbnailBindings()
@@ -33,21 +116,25 @@ public sealed class PhotoEffectTests : IDisposable
             element => (string?)element.Attribute(xaml + "Name") == "EffectsGallery"));
         var flyout = Assert.Single(gallery.Ancestors().Where(element => element.Name.LocalName == "Flyout"));
         Assert.Equal("EffectsFlyout", (string?)flyout.Attribute(xaml + "Name"));
-        Assert.Contains(flyout.Descendants(), element =>
-            (string?)element.Attribute("AutomationProperties.AutomationId") == "ViewerUndoEffect" &&
-            (string?)element.Attribute("Click") == "OnUndoEffect");
-        Assert.Contains(flyout.Descendants(), element =>
-            (string?)element.Attribute("AutomationProperties.AutomationId") == "ViewerRedoEffect" &&
-            (string?)element.Attribute("Click") == "OnRedoEffect");
+        Assert.DoesNotContain(flyout.Descendants(), element => element.Name.LocalName == "Button");
         Assert.DoesNotContain(gallery.Ancestors(), element =>
             (string?)element.Attribute(xaml + "Name") == "AdjustmentsPanel");
         var ribbon = XDocument.Load(Path.Combine(assets, "TopRibbon.xaml"));
+        Assert.Contains(ribbon.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "RibbonUndo" &&
+            (string?)element.Attribute("Click") == "OnUndoClick");
+        Assert.Contains(ribbon.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "RibbonRedo" &&
+            (string?)element.Attribute("Click") == "OnRedoClick");
         var effectsButton = Assert.Single(ribbon.Descendants().Where(element =>
             (string?)element.Attribute(xaml + "Name") == "EffectsButton"));
         Assert.Equal("AdjustButton", (string?)effectsButton.ElementsBeforeSelf().Last().Attribute(xaml + "Name"));
         Assert.Equal("OnEffectsClick", (string?)effectsButton.Attribute("Click"));
         Assert.Equal("RibbonEffects", (string?)effectsButton.Attribute("AutomationProperties.AutomationId"));
         var code = File.ReadAllText(Path.Combine(assets, "MainWindow.xaml.cs"));
+        Assert.Contains("ViewerOverlay.MoveEffectHistoryAsync", code);
+        Assert.Contains("!HasNativeHistoryOrDialog(focus)", code);
+        Assert.Contains("RichEditBox or ContentDialog", code);
         var effectsHandler = code[code.IndexOf("private async void OnRibbonEffectsClicked", StringComparison.Ordinal)..];
         effectsHandler = effectsHandler[..effectsHandler.IndexOf("private async Task<bool>", StringComparison.Ordinal)];
         Assert.Contains("ViewerOverlay.ShowEffectsAsync", effectsHandler);
@@ -440,6 +527,11 @@ public sealed class PhotoEffectTests : IDisposable
             Assert.InRange(thumbnail.Height, 1, EffectThumbnailSession.MaximumDimension);
             Assert.Equal(new byte[] { 255, 255, 255, 255 }, thumbnail.Pixels[..4]);
         });
+        var grid = await EffectThumbnailSession.RenderRecipeThumbnailAsync(path,
+            new() { RotationAngle = 37, Effect = PhotoEffect.BlackAndWhite }, 180, CancellationToken.None);
+        Assert.InRange(grid.Width, 1, 180);
+        Assert.InRange(grid.Height, 1, 180);
+        Assert.Equal(grid.Width * grid.Height * 4, grid.Pixels.Length);
     }
 
     [Fact]

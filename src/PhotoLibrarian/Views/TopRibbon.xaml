@@ -41,6 +41,22 @@
 
             <!-- ===== Viewer mode (default) ===== -->
             <StackPanel x:Name="ViewerTools" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="UndoButton" x:Uid="RibbonUndoButton" Click="OnUndoClick"
+                        Style="{StaticResource RibbonCommandStyle}" IsEnabled="False"
+                        AutomationProperties.AutomationId="RibbonUndo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7A7;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="RibbonUndoCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RedoButton" x:Uid="RibbonRedoButton" Click="OnRedoClick"
+                        Style="{StaticResource RibbonCommandStyle}" IsEnabled="False"
+                        AutomationProperties.AutomationId="RibbonRedo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7A6;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="RibbonRedoCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="MakeCopyButton" Click="OnMakeCopyClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonMakeCopy"

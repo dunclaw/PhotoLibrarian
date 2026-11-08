@@ -55,14 +55,26 @@ internal sealed class EffectThumbnailSession
     }
 
     private static async Task<IReadOnlyList<EffectThumbnail>> RenderAsync(
-        string path, EditParameters parameters, CancellationToken token)
+        string path, EditParameters parameters, CancellationToken token) =>
+        await RenderThumbnailsAsync(path, parameters, Enum.GetValues<PhotoEffect>(), MaximumDimension, token);
+
+    internal static async Task<EffectThumbnail> RenderRecipeThumbnailAsync(
+        string path, EditParameters parameters, int size, CancellationToken token)
+    {
+        var thumbnails = await RenderThumbnailsAsync(path, parameters.Clone(), [parameters.Effect], size, token);
+        return thumbnails[0];
+    }
+
+    private static async Task<IReadOnlyList<EffectThumbnail>> RenderThumbnailsAsync(
+        string path, EditParameters parameters, IReadOnlyList<PhotoEffect> effects, int maximumDimension,
+        CancellationToken token)
     {
         if (!ImageEditRenderer.IsSupported(path))
             throw new NotSupportedException("Effect thumbnails require a supported raster photo.");
         var file = await StorageFile.GetFileFromPathAsync(path);
         using var stream = await file.OpenAsync(FileAccessMode.Read);
         var decoder = await BitmapDecoder.CreateAsync(stream);
-        var scale = Math.Min(1d, (double)MaximumDimension / Math.Max(decoder.PixelWidth, decoder.PixelHeight));
+        var scale = Math.Min(1d, (double)maximumDimension / Math.Max(decoder.PixelWidth, decoder.PixelHeight));
         var width = (uint)Math.Max(1, Math.Round(decoder.PixelWidth * scale));
         var height = (uint)Math.Max(1, Math.Round(decoder.PixelHeight * scale));
         var data = await decoder.GetPixelDataAsync(
@@ -76,12 +88,12 @@ internal sealed class EffectThumbnailSession
         using var source = CanvasBitmap.CreateFromBytes(device, data.DetachPixelData(),
             (int)width, (int)height, DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
         var extent = EditEffectGraph.ComputeOutputExtent(width, height, parameters.RotationAngle);
-        var outputScale = Math.Min(1f, (float)MaximumDimension / Math.Max(extent.Width, extent.Height));
+        var outputScale = Math.Min(1f, (float)maximumDimension / Math.Max(extent.Width, extent.Height));
         var outputWidth = Math.Max(1, (int)Math.Round(extent.Width * outputScale));
         var outputHeight = Math.Max(1, (int)Math.Round(extent.Height * outputScale));
         var transform = Matrix3x2.CreateTranslation(extent.Offset) * Matrix3x2.CreateScale(outputScale);
         var result = new List<EffectThumbnail>();
-        foreach (var effect in Enum.GetValues<PhotoEffect>())
+        foreach (var effect in effects)
         {
             token.ThrowIfCancellationRequested();
             parameters.Effect = effect;

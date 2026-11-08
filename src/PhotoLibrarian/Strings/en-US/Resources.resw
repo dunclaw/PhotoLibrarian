@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="ViewerUndoEffect.Content" xml:space="preserve"><value>Undo effect</value></data>
-  <data name="ViewerRedoEffect.Content" xml:space="preserve"><value>Redo effect</value></data>
+  <data name="RibbonUndoCaption.Text" xml:space="preserve"><value>Undo</value></data>
+  <data name="RibbonRedoCaption.Text" xml:space="preserve"><value>Redo</value></data>
+  <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Undo</value></data>
+  <data name="RibbonRedoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Redo</value></data>
+  <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Undo photo effect (Ctrl+Z)</value></data>
+  <data name="RibbonRedoButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Redo photo effect (Ctrl+Y or Ctrl+Shift+Z)</value></data>
   <data name="RibbonEffectsCaption.Text" xml:space="preserve"><value>Effects</value></data>
   <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose a photo effect</value></data>
   <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show effect previews for this photo</value></data>
