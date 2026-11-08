@@ -81,6 +81,17 @@
                         <TextBlock Text="Adjust" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="EffectsButton" x:Uid="RibbonEffectsButton" Click="OnEffectsClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonEffects">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE790;" Style="{StaticResource RibbonIconStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock x:Uid="RibbonEffectsCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                            <FontIcon Glyph="&#xE70D;" FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+                </Button>
                 <Button x:Name="RedEyeButton" Click="OnRedEyeClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonRedEye"

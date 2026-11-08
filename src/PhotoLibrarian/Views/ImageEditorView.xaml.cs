@@ -95,6 +95,23 @@ public sealed partial class ImageEditorView : UserControl
         });
     }
 
+    public void ShowAdjustments(bool visible)
+    {
+        AdjustmentsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        AdjustmentsColumn.Width = new GridLength(visible ? 300 : 0);
+    }
+
+    public void ShowEffects(FrameworkElement anchor)
+    {
+        if (ViewModel?.IsOpen != true || ViewModel.IsBusy) return;
+        RefreshEffects();
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (ViewModel?.IsOpen == true && !ViewModel.IsBusy)
+                EffectsFlyout.ShowAt(anchor);
+        });
+    }
+
     public static int GetArrowNavigationDirection(Windows.System.VirtualKey key,
         Windows.System.VirtualKeyModifiers modifiers, bool isEditingControl)
     {
@@ -168,6 +185,7 @@ public sealed partial class ImageEditorView : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         ViewModel?.CancelRawExport();
+        EffectsFlyout.Hide();
         _previewRequest?.Cancel();
         ClearEffectThumbnails();
         _rawPreview.Invalidate();
@@ -188,6 +206,7 @@ public sealed partial class ImageEditorView : UserControl
         {
             var path = ViewModel?.ImagePath;
             _previewRequest?.Cancel();
+            if (path is null) EffectsFlyout.Hide();
             ClearEffectThumbnails();
             _rawPreview.Invalidate();
             DispatcherQueue.TryEnqueue(() =>

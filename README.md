@@ -43,7 +43,9 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 ### Photo effects
 
-The editor's **Effects** gallery previews the current photo with **None**, black
+The top toolbar's **Effects** button, immediately after **Adjust**, opens a
+dropdown of live previews. Effects are separate from the right-hand adjustment
+pane; **Adjust** opens that pane for photo tweaks. The dropdown offers **None**, black
 and white, red/orange/yellow monochrome filters, sepia, cyanotype, and warm/cool
 tints. Selecting a preset replaces only the effect; **None** keeps your other
 adjustments. Selection, Reset, undo/redo, and pending portable XMP recipes share

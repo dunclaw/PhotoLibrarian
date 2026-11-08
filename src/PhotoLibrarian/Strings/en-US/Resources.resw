@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="RibbonEffectsCaption.Text" xml:space="preserve"><value>Effects</value></data>
+  <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose a photo effect</value></data>
+  <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show effect previews for this photo</value></data>
   <data name="EditorEffectsTitle.Text" xml:space="preserve"><value>Effects</value></data>
   <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo effects</value></data>
   <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Use arrow keys to select an effect. None removes only the effect, keeping other adjustments.</value></data>

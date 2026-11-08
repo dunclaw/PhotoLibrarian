@@ -89,7 +89,7 @@
         </Grid>
 
         <!-- Overlay: Image Editor -->
-        <views:ImageEditorView x:Name="EditorOverlay" Grid.Row="0" Grid.RowSpan="2"
+        <views:ImageEditorView x:Name="EditorOverlay" Grid.Row="1"
                                 Visibility="Collapsed" />
 
         <!-- Overlay: Settings Panel -->

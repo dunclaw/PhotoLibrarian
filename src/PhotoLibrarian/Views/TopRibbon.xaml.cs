@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
@@ -10,6 +11,15 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? MakeCopyClicked;
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
+    public event EventHandler? EffectsClicked;
+    public FrameworkElement EffectsAnchor => EffectsButton;
+
+    public void SetEditorMode(bool isOpen, bool isBusy)
+    {
+        MakeCopyButton.IsEnabled = CropButton.IsEnabled = StraightenButton.IsEnabled =
+            RedEyeButton.IsEnabled = SlideshowButton.IsEnabled = !isOpen;
+        AdjustButton.IsEnabled = EffectsButton.IsEnabled = !isBusy;
+    }
     public event EventHandler? RedEyeClicked;
     public event EventHandler? SlideshowClicked;
     public event EventHandler? StabilizeVideoClicked;
@@ -91,6 +101,7 @@ public sealed partial class TopRibbon : UserControl
     private void OnStraightenClick(object sender, RoutedEventArgs e) =>
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
+    private void OnEffectsClick(object sender, RoutedEventArgs e) => EffectsClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
     private void OnSlideshowClick(object sender, RoutedEventArgs e) => SlideshowClicked?.Invoke(this, EventArgs.Empty);
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>

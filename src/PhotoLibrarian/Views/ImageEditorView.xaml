@@ -5,12 +5,51 @@
     xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
     xmlns:views="using:PhotoLibrarian.Views">
 
+    <UserControl.Resources>
+        <Flyout x:Name="EffectsFlyout" Placement="Bottom">
+            <StackPanel x:Name="EffectsPanel" Width="384" Spacing="8">
+                <TextBlock x:Uid="EditorEffectsTitle" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock x:Name="EffectsStatus" TextWrapping="Wrap"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           AutomationProperties.AutomationId="EditorEffectsStatus"
+                           AutomationProperties.LiveSetting="Polite" />
+                <GridView x:Name="EffectsGallery" x:Uid="EditorEffectsGallery"
+                          AutomationProperties.AutomationId="EditorEffectsGallery"
+                          MaxHeight="360" SelectionMode="Single" IsItemClickEnabled="False"
+                          SelectionChanged="OnEffectSelectionChanged">
+                    <GridView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="3" />
+                        </ItemsPanelTemplate>
+                    </GridView.ItemsPanel>
+                    <GridView.ItemContainerStyle>
+                        <Style TargetType="GridViewItem" BasedOn="{StaticResource DefaultGridViewItemStyle}">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                            <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
+                        </Style>
+                    </GridView.ItemContainerStyle>
+                    <GridView.ItemTemplate>
+                        <DataTemplate x:DataType="views:EffectGalleryItem">
+                            <StackPanel Width="104" Spacing="4">
+                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Height="72" Stretch="Uniform"
+                                       AutomationProperties.AccessibilityView="Raw" />
+                                <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </GridView.ItemTemplate>
+                </GridView>
+            </StackPanel>
+        </Flyout>
+    </UserControl.Resources>
+
     <!-- UserControl.Background is not rendered, so the opaque surface lives on the root Grid
          to keep the viewer and metadata panel underneath from showing through. -->
     <Grid Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="300" />
+            <ColumnDefinition x:Name="AdjustmentsColumn" Width="300" />
         </Grid.ColumnDefinitions>
 
         <!-- Win2D Canvas for real-time preview -->
@@ -18,7 +57,6 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <!-- Top bar -->
@@ -107,43 +145,6 @@
                                    PointerCaptureLost="OnEditCanvasPointerCaptureLost"
                                    DoubleTapped="OnEditCanvasDoubleTapped" />
 
-            <StackPanel x:Name="EffectsPanel" Grid.Row="2" Spacing="4" Padding="12,8">
-                <TextBlock x:Uid="EditorEffectsTitle" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <TextBlock x:Name="EffectsStatus" TextWrapping="Wrap"
-                           Style="{StaticResource CaptionTextBlockStyle}"
-                           AutomationProperties.AutomationId="EditorEffectsStatus"
-                           AutomationProperties.LiveSetting="Polite" />
-                <GridView x:Name="EffectsGallery" x:Uid="EditorEffectsGallery"
-                          AutomationProperties.AutomationId="EditorEffectsGallery"
-                          Height="144" SelectionMode="Single" IsItemClickEnabled="False"
-                          SelectionChanged="OnEffectSelectionChanged"
-                          ScrollViewer.HorizontalScrollMode="Enabled"
-                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                          ScrollViewer.VerticalScrollMode="Disabled"
-                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                    <GridView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <ItemsWrapGrid Orientation="Vertical" MaximumRowsOrColumns="1" />
-                        </ItemsPanelTemplate>
-                    </GridView.ItemsPanel>
-                    <GridView.ItemContainerStyle>
-                        <Style TargetType="GridViewItem" BasedOn="{StaticResource DefaultGridViewItemStyle}">
-                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
-                            <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
-                        </Style>
-                    </GridView.ItemContainerStyle>
-                    <GridView.ItemTemplate>
-                        <DataTemplate x:DataType="views:EffectGalleryItem">
-                            <StackPanel Width="112" Spacing="4">
-                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Height="72" Stretch="Uniform"
-                                       AutomationProperties.AccessibilityView="Raw" />
-                                <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextAlignment="Center"
-                                           Style="{StaticResource CaptionTextBlockStyle}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </GridView.ItemTemplate>
-                </GridView>
-            </StackPanel>
         </Grid>
 
         <!-- Adjustment sliders panel -->

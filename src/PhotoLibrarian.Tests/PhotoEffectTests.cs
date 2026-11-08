@@ -28,6 +28,21 @@ public sealed class PhotoEffectTests : IDisposable
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
         var gallery = Assert.Single(editor.Descendants().Where(
             element => (string?)element.Attribute(xaml + "Name") == "EffectsGallery"));
+        var flyout = Assert.Single(gallery.Ancestors().Where(element => element.Name.LocalName == "Flyout"));
+        Assert.Equal("EffectsFlyout", (string?)flyout.Attribute(xaml + "Name"));
+        Assert.DoesNotContain(gallery.Ancestors(), element =>
+            (string?)element.Attribute(xaml + "Name") == "AdjustmentsPanel");
+        var ribbon = XDocument.Load(Path.Combine(assets, "TopRibbon.xaml"));
+        var effectsButton = Assert.Single(ribbon.Descendants().Where(element =>
+            (string?)element.Attribute(xaml + "Name") == "EffectsButton"));
+        Assert.Equal("AdjustButton", (string?)effectsButton.ElementsBeforeSelf().Last().Attribute(xaml + "Name"));
+        Assert.Equal("OnEffectsClick", (string?)effectsButton.Attribute("Click"));
+        Assert.Equal("RibbonEffects", (string?)effectsButton.Attribute("AutomationProperties.AutomationId"));
+        var window = XDocument.Load(Path.Combine(assets, "MainWindow.xaml"));
+        var overlay = Assert.Single(window.Descendants().Where(element =>
+            (string?)element.Attribute(xaml + "Name") == "EditorOverlay"));
+        Assert.Equal("1", (string?)overlay.Attribute("Grid.Row"));
+        Assert.Null(overlay.Attribute("Grid.RowSpan"));
         Assert.Equal("Single", (string?)gallery.Attribute("SelectionMode"));
         Assert.Equal("EditorEffectsGallery", (string?)gallery.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("OnEffectSelectionChanged", (string?)gallery.Attribute("SelectionChanged"));

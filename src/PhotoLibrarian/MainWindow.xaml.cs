@@ -355,6 +355,7 @@ public sealed partial class MainWindow : Window
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
+        TopRibbon.EffectsClicked += OnRibbonEffectsClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
         TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
@@ -429,10 +430,19 @@ public sealed partial class MainWindow : Window
 
     private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_isClosing || e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
+        if (_isClosing) return;
+        if (e.PropertyName == nameof(ImageEditorViewModel.IsBusy))
+        {
+            TopRibbon.SetEditorMode(ViewModel.ImageEditor.IsOpen, ViewModel.ImageEditor.IsBusy);
+            return;
+        }
+        if (e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
         DispatcherQueue.TryEnqueue(() =>
         {
             if (_isClosing) return;
+            TopRibbon.SetVideoMode(!ViewModel.ImageEditor.IsOpen && ViewModel.ImageViewer.IsVideo);
+            TopRibbon.SetEditorMode(ViewModel.ImageEditor.IsOpen, ViewModel.ImageEditor.IsBusy);
+            UpdateRibbonVisibility();
             if (ViewModel.ImageEditor.IsOpen)
             {
                 ViewerOverlay.StopFocusGuard();
@@ -616,7 +626,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateRibbonVisibility()
     {
-        TopRibbon.Visibility = ViewModel.ImageViewer.IsOpen
+        TopRibbon.Visibility = ViewModel.ImageViewer.IsOpen || ViewModel.ImageEditor.IsOpen
             ? Visibility.Visible : Visibility.Collapsed;
         if (!ViewModel.ImageViewer.IsOpen && ViewerOverlay.IsCropping)
         {
@@ -695,12 +705,26 @@ public sealed partial class MainWindow : Window
 
     private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
     {
+        if (await OpenRibbonEditorAsync()) EditorOverlay.ShowAdjustments(true);
+    }
+
+    private async void OnRibbonEffectsClicked(object? sender, EventArgs e)
+    {
+        var wasOpen = ViewModel.ImageEditor.IsOpen;
+        if (!await OpenRibbonEditorAsync()) return;
+        if (!wasOpen) EditorOverlay.ShowAdjustments(false);
+        EditorOverlay.ShowEffects(TopRibbon.EffectsAnchor);
+    }
+
+    private async Task<bool> OpenRibbonEditorAsync()
+    {
+        if (ViewModel.ImageEditor.IsOpen) return !ViewModel.ImageEditor.IsBusy;
         var entry = ViewModel.ImageViewer.CurrentEntry;
-        if (entry is null || ViewModel.ImageViewer.IsVideo) return;
+        if (entry is null || ViewModel.ImageViewer.IsVideo) return false;
         if (!ImageEditRenderer.IsSupported(entry.FilePath) && !RawToneMappingService.IsRaw(entry.FilePath))
         {
             ViewModel.StatusText = $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
-            return;
+            return false;
         }
 
         if (ViewerOverlay.IsCropping)
@@ -723,10 +747,12 @@ public sealed partial class MainWindow : Window
         {
             ViewModel.ImageEditor.UpdateLibraryImages(ViewModel.ImageGrid.GetViewerImages());
             await ViewModel.ImageEditor.OpenForEditAsync(entry);
+            return true;
         }
         catch (Exception ex)
         {
             ViewModel.StatusText = $"Unable to open editor: {ex.Message}";
+            return false;
         }
     }
 
