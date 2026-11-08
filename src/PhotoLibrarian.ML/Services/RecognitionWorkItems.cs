@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
@@ -69,13 +70,15 @@ internal static class FaceScanWorkItem
                     Embedding = embeddings[metadataFaces.Count + index]
                 }))
             .ToArray();
+        await RecognitionSourceIdentity.ValidateAsync(image, cancellationToken);
         var wasSaved = await store.TryReplaceFaceRegionsAsync(
             image.Id,
             image.FileSize,
             image.DateModified,
             regions,
             FaceModelCatalog.PipelineVersion,
-            cancellationToken);
+            cancellationToken,
+            image.SourceIdentity);
         if (!wasSaved)
         {
             throw new InvalidOperationException(
@@ -146,6 +149,10 @@ internal static class AutoTagWorkItem
         if (staleMessage is not null)
             throw new InvalidOperationException(staleMessage);
 
+        var sourceIdentity = await RecognitionSourceIdentity.ComputeAsync(
+            image.FilePath, cancellationToken);
+        if (image.SourceIdentity is not null && image.SourceIdentity != sourceIdentity)
+            throw new InvalidOperationException("The photo content changed before tagging.");
         var sidecarSnapshot =
             TagWriterService.CaptureSidecarSnapshot(image.FilePath);
         var previousAutoTags = (await store.GetTagsAsync(
@@ -165,6 +172,9 @@ internal static class AutoTagWorkItem
                 prediction.Tag,
                 prediction.Confidence))
             .ToArray();
+        if (sourceIdentity != await RecognitionSourceIdentity.ComputeAsync(
+                image.FilePath, cancellationToken))
+            throw new InvalidOperationException("The photo content changed during tagging.");
         if (!await store.TryReplaceAutoTagsIfUnchangedAsync(
             image,
             generatedTags,
@@ -196,8 +206,9 @@ internal static class AutoTagWorkItem
                 image.FilePath,
                 allTags.Select(tag => tag.Tag),
                 allTags,
-                definition.PipelineVersion,
-                sidecarSnapshot);
+                settings.GetScanVersion(),
+                sidecarSnapshot,
+                sourceIdentity);
         }
         catch (Exception metadataException)
         {
@@ -233,8 +244,9 @@ internal static class AutoTagWorkItem
 
         await store.SetAutoTagScanVersionAsync(
             image.Id,
-            definition.PipelineVersion,
-            cancellationToken);
+            settings.GetScanVersion(),
+            cancellationToken,
+            image.SourceIdentity);
 
         return generatedTags.Length;
     }

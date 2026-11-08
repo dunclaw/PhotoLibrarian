@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ML.Services;
@@ -184,7 +185,8 @@ public sealed class BatchTagProcessorTests : IDisposable
         public Task SetAutoTagScanVersionAsync(
             long imageId,
             string scanVersion,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string? expectedSourceIdentity = null)
         {
             MarkedVersions.Add((imageId, scanVersion));
             return Task.CompletedTask;

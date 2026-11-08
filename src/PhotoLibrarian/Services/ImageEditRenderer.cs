@@ -172,6 +172,7 @@ public static class ImageEditRenderer
         using var source = await LoadOrientedAsync(device, filePath);
         var sourceWidth = source.SizeInPixels.Width;
         var sourceHeight = source.SizeInPixels.Height;
+        using var retouched = await CreateRetouchedAsync(device, source, parameters.RetouchStrokes);
 
         Vector2 offset;
         uint outWidth;
@@ -207,7 +208,7 @@ public static class ImageEditRenderer
             session.Clear(GetBackgroundColor(filePath));
             ImageEditRenderPass.Draw(
                 session,
-                source,
+                retouched ?? source,
                 parameters,
                 new Vector2(sourceWidth, sourceHeight),
                 Matrix3x2.CreateTranslation(offset));
@@ -217,6 +218,37 @@ public static class ImageEditRenderer
     }
 
     internal readonly record struct RenderedPixels(uint Width, uint Height, byte[] Pixels);
+
+    /// <summary>Source-resolution CPU stage shared by editor preview and export, before tone/detail/rotation.</summary>
+    internal static async Task<CanvasBitmap?> CreateRetouchedAsync(
+        ICanvasResourceCreator device, CanvasBitmap source, IReadOnlyList<RetouchStroke> strokes,
+        CancellationToken cancellationToken = default)
+    {
+        var preview = await TryCreateRetouchedAsync(device, source, strokes, cancellationToken);
+        // A saved recipe that cannot be replayed is a save failure, never an unretouched success.
+        if (!preview.Result.Succeeded) throw new InvalidDataException(preview.Result.Message);
+        return preview.Bitmap;
+    }
+
+    internal readonly record struct RetouchPreviewResult(CanvasBitmap? Bitmap, RetouchResult Result);
+
+    internal static async Task<RetouchPreviewResult> TryCreateRetouchedAsync(
+        ICanvasResourceCreator device, CanvasBitmap source, IReadOnlyList<RetouchStroke> strokes,
+        CancellationToken cancellationToken = default)
+    {
+        if (strokes.Count == 0) return new(null, new(RetouchStatus.Applied));
+        SpotRetouchProcessor.Validate(strokes);
+        var width = checked((int)source.SizeInPixels.Width);
+        var height = checked((int)source.SizeInPixels.Height);
+        var pixels = source.GetPixelBytes();
+        var result = await Task.Run(() => SpotRetouchProcessor.Apply(pixels, width, height, strokes, cancellationToken),
+            cancellationToken);
+        if (!result.Succeeded) return new(null, result);
+        cancellationToken.ThrowIfCancellationRequested();
+        var bitmap = CanvasBitmap.CreateFromBytes(device, pixels, width, height,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+        return new(bitmap, result);
+    }
 
     /// <summary>
     /// Writes <paramref name="pixels"/> (BGRA8, premultiplied) over the file, transcoding from the

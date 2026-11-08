@@ -124,6 +124,9 @@ public partial class ImageViewerViewModel : ObservableObject
     public partial bool IsVideo { get; set; }
 
     [ObservableProperty]
+    public partial bool IsAnimatedGif { get; set; }
+
+    [ObservableProperty]
     public partial string? VideoPath { get; set; }
 
     /// <summary>
@@ -231,6 +234,7 @@ public partial class ImageViewerViewModel : ObservableObject
         _pendingExportPath = null;
         IsOpen = false;
         CurrentImage = null;
+        IsAnimatedGif = false;
         VideoPath = null;
         IsVideo = false;
         RaiseCurrentEntryChanged();
@@ -286,6 +290,7 @@ public partial class ImageViewerViewModel : ObservableObject
         var entry = _allImages[_currentIndex];
         Title = entry.FileName;
         ImageInfo = $"{_currentIndex + 1} / {_allImages.Count}";
+        IsAnimatedGif = false;
         CurrentImage = null;
         RaiseCurrentEntryChanged();
 
@@ -299,6 +304,12 @@ public partial class ImageViewerViewModel : ObservableObject
 
         IsVideo = false;
         VideoPath = null;
+        if (string.Equals(Path.GetExtension(entry.FilePath), ".gif", StringComparison.OrdinalIgnoreCase))
+        {
+            IsAnimatedGif = true;
+            ZoomFactor = 1.0;
+            return;
+        }
 
         try
         {

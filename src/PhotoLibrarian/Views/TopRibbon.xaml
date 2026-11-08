@@ -108,6 +108,16 @@
                         </StackPanel>
                     </StackPanel>
                 </Button>
+                <Button x:Name="RetouchButton" Click="OnRetouchClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonRetouch"
+                        AutomationProperties.Name="Spot retouch"
+                        ToolTipService.ToolTip="Paint over small blemishes to fill them from surrounding pixels">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE70F;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Retouch" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="RedEyeButton" Click="OnRedEyeClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonRedEye"
@@ -118,16 +128,50 @@
                         <TextBlock Text="Red eye" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="SlideshowButton" Click="OnSlideshowClick"
-                        Style="{StaticResource RibbonCommandStyle}"
-                        AutomationProperties.AutomationId="RibbonSlideshow"
-                        AutomationProperties.Name="Slideshow"
-                        ToolTipService.ToolTip="Play a full-screen slideshow starting at this photo (F11)">
+                <SplitButton x:Name="SlideshowButton" Click="OnSlideshowClick"
+                             Padding="12,4" MinWidth="64" MinHeight="56"
+                             VerticalAlignment="Stretch"
+                             AutomationProperties.AutomationId="RibbonSlideshow"
+                             AutomationProperties.Name="Slideshow"
+                             ToolTipService.ToolTip="Play a full-screen slideshow starting at this photo. Open the arrow to choose a theme.">
                     <StackPanel Spacing="4">
                         <FontIcon Glyph="&#xE786;" Style="{StaticResource RibbonIconStyle}" />
                         <TextBlock Text="Slideshow" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
-                </Button>
+                    <SplitButton.Flyout>
+                        <Flyout Placement="Bottom">
+                            <StackPanel x:Name="SlideshowThemeOptions" Padding="8" Spacing="4">
+                                <TextBlock Text="Slideshow theme"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <RadioButton Content="Pan and Zoom" Tag="PanAndZoom"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemePanAndZoom"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton x:Name="ContemporaryThemeButton" Content="Contemporary"
+                                             Tag="Contemporary" GroupName="SlideshowThemes"
+                                             IsChecked="True"
+                                             AutomationProperties.AutomationId="SlideshowThemeContemporary"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Cinematic" Tag="Cinematic"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeCinematic"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Fade" Tag="Fade"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeFade"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Black and White" Tag="BlackAndWhite"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeBlackAndWhite"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Sepia" Tag="Sepia"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeSepia"
+                                             Checked="OnSlideshowThemeChecked" />
+                            </StackPanel>
+                        </Flyout>
+                    </SplitButton.Flyout>
+                </SplitButton>
             </StackPanel>
 
             <StackPanel x:Name="VideoTools" Orientation="Horizontal" VerticalAlignment="Center"
@@ -140,6 +184,16 @@
                     <StackPanel Spacing="4">
                         <FontIcon Glyph="&#xE714;" Style="{StaticResource RibbonIconStyle}" />
                         <TextBlock Text="Stabilize" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
+                <Button Click="OnTrimVideoClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonTrimVideo"
+                        x:Uid="RibbonTrimVideo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7C3;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="RibbonTrimVideoLabel"
+                                   Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
             </StackPanel>

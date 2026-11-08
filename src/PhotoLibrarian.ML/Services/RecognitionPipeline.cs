@@ -93,14 +93,19 @@ public sealed class RecognitionPipeline
             ? AutoTagModelCatalog.ForId(settings!.ProfileId)
             : null;
 
-        if (request.IsFaceDetectionEnabled)
+        var workItems = await BuildWorkItemsAsync(
+            request,
+            definition,
+            cancellationToken);
+
+        if (workItems.Any(item => item.NeedsFaces))
         {
             await _faceModelProvider.EnsureModelsAsync(cancellationToken);
             _detector.LoadModel();
             _embedder.LoadModel();
         }
 
-        if (taggingEnabled)
+        if (workItems.Any(item => item.NeedsTags))
         {
             await _tagModelProvider.EnsureModelAsync(
                 settings!.ProfileId,
@@ -108,11 +113,6 @@ public sealed class RecognitionPipeline
                 cancellationToken);
             _tagger.LoadModel(settings.ProfileId, settings.ModelDirectory);
         }
-
-        var workItems = await BuildWorkItemsAsync(
-            request,
-            definition,
-            cancellationToken);
 
         var processed = 0;
         var failed = 0;
@@ -146,6 +146,7 @@ public sealed class RecognitionPipeline
 
                 try
                 {
+                    await RecognitionSourceIdentity.ValidateAsync(item.Image, cancellationToken);
                     // A photo that needs face work is decoded once at source
                     // resolution and shared; a tags-only photo skips the
                     // full-resolution decode entirely.
@@ -285,7 +286,7 @@ public sealed class RecognitionPipeline
             : [];
         var pendingTags = definition is not null
             ? await _tagStore.GetImagesNeedingAutoTagsAsync(
-                definition.PipelineVersion,
+                request.AutoTaggingSettings!.GetScanVersion(),
                 cancellationToken)
             : [];
 

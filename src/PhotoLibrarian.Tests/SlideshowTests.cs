@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using Xunit;
@@ -130,6 +131,20 @@ public sealed class SlideshowTests
     }
 
     [Fact]
+    public void SlideshowThemeDefaultsToContemporaryAndCanBeSelected()
+    {
+        var sequence = new SlideshowSequence([], []);
+        var defaultViewModel = new SlideshowViewModel(sequence, 5);
+        Assert.Equal(SlideshowTheme.Contemporary, defaultViewModel.Theme);
+
+        foreach (var theme in Enum.GetValues<SlideshowTheme>())
+        {
+            var viewModel = new SlideshowViewModel(sequence, 5, theme);
+            Assert.Equal(theme, viewModel.Theme);
+        }
+    }
+
+    [Fact]
     public async Task PauseAndCloseDoNotChangeTheWorkingSet()
     {
         var sequence = new SlideshowSequence([Photo("first.jpg"), Photo("second.jpg")], []);
@@ -148,5 +163,31 @@ public sealed class SlideshowTests
         Assert.Equal(0, sequence.Index);
         Assert.Null(vm.CurrentImage);
         Assert.False(vm.IsLoading);
+    }
+
+    [Fact]
+    public async Task ChangingThemeNotifiesBindingsAndPreservesPauseAndTiming()
+    {
+        var vm = new SlideshowViewModel(new SlideshowSequence([], []), 7.5);
+        vm.TogglePauseCommand.Execute(null);
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        await vm.ChangeThemeAsync(SlideshowTheme.Sepia);
+        Assert.Equal(SlideshowTheme.Sepia, vm.Theme);
+        Assert.Equal("Sepia", vm.ThemeName);
+        Assert.Contains(nameof(vm.Theme), changed);
+        Assert.Contains(nameof(vm.ThemeName), changed);
+        Assert.True(vm.IsPaused);
+        Assert.Equal(7.5, vm.IntervalSeconds);
+
+        changed.Clear();
+        await vm.ChangeThemeAsync(SlideshowTheme.Sepia);
+        Assert.Empty(changed);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => vm.ChangeThemeAsync((SlideshowTheme)999));
+        vm.Close();
+        await vm.ChangeThemeAsync(SlideshowTheme.Fade);
+        Assert.Equal(SlideshowTheme.Sepia, vm.Theme);
     }
 }

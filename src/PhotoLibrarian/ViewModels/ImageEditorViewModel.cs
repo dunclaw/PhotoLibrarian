@@ -26,19 +26,25 @@ public partial class ImageEditorViewModel : ObservableObject
     private string _editLabel = "";
     private bool _restoring;
     private CropRect? _crop;
+    private List<RetouchStroke> _retouchStrokes = [];
     private CancellationTokenSource? _rawExport;
     private List<ImageEntry> _images = [];
     private int _openVersion;
 
     public ImageEntry? CurrentEntry => _currentEntry;
     public event Action<ImageEntry?>? CurrentEntryChanged;
-    public bool IsBusy => IsSaving || IsTransitioning;
+    public bool IsBusy => IsSaving || IsTransitioning || IsRetouching;
     public bool CanNavigate => IsOpen && !IsBusy && FindNavigationTarget(1) is not null;
 
     [ObservableProperty]
     public partial bool IsTransitioning { get; set; }
 
     partial void OnIsTransitioningChanged(bool value) => NotifyHistoryChanged();
+
+    [ObservableProperty]
+    public partial bool IsRetouching { get; set; }
+
+    partial void OnIsRetouchingChanged(bool value) => NotifyHistoryChanged();
 
     public void UpdateLibraryImages(IEnumerable<ImageEntry> images)
     {
@@ -264,7 +270,7 @@ public partial class ImageEditorViewModel : ObservableObject
 
     public async Task OpenForEditAsync(ImageEntry entry)
     {
-        if (IsTransitioning || (IsSaving && _rawExport is null))
+        if (IsTransitioning || IsRetouching || (IsSaving && _rawExport is null))
             throw new InvalidOperationException("An editor operation is already in progress.");
         // A programmatic replacement must still cancel a non-cooperative RAW export.
         _rawExport?.Cancel();
@@ -310,7 +316,7 @@ public partial class ImageEditorViewModel : ObservableObject
     public async Task<bool> SaveAsync(ImageEditService.PixelRenderer renderer)
     {
         if (IsRawPreview) throw new NotSupportedException(SaveDisabledReason);
-        if (_currentEntry is null || IsSaving) return false;
+        if (_currentEntry is null || IsSaving || IsRetouching) return false;
 
         EndEdit();
         var parameters = GetCurrentParameters();
@@ -358,8 +364,21 @@ public partial class ImageEditorViewModel : ObservableObject
         WhitePoint = WhitePoint,
         Midtones = Midtones,
         RotationAngle = RotationAngle,
-        Crop = _crop?.Clone()
+        Crop = _crop?.Clone(),
+        RetouchStrokes = _retouchStrokes.Select(stroke => stroke.Copy()).ToList()
     };
+
+    public void AddRetouchStroke(RetouchStroke stroke)
+    {
+        if (!IsOpen || IsBusy || IsRawPreview || ImagePath is null || !ImageEditRenderer.IsSupported(ImagePath))
+            throw new InvalidOperationException("Retouch requires an idle raster editor.");
+        var strokes = _retouchStrokes.Append(stroke.Copy()).ToList();
+        SpotRetouchProcessor.Validate(strokes);
+        BeginEdit("Spot retouch");
+        _retouchStrokes = strokes;
+        OnParameterChanged("Spot retouch");
+        EndEdit();
+    }
 
     public async Task KeepRawPreviewRecipeAsync()
     {
@@ -481,6 +500,8 @@ public partial class ImageEditorViewModel : ObservableObject
     private void ApplyParametersToSliders(EditParameters p)
     {
         var cropChanged = !CropEqual(_crop, p.Crop);
+        var retouchChanged = !RetouchStroke.SequenceEqual(_retouchStrokes, p.RetouchStrokes);
+        _retouchStrokes = p.RetouchStrokes.Select(stroke => stroke.Copy()).ToList();
         _crop = p.Crop?.Clone();
         Brightness = p.Brightness;
         Contrast = p.Contrast;
@@ -505,6 +526,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Midtones = p.Midtones;
         RotationAngle = p.RotationAngle;
         if (cropChanged) OnParameterChanged("Crop");
+        if (retouchChanged) OnParameterChanged("Spot retouch");
     }
 
     // Called when any slider value changes to trigger re-render
@@ -635,7 +657,7 @@ public partial class ImageEditorViewModel : ObservableObject
         a.UnsharpMaskThreshold == b.UnsharpMaskThreshold &&
         a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
         a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle &&
-        CropEqual(a.Crop, b.Crop);
+        CropEqual(a.Crop, b.Crop) && RetouchStroke.SequenceEqual(a.RetouchStrokes, b.RetouchStrokes);
 
     private static bool CropEqual(CropRect? a, CropRect? b) =>
         a is null || b is null ? a is null && b is null :

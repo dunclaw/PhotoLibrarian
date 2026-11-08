@@ -10,6 +10,10 @@ This app is designed for average users to manage photos. No complicated external
 
 The app is primarily in C# but native C++ dependencies and code are acceptable if necessary for performance.
 
+Do not impose arbitrary image-size or megapixel limits unless explicitly instructed by the user. Support full-resolution photos from modern cameras; use local/tiled processing, cancellation and actual platform/resource error reporting rather than disabling features based on image dimensions. Do not impose arbitrary counts on user edits or strokes.
+
+Do not use exceptions for normal flow control. Expected validation outcomes, unsupported operations and routine user actions must use explicit result/status values; reserve exceptions for genuinely unexpected conditions or failures.
+
 
 
 \## C# Style Preferences
@@ -23,6 +27,4 @@ The app is primarily in C# but native C++ dependencies and code are acceptable i
 \- Avoid long obtuse and hard to read constructs like multiple nested lambda statements together on a single line
 
 \- be aware of debuggability when using async, threading, and anonymous lambda constructs that make debugging and decoding call stacks difficult to follow
-
-
 

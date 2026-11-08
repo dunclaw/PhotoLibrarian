@@ -34,6 +34,13 @@
 
             <!-- Group By controls -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                <Button x:Name="ImportButton"
+                        x:Uid="GridImportButton"
+                        AutomationProperties.AutomationId="GridImportButton"
+                        Click="OnImportClick"
+                        Padding="8">
+                    <FontIcon Glyph="&#xE8B5;" />
+                </Button>
                 <!-- Slideshow: first in the toolbar so narrow windows never clip it -->
                 <Button x:Name="SlideshowButton"
                         Click="OnSlideshowClick"

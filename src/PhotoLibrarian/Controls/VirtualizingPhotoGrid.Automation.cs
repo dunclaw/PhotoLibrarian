@@ -73,8 +73,18 @@ public sealed partial class VirtualizingPhotoGrid
         if (_focusedItem is not null && !current.Contains(_focusedItem))
             _focusedItem = null;
         RefreshAllSelectionVisuals();
-        SelectionChanged?.Invoke(this, _selectedItems.ToList());
+        IsPhotoDataChangeNotification = true;
+        try
+        {
+            SelectionChanged?.Invoke(this, _selectedItems.ToList());
+        }
+        finally
+        {
+            IsPhotoDataChangeNotification = false;
+        }
     }
+
+    public bool IsPhotoDataChangeNotification { get; private set; }
 
     private void ResetPhotoAutomation()
     {
