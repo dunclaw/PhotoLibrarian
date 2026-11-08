@@ -19,7 +19,8 @@
   <data name="EditorEffectsLoading" xml:space="preserve"><value>Updating previews from this photo...</value></data>
   <data name="EditorEffectsReady" xml:space="preserve"><value>Previews include current adjustments. None keeps your other adjustments.</value></data>
   <data name="EditorEffectsFailed" xml:space="preserve"><value>Effect previews could not be loaded: {0}</value></data>
-  <data name="EditorEffectsRawUnavailable" xml:space="preserve"><value>Effects are unavailable for RAW preview and export. Export an SDR derivative, then edit that copy.</value></data>
+  <data name="EditorEffectsRawUnavailable" xml:space="preserve"><value>Effects require a supported raster photo. For RAW, export an SDR derivative and edit that copy.</value></data>
+  <data name="EditorEffectsApplyFailed" xml:space="preserve"><value>The photo effect could not be applied: {0}</value></data>
   <data name="PhotoGridName" xml:space="preserve"><value>Photos</value></data>
   <data name="PhotoGridHelp" xml:space="preserve"><value>Use arrow keys to move, Space to select, Enter to open, and Shift+F10 for photo actions. Hold Control to move without changing selection or Shift to select a range.</value></data>
   <data name="PhotoGridItemHelp" xml:space="preserve"><value>Enter to open. Shift+F10 for photo actions.</value></data>

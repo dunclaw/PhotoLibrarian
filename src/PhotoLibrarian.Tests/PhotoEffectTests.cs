@@ -26,7 +26,10 @@ public sealed class PhotoEffectTests : IDisposable
         var editor = XDocument.Load(Path.Combine(assets, "ImageEditorView.xaml"));
         var resources = XDocument.Load(Path.Combine(assets, "Resources.resw"));
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
-        var gallery = Assert.Single(editor.Descendants().Where(
+        var viewer = XDocument.Load(Path.Combine(assets, "ImageViewerOverlay.xaml"));
+        Assert.DoesNotContain(editor.Descendants(), element =>
+            (string?)element.Attribute(xaml + "Name") == "EffectsGallery");
+        var gallery = Assert.Single(viewer.Descendants().Where(
             element => (string?)element.Attribute(xaml + "Name") == "EffectsGallery"));
         var flyout = Assert.Single(gallery.Ancestors().Where(element => element.Name.LocalName == "Flyout"));
         Assert.Equal("EffectsFlyout", (string?)flyout.Attribute(xaml + "Name"));
@@ -38,11 +41,18 @@ public sealed class PhotoEffectTests : IDisposable
         Assert.Equal("AdjustButton", (string?)effectsButton.ElementsBeforeSelf().Last().Attribute(xaml + "Name"));
         Assert.Equal("OnEffectsClick", (string?)effectsButton.Attribute("Click"));
         Assert.Equal("RibbonEffects", (string?)effectsButton.Attribute("AutomationProperties.AutomationId"));
+        var code = File.ReadAllText(Path.Combine(assets, "MainWindow.xaml.cs"));
+        var effectsHandler = code[code.IndexOf("private async void OnRibbonEffectsClicked", StringComparison.Ordinal)..];
+        effectsHandler = effectsHandler[..effectsHandler.IndexOf("private async Task<bool>", StringComparison.Ordinal)];
+        Assert.Contains("ViewerOverlay.ShowEffectsAsync", effectsHandler);
+        Assert.DoesNotContain("EditorOverlay", effectsHandler);
+        Assert.DoesNotContain("OpenRibbonEditorAsync", effectsHandler);
+        Assert.DoesNotContain("ShowAdjustments", effectsHandler);
         var window = XDocument.Load(Path.Combine(assets, "MainWindow.xaml"));
         var overlay = Assert.Single(window.Descendants().Where(element =>
             (string?)element.Attribute(xaml + "Name") == "EditorOverlay"));
-        Assert.Equal("1", (string?)overlay.Attribute("Grid.Row"));
-        Assert.Null(overlay.Attribute("Grid.RowSpan"));
+        Assert.Equal("0", (string?)overlay.Attribute("Grid.Row"));
+        Assert.Equal("2", (string?)overlay.Attribute("Grid.RowSpan"));
         Assert.Equal("Single", (string?)gallery.Attribute("SelectionMode"));
         Assert.Equal("EditorEffectsGallery", (string?)gallery.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("OnEffectSelectionChanged", (string?)gallery.Attribute("SelectionChanged"));
@@ -59,6 +69,59 @@ public sealed class PhotoEffectTests : IDisposable
         Assert.Contains(resources.Descendants("data"), element =>
             (string?)element.Attribute("name") == "EditorEffectsRawUnavailable" &&
             element.Element("value")!.Value.Contains("RAW"));
+    }
+
+    [Fact]
+    public async Task ViewerSelectionPreservesPhotoBytesAndReplacesPortableRecipeInPlace()
+    {
+        var path = Path.Combine(_directory, "viewer.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 19, 13,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 19, 13, alpha: true));
+        var original = await File.ReadAllBytesAsync(path);
+        var backups = new OriginalBackupService(Path.Combine(_directory, "backups"));
+        await new ImageEditService(backups).SaveEditParametersAsync(path,
+            new() { Temperature = -.1 });
+        var service = new ViewerEffectService(backups);
+        foreach (var effect in new[] { PhotoEffect.Sepia, PhotoEffect.Cyanotype, PhotoEffect.None })
+        {
+            var rendered = await service.SelectAsync(path, effect);
+            var recipe = ImageEditService.ReadEditParameters(path);
+            Assert.Equal(effect, recipe.Effect);
+            Assert.Equal(-.1, recipe.Temperature);
+            using var device = new CanvasDevice();
+            var expected = await ImageEditRenderer.RenderToPixelsAsync(device, path, recipe);
+            Assert.Equal(expected.Pixels, rendered.Pixels);
+            Assert.Equal(original, await File.ReadAllBytesAsync(path));
+            Assert.Equal(original, await File.ReadAllBytesAsync((await backups.GetBackupPathAsync(path))!));
+        }
+        Assert.Equal(PhotoEffect.None, ImageEditService.ReadEditParameters(path).Effect);
+    }
+
+    [Fact]
+    public async Task ViewerInvalidPhotoDoesNotPersistAnUnrenderableEffect()
+    {
+        var path = Path.Combine(_directory, "broken.png");
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        var service = new ViewerEffectService(new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await Assert.ThrowsAnyAsync<Exception>(() => service.SelectAsync(path, PhotoEffect.Sepia));
+        Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
+        var raw = Path.Combine(_directory, "original.dng");
+        await File.WriteAllBytesAsync(raw, [1, 2, 3]);
+        await Assert.ThrowsAsync<NotSupportedException>(() => service.SelectAsync(raw, PhotoEffect.Sepia));
+        Assert.False(File.Exists(Path.ChangeExtension(raw, ".xmp")));
+    }
+
+    [Fact]
+    public async Task ViewerUnreadableSidecarIsNotReplacedByAnEffectRecipe()
+    {
+        var path = Path.Combine(_directory, "sidecar.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 3, 2,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 3, 2));
+        var sidecar = Path.ChangeExtension(path, ".xmp");
+        await File.WriteAllTextAsync(sidecar, "unreadable existing metadata");
+        var service = new ViewerEffectService(new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await Assert.ThrowsAnyAsync<Exception>(() => service.SelectAsync(path, PhotoEffect.Sepia));
+        Assert.Equal("unreadable existing metadata", await File.ReadAllTextAsync(sidecar));
     }
 
     [Fact]

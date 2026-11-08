@@ -2,54 +2,14 @@
     x:Class="PhotoLibrarian.Views.ImageEditorView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
-    xmlns:views="using:PhotoLibrarian.Views">
-
-    <UserControl.Resources>
-        <Flyout x:Name="EffectsFlyout" Placement="Bottom">
-            <StackPanel x:Name="EffectsPanel" Width="384" Spacing="8">
-                <TextBlock x:Uid="EditorEffectsTitle" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <TextBlock x:Name="EffectsStatus" TextWrapping="Wrap"
-                           Style="{StaticResource CaptionTextBlockStyle}"
-                           AutomationProperties.AutomationId="EditorEffectsStatus"
-                           AutomationProperties.LiveSetting="Polite" />
-                <GridView x:Name="EffectsGallery" x:Uid="EditorEffectsGallery"
-                          AutomationProperties.AutomationId="EditorEffectsGallery"
-                          MaxHeight="360" SelectionMode="Single" IsItemClickEnabled="False"
-                          SelectionChanged="OnEffectSelectionChanged">
-                    <GridView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="3" />
-                        </ItemsPanelTemplate>
-                    </GridView.ItemsPanel>
-                    <GridView.ItemContainerStyle>
-                        <Style TargetType="GridViewItem" BasedOn="{StaticResource DefaultGridViewItemStyle}">
-                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
-                            <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
-                        </Style>
-                    </GridView.ItemContainerStyle>
-                    <GridView.ItemTemplate>
-                        <DataTemplate x:DataType="views:EffectGalleryItem">
-                            <StackPanel Width="104" Spacing="4">
-                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Height="72" Stretch="Uniform"
-                                       AutomationProperties.AccessibilityView="Raw" />
-                                <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextAlignment="Center"
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource CaptionTextBlockStyle}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </GridView.ItemTemplate>
-                </GridView>
-            </StackPanel>
-        </Flyout>
-    </UserControl.Resources>
+    xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml">
 
     <!-- UserControl.Background is not rendered, so the opaque surface lives on the root Grid
          to keep the viewer and metadata panel underneath from showing through. -->
     <Grid Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
-            <ColumnDefinition x:Name="AdjustmentsColumn" Width="300" />
+            <ColumnDefinition Width="300" />
         </Grid.ColumnDefinitions>
 
         <!-- Win2D Canvas for real-time preview -->

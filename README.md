@@ -43,15 +43,19 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 ### Photo effects
 
-The top toolbar's **Effects** button, immediately after **Adjust**, opens a
-dropdown of live previews. Effects are separate from the right-hand adjustment
-pane; **Adjust** opens that pane for photo tweaks. The dropdown offers **None**, black
+The full-photo view's top toolbar **Effects** button, immediately after **Adjust**,
+opens a dropdown of live previews. Selecting an effect updates the photo in the
+existing viewer without entering Adjust, replacing toolbars, or changing the
+information pane. The dropdown offers **None**, black
 and white, red/orange/yellow monochrome filters, sepia, cyanotype, and warm/cool
 tints. Selecting a preset replaces only the effect; **None** keeps your other
 adjustments. Selection, Reset, undo/redo, and pending portable XMP recipes share
 the same effect state. Old recipes without an effect retain their appearance.
-Save uses the existing original-backup flow, bakes the effect once, and clears
-the pending effect recipe.
+Viewer selection backs up the original and keeps a portable pending XMP recipe,
+without overwriting photo pixels. Reopening the viewer applies that recipe;
+selecting another preset replaces it rather than stacking effects. The separate
+Adjust editor can bake the recipe through its existing save flow, which clears
+pending edits after success.
 
 Previews are generated locally from EXIF-oriented photo pixels, including
 current adjustments, not sample pictures. Thumbnail decoding and rendering

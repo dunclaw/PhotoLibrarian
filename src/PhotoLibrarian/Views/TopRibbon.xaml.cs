@@ -14,12 +14,6 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? EffectsClicked;
     public FrameworkElement EffectsAnchor => EffectsButton;
 
-    public void SetEditorMode(bool isOpen, bool isBusy)
-    {
-        MakeCopyButton.IsEnabled = CropButton.IsEnabled = StraightenButton.IsEnabled =
-            RedEyeButton.IsEnabled = SlideshowButton.IsEnabled = !isOpen;
-        AdjustButton.IsEnabled = EffectsButton.IsEnabled = !isBusy;
-    }
     public event EventHandler? RedEyeClicked;
     public event EventHandler? SlideshowClicked;
     public event EventHandler? StabilizeVideoClicked;

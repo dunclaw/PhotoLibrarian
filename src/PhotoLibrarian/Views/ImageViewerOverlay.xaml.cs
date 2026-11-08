@@ -344,6 +344,8 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        var preserveViewer = e.PropertyName == nameof(ImageViewerViewModel.CurrentImage) &&
+            ViewModel?.IsEffectImageUpdate == true;
         DispatcherQueue.TryEnqueue(() =>
         {
             if (ViewModel is null) return;
@@ -351,11 +353,18 @@ public sealed partial class ImageViewerOverlay : UserControl
             switch (e.PropertyName)
             {
                 case nameof(ImageViewerViewModel.IsOpen):
+                    if (!ViewModel.IsOpen) EffectsFlyout.Hide();
                     Visibility = ViewModel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
                     if (ViewModel.IsOpen) FocusViewer();
                     if (!ViewModel.IsOpen) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
+                    if (preserveViewer && ViewModel.CurrentImage is not null && _currentImagePixelWidth > 0)
+                    {
+                        FullImage.Source = ViewModel.CurrentImage;
+                        break;
+                    }
+                    EffectsFlyout.Hide();
                     // Cancel any in-progress edit mode when navigating to a different image.
                     if (IsCropping) ExitCropMode();
                     if (IsStraightening) ExitStraightenMode();

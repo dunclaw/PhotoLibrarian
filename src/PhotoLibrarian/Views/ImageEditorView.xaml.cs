@@ -6,14 +6,12 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Input;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using System.Numerics;
-using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
 using Windows.Graphics.DirectX;
 
@@ -40,18 +38,11 @@ public sealed partial class ImageEditorView : UserControl
     private readonly RawPreviewSession _rawPreview = new();
     private CancellationTokenSource? _previewRequest;
     private bool _exportingRaw;
-    private readonly EffectThumbnailSession _effectThumbnails = new();
-    private readonly List<EffectGalleryItem> _effects = [];
-    private bool _syncingEffect;
-    private int _effectsVersion;
 
     public ImageEditorView()
     {
         _suppressSliderEvents = true;
         this.InitializeComponent();
-        foreach (var effect in Enum.GetValues<PhotoEffect>())
-            _effects.Add(new EffectGalleryItem(effect, EditorEffectStrings.Get($"EditorEffect{effect}")));
-        EffectsGallery.ItemsSource = _effects;
         _suppressSliderEvents = false;
         RegisterCenterSnaps();
         RegisterEditGestures();
@@ -92,23 +83,6 @@ public sealed partial class ImageEditorView : UserControl
         {
             if (ViewModel?.IsOpen == true && !ViewModel.IsBusy)
                 CloseBtn.Focus(FocusState.Programmatic);
-        });
-    }
-
-    public void ShowAdjustments(bool visible)
-    {
-        AdjustmentsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        AdjustmentsColumn.Width = new GridLength(visible ? 300 : 0);
-    }
-
-    public void ShowEffects(FrameworkElement anchor)
-    {
-        if (ViewModel?.IsOpen != true || ViewModel.IsBusy) return;
-        RefreshEffects();
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
-        {
-            if (ViewModel?.IsOpen == true && !ViewModel.IsBusy)
-                EffectsFlyout.ShowAt(anchor);
         });
     }
 
@@ -179,15 +153,12 @@ public sealed partial class ImageEditorView : UserControl
         ViewModel.ParametersChanged += OnParametersChanged;
         SyncSlidersFromViewModel();
         TitleText.Text = ViewModel.Title;
-        RefreshEffects();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         ViewModel?.CancelRawExport();
-        EffectsFlyout.Hide();
         _previewRequest?.Cancel();
-        ClearEffectThumbnails();
         _rawPreview.Invalidate();
         if (ViewModel is not null)
         {
@@ -206,8 +177,6 @@ public sealed partial class ImageEditorView : UserControl
         {
             var path = ViewModel?.ImagePath;
             _previewRequest?.Cancel();
-            if (path is null) EffectsFlyout.Hide();
-            ClearEffectThumbnails();
             _rawPreview.Invalidate();
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -247,7 +216,6 @@ public sealed partial class ImageEditorView : UserControl
     private void OnParametersChanged(object? sender, EventArgs e)
     {
         SyncSlidersFromViewModel();
-        RefreshEffects();
         if (ViewModel?.IsRawPreview == true)
         {
             _ = LoadImageAsync(ViewModel.ImagePath);
@@ -281,81 +249,6 @@ public sealed partial class ImageEditorView : UserControl
         AdjustmentsPanel.IsEnabled = !isSaving || _exportingRaw;
         RawExposureSlider.IsEnabled = !isSaving;
         RawWhitePointSlider.IsEnabled = !isSaving;
-        EffectsGallery.IsEnabled = !isSaving && !isRaw;
-    }
-
-    private void ClearEffectThumbnails()
-    {
-        _effectsVersion++;
-        _effectThumbnails.Invalidate();
-        foreach (var item in _effects) item.Thumbnail = null;
-    }
-
-    private void SyncEffectSelection()
-    {
-        _syncingEffect = true;
-        try
-        {
-            var effect = ViewModel?.IsRawPreview == true ? PhotoEffect.None : ViewModel?.Effect;
-            EffectsGallery.SelectedItem = _effects.Find(item => item.Effect == effect);
-        }
-        finally { _syncingEffect = false; }
-    }
-
-    private void RefreshEffects()
-    {
-        ClearEffectThumbnails();
-        SyncEffectSelection();
-        if (ViewModel?.IsOpen != true || ViewModel.ImagePath is null)
-        {
-            EffectsStatus.Text = "";
-            return;
-        }
-        if (ViewModel.IsRawPreview)
-        {
-            EffectsGallery.IsEnabled = false;
-            EffectsStatus.Text = EditorEffectStrings.Get("EditorEffectsRawUnavailable");
-            return;
-        }
-        EffectsGallery.IsEnabled = !ViewModel.IsBusy;
-        _ = LoadEffectThumbnailsAsync(ViewModel.ImagePath, ViewModel.GetCurrentParameters(), _effectsVersion);
-    }
-
-    private async Task LoadEffectThumbnailsAsync(string path, EditParameters parameters, int version)
-    {
-        EffectsStatus.Text = EditorEffectStrings.Get("EditorEffectsLoading");
-        try
-        {
-            var thumbnails = await _effectThumbnails.RequestAsync(path, parameters);
-            if (thumbnails is null || version != _effectsVersion) return;
-            foreach (var thumbnail in thumbnails)
-            {
-                var bitmap = new WriteableBitmap(thumbnail.Width, thumbnail.Height);
-                using var buffer = bitmap.PixelBuffer.AsStream();
-                buffer.Write(thumbnail.Pixels);
-                bitmap.Invalidate();
-                _effects.Find(item => item.Effect == thumbnail.Effect)!.Thumbnail = bitmap;
-            }
-            EffectsStatus.Text = EditorEffectStrings.Get("EditorEffectsReady");
-        }
-        catch (Exception ex)
-        {
-            if (version != _effectsVersion) return;
-            EffectsStatus.Text = string.Format(System.Globalization.CultureInfo.CurrentCulture,
-                EditorEffectStrings.Get("EditorEffectsFailed"), ex.Message);
-        }
-    }
-
-    private void OnEffectSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncingEffect) return;
-        if (EffectsGallery.SelectedItem is not EffectGalleryItem item)
-        {
-            SyncEffectSelection();
-            return;
-        }
-        ViewModel?.SelectEffect(item.Effect, string.Format(System.Globalization.CultureInfo.CurrentCulture,
-            EditorEffectStrings.Get("EditorEffectHistory"), item.Name));
     }
 
     private void OnUndo(SplitButton sender, SplitButtonClickEventArgs args) =>

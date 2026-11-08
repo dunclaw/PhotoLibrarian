@@ -430,19 +430,10 @@ public sealed partial class MainWindow : Window
 
     private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_isClosing) return;
-        if (e.PropertyName == nameof(ImageEditorViewModel.IsBusy))
-        {
-            TopRibbon.SetEditorMode(ViewModel.ImageEditor.IsOpen, ViewModel.ImageEditor.IsBusy);
-            return;
-        }
-        if (e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
+        if (_isClosing || e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
         DispatcherQueue.TryEnqueue(() =>
         {
             if (_isClosing) return;
-            TopRibbon.SetVideoMode(!ViewModel.ImageEditor.IsOpen && ViewModel.ImageViewer.IsVideo);
-            TopRibbon.SetEditorMode(ViewModel.ImageEditor.IsOpen, ViewModel.ImageEditor.IsBusy);
-            UpdateRibbonVisibility();
             if (ViewModel.ImageEditor.IsOpen)
             {
                 ViewerOverlay.StopFocusGuard();
@@ -626,7 +617,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateRibbonVisibility()
     {
-        TopRibbon.Visibility = ViewModel.ImageViewer.IsOpen || ViewModel.ImageEditor.IsOpen
+        TopRibbon.Visibility = ViewModel.ImageViewer.IsOpen
             ? Visibility.Visible : Visibility.Collapsed;
         if (!ViewModel.ImageViewer.IsOpen && ViewerOverlay.IsCropping)
         {
@@ -705,15 +696,12 @@ public sealed partial class MainWindow : Window
 
     private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
     {
-        if (await OpenRibbonEditorAsync()) EditorOverlay.ShowAdjustments(true);
+        await OpenRibbonEditorAsync();
     }
 
     private async void OnRibbonEffectsClicked(object? sender, EventArgs e)
     {
-        var wasOpen = ViewModel.ImageEditor.IsOpen;
-        if (!await OpenRibbonEditorAsync()) return;
-        if (!wasOpen) EditorOverlay.ShowAdjustments(false);
-        EditorOverlay.ShowEffects(TopRibbon.EffectsAnchor);
+        await ViewerOverlay.ShowEffectsAsync(TopRibbon.EffectsAnchor);
     }
 
     private async Task<bool> OpenRibbonEditorAsync()
