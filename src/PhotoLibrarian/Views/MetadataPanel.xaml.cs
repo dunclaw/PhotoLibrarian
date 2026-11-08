@@ -181,14 +181,25 @@ public sealed partial class MetadataPanel : UserControl
         // Date taken — compact text editor
         RefreshDateDisplay();
 
-        // Geotag
-        if (!string.IsNullOrEmpty(ViewModel.GpsLatitude) && ViewModel.GpsLatitude != "Multiple values")
-            GeotagText.Text = $"{ViewModel.GpsLatitude}, {ViewModel.GpsLongitude}";
-        else if (ViewModel.GpsLatitude == "Multiple values")
-            GeotagText.Text = "Multiple geotags";
-        else
-            GeotagText.Text = "Add geotag";
-        EditGeotagButton.IsEnabled = ViewModel.CanEditGeotag;
+        // Geotag inputs stay in the details panel so coordinates can be edited without a modal.
+        GeotagLatitudeBox.Text = ViewModel.GpsLatitude == "Multiple values" ? "" : ViewModel.GpsLatitude;
+        GeotagLongitudeBox.Text = ViewModel.GpsLongitude == "Multiple values" ? "" : ViewModel.GpsLongitude;
+        GeotagLatitudeBox.PlaceholderText = ViewModel.GpsLatitude == "Multiple values"
+            ? "Multiple values"
+            : "-90 to 90";
+        GeotagLongitudeBox.PlaceholderText = ViewModel.GpsLongitude == "Multiple values"
+            ? "Multiple values"
+            : "-180 to 180";
+        GeotagLatitudeBox.IsEnabled = ViewModel.CanEditGeotag;
+        GeotagLongitudeBox.IsEnabled = ViewModel.CanEditGeotag;
+        ApplyGeotagButton.IsEnabled = ViewModel.CanEditGeotag;
+        ApplyGeotagButton.Content = ViewModel.IsMultiSelect
+            ? $"Apply to {ViewModel.SelectionCount} photos"
+            : "Apply coordinates";
+        GeotagEditHint.Text = ViewModel.IsMultiSelect
+            ? $"Applying replaces the GPS location on all {ViewModel.SelectionCount} selected photos with these coordinates. Embedded edits create local backups first."
+            : "Applying replaces this photo's GPS location. An embedded edit creates a local backup first.";
+        GeotagValidationMessage.Visibility = Visibility.Collapsed;
         GeotagAvailabilityHint.Visibility = ViewModel.CanEditGeotag
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -256,8 +267,6 @@ public sealed partial class MetadataPanel : UserControl
         InfoLongitude.Text = ViewModel.GpsLongitude;
         InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
         InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
-        if (!string.IsNullOrEmpty(ViewModel.GpsLatitude) && ViewModel.GpsLatitude != "Multiple values")
-            GeotagText.Text = $"{ViewModel.GpsLatitude}, {ViewModel.GpsLongitude}";
         VideoMetadataErrorBar.Message = ViewModel.VideoMetadataError;
         VideoMetadataErrorBar.IsOpen = !string.IsNullOrEmpty(ViewModel.VideoMetadataError);
     }
@@ -279,104 +288,51 @@ public sealed partial class MetadataPanel : UserControl
         App.ViewModel.StatusText = PhotoClipboardService.CopyText(value, description);
     }
 
-    private async void OnEditGeotagClick(object sender, RoutedEventArgs e)
+    private async void OnApplyGeotagClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel is not { HasImage: true, CanEditGeotag: true } viewModel)
             return;
 
-        var latitudeBox = CreateCoordinateBox(
-            "Latitude (-90 to 90)",
-            "GeotagLatitudeBox",
-            -90,
-            90,
-            ParseDisplayedCoordinate(viewModel.GpsLatitude));
-        var longitudeBox = CreateCoordinateBox(
-            "Longitude (-180 to 180)",
-            "GeotagLongitudeBox",
-            -180,
-            180,
-            ParseDisplayedCoordinate(viewModel.GpsLongitude));
-        var validationMessage = new TextBlock
+        if (!double.TryParse(
+                GeotagLatitudeBox.Text,
+                NumberStyles.Float,
+                CultureInfo.CurrentCulture,
+                out var latitude) ||
+            !double.TryParse(
+                GeotagLongitudeBox.Text,
+                NumberStyles.Float,
+                CultureInfo.CurrentCulture,
+                out var longitude))
         {
-            Visibility = Visibility.Collapsed,
-            TextWrapping = TextWrapping.Wrap
-        };
-        var content = new StackPanel
-        {
-            Spacing = 12,
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = viewModel.IsMultiSelect
-                        ? $"The same location will be applied to all {viewModel.SelectionCount} selected photos."
-                        : "Set the location for this photo.",
-                    TextWrapping = TextWrapping.Wrap
-                },
-                new TextBlock
-                {
-                    Text = "Enter decimal coordinates directly. Address lookup and map tiles require remote data and are not used. Coordinates stay on this device. JPEG/TIFF locations are written to EXIF; other formats use an adjacent XMP sidecar.",
-                    TextWrapping = TextWrapping.Wrap
-                },
-                latitudeBox,
-                longitudeBox,
-                validationMessage
-            }
-        };
-        GeoCoordinate? coordinate = null;
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = "Edit geotag",
-            PrimaryButtonText = "Continue",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            Content = content
-        };
-        dialog.PrimaryButtonClick += (_, args) =>
-        {
-            try
-            {
-                coordinate = new GeoCoordinate(latitudeBox.Value, longitudeBox.Value);
-                validationMessage.Visibility = Visibility.Collapsed;
-            }
-            catch (ArgumentOutOfRangeException exception)
-            {
-                validationMessage.Text = exception.Message;
-                validationMessage.Visibility = Visibility.Visible;
-                args.Cancel = true;
-            }
-        };
-
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary || coordinate is null)
+            ShowGeotagValidationError("Enter numeric latitude and longitude values.");
             return;
+        }
 
-        var confirmation = new ContentDialog
+        GeoCoordinate coordinate;
+        try
         {
-            XamlRoot = XamlRoot,
-            Title = "Apply GPS coordinates?",
-            PrimaryButtonText = "Apply",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            Content = new TextBlock
-            {
-                Text = $"Replace the GPS location on {viewModel.SelectionCount} selected photo(s) with " +
-                       $"{coordinate.Value.Latitude.ToString("F6", CultureInfo.InvariantCulture)}, " +
-                       $"{coordinate.Value.Longitude.ToString("F6", CultureInfo.InvariantCulture)}? " +
-                       "Embedded edits create a local backup of each original first.",
-                TextWrapping = TextWrapping.Wrap
-            }
-        };
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+            coordinate = new GeoCoordinate(latitude, longitude);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            ShowGeotagValidationError(exception.Message);
             return;
+        }
 
         try
         {
-            var result = await viewModel.SetGeotagAsync(coordinate.Value);
+            GeotagValidationMessage.Visibility = Visibility.Collapsed;
+            var result = await viewModel.SetGeotagAsync(coordinate);
             var embeddedCount = result.AppliedCount - result.SidecarCount;
             App.ViewModel.StatusText = result.Failures.Count == 0
                 ? $"Updated GPS coordinates for {result.AppliedCount} photo(s) ({embeddedCount} EXIF, {result.SidecarCount} XMP sidecar)."
                 : $"Updated GPS coordinates for {result.AppliedCount} of {result.TotalCount} photo(s); {result.Failures.Count} item(s) need attention.";
+
+            if (result.Failures.Count == 0)
+            {
+                GeotagLatitudeBox.Text = viewModel.GpsLatitude == "Multiple values" ? "" : viewModel.GpsLatitude;
+                GeotagLongitudeBox.Text = viewModel.GpsLongitude == "Multiple values" ? "" : viewModel.GpsLongitude;
+            }
 
             if (result.Failures.Count > 0)
             {
@@ -405,34 +361,20 @@ public sealed partial class MetadataPanel : UserControl
         }
     }
 
-    private static NumberBox CreateCoordinateBox(
-        string header,
-        string automationId,
-        double minimum,
-        double maximum,
-        double value)
+    private void ShowGeotagValidationError(string message)
     {
-        var numberBox = new NumberBox
-        {
-            Header = header,
-            Minimum = minimum,
-            Maximum = maximum,
-            Value = value,
-            SmallChange = 0.000001,
-            LargeChange = 0.1,
-            AcceptsExpression = false,
-            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
-        };
-        AutomationProperties.SetAutomationId(numberBox, automationId);
-        AutomationProperties.SetName(numberBox, header);
-        return numberBox;
+        GeotagValidationMessage.Text = message;
+        GeotagValidationMessage.Visibility = Visibility.Visible;
     }
 
-    private static double ParseDisplayedCoordinate(string value) =>
-        double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out var coordinate) &&
-        double.IsFinite(coordinate)
-            ? coordinate
-            : double.NaN;
+    private void OnGeotagCoordinateKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Enter)
+            return;
+
+        e.Handled = true;
+        OnApplyGeotagClick(ApplyGeotagButton, new RoutedEventArgs());
+    }
 
     private void OnAddPeopleTagsClick(object sender, RoutedEventArgs e) =>
         ViewModel?.StartManualFaceTagging();

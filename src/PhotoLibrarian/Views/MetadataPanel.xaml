@@ -110,22 +110,46 @@
                             Margin="0,2,0,0" />
 
                     <TextBlock Text="Geotag" Style="{StaticResource SectionHeaderStyle}" />
-                    <Grid Margin="0,2,0,0" ColumnSpacing="8">
+                    <Grid Margin="0,4,0,0" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="GeotagText"
-                                   Style="{StaticResource PlaceholderStyle}"
-                                   VerticalAlignment="Center" />
-                        <Button x:Name="EditGeotagButton"
-                                Grid.Column="1"
-                                AutomationProperties.AutomationId="EditGeotagButton"
-                                AutomationProperties.Name="Edit geotag"
-                                Content="Edit"
-                                Click="OnEditGeotagClick"
-                                Padding="8,4" />
+                        <TextBox x:Name="GeotagLatitudeBox"
+                                 Header="Latitude"
+                                 PlaceholderText="-90 to 90"
+                                 AutomationProperties.AutomationId="GeotagLatitudeBox"
+                                 AutomationProperties.Name="Latitude in decimal degrees"
+                                 KeyDown="OnGeotagCoordinateKeyDown" />
+                        <TextBox x:Name="GeotagLongitudeBox"
+                                 Grid.Column="1"
+                                 Header="Longitude"
+                                 PlaceholderText="-180 to 180"
+                                 AutomationProperties.AutomationId="GeotagLongitudeBox"
+                                 AutomationProperties.Name="Longitude in decimal degrees"
+                                 KeyDown="OnGeotagCoordinateKeyDown" />
                     </Grid>
+                    <TextBlock x:Name="GeotagEditHint"
+                               Style="{StaticResource PlaceholderStyle}"
+                               Margin="0,4,0,0"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="Coordinates are saved in photo metadata; unsupported formats use an adjacent XMP sidecar."
+                               Style="{StaticResource PlaceholderStyle}"
+                               Margin="0,2,0,0"
+                               TextWrapping="Wrap" />
+                    <Button x:Name="ApplyGeotagButton"
+                            AutomationProperties.AutomationId="ApplyGeotagButton"
+                            AutomationProperties.Name="Apply GPS coordinates to selected photos"
+                            Content="Apply coordinates"
+                            Click="OnApplyGeotagClick"
+                            HorizontalAlignment="Left"
+                            Padding="8,4"
+                            Margin="0,4,0,0" />
+                    <TextBlock x:Name="GeotagValidationMessage"
+                               Visibility="Collapsed"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                               Margin="0,4,0,0"
+                               TextWrapping="Wrap" />
                     <TextBlock x:Name="GeotagAvailabilityHint"
                                Visibility="Collapsed"
                                Text="Geotag editing is available for photo selections only."
