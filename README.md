@@ -57,6 +57,12 @@ selecting another preset replaces it rather than stacking effects. The separate
 Adjust editor can bake the recipe through its existing save flow, which clears
 pending edits after success.
 
+**Undo effect** and **Redo effect** in the dropdown restore previous selections
+in place, including returning to the effect present before the first selection.
+Effect history is per photo for the current app session, leaves other tweaks
+unchanged, and does not overwrite photo pixels. Choosing the same effect is
+not a new edit; a new selection after Undo clears Redo.
+
 Previews are generated locally from EXIF-oriented photo pixels, including
 current adjustments, not sample pictures. Thumbnail decoding and rendering
 run off the UI thread, with a 160-pixel maximum dimension and one render at a

@@ -32,10 +32,15 @@ public sealed partial class ImageViewerOverlay
         var version = ++_effectsVersion;
         _effectThumbnails.Invalidate();
         foreach (var item in _effects) item.Thumbnail = null;
-        EffectsFlyout.ShowAt(anchor);
+        EffectsGallery.IsEnabled = false;
+        _syncingEffect = true;
+        try { EffectsFlyout.ShowAt(anchor); }
+        finally { _syncingEffect = false; }
+        UndoEffectButton.IsEnabled = ViewModel?.CanUndoEffect == true;
+        RedoEffectButton.IsEnabled = ViewModel?.CanRedoEffect == true;
         if (!ImageEditRenderer.IsSupported(entry.FilePath))
         {
-            EffectsGallery.IsEnabled = false;
+            EffectsGallery.IsEnabled = UndoEffectButton.IsEnabled = RedoEffectButton.IsEnabled = false;
             EffectsStatus.Text = EditorEffectStrings.Get("EditorEffectsRawUnavailable");
             return;
         }
@@ -73,6 +78,30 @@ public sealed partial class ImageViewerOverlay
         foreach (var item in _effects) item.Thumbnail = null;
     }
 
+    private async void OnUndoEffect(object sender, RoutedEventArgs args) => await MoveEffectHistoryAsync(undo: true);
+    private async void OnRedoEffect(object sender, RoutedEventArgs args) => await MoveEffectHistoryAsync(undo: false);
+
+    private async Task MoveEffectHistoryAsync(bool undo)
+    {
+        var vm = ViewModel;
+        if (vm is null || !ReferenceEquals(_effectsEntry, vm.CurrentEntry) ||
+            !(undo ? vm.CanUndoEffect : vm.CanRedoEffect)) return;
+        EffectsGallery.IsEnabled = UndoEffectButton.IsEnabled = RedoEffectButton.IsEnabled = false;
+        try
+        {
+            if (undo) await vm.UndoEffectAsync();
+            else await vm.RedoEffectAsync();
+            EffectsFlyout.Hide();
+        }
+        catch (Exception ex) { SetEffectError(ex, applying: true); }
+        finally
+        {
+            EffectsGallery.IsEnabled = true;
+            UndoEffectButton.IsEnabled = vm.CanUndoEffect;
+            RedoEffectButton.IsEnabled = vm.CanRedoEffect;
+        }
+    }
+
     private async void OnEffectSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_syncingEffect || EffectsGallery.SelectedItem is not EffectGalleryItem item ||
@@ -85,7 +114,12 @@ public sealed partial class ImageViewerOverlay
             EffectsFlyout.Hide();
         }
         catch (Exception ex) { SetEffectError(ex, applying: true); }
-        finally { EffectsGallery.IsEnabled = true; }
+        finally
+        {
+            EffectsGallery.IsEnabled = true;
+            UndoEffectButton.IsEnabled = ViewModel?.CanUndoEffect == true;
+            RedoEffectButton.IsEnabled = ViewModel?.CanRedoEffect == true;
+        }
     }
 
     private void SetEffectError(Exception exception, bool applying = false)

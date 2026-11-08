@@ -149,18 +149,21 @@ public static class EditParametersSerializer
 
     private static double GetDouble(IXmpMeta xmp, string prop, double defaultValue = 0.0)
     {
-        try { return xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}"); }
-        catch { return defaultValue; }
+        return xmp.DoesPropertyExist(Ns, $"{Pre}:{prop}")
+            ? xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}")
+            : defaultValue;
     }
 
     private static double? GetDoubleOrNull(IXmpMeta xmp, string prop)
     {
-        try { return xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}"); }
-        catch { return null; }
+        return xmp.DoesPropertyExist(Ns, $"{Pre}:{prop}")
+            ? xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}")
+            : null;
     }
 
     private static SharpeningMode GetSharpeningMode(IXmpMeta xmp)
     {
+        if (!xmp.DoesPropertyExist(Ns, $"{Pre}:SharpeningMode")) return SharpeningMode.Legacy;
         try
         {
             var value = xmp.GetPropertyString(Ns, $"{Pre}:SharpeningMode");

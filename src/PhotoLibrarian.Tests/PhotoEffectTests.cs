@@ -33,6 +33,12 @@ public sealed class PhotoEffectTests : IDisposable
             element => (string?)element.Attribute(xaml + "Name") == "EffectsGallery"));
         var flyout = Assert.Single(gallery.Ancestors().Where(element => element.Name.LocalName == "Flyout"));
         Assert.Equal("EffectsFlyout", (string?)flyout.Attribute(xaml + "Name"));
+        Assert.Contains(flyout.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "ViewerUndoEffect" &&
+            (string?)element.Attribute("Click") == "OnUndoEffect");
+        Assert.Contains(flyout.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "ViewerRedoEffect" &&
+            (string?)element.Attribute("Click") == "OnRedoEffect");
         Assert.DoesNotContain(gallery.Ancestors(), element =>
             (string?)element.Attribute(xaml + "Name") == "AdjustmentsPanel");
         var ribbon = XDocument.Load(Path.Combine(assets, "TopRibbon.xaml"));
@@ -69,6 +75,97 @@ public sealed class PhotoEffectTests : IDisposable
         Assert.Contains(resources.Descendants("data"), element =>
             (string?)element.Attribute("name") == "EditorEffectsRawUnavailable" &&
             element.Element("value")!.Value.Contains("RAW"));
+    }
+
+    [Fact]
+    public void ReopeningUncroppedEffectRecipeDoesNotThrowFirstChanceNullReferences()
+    {
+        var references = new List<Exception>();
+        void OnException(object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs args)
+        {
+            if (args.Exception is NullReferenceException) references.Add(args.Exception);
+        }
+        AppDomain.CurrentDomain.FirstChanceException += OnException;
+        try
+        {
+            var xmp = XmpMetaFactory.Create();
+            EditParametersSerializer.WriteToXmp(xmp, new() { Effect = PhotoEffect.Sepia });
+            var packet = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
+            for (var i = 0; i < 3; i++)
+            {
+                using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(packet));
+                var recipe = EditParametersSerializer.ReadFromXmp(XmpMetaFactory.Parse(stream));
+                Assert.Equal(PhotoEffect.Sepia, recipe.Effect);
+                Assert.Null(recipe.Crop);
+            }
+            Assert.Empty(references);
+        }
+        finally { AppDomain.CurrentDomain.FirstChanceException -= OnException; }
+    }
+
+    [Fact]
+    public async Task ViewerEffectsUndoRedoArePerPhotoAndPreserveOtherTweaksAndPixels()
+    {
+        var path = Path.Combine(_directory, "history.png");
+        var other = Path.Combine(_directory, "other.png");
+        var pixels = RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 7, 5);
+        await RenderQualityFixtures.WriteImageAsync(path, 7, 5, pixels);
+        await RenderQualityFixtures.WriteImageAsync(other, 7, 5, pixels);
+        var original = await File.ReadAllBytesAsync(path);
+        var backups = new OriginalBackupService(Path.Combine(_directory, "backups"));
+        var edits = new ImageEditService(backups);
+        await edits.SaveEditParametersAsync(path, new() { Effect = PhotoEffect.WarmTint, Exposure = .1 });
+        var service = new ViewerEffectService(backups);
+        Assert.False(service.CanUndo(path));
+        await service.SelectAsync(path, PhotoEffect.Sepia);
+        await service.SelectAsync(path, PhotoEffect.Cyanotype);
+        await service.SelectAsync(other, PhotoEffect.YellowFilter);
+        var undo = await service.MoveHistoryAsync(path, undo: true);
+        Assert.Equal(PhotoEffect.Sepia, ImageEditService.ReadEditParameters(path).Effect);
+        Assert.Equal(PhotoEffect.YellowFilter, ImageEditService.ReadEditParameters(other).Effect);
+        using var device = new CanvasDevice();
+        Assert.Equal((await ImageEditRenderer.RenderToPixelsAsync(device, path,
+            ImageEditService.ReadEditParameters(path))).Pixels, undo.Pixels);
+        // A no-op selection does not remove redo.
+        await service.SelectAsync(path, PhotoEffect.Sepia);
+        Assert.True(service.CanRedo(path));
+        await service.MoveHistoryAsync(path, undo: true);
+        Assert.Equal(PhotoEffect.WarmTint, ImageEditService.ReadEditParameters(path).Effect);
+        Assert.False(service.CanUndo(path));
+        await service.MoveHistoryAsync(path, undo: false);
+        await service.MoveHistoryAsync(path, undo: false);
+        Assert.Equal(PhotoEffect.Cyanotype, ImageEditService.ReadEditParameters(path).Effect);
+        Assert.False(service.CanRedo(path));
+        await service.MoveHistoryAsync(path, undo: true);
+        // Undo changes only Effect, not newly adjusted tone fields.
+        var recipe = ImageEditService.ReadEditParameters(path);
+        recipe.Exposure = .4;
+        await edits.SaveEditParametersAsync(path, recipe);
+        await service.MoveHistoryAsync(path, undo: true);
+        Assert.Equal(.4, ImageEditService.ReadEditParameters(path).Exposure);
+        await service.SelectAsync(path, PhotoEffect.None);
+        Assert.False(service.CanRedo(path));
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+    }
+
+    [Fact]
+    public async Task FailedUndoKeepsHistoryAndUnreadableMetadataForRetry()
+    {
+        var path = Path.Combine(_directory, "retry.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 7, 5,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 7, 5));
+        var service = new ViewerEffectService(new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await service.SelectAsync(path, PhotoEffect.Sepia);
+        var sidecar = Path.ChangeExtension(path, ".xmp");
+        var good = await File.ReadAllTextAsync(sidecar);
+        await File.WriteAllTextAsync(sidecar, "unreadable");
+        await Assert.ThrowsAnyAsync<Exception>(() => service.MoveHistoryAsync(path, undo: true));
+        Assert.True(service.CanUndo(path));
+        Assert.False(service.CanRedo(path));
+        Assert.Equal("unreadable", await File.ReadAllTextAsync(sidecar));
+        await File.WriteAllTextAsync(sidecar, good);
+        await service.MoveHistoryAsync(path, undo: true);
+        Assert.Equal(PhotoEffect.None, ImageEditService.ReadEditParameters(path).Effect);
     }
 
     [Fact]

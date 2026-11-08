@@ -20,8 +20,16 @@ public partial class ImageViewerViewModel : ObservableObject
     private readonly ViewerEffectService _effects = new(new OriginalBackupService());
     public bool IsApplyingEffect { get; private set; }
     public bool IsEffectImageUpdate { get; private set; }
+    public bool CanUndoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanUndo(entry.FilePath);
+    public bool CanRedoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanRedo(entry.FilePath);
 
-    public async Task ApplyEffectAsync(PhotoEffect effect)
+    public Task ApplyEffectAsync(PhotoEffect effect) =>
+        UpdateEffectAsync(path => _effects.SelectAsync(path, effect));
+
+    public Task UndoEffectAsync() => UpdateEffectAsync(path => _effects.MoveHistoryAsync(path, undo: true));
+    public Task RedoEffectAsync() => UpdateEffectAsync(path => _effects.MoveHistoryAsync(path, undo: false));
+
+    private async Task UpdateEffectAsync(Func<string, Task<ImageEditRenderer.RenderedPixels>> render)
     {
         var entry = CurrentEntry;
         if (entry is null || IsVideo || IsApplyingEffect) return;
@@ -29,7 +37,7 @@ public partial class ImageViewerViewModel : ObservableObject
         var version = ++_loadVersion;
         try
         {
-            var rendered = await _effects.SelectAsync(entry.FilePath, effect);
+            var rendered = await render(entry.FilePath);
             var bitmap = await CreateRecipeBitmapAsync(rendered);
             if (version == _loadVersion && ReferenceEquals(entry, CurrentEntry))
             {
