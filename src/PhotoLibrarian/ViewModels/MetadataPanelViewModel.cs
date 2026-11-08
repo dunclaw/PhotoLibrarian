@@ -295,8 +295,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             FocalLength = single.FocalLength.HasValue ? $"{single.FocalLength:F1} mm" : "";
             Aperture = single.Aperture.HasValue ? $"f/{single.Aperture:F1}" : "";
             Iso = single.Iso?.ToString() ?? "";
-            GpsLatitude = single.GpsLatitude.HasValue ? $"{single.GpsLatitude:F4}" : "";
-            GpsLongitude = single.GpsLongitude.HasValue ? $"{single.GpsLongitude:F4}" : "";
+            GpsLatitude = single.GpsLatitude.HasValue ? $"{single.GpsLatitude:F6}" : "";
+            GpsLongitude = single.GpsLongitude.HasValue ? $"{single.GpsLongitude:F6}" : "";
             MediaType = single.MediaType == Core.Models.MediaType.Video ? "Video" : "Photo";
             Author = "";
 
@@ -341,8 +341,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             FocalLength = CommonStringOrMixed(_entries, e => e.FocalLength.HasValue ? $"{e.FocalLength:F1} mm" : "");
             Aperture = CommonStringOrMixed(_entries, e => e.Aperture.HasValue ? $"f/{e.Aperture:F1}" : "");
             Iso = CommonStringOrMixed(_entries, e => e.Iso?.ToString() ?? "");
-            GpsLatitude = CommonStringOrMixed(_entries, e => e.GpsLatitude.HasValue ? $"{e.GpsLatitude:F4}" : "");
-            GpsLongitude = CommonStringOrMixed(_entries, e => e.GpsLongitude.HasValue ? $"{e.GpsLongitude:F4}" : "");
+            GpsLatitude = CommonStringOrMixed(_entries, e => e.GpsLatitude.HasValue ? $"{e.GpsLatitude:F6}" : "");
+            GpsLongitude = CommonStringOrMixed(_entries, e => e.GpsLongitude.HasValue ? $"{e.GpsLongitude:F6}" : "");
 
             var types = _entries.Select(e => e.MediaType).Distinct().ToList();
             MediaType = types.Count == 1
@@ -455,9 +455,9 @@ public partial class MetadataPanelViewModel : ObservableObject
             if (string.IsNullOrWhiteSpace(Camera))
                 Camera = FormatCamera(metadata.CameraMake, metadata.CameraModel);
             if (!entry.GpsLatitude.HasValue && metadata.Latitude.HasValue)
-                GpsLatitude = metadata.Latitude.Value.ToString("F4", CultureInfo.CurrentCulture);
+                GpsLatitude = metadata.Latitude.Value.ToString("F6", CultureInfo.CurrentCulture);
             if (!entry.GpsLongitude.HasValue && metadata.Longitude.HasValue)
-                GpsLongitude = metadata.Longitude.Value.ToString("F4", CultureInfo.CurrentCulture);
+                GpsLongitude = metadata.Longitude.Value.ToString("F6", CultureInfo.CurrentCulture);
             if (metadata.ExtractionError is not null)
                 VideoMetadataError = FormatVideoMetadataError(entry.FileName, metadata.ExtractionError);
         }
@@ -891,10 +891,10 @@ public partial class MetadataPanelViewModel : ObservableObject
 
         GpsLatitude = CommonStringOrMixed(
             _entries,
-            entry => entry.GpsLatitude.HasValue ? $"{entry.GpsLatitude:F4}" : "");
+            entry => entry.GpsLatitude.HasValue ? $"{entry.GpsLatitude:F6}" : "");
         GpsLongitude = CommonStringOrMixed(
             _entries,
-            entry => entry.GpsLongitude.HasValue ? $"{entry.GpsLongitude:F4}" : "");
+            entry => entry.GpsLongitude.HasValue ? $"{entry.GpsLongitude:F6}" : "");
 
         if (_main is not null && appliedCount > 0)
             await _main.ImageGrid.RefreshGroupingAsync();

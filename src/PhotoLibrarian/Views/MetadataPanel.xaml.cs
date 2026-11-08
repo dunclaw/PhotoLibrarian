@@ -27,6 +27,8 @@ public sealed partial class MetadataPanel : UserControl
     private string _lastLoadedCaption = "";
     private bool _suppressDateBoxLostFocus;
     private string _lastLoadedDateText = "";
+    private string _lastLoadedGeotagLatitude = "";
+    private string _lastLoadedGeotagLongitude = "";
 
     // Accepted date formats (in order). M/d/yyyy h:mm tt is the canonical one shown to user.
     private static readonly string[] AcceptedDateFormats = new[]
@@ -184,6 +186,8 @@ public sealed partial class MetadataPanel : UserControl
         // Geotag inputs stay in the details panel so coordinates can be edited without a modal.
         GeotagLatitudeBox.Text = ViewModel.GpsLatitude == "Multiple values" ? "" : ViewModel.GpsLatitude;
         GeotagLongitudeBox.Text = ViewModel.GpsLongitude == "Multiple values" ? "" : ViewModel.GpsLongitude;
+        _lastLoadedGeotagLatitude = GeotagLatitudeBox.Text;
+        _lastLoadedGeotagLongitude = GeotagLongitudeBox.Text;
         GeotagLatitudeBox.PlaceholderText = ViewModel.GpsLatitude == "Multiple values"
             ? "Multiple values"
             : "-90 to 90";
@@ -192,13 +196,9 @@ public sealed partial class MetadataPanel : UserControl
             : "-180 to 180";
         GeotagLatitudeBox.IsEnabled = ViewModel.CanEditGeotag;
         GeotagLongitudeBox.IsEnabled = ViewModel.CanEditGeotag;
-        ApplyGeotagButton.IsEnabled = ViewModel.CanEditGeotag;
-        ApplyGeotagButton.Content = ViewModel.IsMultiSelect
-            ? $"Apply to {ViewModel.SelectionCount} photos"
-            : "Apply coordinates";
         GeotagEditHint.Text = ViewModel.IsMultiSelect
-            ? $"Applying replaces the GPS location on all {ViewModel.SelectionCount} selected photos with these coordinates. Embedded edits create local backups first."
-            : "Applying replaces this photo's GPS location. An embedded edit creates a local backup first.";
+            ? $"The same coordinates are saved to all {ViewModel.SelectionCount} selected photos when you finish editing."
+            : "Changes are saved when you finish editing.";
         GeotagValidationMessage.Visibility = Visibility.Collapsed;
         GeotagAvailabilityHint.Visibility = ViewModel.CanEditGeotag
             ? Visibility.Collapsed
@@ -288,7 +288,24 @@ public sealed partial class MetadataPanel : UserControl
         App.ViewModel.StatusText = PhotoClipboardService.CopyText(value, description);
     }
 
-    private async void OnApplyGeotagClick(object sender, RoutedEventArgs e)
+    private void OnGeotagCoordinateLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (ReferenceEquals(FocusManager.GetFocusedElement(), GeotagLatitudeBox) ||
+            ReferenceEquals(FocusManager.GetFocusedElement(), GeotagLongitudeBox))
+        {
+            return;
+        }
+
+        if (GeotagLatitudeBox.Text == _lastLoadedGeotagLatitude &&
+            GeotagLongitudeBox.Text == _lastLoadedGeotagLongitude)
+        {
+            return;
+        }
+
+        _ = SaveGeotagCoordinatesAsync();
+    }
+
+    private async Task SaveGeotagCoordinatesAsync()
     {
         if (ViewModel is not { HasImage: true, CanEditGeotag: true } viewModel)
             return;
@@ -332,6 +349,8 @@ public sealed partial class MetadataPanel : UserControl
             {
                 GeotagLatitudeBox.Text = viewModel.GpsLatitude == "Multiple values" ? "" : viewModel.GpsLatitude;
                 GeotagLongitudeBox.Text = viewModel.GpsLongitude == "Multiple values" ? "" : viewModel.GpsLongitude;
+                _lastLoadedGeotagLatitude = GeotagLatitudeBox.Text;
+                _lastLoadedGeotagLongitude = GeotagLongitudeBox.Text;
             }
 
             if (result.Failures.Count > 0)
@@ -365,15 +384,6 @@ public sealed partial class MetadataPanel : UserControl
     {
         GeotagValidationMessage.Text = message;
         GeotagValidationMessage.Visibility = Visibility.Visible;
-    }
-
-    private void OnGeotagCoordinateKeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key != Windows.System.VirtualKey.Enter)
-            return;
-
-        e.Handled = true;
-        OnApplyGeotagClick(ApplyGeotagButton, new RoutedEventArgs());
     }
 
     private void OnAddPeopleTagsClick(object sender, RoutedEventArgs e) =>
