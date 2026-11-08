@@ -106,6 +106,9 @@ public partial class MetadataPanelViewModel : ObservableObject
     [ObservableProperty]
     public partial int SelectionCount { get; set; }
 
+    public IReadOnlyList<string> SelectedFilePaths =>
+        _entries.Select(entry => entry.FilePath).ToArray();
+
     [ObservableProperty]
     public partial bool CanEditGeotag { get; set; }
 
@@ -225,6 +228,25 @@ public partial class MetadataPanelViewModel : ObservableObject
     public partial string VideoMetadataError { get; set; } = "";
 
     private const string MixedMarker = "Multiple values";
+
+    public string GpsCoordinates
+    {
+        get
+        {
+            if (_entries.Count == 0) return "";
+
+            var coordinates = _entries
+                .Select(entry =>
+                    entry.GpsLatitude.HasValue && entry.GpsLongitude.HasValue
+                        ? $"{entry.GpsLatitude.Value.ToString("0.################", CultureInfo.InvariantCulture)}, " +
+                          entry.GpsLongitude.Value.ToString("0.################", CultureInfo.InvariantCulture)
+                        : "")
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            return coordinates.Count == 1 ? coordinates[0] : "";
+        }
+    }
 
     public MetadataPanelViewModel() { }
 
@@ -897,7 +919,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             entry => entry.GpsLongitude.HasValue ? $"{entry.GpsLongitude:F6}" : "");
 
         if (_main is not null && appliedCount > 0)
-            await _main.ImageGrid.RefreshGroupingAsync();
+            await _main.ImageGrid.RefreshWatchedItemsAsync(
+                entries.Select(entry => entry.FilePath).ToArray());
 
         return new GeotagBatchResult(appliedCount, entries.Count, sidecarCount, failures);
     }

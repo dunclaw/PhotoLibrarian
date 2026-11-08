@@ -110,40 +110,12 @@
                             Margin="0,2,0,0" />
 
                     <TextBlock Text="Geotag" Style="{StaticResource SectionHeaderStyle}" />
-                    <Grid Margin="0,4,0,0" ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="GeotagLatitudeBox"
-                                 Header="Latitude"
-                                 PlaceholderText="-90 to 90"
-                                 AutomationProperties.AutomationId="GeotagLatitudeBox"
-                                 AutomationProperties.Name="Latitude in decimal degrees"
-                                 LostFocus="OnGeotagCoordinateLostFocus" />
-                        <TextBox x:Name="GeotagLongitudeBox"
-                                 Grid.Column="1"
-                                 Header="Longitude"
-                                 PlaceholderText="-180 to 180"
-                                 AutomationProperties.AutomationId="GeotagLongitudeBox"
-                                 AutomationProperties.Name="Longitude in decimal degrees"
-                                 LostFocus="OnGeotagCoordinateLostFocus" />
-                    </Grid>
-                    <TextBlock x:Name="GeotagEditHint"
-                               Style="{StaticResource PlaceholderStyle}"
-                               Margin="0,4,0,0"
-                               TextWrapping="Wrap" />
-                    <TextBlock x:Name="GeotagValidationMessage"
-                               Visibility="Collapsed"
-                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                               Margin="0,4,0,0"
-                               TextWrapping="Wrap" />
-                    <TextBlock x:Name="GeotagAvailabilityHint"
-                               Visibility="Collapsed"
-                               Text="Geotag editing is available for photo selections only."
-                               Style="{StaticResource PlaceholderStyle}"
-                               Margin="0,2,0,0"
-                               TextWrapping="Wrap" />
+                    <TextBox x:Name="GeotagCoordinatesBox"
+                             PlaceholderText="latitude, longitude"
+                             AutomationProperties.AutomationId="GeotagCoordinatesBox"
+                             AutomationProperties.Name="Latitude and longitude"
+                             TextChanged="OnGeotagCoordinatesTextChanged"
+                             LostFocus="OnGeotagCoordinatesLostFocus" />
 
                     <TextBlock Text="Caption" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBox x:Name="CaptionBox"

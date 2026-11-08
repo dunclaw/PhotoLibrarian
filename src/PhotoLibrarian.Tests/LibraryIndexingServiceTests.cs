@@ -375,7 +375,12 @@ public sealed class LibraryIndexingServiceTests
             using var changes = new WatchedFolderChangeService(
                 scanner, indexer, images, TimeSpan.FromMilliseconds(250));
             var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            changes.LibraryChanged += (_, _) => changed.TrySetResult();
+            WatchedFolderChangeService.WatchedLibraryChangedEventArgs? changeArgs = null;
+            changes.LibraryChanged += (_, args) =>
+            {
+                changeArgs = args;
+                changed.TrySetResult();
+            };
             scanner.SyncWatchedFolders([(directory, false)]);
 
             await new FaceMetadataStore().WriteAsync(
@@ -383,6 +388,9 @@ public sealed class LibraryIndexingServiceTests
                 new PhotoFaceMetadata(16, 12, []));
 
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.NotNull(changeArgs);
+            Assert.False(changeArgs.RequiresGridReload);
+            Assert.Contains(imagePath, changeArgs.ChangedImagePaths);
             Assert.Equal(Path.ChangeExtension(imagePath, ".xmp"),
                 (await images.GetByPathAsync(imagePath))!.FaceSidecarPath);
         }

@@ -78,6 +78,7 @@ public partial class ImageGridViewModel : ObservableObject
     private string _searchText = "";
     private IReadOnlyList<ImageEntry> _searchScope = [];
     private int _groupingVersion;
+    private int _gridDataUpdateDepth;
     private string? _currentSortBy = "date_taken";
     private CancellationTokenSource? _loadCts;
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
@@ -101,7 +102,7 @@ public partial class ImageGridViewModel : ObservableObject
     public bool RequiresTagData => Refinement.RequiresTags || _currentNotTaggedSelected;
 
     public event EventHandler? ResultsChanged;
-    public event EventHandler? SelectionRestoreRequested;
+    public event EventHandler<SelectionRestoreRequestedEventArgs>? SelectionRestoreRequested;
 
     /// <summary>Keep a newly exported copy visible until the user changes the browsing filters.</summary>
     public void RevealExportedVideo(string path) => _revealedExportPath = path;
@@ -222,6 +223,19 @@ public partial class ImageGridViewModel : ObservableObject
     }
     
     public async Task LoadImagesAsync()
+    {
+        _gridDataUpdateDepth++;
+        try
+        {
+            await LoadImagesCoreAsync();
+        }
+        finally
+        {
+            _gridDataUpdateDepth--;
+        }
+    }
+
+    private async Task LoadImagesCoreAsync()
     {
         ++_groupingVersion;
         // Cancel any pending thumbnail loads from previous folder
@@ -1107,12 +1121,119 @@ public partial class ImageGridViewModel : ObservableObject
         }
     }
 
+    public async Task RefreshWatchedItemsAsync(IReadOnlyCollection<string> filePaths)
+    {
+        var requiresReload = RequiresTagData ||
+            _currentTagRootSelected ||
+            (_currentTagFilters is not null && _currentTagFilters.Count > 0) ||
+            Refinement.PersonId.HasValue ||
+            _currentPeopleRootSelected ||
+            (_currentPersonFilters is not null && _currentPersonFilters.Count > 0);
+        var requiresRegroup = false;
+
+        foreach (var filePath in filePaths.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var updatedEntry = await _imageRepo.GetByPathAsync(filePath);
+            if (updatedEntry is null)
+                continue;
+
+            var item = Images.FirstOrDefault(image =>
+                string.Equals(image.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+            if (item is null)
+                continue;
+
+            var previousEntry = item.Entry;
+            requiresReload |= DoesActiveFilterDependOnChangedMetadata(previousEntry, updatedEntry);
+            requiresRegroup |= DoesCurrentOrderingDependOnChangedMetadata(previousEntry, updatedEntry);
+            item.UpdateEntry(updatedEntry);
+            await RefreshSingleImageAsync(filePath);
+        }
+
+        if (requiresReload)
+        {
+            await LoadImagesAsync();
+        }
+        else if (requiresRegroup)
+        {
+            await ApplyGroupingAsync();
+        }
+        else
+        {
+            RefreshMetadataFromSelection();
+        }
+    }
+
+    private bool DoesActiveFilterDependOnChangedMetadata(ImageEntry previous, ImageEntry current)
+    {
+        var missing = Refinement.MissingMetadata;
+        var dateChanged = previous.DateTaken != current.DateTaken;
+        var ratingChanged = previous.Rating != current.Rating;
+        var geotagChanged = previous.GpsLatitude != current.GpsLatitude ||
+                            previous.GpsLongitude != current.GpsLongitude;
+        var faceDataChanged = previous.FaceSidecarPath != current.FaceSidecarPath ||
+                              previous.FaceSidecarSize != current.FaceSidecarSize ||
+                              previous.FaceSidecarModified != current.FaceSidecarModified ||
+                              previous.FaceScanVersion != current.FaceScanVersion;
+
+        return (Refinement.Rating.HasValue || missing.HasFlag(MissingMetadataFilter.Rating)) &&
+                   ratingChanged ||
+               (Refinement.DateFrom.HasValue || Refinement.DateTo.HasValue ||
+                missing.HasFlag(MissingMetadataFilter.CaptureDate) ||
+                _currentDateRootSelected ||
+                (_currentYearFilters is not null && _currentYearFilters.Count > 0) ||
+                (_currentMonthFilters is not null && _currentMonthFilters.Count > 0)) &&
+                   dateChanged ||
+               missing.HasFlag(MissingMetadataFilter.Geotag) && geotagChanged ||
+               (Refinement.RequiresPeople || _currentPeopleRootSelected ||
+                (_currentPersonFilters is not null && _currentPersonFilters.Count > 0)) &&
+                   faceDataChanged;
+    }
+
+    private bool DoesCurrentOrderingDependOnChangedMetadata(ImageEntry previous, ImageEntry current)
+    {
+        var groupKeyChanged = GroupBy switch
+        {
+            GroupByOption.YearTaken or GroupByOption.MonthTaken =>
+                previous.DateTaken != current.DateTaken,
+            GroupByOption.FileSize => previous.FileSize != current.FileSize,
+            GroupByOption.ImageSize =>
+                previous.Width != current.Width || previous.Height != current.Height,
+            GroupByOption.Rating => previous.Rating != current.Rating,
+            GroupByOption.Camera =>
+                previous.CameraMake != current.CameraMake || previous.CameraModel != current.CameraModel,
+            _ => false
+        };
+        var sortKeyChanged = SortBy switch
+        {
+            SortByOption.DateTaken => previous.DateTaken != current.DateTaken,
+            SortByOption.DateModified => previous.DateModified != current.DateModified,
+            SortByOption.FileSize => previous.FileSize != current.FileSize,
+            SortByOption.Rating => previous.Rating != current.Rating,
+            _ => false
+        };
+
+        return groupKeyChanged || sortKeyChanged;
+    }
+
     /// <summary>
     /// Groups the Images collection into GroupedImages based on the current GroupBy setting.
     /// Sorts items within each group based on SortBy setting.
     /// Runs on background thread to avoid UI blocking with large collections.
     /// </summary>
     private async Task ApplyGroupingAsync()
+    {
+        _gridDataUpdateDepth++;
+        try
+        {
+            await ApplyGroupingCoreAsync();
+        }
+        finally
+        {
+            _gridDataUpdateDepth--;
+        }
+    }
+
+    private async Task ApplyGroupingCoreAsync()
     {
         var version = ++_groupingVersion;
         var currentGroupBy = GroupBy;
@@ -1466,7 +1587,7 @@ public partial class ImageGridViewModel : ObservableObject
         var item = Images.FirstOrDefault(image =>
             string.Equals(image.Entry.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
         UpdateSelection(item is null ? [] : [item], item);
-        SelectionRestoreRequested?.Invoke(this, EventArgs.Empty);
+        SelectionRestoreRequested?.Invoke(this, new SelectionRestoreRequestedEventArgs(scrollIntoView: true));
     }
 
     /// <summary>
@@ -1475,6 +1596,9 @@ public partial class ImageGridViewModel : ObservableObject
     /// </summary>
     public void UpdateSelection(IReadOnlyList<ImageThumbnailViewModel> selected, ImageThumbnailViewModel? primary)
     {
+        if (_gridDataUpdateDepth > 0 && selected.Count == 0)
+            return;
+
         _selectedPaths.Clear();
         foreach (var item in selected)
             _selectedPaths.Add(item.Entry.FilePath);
@@ -1501,7 +1625,12 @@ public partial class ImageGridViewModel : ObservableObject
         SelectedImages.Clear();
         SelectedImages.AddRange(visibleSelection);
         SelectedImage = primary;
+        _selectedPaths.Clear();
+        foreach (var item in visibleSelection)
+            _selectedPaths.Add(item.Entry.FilePath);
+        _primarySelectedPath = primary?.Entry.FilePath;
         RefreshMetadataFromSelection();
+        SelectionRestoreRequested?.Invoke(this, new SelectionRestoreRequestedEventArgs(scrollIntoView: false));
     }
 
     /// <summary>The filtered photos in the order the grid shows them (group order, then sort).</summary>
@@ -1580,12 +1709,17 @@ public partial class ImageGridViewModel : ObservableObject
     }
 }
 
+public sealed class SelectionRestoreRequestedEventArgs(bool scrollIntoView) : EventArgs
+{
+    public bool ScrollIntoView { get; } = scrollIntoView;
+}
+
 public partial class ImageThumbnailViewModel : ObservableObject
 {
     private readonly CancellationToken _cancellationToken;
     private bool _thumbnailLoaded;
 
-    public ImageEntry Entry { get; }
+    public ImageEntry Entry { get; private set; }
     
     /// <summary>
     /// Current index in the Images collection. Updated when items are added/removed.
@@ -1613,6 +1747,18 @@ public partial class ImageThumbnailViewModel : ObservableObject
         _cancellationToken = cancellationToken;
 
         IsLoading = true; // This initial set is OK (happens before binding)
+    }
+
+    public void UpdateEntry(ImageEntry entry)
+    {
+        Entry = entry;
+        OnPropertyChanged(nameof(FileName));
+        OnPropertyChanged(nameof(DateDisplay));
+        OnPropertyChanged(nameof(Rating));
+        OnPropertyChanged(nameof(IsFlagged));
+        OnPropertyChanged(nameof(FlagVisibility));
+        OnPropertyChanged(nameof(IsVideo));
+        OnPropertyChanged(nameof(VideoIconVisibility));
     }
 
     internal static ImageThumbnailViewModel CreateForRefresh(

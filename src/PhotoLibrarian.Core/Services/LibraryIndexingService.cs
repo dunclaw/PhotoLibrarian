@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Diagnostics;
 using PhotoLibrarian.Core.Models;
@@ -72,7 +74,7 @@ public sealed class LibraryIndexingService
     /// <summary>
     /// Indexes a folder: scans files, reads metadata, generates thumbnails.
     /// </summary>
-    public async Task IndexFolderAsync(string folderPath, bool includeSubfolders = true, CancellationToken ct = default)
+    public async Task<bool> IndexFolderAsync(string folderPath, bool includeSubfolders = true, CancellationToken ct = default)
     {
         int processed = 0;
         int skipped = 0;
@@ -122,6 +124,7 @@ public sealed class LibraryIndexingService
 
         DebugLog.WriteLine($"IndexFolderAsync: Complete - processed={processed}, skipped={skipped}, errors={errors}");
         Progress?.Invoke(this, new IndexingProgressEventArgs(processed, skipped, folderPath, isComplete: true));
+        return processed > 0;
     }
 
     /// <summary>Indexes a single changed file without rescanning its containing folder.</summary>
