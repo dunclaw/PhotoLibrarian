@@ -400,6 +400,37 @@ Backup: {3}
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
+  <data name="VideoEditDialog.Title" xml:space="preserve"><value>Rotate / remove audio</value></data>
+  <data name="VideoEditDialog.PrimaryButtonText" xml:space="preserve"><value>Export edited copy</value></data>
+  <data name="VideoEditDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
+  <data name="VideoEditRotation.Header" xml:space="preserve"><value>Rotate from current orientation</value></data>
+  <data name="VideoEditRotationNone.Content" xml:space="preserve"><value>No rotation</value></data>
+  <data name="VideoEditRotation90.Content" xml:space="preserve"><value>90 degrees clockwise</value></data>
+  <data name="VideoEditRotation180.Content" xml:space="preserve"><value>180 degrees</value></data>
+  <data name="VideoEditRotation270.Content" xml:space="preserve"><value>90 degrees counterclockwise</value></data>
+  <data name="VideoEditRemoveAudio.Content" xml:space="preserve"><value>Remove audio track</value></data>
+  <data name="VideoEditOutput.Header" xml:space="preserve"><value>New MP4 file</value></data>
+  <data name="VideoEditChooseFolder.Content" xml:space="preserve"><value>Choose output folder...</value></data>
+  <data name="VideoEditNotice.Text" xml:space="preserve"><value>Prepare creates a temporary H.264/AAC MP4 of the whole clip locally, then you can play it before saving that exact copy. This can take time and requires free space for the preview and saved copy. Rotation uses standard MP4 orientation metadata; players must honor it. Up to 4096 pixels per dimension. The source and its sidecars are never changed. Tags, ratings and descriptions travel in a new XMP sidecar; face regions, HDR fidelity, subtitles, extra tracks and camera-specific metadata are not preserved. No slow motion, interpolation, face tracking, color effects or music mixing is applied.</value></data>
+  <data name="VideoEditPrepare.Content" xml:space="preserve"><value>Prepare preview</value></data>
+  <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Choose an edit, then prepare the preview before saving.</value></data>
+  <data name="VideoEditCleanupFailed" xml:space="preserve"><value>Could not remove temporary preview at {0}: {1}</value></data>
+  <data name="VideoEditProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preparing or saving edited video</value></data>
+  <data name="VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edited video preview</value></data>
+  <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate video or remove audio</value></data>
+  <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Preview rotation and audio removal, then export a new copy</value></data>
+  <data name="VideoEditRibbonCaption.Text" xml:space="preserve"><value>Rotate / Audio</value></data>
+  <data name="VideoEditPreparing" xml:space="preserve"><value>Preparing the edited copy for preview...</value></data>
+  <data name="VideoEditPreviewReady" xml:space="preserve"><value>Play the edited copy to review it, then export to save it. Changing an edit requires preparing a new preview.</value></data>
+  <data name="VideoEditPreviewFailed" xml:space="preserve"><value>Windows could not preview this video: {0}</value></data>
+  <data name="VideoEditExporting" xml:space="preserve"><value>Exporting edited video...</value></data>
+  <data name="VideoEditCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
+  <data name="VideoEditCanceling" xml:space="preserve"><value>Canceling export...</value></data>
+  <data name="VideoEditCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="VideoEditClose" xml:space="preserve"><value>Close</value></data>
+  <data name="VideoEditRevealFailed" xml:space="preserve"><value>Copy saved at {0}, but could not be opened in the library: {1}</value></data>
+  <data name="VideoEditOpenFailed" xml:space="preserve"><value>Could not open video editing: {0}</value></data>
+  <data name="VideoEditOpened" xml:space="preserve"><value>Opened edited copy: {0}</value></data>
   <data name="ViewerPhotoSurface.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve">
     <value>Use Left and Right to browse photos. Tab moves to viewer controls and the ribbon.</value>
   </data>

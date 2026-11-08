@@ -176,6 +176,14 @@
 
             <StackPanel x:Name="VideoTools" Orientation="Horizontal" VerticalAlignment="Center"
                         Visibility="Collapsed">
+                <Button x:Uid="VideoEditRibbon" Click="OnEditVideoClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonEditVideo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE70F;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="VideoEditRibbonCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button Click="OnStabilizeVideoClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonStabilizeVideo"

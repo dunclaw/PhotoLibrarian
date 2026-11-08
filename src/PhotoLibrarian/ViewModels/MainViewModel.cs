@@ -1256,7 +1256,11 @@ public partial class MainViewModel : ObservableObject
         StatusText = PanoramaStrings.Format("PanoramaCreatedStatus", entry.FileName);
     }
 
-    public async Task OpenStabilizedVideoAsync(string path)
+    public Task OpenStabilizedVideoAsync(string path) => OpenVideoCopyAsync(path, edited: false);
+
+    public Task OpenEditedVideoAsync(string path) => OpenVideoCopyAsync(path, edited: true);
+
+    private async Task OpenVideoCopyAsync(string path, bool edited)
     {
         await _indexingService.IndexFileAsync(path);
         var copy = await _imageRepo.GetByPathAsync(path)
@@ -1267,7 +1271,7 @@ public partial class MainViewModel : ObservableObject
             string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
             ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
         ImageViewer.OpenExportedVideo(copy);
-        StatusText = $"Opened stabilized copy: {path}";
+        StatusText = edited ? Services.VideoEditStrings.Format("VideoEditOpened", path) : $"Opened stabilized copy: {path}";
     }
 
     public async Task OpenTrimmedVideoAsync(string path)

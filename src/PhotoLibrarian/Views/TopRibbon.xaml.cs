@@ -25,6 +25,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? SlideshowClicked;
     public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
     public event EventHandler? StabilizeVideoClicked;
+    public event EventHandler? EditVideoClicked;
     public event EventHandler? TrimVideoClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
@@ -176,6 +177,8 @@ public sealed partial class TopRibbon : UserControl
     };
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
         StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);
+    private void OnEditVideoClick(object sender, RoutedEventArgs e) =>
+        EditVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnTrimVideoClick(object sender, RoutedEventArgs e) =>
         TrimVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
