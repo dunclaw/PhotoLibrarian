@@ -1,5 +1,4 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
-
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Diagnostics;
 using PhotoLibrarian.Core.Models;
@@ -94,7 +93,8 @@ public sealed class WatchedFolderChangeService : IDisposable
                         var directoryChanged = await _indexer.IndexFolderAsync(
                             directory,
                             true,
-                            _shutdown.Token);
+                            _shutdown.Token,
+                            verifyContent: true);
                         changed |= directoryChanged;
                         requiresGridReload |= directoryChanged;
                     }

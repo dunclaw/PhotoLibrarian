@@ -490,6 +490,11 @@
                             <TextBlock Grid.Column="0" Text="Longitude:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoLongitude" Style="{StaticResource InfoValueStyle}" />
                         </Grid>
+                        <Grid x:Name="InfoPlaceNameRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Place:" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoPlaceName" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
                         <Grid Margin="0,4,0,0" ColumnSpacing="4">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Path:" Style="{StaticResource InfoLabelStyle}"

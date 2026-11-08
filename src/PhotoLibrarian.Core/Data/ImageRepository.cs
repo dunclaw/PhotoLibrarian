@@ -25,11 +25,12 @@ public sealed partial class ImageRepository
             INSERT INTO images (file_path, file_name, file_hash, file_size, width, height,
                                 date_taken, date_modified, camera_make, camera_model, lens_model,
                                 focal_length, aperture, exposure_time, iso, gps_latitude, gps_longitude,
-                                rating, orientation, media_type, video_duration, is_flagged, caption, title,
-                                search_metadata_indexed)
+                                place_name, rating, orientation, media_type, video_duration, is_flagged, caption, title,
+                                search_metadata_indexed, source_identity, metadata_stamp, metadata_hash)
             VALUES ($path, $name, $hash, $size, $w, $h, $taken, $modified,
                     $make, $model, $lens, $focal, $aperture, $exposure, $iso,
-                    $lat, $lon, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title, 1)
+                    $lat, $lon, $place, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title,
+                    1, $sourceIdentity, $metadataStamp, $metadataHash)
             ON CONFLICT(file_path) DO UPDATE SET
                 file_name=excluded.file_name, caption=excluded.caption, title=excluded.title,
                 search_metadata_indexed=1,
@@ -40,18 +41,24 @@ public sealed partial class ImageRepository
                 lens_model=excluded.lens_model, focal_length=excluded.focal_length,
                 aperture=excluded.aperture, exposure_time=excluded.exposure_time,
                 iso=excluded.iso, gps_latitude=excluded.gps_latitude,
-                gps_longitude=excluded.gps_longitude, rating=excluded.rating,
+                gps_longitude=excluded.gps_longitude, place_name=excluded.place_name, rating=excluded.rating,
                 orientation=excluded.orientation, media_type=excluded.media_type,
                 video_duration=excluded.video_duration,
+                source_identity=excluded.source_identity,
+                metadata_stamp=excluded.metadata_stamp, metadata_hash=excluded.metadata_hash,
                 face_scan_version=CASE
-                    WHEN images.file_size <> excluded.file_size
-                      OR images.date_modified <> excluded.date_modified
+                    WHEN (excluded.source_identity IS NOT NULL AND
+                          images.source_identity IS NOT excluded.source_identity)
+                      OR (excluded.source_identity IS NULL AND
+                          (images.file_size <> excluded.file_size OR images.date_modified <> excluded.date_modified))
                     THEN NULL
                     ELSE images.face_scan_version
                 END,
                 auto_tag_scan_version=CASE
-                    WHEN images.file_size <> excluded.file_size
-                      OR images.date_modified <> excluded.date_modified
+                    WHEN (excluded.source_identity IS NOT NULL AND
+                          images.source_identity IS NOT excluded.source_identity)
+                      OR (excluded.source_identity IS NULL AND
+                          (images.file_size <> excluded.file_size OR images.date_modified <> excluded.date_modified))
                     THEN NULL
                     ELSE images.auto_tag_scan_version
                 END
@@ -63,6 +70,9 @@ public sealed partial class ImageRepository
         cmd.Parameters.AddWithValue("$path", image.FilePath);
         cmd.Parameters.AddWithValue("$name", image.FileName);
         cmd.Parameters.AddWithValue("$hash", (object?)image.FileHash ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$sourceIdentity", (object?)image.SourceIdentity ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$metadataStamp", (object?)image.MetadataStamp ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$metadataHash", (object?)image.MetadataHash ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$size", image.FileSize);
         cmd.Parameters.AddWithValue("$w", image.Width);
         cmd.Parameters.AddWithValue("$h", image.Height);
@@ -77,6 +87,7 @@ public sealed partial class ImageRepository
         cmd.Parameters.AddWithValue("$iso", (object?)image.Iso ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lat", (object?)image.GpsLatitude ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lon", (object?)image.GpsLongitude ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$place", (object?)image.PlaceName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$rating", (object?)image.Rating ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$orient", image.Orientation);
         cmd.Parameters.AddWithValue("$mediatype", (int)image.MediaType);
@@ -423,6 +434,16 @@ public sealed partial class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdatePlaceNameAsync(long imageId, string placeName)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET place_name = $place WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$place", placeName);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     internal static ImageEntry ReadImageEntry(SqliteDataReader reader)
     {
         return new ImageEntry
@@ -435,6 +456,9 @@ public sealed partial class ImageRepository
             SearchMetadataIndexed = ReadBoolean(reader, "search_metadata_indexed"),
             FileHash = reader.IsDBNull(reader.GetOrdinal("file_hash")) ? null : reader.GetString(reader.GetOrdinal("file_hash")),
             FileSize = reader.GetInt64(reader.GetOrdinal("file_size")),
+            SourceIdentity = ReadNullableString(reader, "source_identity"),
+            MetadataStamp = ReadNullableString(reader, "metadata_stamp"),
+            MetadataHash = ReadNullableString(reader, "metadata_hash"),
             Width = reader.GetInt32(reader.GetOrdinal("width")),
             Height = reader.GetInt32(reader.GetOrdinal("height")),
             DateTaken = reader.IsDBNull(reader.GetOrdinal("date_taken"))
@@ -462,6 +486,7 @@ public sealed partial class ImageRepository
             Iso = reader.IsDBNull(reader.GetOrdinal("iso")) ? null : reader.GetInt32(reader.GetOrdinal("iso")),
             GpsLatitude = reader.IsDBNull(reader.GetOrdinal("gps_latitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_latitude")),
             GpsLongitude = reader.IsDBNull(reader.GetOrdinal("gps_longitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_longitude")),
+            PlaceName = ReadNullableString(reader, "place_name"),
             Rating = reader.IsDBNull(reader.GetOrdinal("rating")) ? null : reader.GetInt32(reader.GetOrdinal("rating")),
             Orientation = reader.GetInt32(reader.GetOrdinal("orientation")),
             MediaType = (MediaType)reader.GetInt32(reader.GetOrdinal("media_type")),

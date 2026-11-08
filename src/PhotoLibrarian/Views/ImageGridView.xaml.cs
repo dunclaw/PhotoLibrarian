@@ -7,9 +7,12 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.Graphics.Imaging;
 
 namespace PhotoLibrarian.Views;
 
@@ -18,9 +21,11 @@ public sealed partial class ImageGridView : UserControl
     private ImageGridViewModel? ViewModel => App.ViewModel?.ImageGrid;
     public event RoutedEventHandler? PeopleReviewRequested;
     public event RoutedEventHandler? DuplicateReviewRequested;
+    public event RoutedEventHandler? ImportRequested;
     private bool _isInitialized;
     private bool _isExporting;
     private bool _isSharing;
+    private bool _isStitching;
     private readonly PhotoShareService _shareService = new();
 
     public ImageGridView()
@@ -35,6 +40,9 @@ public sealed partial class ImageGridView : UserControl
 
     private void OnDuplicateReviewClick(object sender, RoutedEventArgs e) =>
         DuplicateReviewRequested?.Invoke(sender, e);
+
+    private void OnImportClick(object sender, RoutedEventArgs e) =>
+        ImportRequested?.Invoke(sender, e);
 
     /// <summary>Highlights the given face's rectangle over its image's grid thumbnail, if
     /// currently rendered. Pass null to clear. Forwarded from the Browse panel on hover.</summary>
@@ -593,6 +601,43 @@ public sealed partial class ImageGridView : UserControl
     private void OnSlideshowClick(object sender, RoutedEventArgs e) =>
         SlideshowRequested?.Invoke(this, null);
 
+    public Task DeleteSelectedAsync() => DeleteItemsAsync(GetSelectedItems());
+
+    public Task RotateSelectedAsync(bool clockwise) =>
+        RotateItemsAsync(GetSelectedItems(), clockwise);
+
+    private IReadOnlyList<ImageThumbnailViewModel> GetSelectedItems()
+    {
+        if (ViewModel is null) return Array.Empty<ImageThumbnailViewModel>();
+        if (ViewModel.SelectedImages.Count > 0) return ViewModel.SelectedImages.ToArray();
+        return ViewModel.SelectedImage is { } selected
+            ? [selected]
+            : Array.Empty<ImageThumbnailViewModel>();
+    }
+
+    private async Task DeleteItemsAsync(IReadOnlyList<ImageThumbnailViewModel> selected)
+    {
+        if (ViewModel is null || selected.Count == 0) return;
+        var deleted = await App.ViewModel!.PhotoOps.DeleteToRecycleBinAsync(
+            selected.Select(vm => vm.Entry));
+        if (deleted.Count > 0)
+            await ViewModel.LoadImagesAsync();
+    }
+
+    private async Task RotateItemsAsync(
+        IReadOnlyList<ImageThumbnailViewModel> selected,
+        bool clockwise)
+    {
+        if (selected.Count == 0) return;
+        var ops = App.ViewModel!.PhotoOps;
+        foreach (var vm in selected)
+        {
+            var size = await ops.RotateAsync(vm.Entry, clockwise);
+            await App.ViewModel.RefreshAfterPixelEditAsync(
+                vm.Entry.FilePath, size.Width, size.Height, "Rotated");
+        }
+    }
+
     // =================================================================
     //  Right-click context menu
     // =================================================================
@@ -605,20 +650,82 @@ public sealed partial class ImageGridView : UserControl
         var selected = ViewModel.SelectedImages.Count > 0
             ? ViewModel.SelectedImages.ToList()
             : new List<ImageThumbnailViewModel> { primary };
-        bool isMulti = selected.Count > 1;
-        var ops = App.ViewModel.PhotoOps;
-
         var menu = new MenuFlyout();
+        PopulatePhotoContextMenu(menu, primary, selected);
+        menu.ShowAt(e.Source, e.Position);
+    }
 
-        // View file (default action) — only enabled for single selection
-        var viewItem = new MenuFlyoutItem { Text = "View file" };
-        viewItem.Click += (_, _) =>
+    public void PopulateViewerContextMenu(MenuFlyout menu, PhotoContextMenuTarget target)
+    {
+        var primary = new ImageThumbnailViewModel(target.Entry);
+        PopulatePhotoContextMenu(menu, primary, [primary], target);
+    }
+
+    private bool _isContextOperationRunning;
+
+    private void PopulatePhotoContextMenu(
+        MenuFlyout menu,
+        ImageThumbnailViewModel primary,
+        List<ImageThumbnailViewModel> selected,
+        PhotoContextMenuTarget? viewerTarget = null)
+    {
+        if (ViewModel is null) return;
+        bool isMulti = selected.Count > 1;
+        bool isViewer = viewerTarget is not null;
+        var ops = App.ViewModel.PhotoOps;
+        menu.Items.Clear();
+
+        bool CanExecute()
         {
-            ViewModel.SelectedImage = primary;
-            ViewModel.OpenViewerCommand.Execute(null);
-        };
-        viewItem.IsEnabled = !isMulti;
-        menu.Items.Add(viewItem);
+            if (_isContextOperationRunning) return false;
+            if (viewerTarget is null || viewerTarget.IsCurrent(App.ViewModel.ImageViewer.CurrentEntry))
+                return true;
+            App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextStale");
+            return false;
+        }
+
+        void AddAction(MenuFlyoutItem item, Func<Task> action, string id)
+        {
+            AutomationProperties.SetAutomationId(item, (isViewer ? "Viewer" : "Grid") + id);
+            item.IsEnabled &= !_isContextOperationRunning;
+            item.Click += async (_, _) =>
+            {
+                if (!CanExecute()) return;
+                _isContextOperationRunning = true;
+                try
+                {
+                    await action();
+                }
+                catch (Exception ex)
+                {
+                    DebugLog.WriteLine($"[CONTEXT] {item.Text}: {ex}");
+                    App.ViewModel.StatusText = PhotoContextMenuStrings.Format("PhotoContextFailed", item.Text, ex.Message);
+                }
+                finally
+                {
+                    _isContextOperationRunning = false;
+                }
+            };
+            menu.Items.Add(item);
+        }
+
+        void AddSyncAction(MenuFlyoutItem item, Action action, string id)
+        {
+            AddAction(item, () =>
+            {
+                action();
+                return Task.CompletedTask;
+            }, id);
+        }
+
+        if (!isViewer)
+        {
+            AddSyncAction(new MenuFlyoutItem { Text = "View file", IsEnabled = !isMulti }, () =>
+            {
+                ViewModel.SelectedImage = primary;
+                ViewModel.OpenViewerCommand.Execute(null);
+            }, "ViewFile");
+        }
 
         var slideshowItem = new MenuFlyoutItem
         {
@@ -626,67 +733,62 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE786" },
             KeyboardAcceleratorTextOverride = "F11"
         };
-        AutomationProperties.SetAutomationId(slideshowItem, "GridContextSlideshow");
         var selectedEntries = selected.Select(vm => vm.Entry).ToArray();
-        slideshowItem.Click += (_, _) => SlideshowRequested?.Invoke(this, selectedEntries);
-        menu.Items.Add(slideshowItem);
+        AddSyncAction(slideshowItem, () => SlideshowRequested?.Invoke(this, selectedEntries), "ContextSlideshow");
 
         // Open with default
         var openWith = new MenuFlyoutItem { Text = "Open with default app" };
-        openWith.Click += async (_, _) =>
+        AddAction(openWith, async () =>
         {
             foreach (var vm in selected) await Services.PhotoOperationsService.OpenWithDefaultAsync(vm.Entry.FilePath);
-        };
-        menu.Items.Add(openWith);
+        }, "OpenDefault");
 
         // Open with → submenu of registered handlers for this extension
-        BuildOpenWithSubMenu(menu, primary, selected);
+        BuildOpenWithSubMenu(menu, primary, selected, CanExecute, isViewer ? "Viewer" : "Grid");
 
         // Open file location
         var reveal = new MenuFlyoutItem { Text = "Open file location" };
-        reveal.Click += (_, _) => Services.PhotoOperationsService.RevealInExplorer(primary.Entry.FilePath);
-        menu.Items.Add(reveal);
+        AddSyncAction(reveal, () => Services.PhotoOperationsService.RevealInExplorer(primary.Entry.FilePath), "OpenLocation");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Set as desktop background — single only
         var wallpaper = new MenuFlyoutItem { Text = "Set as desktop background" };
-        wallpaper.Click += (_, _) => Services.PhotoOperationsService.SetAsDesktopBackground(primary.Entry.FilePath);
-        wallpaper.IsEnabled = !isMulti;
-        menu.Items.Add(wallpaper);
-
-        var rotateRight = new MenuFlyoutItem { Text = "Rotate right" };
-        rotateRight.Click += async (_, _) =>
+        wallpaper.IsEnabled = !isMulti && PhotoContextMenuTarget.SupportsWallpaper(primary.Entry);
+        AddSyncAction(wallpaper, () =>
         {
-            foreach (var vm in selected)
-            {
-                var size = await ops.RotateAsync(vm.Entry, clockwise: true);
-                await App.ViewModel!.RefreshAfterPixelEditAsync(
-                    vm.Entry.FilePath, size.Width, size.Height, "Rotated");
-            }
-        };
-        menu.Items.Add(rotateRight);
+            if (!Services.PhotoOperationsService.SetAsDesktopBackground(primary.Entry.FilePath))
+                App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextWallpaperFailed");
+        }, "Wallpaper");
 
-        var rotateLeft = new MenuFlyoutItem { Text = "Rotate left" };
-        rotateLeft.Click += async (_, _) =>
-        {
-            foreach (var vm in selected)
-            {
-                var size = await ops.RotateAsync(vm.Entry, clockwise: false);
-                await App.ViewModel!.RefreshAfterPixelEditAsync(
-                    vm.Entry.FilePath, size.Width, size.Height, "Rotated");
-            }
-        };
-        menu.Items.Add(rotateLeft);
+        bool canRotate = viewerTarget?.CanRotate ??
+            selected.All(vm => PhotoContextMenuTarget.SupportsRotation(vm.Entry));
+        var rotateRight = new MenuFlyoutItem { Text = "Rotate right", IsEnabled = canRotate };
+        AddAction(rotateRight, () => RotateItemsAsync(selected, clockwise: true), "RotateRight");
+
+        var rotateLeft = new MenuFlyoutItem { Text = "Rotate left", IsEnabled = canRotate };
+        AddAction(rotateLeft, () => RotateItemsAsync(selected, clockwise: false), "RotateLeft");
 
         var resize = new MenuFlyoutItem
         {
             Text = isMulti ? $"Resize and export ({selected.Count})..." : "Resize and export...",
             IsEnabled = !_isExporting && selected.All(vm => vm.Entry.MediaType == MediaType.Image)
         };
-        AutomationProperties.SetAutomationId(resize, "ResizeExportSelection");
-        resize.Click += async (_, _) => await ShowResizeExportAsync(selected);
-        menu.Items.Add(resize);
+        AddAction(resize, () => ShowResizeExportAsync(selected), "ResizeExportSelection");
+        if (!isViewer) AutomationProperties.SetAutomationId(resize, "ResizeExportSelection");
+
+        var stitch = new MenuFlyoutItem
+        {
+            Text = PanoramaStrings.Get("PanoramaMenuAction"),
+            Icon = new FontIcon { Glyph = "\uE91B" },
+            IsEnabled = selected.Count >= 2 &&
+                selected.Count <= Core.Services.PanoramaStitchingService.MaximumSourceCount &&
+                selected.All(vm => vm.Entry.MediaType == MediaType.Image) &&
+                !_isStitching
+        };
+        AutomationProperties.SetAutomationId(stitch, "StitchPanoramaSelection");
+        stitch.Click += async (_, _) => await ShowPanoramaPreviewAsync(selected.ToArray());
+        menu.Items.Add(stitch);
 
         var share = new MenuFlyoutItem
         {
@@ -694,10 +796,9 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE72D" },
             IsEnabled = !_isSharing && selected.All(vm => vm.Entry.MediaType == MediaType.Image)
         };
-        AutomationProperties.SetAutomationId(share, "ShareSelection");
         AutomationProperties.SetName(share, ShareStrings.Get("ShareAction"));
-        share.Click += async (_, _) => await ShowPhotoShareAsync(selected);
-        menu.Items.Add(share);
+        AddAction(share, () => ShowPhotoShareAsync(selected), "ShareSelection");
+        if (!isViewer) AutomationProperties.SetAutomationId(share, "ShareSelection");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
@@ -711,18 +812,16 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE129" },
             KeyboardAcceleratorTextOverride = "F"
         };
-        flagItem.Click += async (_, _) => await ViewModel.SetFlagAsync(selected, !allFlagged);
-        menu.Items.Add(flagItem);
+        AddAction(flagItem, () => ViewModel.SetFlagAsync(selected, !allFlagged), "Flag");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Copy
         var copy = new MenuFlyoutItem { Text = isMulti ? $"Copy ({selected.Count} files)" : "Copy" };
-        copy.Click += async (_, _) =>
+        AddAction(copy, async () =>
         {
             await Services.PhotoOperationsService.CopyFilesToClipboardAsync(selected.Select(vm => vm.Entry.FilePath));
-        };
-        menu.Items.Add(copy);
+        }, "Copy");
 
         var copyFullPath = new MenuFlyoutItem
         {
@@ -730,38 +829,352 @@ public sealed partial class ImageGridView : UserControl
             Icon = new FontIcon { Glyph = "\uE8C8" },
             IsEnabled = !isMulti && !string.IsNullOrWhiteSpace(primary.Entry.FilePath)
         };
-        AutomationProperties.SetAutomationId(copyFullPath, "GridCopyFullPath");
-        copyFullPath.Click += (_, _) =>
+        AddSyncAction(copyFullPath, () =>
             App.ViewModel.StatusText = Services.PhotoClipboardService.CopyText(
-                primary.Entry.FilePath, "full path");
-        menu.Items.Add(copyFullPath);
+                primary.Entry.FilePath, "full path"), "CopyFullPath");
 
         // Delete
         var delete = new MenuFlyoutItem { Text = isMulti ? $"Delete ({selected.Count})" : "Delete" };
-        delete.Click += async (_, _) =>
+        AddAction(delete, async () =>
         {
-            var deleted = await ops.DeleteToRecycleBinAsync(selected.Select(vm => vm.Entry));
-            if (deleted.Count > 0)
+            async Task RecycleAsync()
             {
-                // Refresh the grid; deleted IDs are gone from DB already
-                await ViewModel.LoadImagesAsync();
+                var deleted = await ops.DeleteToRecycleBinAsync(selected.Select(vm => vm.Entry));
+                if (deleted.Count > 0)
+                {
+                    await ViewModel.LoadImagesAsync();
+                    if (isViewer)
+                        App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextRecycled");
+                }
+                else if (isViewer)
+                {
+                    App.ViewModel.StatusText = PhotoContextMenuStrings.Get("PhotoContextNotRecycled");
+                }
             }
-        };
-        menu.Items.Add(delete);
+
+            if (viewerTarget is not null)
+            {
+                async Task<bool> ConfirmAsync()
+                {
+                    var confirmation = new ContentDialog
+                    {
+                        Title = PhotoContextMenuStrings.Get("PhotoContextRecycleTitle"),
+                        Content = primary.Entry.FilePath,
+                        PrimaryButtonText = PhotoContextMenuStrings.Get("PhotoContextRecycle"),
+                        CloseButtonText = PhotoContextMenuStrings.Get("PhotoContextCancel"),
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = XamlRoot,
+                        RequestedTheme = ActualTheme
+                    };
+                    return await confirmation.ShowAsync() == ContentDialogResult.Primary;
+                }
+
+                var result = await viewerTarget.ExecuteConfirmedAsync(
+                    () => App.ViewModel.ImageViewer.CurrentEntry, ConfirmAsync, RecycleAsync);
+                if (result != ConfirmedPhotoActionResult.Completed)
+                {
+                    App.ViewModel.StatusText = PhotoContextMenuStrings.Get(
+                        result == ConfirmedPhotoActionResult.Stale ? "PhotoContextStale" : "PhotoContextCancelled");
+                }
+                return;
+            }
+            await RecycleAsync();
+        }, "Delete");
 
         var rename = new MenuFlyoutItem { Text = isMulti ? $"Rename ({selected.Count})…" : "Rename…" };
-        rename.Click += async (_, _) => await RenameEntriesAsync(selected.Select(vm => vm.Entry).ToArray());
-        menu.Items.Add(rename);
+        AddAction(rename, async () =>
+        {
+            await RenameEntriesAsync(selectedEntries);
+            if (isViewer && App.ViewModel.ImageViewer.CurrentEntry is { } current &&
+                string.Equals(current.FilePath, primary.Entry.FilePath, StringComparison.OrdinalIgnoreCase))
+                await App.ViewModel.ImageViewer.ReloadCurrentImageAsync();
+        }, "Rename");
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Properties — single only (shell dialog is one-file-at-a-time)
         var props = new MenuFlyoutItem { Text = "Properties" };
-        props.Click += (_, _) => Services.PhotoOperationsService.ShowPropertiesDialog(primary.Entry.FilePath);
         props.IsEnabled = !isMulti;
-        menu.Items.Add(props);
+        AddSyncAction(props, () => Services.PhotoOperationsService.ShowPropertiesDialog(primary.Entry.FilePath), "Properties");
+    }
 
-        menu.ShowAt(e.Source, e.Position);
+    private async Task ShowPanoramaPreviewAsync(
+        IReadOnlyList<ImageThumbnailViewModel> selected)
+    {
+        if (_isStitching || selected.Count < 2 ||
+            selected.Count > Core.Services.PanoramaStitchingService.MaximumSourceCount)
+            return;
+
+        _isStitching = true;
+        using var cancellation = new System.Threading.CancellationTokenSource();
+        var progressLabel = new TextBlock
+        {
+            Text = PanoramaStrings.Get("PanoramaProgressStarting"),
+            TextWrapping = TextWrapping.Wrap
+        };
+        AutomationProperties.SetAutomationId(progressLabel, "PanoramaProgress");
+        AutomationProperties.SetName(
+            progressLabel,
+            PanoramaStrings.Get("PanoramaProgressAutomationName"));
+        AutomationProperties.SetLiveSetting(
+            progressLabel,
+            Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+        var progressBar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0
+        };
+        var previewImage = new Image
+        {
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
+        };
+        AutomationProperties.SetName(
+            previewImage,
+            PanoramaStrings.Get("PanoramaPreviewAutomationName"));
+        var previewWidth = Math.Min(1000, Math.Max(240, XamlRoot.Size.Width - 120));
+        var previewHeight = Math.Min(400, Math.Max(160, XamlRoot.Size.Height * 0.4));
+        var previewScroll = new ScrollViewer
+        {
+            Content = previewImage,
+            Width = previewWidth,
+            Height = previewHeight,
+            ZoomMode = ZoomMode.Enabled,
+            MinZoomFactor = 1,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetAutomationId(previewScroll, "PanoramaPreviewScroll");
+        AutomationProperties.SetName(
+            previewScroll, PanoramaStrings.Get("PanoramaPreviewAutomationName"));
+        var zoom = new Slider
+        {
+            Header = PanoramaStrings.Get("PanoramaZoom"),
+            Minimum = 1,
+            Maximum = 16,
+            Value = 1,
+            StepFrequency = 0.25,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetAutomationId(zoom, "PanoramaZoom");
+        AutomationProperties.SetName(zoom, PanoramaStrings.Get("PanoramaZoom"));
+        zoom.ValueChanged += (_, args) =>
+            previewScroll.ChangeView(null, null, (float)args.NewValue);
+        previewScroll.ViewChanged += (_, args) =>
+        {
+            if (!args.IsIntermediate && Math.Abs(zoom.Value - previewScroll.ZoomFactor) > 0.01)
+                zoom.Value = previewScroll.ZoomFactor;
+        };
+        var dialog = new ContentDialog
+        {
+            Title = PanoramaStrings.Get("PanoramaStitchTitle"),
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                Children = { progressLabel, progressBar, previewScroll, zoom }
+            },
+            PrimaryButtonText = PanoramaStrings.Get("PanoramaSaveButton"),
+            CloseButtonText = PanoramaStrings.Get("PanoramaCancelButton"),
+            DefaultButton = ContentDialogButton.Primary,
+            IsPrimaryButtonEnabled = false,
+            XamlRoot = XamlRoot,
+            RequestedTheme = ActualTheme
+        };
+        dialog.Resources["ContentDialogMaxWidth"] = previewWidth + 48;
+        var panoramaReady = false;
+        dialog.Closing += (_, _) =>
+        {
+            if (!panoramaReady)
+                cancellation.Cancel();
+        };
+
+        var paths = selected.Select(vm => vm.Entry.FilePath).ToArray();
+        var progress = new Progress<Core.Services.PanoramaStitchProgress>(update =>
+        {
+            if (cancellation.IsCancellationRequested)
+                return;
+            progressLabel.Text = PanoramaStrings.Format(
+                "PanoramaProgress", update.Stage, update.Percent);
+            progressBar.Value = update.Percent;
+        });
+
+        Windows.Foundation.IAsyncOperation<ContentDialogResult>? showing = null;
+        try
+        {
+            showing = dialog.ShowAsync();
+            Core.Services.PanoramaStitchResult panorama;
+            try
+            {
+                panorama = await Core.Services.PanoramaStitchingService.CreatePreviewAsync(
+                    paths, progress, cancellation.Token);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+                await showing;
+                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaCancelled");
+                return;
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"[PANORAMA] Preview failed: {ex}");
+                progressLabel.Text = PanoramaStrings.Format("PanoramaPreviewFailed", ex.Message);
+                progressBar.Visibility = Visibility.Collapsed;
+                dialog.PrimaryButtonText = "";
+                dialog.IsPrimaryButtonEnabled = false;
+                dialog.CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton");
+                await showing;
+                App.ViewModel.StatusText = PanoramaStrings.Format("PanoramaFailed", ex.Message);
+                return;
+            }
+
+            cancellation.Token.ThrowIfCancellationRequested();
+            using var bitmap = SoftwareBitmap.CreateCopyFromBuffer(
+                panorama.Pixels.AsBuffer(),
+                BitmapPixelFormat.Bgra8,
+                panorama.Width,
+                panorama.Height,
+                BitmapAlphaMode.Ignore);
+            var bitmapSource = new SoftwareBitmapSource();
+            await bitmapSource.SetBitmapAsync(bitmap);
+            previewImage.Source = bitmapSource;
+            var previewScale = Math.Min(1, Math.Min(
+                previewWidth / panorama.Width, previewHeight / panorama.Height));
+            previewImage.Width = panorama.Width * previewScale;
+            previewImage.Height = panorama.Height * previewScale;
+            previewScroll.MaxZoomFactor = (float)Math.Max(16, 1 / previewScale);
+            zoom.Maximum = previewScroll.MaxZoomFactor;
+            previewScroll.Visibility = Visibility.Visible;
+            zoom.Visibility = Visibility.Visible;
+            progressBar.Visibility = Visibility.Collapsed;
+            progressLabel.Text = PanoramaStrings.Format(
+                "PanoramaPreviewDetails",
+                panorama.Width,
+                panorama.Height,
+                panorama.InlierCount,
+                panorama.MatchCount,
+                panorama.InlierRatio,
+                panorama.SourcePaths.Count,
+                panorama.OutputScale,
+                panorama.RetainedArea);
+            dialog.Title = PanoramaStrings.Get("PanoramaReviewTitle");
+            dialog.IsPrimaryButtonEnabled = true;
+            panoramaReady = true;
+            var decision = await showing;
+            if (decision != ContentDialogResult.Primary)
+            {
+                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaSaveNotStarted");
+                return;
+            }
+
+            using var saveCancellation = new System.Threading.CancellationTokenSource();
+            var saveLabel = new TextBlock
+            {
+                Text = PanoramaStrings.Get("PanoramaEncodingProgress"),
+                TextWrapping = TextWrapping.Wrap
+            };
+            AutomationProperties.SetAutomationId(saveLabel, "PanoramaSaveProgress");
+            AutomationProperties.SetName(
+                saveLabel,
+                PanoramaStrings.Get("PanoramaSaveProgressAutomationName"));
+            var saveDialog = new ContentDialog
+            {
+                Title = PanoramaStrings.Get("PanoramaSavingTitle"),
+                Content = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        saveLabel,
+                        new ProgressBar { IsIndeterminate = true }
+                    }
+                },
+                CloseButtonText = PanoramaStrings.Get("PanoramaCancelButton"),
+                XamlRoot = XamlRoot,
+                RequestedTheme = ActualTheme
+            };
+            var saveFinished = false;
+            saveDialog.Closing += (_, args) =>
+            {
+                if (saveFinished)
+                    return;
+                args.Cancel = true;
+                saveCancellation.Cancel();
+                saveLabel.Text = PanoramaStrings.Get("PanoramaSaveCancelling");
+            };
+            var showingSave = saveDialog.ShowAsync();
+            string outputPath;
+            try
+            {
+                outputPath = await Core.Services.PanoramaStitchingService.SaveAsync(
+                    panorama, saveCancellation.Token);
+            }
+            catch (OperationCanceledException) when (saveCancellation.IsCancellationRequested)
+            {
+                App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaSaveCancelled");
+                return;
+            }
+            finally
+            {
+                saveFinished = true;
+                saveDialog.Hide();
+                await showingSave;
+            }
+
+            try
+            {
+                await App.ViewModel.IndexPanoramaAsync(outputPath);
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"[PANORAMA] Indexing saved output failed: {ex}");
+                App.ViewModel.StatusText =
+                    PanoramaStrings.Format(
+                        "PanoramaSavedButNotIndexed", outputPath, ex.Message);
+                await new ContentDialog
+                {
+                    Title = PanoramaStrings.Get("PanoramaSavedButNotIndexedTitle"),
+                    Content = new TextBlock
+                    {
+                        Text = App.ViewModel.StatusText,
+                        TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true
+                    },
+                    CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton"),
+                    XamlRoot = XamlRoot,
+                    RequestedTheme = ActualTheme
+                }.ShowAsync();
+                return;
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            dialog.Hide();
+            if (showing is not null)
+                await showing;
+            App.ViewModel.StatusText = PanoramaStrings.Get("PanoramaCancelled");
+        }
+        catch (Exception ex)
+        {
+            dialog.Hide();
+            if (showing is not null)
+                await showing;
+            DebugLog.WriteLine($"[PANORAMA] Save failed: {ex}");
+            App.ViewModel.StatusText = PanoramaStrings.Format("PanoramaSaveFailed", ex.Message);
+            await new ContentDialog
+            {
+                Title = PanoramaStrings.Get("PanoramaSaveFailedTitle"),
+                Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton"),
+                XamlRoot = XamlRoot,
+                RequestedTheme = ActualTheme
+            }.ShowAsync();
+        }
+        finally
+        {
+            dialog.Hide();
+            _isStitching = false;
+        }
     }
 
     private async void OnShareClick(object sender, RoutedEventArgs e)
@@ -997,10 +1410,13 @@ public sealed partial class ImageGridView : UserControl
     private static void BuildOpenWithSubMenu(
         MenuFlyout menu,
         ViewModels.ImageThumbnailViewModel primary,
-        List<ViewModels.ImageThumbnailViewModel> selected)
+        List<ViewModels.ImageThumbnailViewModel> selected,
+        Func<bool> canExecute,
+        string automationPrefix)
     {
         var ext = System.IO.Path.GetExtension(primary.Entry.FilePath);
-        var subFlyout = new MenuFlyoutSubItem { Text = "Open with" };
+        var subFlyout = new MenuFlyoutSubItem { Text = "Open with", IsEnabled = canExecute() };
+        AutomationProperties.SetAutomationId(subFlyout, automationPrefix + "OpenWith");
 
         try
         {
@@ -1011,8 +1427,10 @@ public sealed partial class ImageGridView : UserControl
             {
                 if (!seen.Add(h.UIName)) continue;
                 var item = new MenuFlyoutItem { Text = h.UIName };
+                AutomationProperties.SetAutomationId(item, automationPrefix + "OpenWithApp" + seen.Count);
                 item.Click += (_, _) =>
                 {
+                    if (!canExecute()) return;
                     var paths = selected.Select(vm => vm.Entry.FilePath).ToList();
                     Services.OpenWithHelper.Invoke(h, paths);
                 };
@@ -1028,8 +1446,10 @@ public sealed partial class ImageGridView : UserControl
             subFlyout.Items.Add(new MenuFlyoutSeparator());
 
         var chooseAnother = new MenuFlyoutItem { Text = "Choose another app…" };
+        AutomationProperties.SetAutomationId(chooseAnother, automationPrefix + "ChooseAnotherApp");
         chooseAnother.Click += (_, _) =>
         {
+            if (!canExecute()) return;
             // Multi-file → the dialog only takes one file, use the primary
             Services.OpenWithHelper.ShowOpenWithDialog(primary.Entry.FilePath);
         };

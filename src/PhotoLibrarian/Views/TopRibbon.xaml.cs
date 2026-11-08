@@ -1,5 +1,10 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using PhotoLibrarian.Core.Models;
 using System;
 
 namespace PhotoLibrarian.Views;
@@ -10,9 +15,12 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? MakeCopyClicked;
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
+    public event EventHandler? RetouchClicked;
     public event EventHandler? RedEyeClicked;
     public event EventHandler? SlideshowClicked;
+    public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
     public event EventHandler? StabilizeVideoClicked;
+    public event EventHandler? TrimVideoClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
     public event EventHandler? ApplyStraightenClicked;
@@ -46,31 +54,50 @@ public sealed partial class TopRibbon : UserControl
     /// <summary>Switch the ribbon into crop sub-mode (replaces standard viewer tools with Apply/Cancel/Aspect).</summary>
     public void EnterCropMode()
     {
+        var moveFocus = HasFocusWithin(ViewerTools);
         ViewerTools.Visibility = Visibility.Collapsed;
         CropTools.Visibility = Visibility.Visible;
         SetContextSubLabel("Drag the handles to set the crop (hold Ctrl to keep proportions), or drag on the photo to draw a new one");
+        if (moveFocus) AspectCombo.Focus(FocusState.Keyboard);
     }
 
     public void ExitCropMode()
     {
+        var moveFocus = HasFocusWithin(CropTools);
         ViewerTools.Visibility = Visibility.Visible;
         CropTools.Visibility = Visibility.Collapsed;
         SetContextSubLabel(null);
+        if (moveFocus) CropButton.Focus(FocusState.Keyboard);
     }
 
     public void EnterStraightenMode()
     {
+        var moveFocus = HasFocusWithin(ViewerTools) || HasFocusWithin(CropTools);
         ViewerTools.Visibility = Visibility.Collapsed;
         CropTools.Visibility = Visibility.Collapsed;
         StraightenTools.Visibility = Visibility.Visible;
         SetContextSubLabel("Drag along the horizon, fine-tune the angle, or use Auto");
+        if (moveFocus) ApplyStraightenButton.Focus(FocusState.Keyboard);
     }
 
     public void ExitStraightenMode()
     {
+        var moveFocus = HasFocusWithin(StraightenTools);
         ViewerTools.Visibility = Visibility.Visible;
         StraightenTools.Visibility = Visibility.Collapsed;
         SetContextSubLabel(null);
+        if (moveFocus) StraightenButton.Focus(FocusState.Keyboard);
+    }
+
+    private bool HasFocusWithin(DependencyObject ancestor)
+    {
+        if (XamlRoot is null) return false;
+        var focused = FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
+        for (var current = focused; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor)) return true;
+        }
+        return false;
     }
 
     public void EnterRedEyeMode()
@@ -91,10 +118,52 @@ public sealed partial class TopRibbon : UserControl
     private void OnStraightenClick(object sender, RoutedEventArgs e) =>
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
+    private void OnRetouchClick(object sender, RoutedEventArgs e) => RetouchClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedEyeClick(object sender, RoutedEventArgs e) => RedEyeClicked?.Invoke(this, EventArgs.Empty);
-    private void OnSlideshowClick(object sender, RoutedEventArgs e) => SlideshowClicked?.Invoke(this, EventArgs.Empty);
+    private void OnSlideshowClick(SplitButton sender, SplitButtonClickEventArgs e) =>
+        SlideshowClicked?.Invoke(this, EventArgs.Empty);
+
+    public void SetSlideshowTheme(SlideshowTheme theme)
+    {
+        var option = SlideshowThemeOptions.Children.OfType<RadioButton>().Single(
+            button => (string)button.Tag == theme.ToString());
+        option.IsChecked = true;
+        UpdateSlideshowThemeName(theme);
+    }
+
+    private void OnSlideshowThemeChecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton radioButton ||
+            !Enum.TryParse<SlideshowTheme>(radioButton.Tag as string, out var theme))
+            return;
+
+        UpdateSlideshowThemeName(theme);
+        SlideshowThemeChanged?.Invoke(this, theme);
+    }
+
+    private void UpdateSlideshowThemeName(SlideshowTheme theme)
+    {
+        var themeName = GetThemeName(theme);
+        AutomationProperties.SetName(SlideshowButton, $"Slideshow, {themeName} theme");
+        ToolTipService.SetToolTip(
+            SlideshowButton,
+            $"Play a full-screen slideshow starting at this photo. Current theme: {themeName}. Open the arrow to change it.");
+    }
+
+    private static string GetThemeName(SlideshowTheme theme) => theme switch
+    {
+        SlideshowTheme.PanAndZoom => "Pan and Zoom",
+        SlideshowTheme.Contemporary => "Contemporary",
+        SlideshowTheme.Cinematic => "Cinematic",
+        SlideshowTheme.Fade => "Fade",
+        SlideshowTheme.BlackAndWhite => "Black and White",
+        SlideshowTheme.Sepia => "Sepia",
+        _ => throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown slideshow theme.")
+    };
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
         StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);
+    private void OnTrimVideoClick(object sender, RoutedEventArgs e) =>
+        TrimVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnCancelCropClick(object sender, RoutedEventArgs e) => CancelCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyStraightenClick(object sender, RoutedEventArgs e) =>

@@ -1,6 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using XmpCore;
 using PhotoLibrarian.Core.Models;
+using System.Text.Json;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -40,6 +41,9 @@ public static class EditParametersSerializer
         SetDouble(xmp, "WhitePoint", p.WhitePoint);
         SetDouble(xmp, "Midtones", p.Midtones);
         SetDouble(xmp, "RotationAngle", p.RotationAngle);
+        SpotRetouchProcessor.Validate(p.RetouchStrokes);
+        if (p.RetouchStrokes.Count == 0) DeleteProp(xmp, "SpotRetouchV1");
+        else xmp.SetProperty(Ns, $"{Pre}:SpotRetouchV1", JsonSerializer.Serialize(p.RetouchStrokes));
 
         if (p.Crop is not null)
         {
@@ -70,7 +74,7 @@ public static class EditParametersSerializer
             "Saturation", "Temperature", "Tint", "Clarity", "Sharpness", "NoiseReduction",
             "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
             "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
-            "CropLeft", "CropTop", "CropWidth", "CropHeight"
+            "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1"
         })
         {
             DeleteProp(xmp, prop);
@@ -123,6 +127,19 @@ public static class EditParametersSerializer
             };
         }
 
+        if (xmp.DoesPropertyExist(Ns, $"{Pre}:SpotRetouchV1"))
+        {
+            var json = xmp.GetPropertyString(Ns, $"{Pre}:SpotRetouchV1");
+            if (string.IsNullOrWhiteSpace(json))
+                throw new InvalidDataException("Retouch recipe is empty.");
+            try
+            {
+                p.RetouchStrokes = JsonSerializer.Deserialize<List<RetouchStroke>>(json)
+                    ?? throw new InvalidDataException("Retouch recipe is null.");
+            }
+            catch (JsonException ex) { throw new InvalidDataException("Invalid retouch recipe.", ex); }
+            SpotRetouchProcessor.Validate(p.RetouchStrokes);
+        }
         return p;
     }
 

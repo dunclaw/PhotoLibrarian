@@ -1,6 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Data.Sqlite;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.ApplicationModel.Resources;
@@ -92,6 +93,8 @@ public partial class MetadataPanelViewModel : ObservableObject
     private GeotagMetadataWriterService? _geotagWriter;
     private CancellationTokenSource? _videoMetadataCancellation;
     private Task _videoMetadataReads = Task.CompletedTask;
+    private CancellationTokenSource? _placeNameReadCancellation;
+    private Task _placeNameReads = Task.CompletedTask;
     private bool _isStopping;
     private static readonly ResourceLoader ResourceLoader = new(
         Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.pri"),
@@ -195,6 +198,9 @@ public partial class MetadataPanelViewModel : ObservableObject
     public partial string GpsLongitude { get; set; } = "";
 
     [ObservableProperty]
+    public partial string PlaceName { get; set; } = "";
+
+    [ObservableProperty]
     public partial string MediaType { get; set; } = "";
 
     [ObservableProperty]
@@ -273,7 +279,9 @@ public partial class MetadataPanelViewModel : ObservableObject
             _main.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(MainViewModel.IsManualFaceTaggingActive))
+                {
                     IsManualFaceTaggingActive = _main.IsManualFaceTaggingActive;
+                }
             };
         }
     }
@@ -297,6 +305,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         CancelVideoMetadataRead();
+        CancelPlaceNameRead();
         ResetVideoMetadata();
         _entries = entries.ToList();
         _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
@@ -325,6 +334,7 @@ public partial class MetadataPanelViewModel : ObservableObject
             Iso = single.Iso?.ToString() ?? "";
             GpsLatitude = single.GpsLatitude.HasValue ? $"{single.GpsLatitude:F6}" : "";
             GpsLongitude = single.GpsLongitude.HasValue ? $"{single.GpsLongitude:F6}" : "";
+            PlaceName = single.PlaceName ?? "";
             MediaType = single.MediaType == Core.Models.MediaType.Video ? "Video" : "Photo";
             Author = "";
 
@@ -371,6 +381,7 @@ public partial class MetadataPanelViewModel : ObservableObject
             Iso = CommonStringOrMixed(_entries, e => e.Iso?.ToString() ?? "");
             GpsLatitude = CommonStringOrMixed(_entries, e => e.GpsLatitude.HasValue ? $"{e.GpsLatitude:F6}" : "");
             GpsLongitude = CommonStringOrMixed(_entries, e => e.GpsLongitude.HasValue ? $"{e.GpsLongitude:F6}" : "");
+            PlaceName = CommonStringOrMixed(_entries, e => e.PlaceName ?? "");
 
             var types = _entries.Select(e => e.MediaType).Distinct().ToList();
             MediaType = types.Count == 1
@@ -413,6 +424,19 @@ public partial class MetadataPanelViewModel : ObservableObject
             }
         }
 
+        Task placeNameTask = Task.CompletedTask;
+        if (_entries.Count == 1 &&
+            _entries[0].PlaceName is null &&
+            (_entries[0].GpsLatitude.HasValue || _entries[0].GpsLongitude.HasValue))
+        {
+            var cancellation = new CancellationTokenSource();
+            _placeNameReadCancellation = cancellation;
+            placeNameTask = LoadPlaceNameAsync(_entries[0], cancellation);
+            _placeNameReads = _placeNameReads.IsCompleted
+                ? placeNameTask
+                : Task.WhenAll(_placeNameReads, placeNameTask);
+        }
+
         Task videoMetadataTask = Task.CompletedTask;
         if (_entries.Count == 1 && _entries[0].MediaType == Core.Models.MediaType.Video)
         {
@@ -449,7 +473,66 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         await ReloadPeopleTagsAsync();
-        await videoMetadataTask;
+        await Task.WhenAll(videoMetadataTask, placeNameTask);
+    }
+
+    private async Task LoadPlaceNameAsync(
+        ImageEntry entry,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var metadata = await Task.Run(
+                () => new MetadataReaderService().ReadMetadata(entry.FilePath),
+                cancellation.Token);
+            if (!IsCurrentPlaceNameRequest(cancellation))
+                return;
+
+            entry.PlaceName = metadata.PlaceName ?? "";
+            if (_imageRepo is not null && entry.Id > 0)
+            {
+                try
+                {
+                    await _imageRepo.UpdatePlaceNameAsync(entry.Id, entry.PlaceName);
+                }
+                catch (SqliteException exception)
+                {
+                    Diagnostics.DebugLog.WriteLine(
+                        $"Could not cache local place metadata for {entry.FilePath}: {exception}");
+                }
+            }
+
+            if (IsCurrentPlaceNameRequest(cancellation))
+                PlaceName = entry.PlaceName;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or NotSupportedException or
+                ArgumentException or InvalidOperationException or SqliteException)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read local place metadata for {entry.FilePath}: {exception}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_placeNameReadCancellation, cancellation))
+                _placeNameReadCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private bool IsCurrentPlaceNameRequest(CancellationTokenSource cancellation) =>
+        ReferenceEquals(_placeNameReadCancellation, cancellation) &&
+        !cancellation.IsCancellationRequested;
+
+    private void CancelPlaceNameRead()
+    {
+        var cancellation = _placeNameReadCancellation;
+        if (cancellation is null) return;
+        _placeNameReadCancellation = null;
+        cancellation.Cancel();
     }
 
     private async Task LoadVideoMetadataAsync(ImageEntry entry, CancellationTokenSource cancellation)
@@ -525,7 +608,8 @@ public partial class MetadataPanelViewModel : ObservableObject
     {
         _isStopping = true;
         CancelVideoMetadataRead();
-        await _videoMetadataReads;
+        CancelPlaceNameRead();
+        await Task.WhenAll(_videoMetadataReads, _placeNameReads);
     }
 
     private void ResetVideoMetadata()
@@ -642,6 +726,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     public void Clear()
     {
         CancelVideoMetadataRead();
+        CancelPlaceNameRead();
         ResetVideoMetadata();
         _entries = new();
         _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
@@ -652,6 +737,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         SelectionSummary = "";
         FileName = "";
         FolderPath = "";
+        PlaceName = "";
         Tags.Clear();
         PeopleTags.Clear();
         CommonDateTaken = null;
@@ -698,15 +784,20 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// always sets to the chosen value (no toggle — too ambiguous when mixed).
     /// </summary>
     [RelayCommand]
-    public async Task SetRatingAsync(int star)
+    public Task SetRatingAsync(int star) => SetRatingCoreAsync(star, toggleOnRepeat: true);
+
+    public Task SetRatingFromShortcutAsync(int rating) =>
+        SetRatingCoreAsync(rating, toggleOnRepeat: false);
+
+    private async Task SetRatingCoreAsync(int rating, bool toggleOnRepeat)
     {
+        if (rating is < 0 or > 5) throw new ArgumentOutOfRangeException(nameof(rating));
         if (_entries.Count == 0) return;
 
-        int newRating;
-        if (_entries.Count == 1 && !IsRatingMixed && Rating == star)
-            newRating = 0; // single-select toggle
-        else
-            newRating = star;
+        int newRating = toggleOnRepeat && rating > 0 &&
+            _entries.Count == 1 && !IsRatingMixed && Rating == rating
+                ? 0
+                : rating;
 
         Rating = newRating;
         IsRatingMixed = false;
@@ -806,7 +897,8 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
-                    entry.AutoTagScanVersion);
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
             }
         }
 
@@ -835,7 +927,8 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
-                    entry.AutoTagScanVersion);
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
             }
         }
 

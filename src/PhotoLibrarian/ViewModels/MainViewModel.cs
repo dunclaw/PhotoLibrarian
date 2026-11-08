@@ -6,6 +6,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -53,6 +54,7 @@ public partial class MainViewModel : ObservableObject
     public AutoTagReviewViewModel AutoTagReview { get; }
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
+    public PhotoImportService PhotoImport { get; }
     public OriginalBackupService BackupService => _backupService;
     public LibrarySearchViewModel Search { get; }
 
@@ -121,6 +123,10 @@ public partial class MainViewModel : ObservableObject
         _faceReviewService = faceReviewService;
         _faceResources = faceResources;
         _activityGate = activityGate;
+        PhotoImport = new PhotoImportService(
+            metadataReader,
+            indexingService,
+            imageRepo);
 
         StatusText = "Ready";
 
@@ -265,6 +271,27 @@ public partial class MainViewModel : ObservableObject
         StartBackgroundIndexing();
         StartBackgroundFaceDetection();
         StartBackgroundAutoTagging();
+    }
+
+    public async Task EnsureImportDestinationWatchedAsync(string destinationPath)
+    {
+        var fullPath = Path.GetFullPath(destinationPath);
+        var probePath = Path.Combine(fullPath, "_");
+        if (FolderNav.RootFolders.Any(folder =>
+                WatchedFolderScope.ContainsFile(
+                    probePath,
+                    folder.Path,
+                    folder.IncludeSubfolders)))
+            return;
+
+        await new WatchedFolderRepository(_db).AddAsync(fullPath);
+        await FolderNav.LoadWatchedFoldersAsync();
+    }
+
+    public async Task RefreshAfterPhotoImportAsync(IReadOnlyCollection<string> importedPaths)
+    {
+        ImageGrid.RevealImportedPhotos(importedPaths);
+        await RefreshAfterIndexAsync();
     }
 
     public void SyncWatchedFolders()
@@ -1104,7 +1131,8 @@ public partial class MainViewModel : ObservableObject
                 await TagWriterService.WriteTagsToSidecarAsync(path,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
-                    entry.AutoTagScanVersion);
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
 
                 applied++;
             }
@@ -1215,6 +1243,18 @@ public partial class MainViewModel : ObservableObject
         await RefreshAfterIndexAsync();
     }
 
+    public async Task IndexPanoramaAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var entry = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException(
+                $"The panorama at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedImage(entry.FilePath);
+        await RefreshAfterIndexAsync();
+        ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
+        StatusText = PanoramaStrings.Format("PanoramaCreatedStatus", entry.FileName);
+    }
+
     public async Task OpenStabilizedVideoAsync(string path)
     {
         await _indexingService.IndexFileAsync(path);
@@ -1227,6 +1267,20 @@ public partial class MainViewModel : ObservableObject
             ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
         ImageViewer.OpenExportedVideo(copy);
         StatusText = $"Opened stabilized copy: {path}";
+    }
+
+    public async Task OpenTrimmedVideoAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The trimmed copy at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The trimmed copy at '{path}' could not be shown in the grid.");
+        ImageViewer.OpenExportedVideo(copy);
+        StatusText = $"Opened trimmed copy: {path}";
     }
 
     public async Task MakeCopyForEditingAsync(ImageEntry entry)
