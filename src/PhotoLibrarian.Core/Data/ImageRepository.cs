@@ -325,6 +325,52 @@ public sealed partial class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task UpdateGpsCoordinatesAsync(
+        long imageId,
+        double latitude,
+        double longitude,
+        long fileSize,
+        DateTime dateModified)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = """
+                UPDATE images
+                SET gps_latitude = $latitude,
+                    gps_longitude = $longitude,
+                    file_size = $size,
+                    date_modified = $modified
+                WHERE id = $id
+                """;
+            cmd.Parameters.AddWithValue("$id", imageId);
+            cmd.Parameters.AddWithValue("$latitude", latitude);
+            cmd.Parameters.AddWithValue("$longitude", longitude);
+            cmd.Parameters.AddWithValue("$size", fileSize);
+            cmd.Parameters.AddWithValue("$modified", dateModified.ToString("O"));
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = """
+                UPDATE duplicate_hash_cache
+                SET file_size = $size, modified_ticks = $ticks
+                WHERE image_id = $id
+                """;
+            cmd.Parameters.AddWithValue("$id", imageId);
+            cmd.Parameters.AddWithValue("$size", fileSize);
+            cmd.Parameters.AddWithValue("$ticks", dateModified.ToUniversalTime().Ticks);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
+    }
+
     public async Task UpdateOrientationAsync(long imageId, int orientation)
     {
         using var conn = _db.CreateConnection();

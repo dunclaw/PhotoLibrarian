@@ -156,9 +156,11 @@ public sealed partial class ImageGridView : UserControl
         RestoreGridSelection(scrollIntoView: false);
     }
 
-    private void OnSelectionRestoreRequested(object? sender, EventArgs e)
+    private void OnSelectionRestoreRequested(
+        object? sender,
+        SelectionRestoreRequestedEventArgs e)
     {
-        RestoreGridSelection(scrollIntoView: true);
+        RestoreGridSelection(e.ScrollIntoView);
     }
 
     private void RestoreGridSelection(bool scrollIntoView)
@@ -489,6 +491,7 @@ public sealed partial class ImageGridView : UserControl
     private void OnGridSelectionChanged(object? sender, IReadOnlyList<ImageThumbnailViewModel> selected)
     {
         if (ViewModel is null) return;
+        if (PhotoGrid.IsPhotoDataChangeNotification && ViewModel.IsUpdatingGridData) return;
         ViewModel.UpdateSelection(selected, PhotoGrid.PrimaryItem);
     }
 

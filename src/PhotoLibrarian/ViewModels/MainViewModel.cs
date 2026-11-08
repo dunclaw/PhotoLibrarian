@@ -150,7 +150,7 @@ public partial class MainViewModel : ObservableObject
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
-        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this);
+        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this, backupService);
         PeopleReview = new PeopleReviewViewModel(faceReviewService);
         Settings = new SettingsViewModel(
             db,
@@ -330,7 +330,9 @@ public partial class MainViewModel : ObservableObject
             StatusText = $"Library update failed: {error.Message}");
     }
 
-    private void OnWatchedLibraryChanged(object? sender, EventArgs e)
+    private void OnWatchedLibraryChanged(
+        object? sender,
+        WatchedFolderChangeService.WatchedLibraryChangedEventArgs e)
     {
         if (_isShuttingDown) return;
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
@@ -338,11 +340,22 @@ public partial class MainViewModel : ObservableObject
             if (_isShuttingDown) return;
             try
             {
-                DebugLog.WriteLine("Library: refreshing after watched-folder change");
+                DebugLog.WriteLine(e.RequiresGridReload
+                    ? "Library: refreshing after watched-folder membership change"
+                    : $"Library: refreshing {e.ChangedImagePaths.Count} watched item(s) in place");
                 if (ImageViewer.CurrentEntry is { } current &&
                     !System.IO.File.Exists(current.FilePath))
                     ImageViewer.CloseCommand.Execute(null);
-                await RefreshAfterIndexAsync();
+
+                if (e.RequiresGridReload)
+                {
+                    await RefreshAfterIndexAsync();
+                }
+                else
+                {
+                    await ImageGrid.RefreshWatchedItemsAsync(e.ChangedImagePaths);
+                    await RefreshNavigationAfterIndexAsync();
+                }
             }
             catch (Exception ex)
             {
@@ -598,6 +611,7 @@ public partial class MainViewModel : ObservableObject
             await Task.Delay(2000, ct);
             
             DebugLog.WriteLine($"StartBackgroundIndexing: Starting scan of {folders.Count} folders");
+            var libraryChanged = false;
 
             foreach (var folder in folders)
             {
@@ -606,17 +620,11 @@ public partial class MainViewModel : ObservableObject
                 try
                 {
                     DebugLog.WriteLine($"  Indexing folder: {folder.Path}");
-                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct);
+                    libraryChanged |= await _indexingService.IndexFolderAsync(
+                        folder.Path,
+                        folder.IncludeSubfolders,
+                        ct);
                     DebugLog.WriteLine($"  Completed folder: {folder.Path}");
-                    
-                    if (!ct.IsCancellationRequested)
-                    {
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
-                        {
-                            await RefreshAfterIndexAsync();
-                        });
-                    }
-
                 }
                 catch (OperationCanceledException)
                 {
@@ -631,6 +639,14 @@ public partial class MainViewModel : ObservableObject
             }
             
             DebugLog.WriteLine($"StartBackgroundIndexing: All folders complete");
+            if (libraryChanged && !ct.IsCancellationRequested)
+            {
+                App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
+                {
+                    if (!_isShuttingDown)
+                        await RefreshAfterIndexAsync();
+                });
+            }
         }, ct);
     }
 
@@ -1050,7 +1066,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task RefreshTagsTreeAsync()
     {
-        if (ImageGrid.RequiresTagData)
+        if (ImageGrid.HasTagDependentFilter)
             await ImageGrid.LoadImagesAsync();
 
         if (App.MainWindow is MainWindow window)
@@ -1303,15 +1319,19 @@ public partial class MainViewModel : ObservableObject
         await ImageGrid.LoadImagesAsync();
         TotalImages = await _imageRepo.GetCountAsync(watchedOnly: true);
         StatusText = $"{TotalImages:N0} items";
-        // Refresh date and tag navigation data
+        await RefreshNavigationAfterIndexAsync();
+        StartBackgroundFaceDetection();
+        StartBackgroundAutoTagging();
+    }
+
+    private async Task RefreshNavigationAfterIndexAsync()
+    {
         await DateNav.LoadDatesAsync();
         await PeopleNav.LoadPeopleAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
         await NotTaggedNav.LoadAsync();
-        StartBackgroundFaceDetection();
-        StartBackgroundAutoTagging();
-        
+
         // Update UI trees on main thread
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
         {

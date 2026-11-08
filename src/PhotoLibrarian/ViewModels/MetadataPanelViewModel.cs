@@ -76,6 +76,12 @@ public partial class TagDisplayItem : ObservableObject
     }
 }
 
+public sealed record GeotagBatchResult(
+    int AppliedCount,
+    int TotalCount,
+    int SidecarCount,
+    IReadOnlyList<string> Failures);
+
 public partial class MetadataPanelViewModel : ObservableObject
 {
     // Currently-selected entries (1 or more)
@@ -84,6 +90,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     private TagRepository? _tagRepo;
     private FaceRepository? _faceRepo;
     private MainViewModel? _main;
+    private GeotagMetadataWriterService? _geotagWriter;
     private CancellationTokenSource? _videoMetadataCancellation;
     private Task _videoMetadataReads = Task.CompletedTask;
     private CancellationTokenSource? _placeNameReadCancellation;
@@ -101,6 +108,12 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     [ObservableProperty]
     public partial int SelectionCount { get; set; }
+
+    public IReadOnlyList<string> SelectedFilePaths =>
+        _entries.Select(entry => entry.FilePath).ToArray();
+
+    [ObservableProperty]
+    public partial bool CanEditGeotag { get; set; }
 
     [ObservableProperty]
     public partial string SelectionSummary { get; set; } = "";
@@ -222,18 +235,45 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     private const string MixedMarker = "Multiple values";
 
+    public string GpsCoordinates
+    {
+        get
+        {
+            if (_entries.Count == 0) return "";
+
+            return FormatGpsCoordinates(_entries);
+        }
+    }
+
+    internal static string FormatGpsCoordinates(IReadOnlyCollection<ImageEntry> entries)
+    {
+        var coordinates = entries
+            .Select(entry => (entry.GpsLatitude, entry.GpsLongitude))
+            .Distinct()
+            .ToList();
+        if (coordinates.Count != 1 ||
+            coordinates[0].GpsLatitude is not double latitude ||
+            coordinates[0].GpsLongitude is not double longitude)
+            return "";
+
+        return $"{latitude.ToString("0.######", CultureInfo.InvariantCulture)}, " +
+               longitude.ToString("0.######", CultureInfo.InvariantCulture);
+    }
+
     public MetadataPanelViewModel() { }
 
     public void Initialize(
-        ImageRepository imageRepo,
-        TagRepository tagRepo,
-        FaceRepository faceRepo,
-        MainViewModel? main)
+        ImageRepository? imageRepo = null,
+        TagRepository? tagRepo = null,
+        FaceRepository? faceRepo = null,
+        MainViewModel? main = null,
+        OriginalBackupService? backupService = null)
     {
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
         _faceRepo = faceRepo;
         _main = main;
+        _geotagWriter = new GeotagMetadataWriterService(backupService ?? new OriginalBackupService());
         if (_main is not null)
         {
             _main.PropertyChanged += (_, e) =>
@@ -272,6 +312,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         HasImage = true;
         SelectionCount = _entries.Count;
         IsMultiSelect = _entries.Count > 1;
+        CanEditGeotag = _entries.All(entry => entry.MediaType == Core.Models.MediaType.Image);
 
         if (_entries.Count == 1)
         {
@@ -291,8 +332,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             FocalLength = single.FocalLength.HasValue ? $"{single.FocalLength:F1} mm" : "";
             Aperture = single.Aperture.HasValue ? $"f/{single.Aperture:F1}" : "";
             Iso = single.Iso?.ToString() ?? "";
-            GpsLatitude = single.GpsLatitude.HasValue ? $"{single.GpsLatitude:F4}" : "";
-            GpsLongitude = single.GpsLongitude.HasValue ? $"{single.GpsLongitude:F4}" : "";
+            GpsLatitude = single.GpsLatitude.HasValue ? $"{single.GpsLatitude:F6}" : "";
+            GpsLongitude = single.GpsLongitude.HasValue ? $"{single.GpsLongitude:F6}" : "";
             PlaceName = single.PlaceName ?? "";
             MediaType = single.MediaType == Core.Models.MediaType.Video ? "Video" : "Photo";
             Author = "";
@@ -338,8 +379,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             FocalLength = CommonStringOrMixed(_entries, e => e.FocalLength.HasValue ? $"{e.FocalLength:F1} mm" : "");
             Aperture = CommonStringOrMixed(_entries, e => e.Aperture.HasValue ? $"f/{e.Aperture:F1}" : "");
             Iso = CommonStringOrMixed(_entries, e => e.Iso?.ToString() ?? "");
-            GpsLatitude = CommonStringOrMixed(_entries, e => e.GpsLatitude.HasValue ? $"{e.GpsLatitude:F4}" : "");
-            GpsLongitude = CommonStringOrMixed(_entries, e => e.GpsLongitude.HasValue ? $"{e.GpsLongitude:F4}" : "");
+            GpsLatitude = CommonStringOrMixed(_entries, e => e.GpsLatitude.HasValue ? $"{e.GpsLatitude:F6}" : "");
+            GpsLongitude = CommonStringOrMixed(_entries, e => e.GpsLongitude.HasValue ? $"{e.GpsLongitude:F6}" : "");
             PlaceName = CommonStringOrMixed(_entries, e => e.PlaceName ?? "");
 
             var types = _entries.Select(e => e.MediaType).Distinct().ToList();
@@ -525,9 +566,9 @@ public partial class MetadataPanelViewModel : ObservableObject
             if (string.IsNullOrWhiteSpace(Camera))
                 Camera = FormatCamera(metadata.CameraMake, metadata.CameraModel);
             if (!entry.GpsLatitude.HasValue && metadata.Latitude.HasValue)
-                GpsLatitude = metadata.Latitude.Value.ToString("F4", CultureInfo.CurrentCulture);
+                GpsLatitude = metadata.Latitude.Value.ToString("F6", CultureInfo.CurrentCulture);
             if (!entry.GpsLongitude.HasValue && metadata.Longitude.HasValue)
-                GpsLongitude = metadata.Longitude.Value.ToString("F4", CultureInfo.CurrentCulture);
+                GpsLongitude = metadata.Longitude.Value.ToString("F6", CultureInfo.CurrentCulture);
             if (metadata.ExtractionError is not null)
                 VideoMetadataError = FormatVideoMetadataError(entry.FileName, metadata.ExtractionError);
         }
@@ -692,6 +733,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         HasImage = false;
         IsMultiSelect = false;
         SelectionCount = 0;
+        CanEditGeotag = false;
         SelectionSummary = "";
         FileName = "";
         FolderPath = "";
@@ -913,6 +955,73 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         if (_main != null) await _main.RefreshAfterDateChangeAsync();
+    }
+
+    public async Task<GeotagBatchResult> SetGeotagAsync(GeoCoordinate coordinate)
+    {
+        if (_entries.Count == 0 || !CanEditGeotag || _geotagWriter is null)
+            return new GeotagBatchResult(0, _entries.Count, 0, []);
+
+        var entries = _entries.ToList();
+        var failures = new List<string>();
+        var appliedCount = 0;
+        var sidecarCount = 0;
+        var attempts = await _geotagWriter.WriteBatchAsync(
+            entries.Select(entry => entry.FilePath).ToList(),
+            coordinate);
+
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            var attempt = attempts[index];
+            if (attempt.Location is not { } writeLocation)
+            {
+                failures.Add($"{entry.FileName}: {attempt.Error}");
+                continue;
+            }
+
+            if (writeLocation == GeotagWriteLocation.XmpSidecar)
+                sidecarCount++;
+
+            entry.GpsLatitude = coordinate.Latitude;
+            entry.GpsLongitude = coordinate.Longitude;
+            appliedCount++;
+
+            if (_imageRepo is not null && entry.Id > 0)
+            {
+                try
+                {
+                    var fileInfo = new FileInfo(entry.FilePath);
+                    entry.FileSize = fileInfo.Length;
+                    entry.DateModified = fileInfo.LastWriteTimeUtc;
+                    await _imageRepo.UpdateGpsCoordinatesAsync(
+                        entry.Id,
+                        coordinate.Latitude,
+                        coordinate.Longitude,
+                        entry.FileSize,
+                        entry.DateModified);
+                }
+                catch (Exception exception) when (
+                    exception is not OutOfMemoryException and not StackOverflowException)
+                {
+                    failures.Add(
+                        $"{entry.FileName}: coordinates were written, but the library index could not be updated: {exception.Message}");
+                }
+            }
+        }
+
+        GpsLatitude = CommonStringOrMixed(
+            _entries,
+            entry => entry.GpsLatitude.HasValue ? $"{entry.GpsLatitude:F6}" : "");
+        GpsLongitude = CommonStringOrMixed(
+            _entries,
+            entry => entry.GpsLongitude.HasValue ? $"{entry.GpsLongitude:F6}" : "");
+
+        if (_main is not null && appliedCount > 0)
+            await _main.ImageGrid.RefreshWatchedItemsAsync(
+                entries.Select(entry => entry.FilePath).ToArray());
+
+        return new GeotagBatchResult(appliedCount, entries.Count, sidecarCount, failures);
     }
 
     /// <summary>

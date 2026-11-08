@@ -86,6 +86,50 @@ public static class EmbeddedMetadataWriter
         await WritePropertiesAsync(filePath, props);
     }
 
+    /// <summary>Writes EXIF GPS coordinates and hemisphere references into a JPEG or TIFF.</summary>
+    public static async Task WriteGeotagAsync(string filePath, GeoCoordinate coordinate)
+    {
+        if (!IsSupported(filePath))
+            throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
+
+        var latitude = GeotagMetadataWriterService.ToDegreesMinutesSeconds(coordinate.Latitude);
+        var longitude = GeotagMetadataWriterService.ToDegreesMinutesSeconds(coordinate.Longitude);
+        const uint secondsDenominator = 10_000;
+
+        var properties = new BitmapPropertySet();
+        properties.Add("System.GPS.LatitudeNumerator", new BitmapTypedValue(
+            CreateGpsNumerators(latitude, secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LatitudeDenominator", new BitmapTypedValue(
+            CreateGpsDenominators(secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LatitudeRef", new BitmapTypedValue(
+            coordinate.Latitude < 0 ? "S" : "N",
+            Windows.Foundation.PropertyType.String));
+        properties.Add("System.GPS.LongitudeNumerator", new BitmapTypedValue(
+            CreateGpsNumerators(longitude, secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LongitudeDenominator", new BitmapTypedValue(
+            CreateGpsDenominators(secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LongitudeRef", new BitmapTypedValue(
+            coordinate.Longitude < 0 ? "W" : "E",
+            Windows.Foundation.PropertyType.String));
+
+        await WritePropertiesAsync(filePath, properties);
+    }
+
+    private static uint[] CreateGpsNumerators(
+        (uint Degrees, uint Minutes, double Seconds) coordinate,
+        uint secondsDenominator) =>
+    [
+        coordinate.Degrees,
+        coordinate.Minutes,
+        (uint)Math.Round(coordinate.Seconds * secondsDenominator)
+    ];
+
+    private static uint[] CreateGpsDenominators(uint secondsDenominator) => [1, 1, secondsDenominator];
+
     /// <summary>
     /// Removes a property from the file (e.g. clearing a rating).
     /// </summary>

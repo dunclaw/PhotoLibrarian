@@ -479,6 +479,48 @@ public sealed class LibraryIndexingServiceTests
     }
 
     [Fact]
+    public async Task WatchedFolderChanges_IgnoresDeletedTemporaryFilesButStillReportsSidecars()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, "portrait.cr3");
+        try
+        {
+            await File.WriteAllBytesAsync(imagePath, [1, 2, 3]);
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database, images, new TagRepository(database), new FaceRepository(database),
+                scanner, new MetadataReaderService(), new FaceMetadataStore());
+            await indexer.IndexFileAsync(imagePath);
+            using var changes = new WatchedFolderChangeService(
+                scanner, indexer, images, TimeSpan.FromMilliseconds(200));
+            var changed = new TaskCompletionSource<WatchedFolderChangeService.WatchedLibraryChangedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            changes.LibraryChanged += (_, args) => changed.TrySetResult(args);
+            scanner.SyncWatchedFolders([(directory, false)]);
+
+            var temporaryPath = Path.Combine(directory, "temporary.tmp");
+            await File.WriteAllTextAsync(temporaryPath, "temporary");
+            File.Delete(temporaryPath);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            Assert.False(changed.Task.IsCompleted);
+
+            await new FaceMetadataStore().WriteAsync(imagePath, new PhotoFaceMetadata(16, 12, []));
+            var eventArgs = await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.False(eventArgs.RequiresGridReload);
+            Assert.Contains(imagePath, eventArgs.ChangedImagePaths);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task WatchedFolderChanges_ReindexesRawImageWhenSidecarAppears()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
@@ -499,7 +541,12 @@ public sealed class LibraryIndexingServiceTests
             using var changes = new WatchedFolderChangeService(
                 scanner, indexer, images, TimeSpan.FromMilliseconds(250));
             var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            changes.LibraryChanged += (_, _) => changed.TrySetResult();
+            WatchedFolderChangeService.WatchedLibraryChangedEventArgs? changeArgs = null;
+            changes.LibraryChanged += (_, args) =>
+            {
+                changeArgs = args;
+                changed.TrySetResult();
+            };
             scanner.SyncWatchedFolders([(directory, false)]);
 
             await new FaceMetadataStore().WriteAsync(
@@ -507,6 +554,9 @@ public sealed class LibraryIndexingServiceTests
                 new PhotoFaceMetadata(16, 12, []));
 
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.NotNull(changeArgs);
+            Assert.False(changeArgs.RequiresGridReload);
+            Assert.Contains(imagePath, changeArgs.ChangedImagePaths);
             Assert.Equal(Path.ChangeExtension(imagePath, ".xmp"),
                 (await images.GetByPathAsync(imagePath))!.FaceSidecarPath);
         }
