@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Input;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
@@ -25,7 +26,11 @@ public sealed partial class MainWindow : Window
     private SlideshowWindow? _slideshow;
     private Control? _slideshowReturnFocus;
     private double _slideshowIntervalSeconds = 5;
+    private Core.Models.SlideshowTheme _slideshowTheme = Core.Models.SlideshowTheme.Contemporary;
     private PhotoPrintSession? _printSession;
+    private RemovableVolumeMonitor? _removableVolumeMonitor;
+    private readonly Queue<string> _detectedDeviceRoots = new();
+    private string? _pendingDetectedDeviceRoot;
 
     private async void OnPrintPhotosInvoked(
         KeyboardAccelerator sender,
@@ -225,7 +230,7 @@ public sealed partial class MainWindow : Window
 
         ViewerOverlay.PauseVideo();
         _slideshowReturnFocus = FocusManager.GetFocusedElement(AppRoot.XamlRoot) as Control;
-        _slideshow = new SlideshowWindow(sequence, _slideshowIntervalSeconds);
+        _slideshow = new SlideshowWindow(sequence, _slideshowIntervalSeconds, _slideshowTheme);
         _slideshow.Closed += OnSlideshowClosed;
         _slideshow.Activate();
     }
@@ -234,6 +239,8 @@ public sealed partial class MainWindow : Window
     {
         if (_slideshow is null) return;
         _slideshowIntervalSeconds = _slideshow.ViewModel.IntervalSeconds;
+        _slideshowTheme = _slideshow.ViewModel.Theme;
+        TopRibbon.SetSlideshowTheme(_slideshowTheme);
         _slideshow.Closed -= OnSlideshowClosed;
         _slideshow = null;
         if (!_isClosing)
@@ -351,11 +358,19 @@ public sealed partial class MainWindow : Window
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
+        TopRibbon.SlideshowThemeChanged += (_, theme) => _slideshowTheme = theme;
         TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
+        TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
+        ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
+        ImageGridPanel.ImportRequested += OnImportRequested;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
+        TopRibbon.EffectsClicked += OnRibbonEffectsClicked;
+        TopRibbon.UndoClicked += OnRibbonUndoClicked;
+        TopRibbon.RedoClicked += OnRibbonRedoClicked;
+        TopRibbon.RetouchClicked += OnRibbonRetouchClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
         TopRibbon.CancelCropClicked += OnRibbonCancelCropClicked;
@@ -380,6 +395,125 @@ public sealed partial class MainWindow : Window
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;
+        _removableVolumeMonitor = new RemovableVolumeMonitor();
+        _removableVolumeMonitor.DeviceInserted += OnRemovableDeviceInserted;
+        _removableVolumeMonitor.ScanFailed += OnRemovableDeviceScanFailed;
+        _removableVolumeMonitor.Start();
+    }
+
+    private void OnRemovableDeviceInserted(object? sender, string sourceRoot)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isClosing) return;
+            _detectedDeviceRoots.Enqueue(sourceRoot);
+            ShowNextDetectedDevice();
+        });
+    }
+
+    private void OnRemovableDeviceScanFailed(object? sender, Exception exception)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_isClosing)
+                ViewModel.StatusText = PhotoImportStrings.Format(
+                    "PhotoImportDeviceScanFailed", exception.Message);
+        });
+    }
+
+    private void ShowNextDetectedDevice()
+    {
+        if (_isClosing || _pendingDetectedDeviceRoot is not null ||
+            _detectedDeviceRoots.Count == 0)
+            return;
+
+        _pendingDetectedDeviceRoot = _detectedDeviceRoots.Dequeue();
+        ImportDeviceInfoBar.Message = PhotoImportStrings.Format(
+            "PhotoImportDeviceInfoMessage",
+            _pendingDetectedDeviceRoot);
+        ImportDeviceInfoBar.IsOpen = true;
+    }
+
+    private async void OnImportDetectedDeviceClick(object sender, RoutedEventArgs e)
+    {
+        var sourceRoot = _pendingDetectedDeviceRoot;
+        _pendingDetectedDeviceRoot = null;
+        ImportDeviceInfoBar.IsOpen = false;
+        if (sourceRoot is not null)
+            await ShowPhotoImportDialogAsync(sourceRoot);
+        ShowNextDetectedDevice();
+    }
+
+    private async void OnImportRequested(object sender, RoutedEventArgs e) =>
+        await ShowPhotoImportDialogAsync();
+
+    private async Task ShowPhotoImportDialogAsync(string? sourceRoot = null)
+    {
+        var destinationRoot = ViewModel.FolderNav.RootFolders.FirstOrDefault()?.Path;
+        var dialog = new PhotoImportDialog(ViewModel, sourceRoot, destinationRoot)
+        {
+            XamlRoot = AppRoot.XamlRoot
+        };
+        await dialog.ShowAsync();
+
+        if (dialog.Outcome is not { } result ||
+            !dialog.DeleteSourceRequested ||
+            result.SuccessfulItems.Count == 0)
+            return;
+
+        var confirmation = new ContentDialog
+        {
+            XamlRoot = AppRoot.XamlRoot,
+            Title = PhotoImportStrings.Get("PhotoImportDeleteConfirmTitle"),
+            Content = PhotoImportStrings.Format(
+                "PhotoImportDeleteConfirmContent",
+                result.SuccessfulItems.Count),
+            PrimaryButtonText = PhotoImportStrings.Get("PhotoImportDeleteConfirmButton"),
+            CloseButtonText = PhotoImportStrings.Get("PhotoImportCancel"),
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+        {
+            ViewModel.StatusText = PhotoImportStrings.Get("PhotoImportDeleteCanceled");
+            return;
+        }
+
+        var progress = new Progress<PhotoImportProgress>(update =>
+        {
+            ViewModel.StatusText = PhotoImportStrings.Format(
+                "PhotoImportDeleteProgress",
+                update.CurrentFileName,
+                update.FilesCompleted + 1,
+                update.FilesTotal);
+        });
+        var deletionResults = await Task.Run(
+            () => ViewModel.PhotoImport.DeleteVerifiedSourcesAsync(
+                result.SuccessfulItems,
+                progress));
+        var deletedCount = deletionResults.Count(item => item.Deleted);
+        var summary = PhotoImportStrings.Format(
+            "PhotoImportDeleteSummary",
+            deletedCount,
+            deletionResults.Count);
+        var errors = deletionResults
+            .Where(item => !item.Deleted || item.Error is not null)
+            .Select(item => PhotoImportStrings.Format(
+                "PhotoImportDeleteResult",
+                Path.GetFileName(item.SourcePath),
+                item.Error ?? PhotoImportStrings.Get("PhotoImportUnverifiedSource")))
+            .ToList();
+        ViewModel.StatusText = summary;
+
+        var resultDialog = new ContentDialog
+        {
+            XamlRoot = AppRoot.XamlRoot,
+            Title = PhotoImportStrings.Get("PhotoImportDeleteResultTitle"),
+            Content = errors.Count == 0
+                ? summary
+                : $"{summary}{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, errors)}",
+            CloseButtonText = PhotoImportStrings.Get("PhotoImportClose")
+        };
+        await resultDialog.ShowAsync();
     }
 
     private void OnMetadataSidecarFallback(object? sender, MetadataWriteFallbackEventArgs e)
@@ -447,6 +581,12 @@ public sealed partial class MainWindow : Window
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isClosing) return;
+        if (e.PropertyName is nameof(ImageViewerViewModel.CanUndoEffect) or nameof(ImageViewerViewModel.CanRedoEffect))
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing)
+                    TopRibbon.SetHistoryAvailability(ViewModel.ImageViewer.CanUndoEffect, ViewModel.ImageViewer.CanRedoEffect);
+            });
 
         if (e.PropertyName == nameof(ImageViewerViewModel.ShouldShowInformationPane))
             DispatcherQueue.TryEnqueue(() =>
@@ -506,14 +646,37 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // Deliberate keyboard navigation must end the short opening-time focus recovery.
+        if (e.Key == Windows.System.VirtualKey.Tab)
+            ViewerOverlay.StopFocusGuard();
+        if (ViewerOverlay.IsPhotoContextMenuOpen) return;
+        var focus = Content?.XamlRoot is { } historyRoot
+            ? FocusManager.GetFocusedElement(historyRoot) as DependencyObject : null;
+        var ctrl = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control) &
+            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        var shift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift) &
+            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        if (ctrl && (e.Key is Windows.System.VirtualKey.Z or Windows.System.VirtualKey.Y) &&
+            ViewModel.ImageViewer.IsOpen && !ViewModel.ImageEditor.IsOpen &&
+            !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen &&
+            !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening && !ViewerOverlay.IsRedEyeRemoving &&
+            !HasNativeHistoryOrDialog(focus))
+        {
+            e.Handled = true;
+            await ViewerOverlay.MoveEffectHistoryAsync(e.Key == Windows.System.VirtualKey.Z && !shift);
+            return;
+        }
         if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
         {
-            var editorFocus = Content?.XamlRoot is { } editorRoot
-                ? FocusManager.GetFocusedElement(editorRoot) as DependencyObject
-                : null;
+            var editorFocus = GetFocusedElement();
+            if (TryHandleEditorHistoryShortcut(e, editorFocus)) return;
             await EditorOverlay.HandleEditorKeyAsync(e, editorFocus);
             return;
         }
+
+        var focused = GetFocusedElement();
+        if (await HandlePhotoLibraryShortcutAsync(e, focused)) return;
+
         if (!ViewModel.ImageViewer.IsOpen
             || ViewModel.Settings.IsOpen
             || ViewModel.PeopleReview.IsOpen
@@ -521,10 +684,7 @@ public sealed partial class MainWindow : Window
             || ViewerOverlay.HasFocusWithin())
             return;
 
-        var focused = Content?.XamlRoot is { } root
-            ? FocusManager.GetFocusedElement(root) as DependencyObject
-            : null;
-        if (focused is TextBox or PasswordBox or AutoSuggestBox or ComboBox or Slider
+        if (IsInputOrDialogFocused(focused)
             || IsWithin(focused, FolderNavPanel)
             || IsWithin(focused, MetadataDetailPanel)
             || IsWithin(focused, TopRibbon))
@@ -537,11 +697,199 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private bool TryHandleEditorHistoryShortcut(KeyRoutedEventArgs e, DependencyObject? focused)
+    {
+        if (e.Handled || !TryGetEditorHistoryShortcut(
+            e.Key,
+            GetCurrentModifiers(),
+            IsInputOrDialogFocused(focused),
+            out bool isUndo))
+            return false;
+
+        if (isUndo)
+        {
+            if (!ViewModel.ImageEditor.CanUndo) return false;
+            ViewModel.ImageEditor.UndoCommand.Execute(null);
+        }
+        else
+        {
+            if (!ViewModel.ImageEditor.CanRedo) return false;
+            ViewModel.ImageEditor.RedoCommand.Execute(null);
+        }
+
+        e.Handled = true;
+        return true;
+    }
+
+    internal static bool TryGetEditorHistoryShortcut(
+        Windows.System.VirtualKey key,
+        Windows.System.VirtualKeyModifiers modifiers,
+        bool isInputFocused,
+        out bool isUndo)
+    {
+        isUndo = false;
+        if (isInputFocused || modifiers != Windows.System.VirtualKeyModifiers.Control)
+            return false;
+
+        if (key == Windows.System.VirtualKey.Z)
+        {
+            isUndo = true;
+            return true;
+        }
+
+        return key == Windows.System.VirtualKey.Y;
+    }
+
+    private async Task<bool> HandlePhotoLibraryShortcutAsync(
+        KeyRoutedEventArgs e,
+        DependencyObject? focused)
+    {
+        if (e.Handled || !CanRunPhotoLibraryShortcut() || IsInputOrDialogFocused(focused))
+            return false;
+
+        var modifiers = GetCurrentModifiers();
+        if (ViewModel.ImageViewer.IsOpen &&
+            e.Key is Windows.System.VirtualKey.Number0 or Windows.System.VirtualKey.NumberPad0 &&
+            modifiers == Windows.System.VirtualKeyModifiers.Control &&
+            ViewerOverlay.HandleViewerKey(e.Key))
+        {
+            e.Handled = true;
+            return true;
+        }
+
+        var grid = ViewModel.ImageGrid;
+        bool hasSelection = grid.SelectedImages.Count > 0 || grid.SelectedImage is not null;
+        if (TryGetRatingShortcut(e.Key, modifiers, out var rating))
+        {
+            if (!hasSelection) return false;
+            e.Handled = true;
+            await ViewModel.MetadataPanel.SetRatingFromShortcutAsync(rating);
+            return true;
+        }
+
+        if (modifiers == Windows.System.VirtualKeyModifiers.Control)
+        {
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.R when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.RotateSelectedAsync(clockwise: true);
+                    return true;
+                case Windows.System.VirtualKey.L when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.RotateSelectedAsync(clockwise: false);
+                    return true;
+                case Windows.System.VirtualKey.T when hasSelection:
+                    e.Handled = true;
+                    if (ViewModel.ImageViewer.IsOpen &&
+                        !ViewModel.ImageViewer.IsInformationPaneVisible)
+                    {
+                        ViewModel.ImageViewer.IsInformationPaneVisible = true;
+                        DispatcherQueue.TryEnqueue(() => MetadataDetailPanel.FocusNewTagInput());
+                    }
+                    else
+                    {
+                        MetadataDetailPanel.FocusNewTagInput();
+                    }
+                    return true;
+            }
+        }
+        else if (modifiers == Windows.System.VirtualKeyModifiers.None)
+        {
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.F2 when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.RenameSelectedAsync();
+                    return true;
+                case Windows.System.VirtualKey.Delete when hasSelection:
+                    e.Handled = true;
+                    await ImageGridPanel.DeleteSelectedAsync();
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool CanRunPhotoLibraryShortcut() =>
+        !_isClosing && _slideshow is null &&
+        !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen &&
+        !ViewModel.DuplicateReview.IsOpen && !ViewModel.ImageEditor.IsOpen &&
+        !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening &&
+        !ViewerOverlay.IsRedEyeRemoving && !ViewerOverlay.IsManualFaceTagging;
+
+    internal static bool TryGetRatingShortcut(
+        Windows.System.VirtualKey key,
+        Windows.System.VirtualKeyModifiers modifiers,
+        out int rating)
+    {
+        rating = key switch
+        {
+            Windows.System.VirtualKey.Number0 or Windows.System.VirtualKey.NumberPad0 => 0,
+            Windows.System.VirtualKey.Number1 or Windows.System.VirtualKey.NumberPad1 => 1,
+            Windows.System.VirtualKey.Number2 or Windows.System.VirtualKey.NumberPad2 => 2,
+            Windows.System.VirtualKey.Number3 or Windows.System.VirtualKey.NumberPad3 => 3,
+            Windows.System.VirtualKey.Number4 or Windows.System.VirtualKey.NumberPad4 => 4,
+            Windows.System.VirtualKey.Number5 or Windows.System.VirtualKey.NumberPad5 => 5,
+            _ => -1
+        };
+
+        return rating >= 0 &&
+            (modifiers == Windows.System.VirtualKeyModifiers.None ||
+             (modifiers == Windows.System.VirtualKeyModifiers.Control && rating > 0));
+    }
+
+    private DependencyObject? GetFocusedElement() =>
+        Content?.XamlRoot is { } root
+            ? FocusManager.GetFocusedElement(root) as DependencyObject
+            : null;
+
+    private static bool IsInputOrDialogFocused(DependencyObject? focused)
+    {
+        for (var current = focused; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is TextBox or PasswordBox or AutoSuggestBox or ComboBox or
+                NumberBox or RichEditBox or ContentDialog)
+                return true;
+        }
+        return false;
+    }
+
+    private static Windows.System.VirtualKeyModifiers GetCurrentModifiers()
+    {
+        var modifiers = Windows.System.VirtualKeyModifiers.None;
+        if (IsKeyDown(Windows.System.VirtualKey.Control))
+            modifiers |= Windows.System.VirtualKeyModifiers.Control;
+        if (IsKeyDown(Windows.System.VirtualKey.Shift))
+            modifiers |= Windows.System.VirtualKeyModifiers.Shift;
+        if (IsKeyDown(Windows.System.VirtualKey.Menu))
+            modifiers |= Windows.System.VirtualKeyModifiers.Menu;
+        if (IsKeyDown(Windows.System.VirtualKey.LeftWindows) ||
+            IsKeyDown(Windows.System.VirtualKey.RightWindows))
+            modifiers |= Windows.System.VirtualKeyModifiers.Windows;
+        return modifiers;
+    }
+
+    private static bool IsKeyDown(Windows.System.VirtualKey key) =>
+        (InputKeyboardSource.GetKeyStateForCurrentThread(key) &
+         Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+
     private static bool IsWithin(DependencyObject? element, DependencyObject ancestor)
     {
         for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
         {
             if (ReferenceEquals(current, ancestor)) return true;
+        }
+        return false;
+    }
+
+    private static bool HasNativeHistoryOrDialog(DependencyObject? element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is TextBox or PasswordBox or AutoSuggestBox or RichEditBox or ContentDialog)
+                return true;
         }
         return false;
     }
@@ -563,6 +911,8 @@ public sealed partial class MainWindow : Window
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
         _isClosing = true;
+        _removableVolumeMonitor?.Dispose();
+        _removableVolumeMonitor = null;
         FolderNavPanel.SaveState();
         _slideshow?.Close();
         _printSession?.Dispose();
@@ -695,13 +1045,43 @@ public sealed partial class MainWindow : Window
     }
 
     private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
+        => await OpenRasterEditorAsync(retouch: false);
+
+    private async void OnRibbonRetouchClicked(object? sender, EventArgs e)
+        => await OpenRasterEditorAsync(retouch: true);
+
+    private async Task OpenRasterEditorAsync(bool retouch)
     {
+        await OpenRibbonEditorAsync(retouch);
+    }
+
+    private async void OnRibbonEffectsClicked(object? sender, EventArgs e)
+    {
+        await ViewerOverlay.ShowEffectsAsync(TopRibbon.EffectsAnchor);
+    }
+
+    private async void OnRibbonUndoClicked(object? sender, EventArgs e) =>
+        await ViewerOverlay.MoveEffectHistoryAsync(undo: true);
+
+    private async void OnRibbonRedoClicked(object? sender, EventArgs e) =>
+        await ViewerOverlay.MoveEffectHistoryAsync(undo: false);
+
+    private async Task<bool> OpenRibbonEditorAsync(bool retouch)
+    {
+        if (ViewModel.ImageEditor.IsOpen) return !ViewModel.ImageEditor.IsBusy;
         var entry = ViewModel.ImageViewer.CurrentEntry;
-        if (entry is null || ViewModel.ImageViewer.IsVideo) return;
+        if (entry is null || ViewModel.ImageViewer.IsVideo) return false;
+        if (retouch && !ImageEditRenderer.IsSupported(entry.FilePath))
+        {
+            ViewModel.StatusText = RawToneMappingService.IsRaw(entry.FilePath)
+                ? "Export a JPEG or PNG derivative before retouching a RAW photo."
+                : $"Retouch not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
+            return false;
+        }
         if (!ImageEditRenderer.IsSupported(entry.FilePath) && !RawToneMappingService.IsRaw(entry.FilePath))
         {
             ViewModel.StatusText = $"Editing not supported for {System.IO.Path.GetExtension(entry.FilePath)}";
-            return;
+            return false;
         }
 
         if (ViewerOverlay.IsCropping)
@@ -724,10 +1104,13 @@ public sealed partial class MainWindow : Window
         {
             ViewModel.ImageEditor.UpdateLibraryImages(ViewModel.ImageGrid.GetViewerImages());
             await ViewModel.ImageEditor.OpenForEditAsync(entry);
+            EditorOverlay.SetRetouchWorkspace(retouch);
+            return true;
         }
         catch (Exception ex)
         {
             ViewModel.StatusText = $"Unable to open editor: {ex.Message}";
+            return false;
         }
     }
 

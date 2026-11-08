@@ -22,11 +22,13 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - **Search current photos** in the header finds filename, caption/title, tags, camera make/model, and people using a local SQLite FTS5 index. The left-pane selections build a union; header refinement filters and search further restrict it. Suggestions use that same scope, and results keep the grid's selected sort and grouping. Type for suggestions and press Enter or select a suggestion to apply search. Words match prefixes (case/accent insensitive); multiple words must all match. Clearing search restores the selected, refined set. For a global search, select all photos and clear refinement filters first. Existing libraries get filename, camera, tag, and people search immediately; the next background scan automatically populates captions/titles from photo metadata.
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups. Selected videos also show available duration, dimensions, bitrate, frame rate, codec, capture/encoded dates, camera, GPS, title, album, artist, and year from local Windows properties.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Noise reduction / Clarity / Sharpness / Levels / Rotation.
+- **Spot retouch** on the full-photo toolbar fills painted blemishes from surrounding pixels. A circular brush cursor shows the radius at the current zoom; dragging paints one continuous selection and releasing heals it. Local boundary interpolation accepts ordinary photo noise and uneven shading rather than rejecting them with a flat-surface test. Source-resolution preview/save with undo/redo and original backups, without image-size, stroke-count or stroke-length caps. Best for small spots; not texture synthesis or general object reconstruction. See [supported formats, behavior and verification](docs/SPOT-RETOUCH.md).
 - **Editor undo/redo** with split-button history menus. A slider or histogram drag, Auto enhance, and Reset each form one step; selecting a history entry undoes or redoes through that step. History covers pending adjustments only and clears on save, Revert, close, or opening another photo.
 - **Previous/Next while editing** follows the grid's current filters, sort, and grouping, skipping videos and unsupported editing formats and wrapping at either end. Use the editor toolbar, Left / Right arrows, or Ctrl+Page Up / Ctrl+Page Down. Arrow keys still adjust focused sliders and input fields rather than changing photos. Navigation and Close offer Save (Keep recipe for RAW), Discard, or Cancel for pending changes; failed saves leave the current photo and edits open. RAW saves keep the XMP preview recipe, never overwrite the original. Each photo starts with its own adjustments and empty undo history. Filter changes do not discard an open edit: if the current photo is excluded, Next starts at the first eligible result and Previous at the last; with no eligible results navigation is disabled.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
 - **Simple video stabilization** in the video editing ribbon exports a separate H.264/AAC MP4 and opens it immediately in the player, with no downloads or additional installs. The integrated stabilizer reduces small shakes and rotations with mirrored edges, using Windows' video codecs. Progress and cancellation are available; originals are never overwritten. See [usage, limitations and open-source options](docs/VIDEO-STABILIZATION.md).
 - **Rotate / remove video audio** in the video ribbon prepares a local H.264/AAC MP4 preview, then saves those exact bytes as a new `-edited.mp4` copy and opens it in the library. Choose clockwise/counterclockwise quarter turns or 180 degrees, optionally remove the audio track, then **Prepare preview**, play it, and **Export edited copy**. Rotation composes with the source's orientation using standard MP4 rotation metadata (players must honor it); it does not bake rotation into the pixels. Preparation re-encodes the whole clip and supports cancellation and progress; it needs temporary disk space plus space for the saved copy, with dimensions up to 4096 pixels each. The source and its sidecars remain untouched. Descriptive tags/ratings/captions are copied into a new XMP sidecar, not geometry or face regions. Extra tracks, subtitles, HDR fidelity and camera-specific metadata are not preserved. No external tools, downloads, cloud processing, slow-motion interpolation, color effects, face tracking or music mixing are involved.
+- **Pixel motion photos** automatically loop in the full-photo viewer for supported JPEG Microvideo/Motion Photo v1 embedded MP4 layouts. Pause using the small header play/pause control or click the playing image to display the original still. Playback is local and read-only, with bounded in-memory loading and still fallback. Apple Live Photo pairs and HEIC/AVIF motion containers are not supported; see [formats, limits, and generated tests](docs/MOTION-PHOTOS.md).
 - **Synchronized photo navigation** follows the grid's current filters, sort, and grouping. Returning from full view selects and reveals the displayed item. If a filter removes it, full view moves to the first matching item (or closes when no items match).
 - **Copy photo names and paths** using the copy buttons beside Filename (including extension), Folder, and Path (folder plus filename) in the information pane for a single selected item. Right-click a single grid item or the full-photo viewer and choose **Copy full path** to copy its path as plain text. The viewer menu also opens with Shift+F10 or the Menu key; detail buttons support Tab and Enter/Space. This does not copy or modify photo files; the existing grid **Copy** command still copies files.
 - **Remembered Browse state** restores expanded branches and checked folders, dates, people, tags, and flags when the app reopens. The same checked-node filters are reapplied after the trees load; unavailable or renamed paths/tags are ignored. Preferences stay local in `%LOCALAPPDATA%\PhotoLibrarian\navigation-pane.json` and do not change photo metadata.
@@ -34,6 +36,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - **Batch rename with a live preview** from the grid's multi-select context menu. Use `Trip_{####}` for sequential names, `{original}` for the original basename, and `{yyyy}`, `{MM}`, `{dd}`, `{HH}`, `{mm}`, `{ss}` for capture-date parts (modified date when capture date is missing). Extensions are preserved, XMP sidecars move with their photos, and existing or duplicate photo/sidecar destinations block the operation.
 - 💾 **In-place metadata writing** for JPEG / TIFF / PNG / HEIC / JPEG-XR via `BitmapEncoder.CreateForInPlacePropertyEncodingAsync` — image bytes are preserved exactly; only the metadata block is rewritten. RAW formats (CR2/CR3/NEF/ARW) fall back to XMP sidecars (industry-standard limitation).
 - 🔍 **Background indexing** with restartable re-index and a manage-folders dialog.
+- **Incremental recognition** skips unchanged photo metadata during startup reconciliation and initializes face/tag models only when their watched-scope queues contain stale work. Metadata-only changes preserve current recognition; source-content, model/pipeline, and tagging-setting changes requeue the affected stages. See [recognition identity and refresh limits](docs/LIBRARY-INDEX-MAINTENANCE.md#incremental-recognition).
 - **Remove a watched folder** to stop monitoring it and hide photos outside the remaining watched roots from the grid, search scope, and Browse counts. Photos covered by another root remain available, respecting that root's subfolder setting. Removing a folder never deletes photos or sidecars and retains cached tags, people, flags, and other metadata for re-adding it, including on offline storage. Index repair is separate: only it can remove verified missing entries in still-watched, accessible locations. An open viewer closes if its photo leaves the watched library; an editor's unsaved work is not discarded. A newly exported copy outside watched roots is still revealed temporarily, but is not included in library-wide Browse counts; add its output folder for continued library browsing.
 - **Grid-header review actions** use the photos currently displayed: people review limits face candidates to that set; **Find duplicates** finds exact and possible resized/re-encoded matches to those photos anywhere in the library. Hover the icon buttons for tooltips. Duplicate hashes are cached for repeat scans, and every removal requires an explicit keeper choice and confirmation. See [duplicate detection limits and review safety](docs/DUPLICATE-DETECTION.md).
 - 🔄 **Watched-folder updates** detect Explorer copies, edits, and deletions automatically; filesystem events are batched and only affected files are re-indexed.
@@ -41,6 +44,51 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - **Suggest automatic tags for selected photos** beside the descriptive tags in the metadata pane. Suggestions run locally for the captured selection and stay beside the existing tags while the photo remains visible in the grid; nothing is saved until you review the suggestions and choose **Add suggestions**. The resulting tags appear in the existing tag list, where any unwanted tag can be removed directly. Changing the photo selection dismisses suggestions for the previous selection. The background auto-tagging setting remains off unless you enable it separately. Applying and opt-in background tagging store the complete tag/source/confidence snapshot and model pipeline version in embedded PhotoLibrarian XMP or the existing XMP sidecar, so a fresh index can restore those values. Indexing also detects changed portable tag snapshots on an otherwise unchanged photo and refreshes the cache. Background metadata-write failures leave the scan pending for retry and restore the prior generated tags where no newer tag changes occurred. Older provenance that existed only in a development SQLite cache is not backfilled; because no release has shipped, this is not a release/repair blocker and requires no live-library migration. Writes from this change forward persist portable provenance.
 
 ---
+
+### Photo effects
+
+The full-photo view's top toolbar **Effects** button, immediately after **Adjust**,
+opens a dropdown of live previews. Selecting an effect updates the photo in the
+existing viewer without entering Adjust, replacing toolbars, or changing the
+information pane. The dropdown offers **None**, black
+and white, red/orange/yellow monochrome filters, sepia, cyanotype, and warm/cool
+tints. Selecting a preset replaces only the effect; **None** keeps your other
+adjustments. Selection, Reset, undo/redo, and pending portable XMP recipes share
+the same effect state. Old recipes without an effect retain their appearance.
+Viewer selection backs up the original and keeps a portable pending XMP recipe,
+without overwriting photo pixels. Reopening the viewer applies that recipe;
+selecting another preset replaces it rather than stacking effects. The separate
+Adjust editor can bake the recipe through its existing save flow, which clears
+pending edits after success.
+
+The main toolbar's **Undo** and **Redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
+restore previous effect selections
+in place, including returning to the effect present before the first selection.
+Effect history is per photo for the current app session, leaves other tweaks
+unchanged, and does not overwrite photo pixels. Choosing the same effect is
+not a new edit; a new selection after Undo clears Redo.
+
+Grid thumbnails render pending raster recipes too, both immediately after an
+effect change/undo and after restarting. Edited photos bypass Windows/embedded
+source thumbnails; originals and their embedded JPEG thumbnails remain untouched.
+Unedited photos still use the fast Windows thumbnail provider.
+Unified chronological undo across all photo and metadata operations is tracked
+in [#185](https://github.com/dunclaw/PhotoLibrarian/issues/185);
+toolbar viewer undo currently covers effects.
+
+Previews are generated locally from EXIF-oriented photo pixels, including
+current adjustments, not sample pictures. Thumbnail decoding and rendering
+run off the UI thread, with a 160-pixel maximum dimension and one render at a
+time. Changing photos or adjustments cancels pending work and rejects stale
+results. These small previews approximate spatial detail filters; the editor's
+main preview and save both evaluate the shared graph at source resolution.
+Creative color matrices act on the existing encoded raster RGB, preserve alpha,
+and do not add another sRGB transfer.
+
+Effects are explicitly disabled for RAW preview and RAW export; only the RAW
+controls apply there. Dormant raster recipe fields are retained, not applied to
+the RAW development. To use effects on a RAW photo, export an SDR derivative
+first and edit that copy. RAW sensor bytes are never changed.
 
 ### Noise reduction
 
@@ -89,6 +137,21 @@ are logged and retried later. Save copies elsewhere for drafts kept longer.
 Only generated batches are cleaned; unrelated folders and nested content are
 never recursively deleted.
 
+### Full-photo context menu
+
+Right-click a photo in the full viewer, or press **Shift+F10** / the **Menu key**,
+to access the same applicable single-file actions as the grid: open with,
+file location, slideshow, wallpaper, rotation, resize/export, sharing, flag,
+copy, copy full path, rename, delete and properties. Actions target the file on
+screen, not a previous grid multiselection. Image-only actions are disabled for
+videos; rotation is limited to supported still-image formats. Finish or cancel
+an active crop, straighten, red-eye or people-tagging operation before using
+file actions.
+
+Viewer deletion requires confirmation and moves the file to the Recycle Bin;
+Cancel leaves it unchanged. Rotation uses the existing original-backup path,
+and export/share continue to create copies rather than overwrite the source.
+
 ### Batch rename
 
 Batch rename numbers files from 1 in selection order. Patterns specify the basename only
@@ -97,6 +160,44 @@ including those of other selected photos, is not supported; use a distinct prefi
 If a filesystem or database error occurs during a batch, the failed photo's moves are
 rolled back and processing stops; earlier successful renames remain in place and the
 error reports how many completed.
+
+### Migrate legacy XMP sidecars
+
+In **Settings > Migrate XMP sidecars...**, choose a local folder, review the
+recursive preview, check the authorization box, and choose **Migrate ready files**.
+The operation does not use SQLite as a metadata source. JPEG and PNG are supported
+through lossless XMP packet replacement, not WIC transcoding: all non-XMP bytes,
+including compressed pixels, EXIF orientation, ICC profiles, and other metadata,
+must compare byte-for-byte before committing. Whole XMP properties are retained,
+including tags/source/confidence/scan version, faces/review/representative choices,
+flags, and unknown namespaces. Neither side wins a conflicting property; the
+complete file/sidecar pair is skipped instead. Native EXIF/IPTC are not rewritten
+or reconciled with XMP. Both sidecar naming conventions are recognized, but shared
+basenames or simultaneous `photo.xmp` and `photo.jpg.xmp` are ambiguous and skipped.
+
+RAW, video, TIFF, HEIC, JPEG-XR, reparse/cloud-placeholder paths, extended/duplicate
+XMP, unsupported RDF, orientation overrides, oversized files/packets, and
+PhotoLibrarian edit recipes are visibly skipped with their sidecars intact.
+Recipe packets are retained because the raster editor currently clears baked
+recipes from sidecars only; embedding them could double-apply later edits.
+Inspection is bounded to 256 MiB per media file and 1 MiB per XMP packet; JPEG
+packets must fit a single APP1 segment. This is intentionally narrower than the
+ordinary metadata writer's supported formats.
+
+Original media and sidecar bytes are flushed to unique recovery folders under
+`.photolibrarian-migration-backups` beside the photos before any live write.
+Staging uses the existing atomic packet writer. The final live write uses a
+write/replace-denying handle, rather than a path-based atomic replacement, to
+preserve the Windows file ID and prevent newer edits from being overwritten.
+It is **not power-loss atomic**: a crash during that write may require manually
+restoring `filename.original` from the reported recovery folder. On ordinary
+write/read-back failure, the locked original is restored and verified. The
+locked sidecar is deleted only after complete embedded packet and non-XMP byte
+read-back verification; an access/deletion failure retains it. Keep backups until
+you have reviewed the photos; they are never automatically pruned. Cancellation
+finishes a committing file safely and leaves the remaining files untouched.
+Results show each path, skipped/failed reason, and recovery location. Migration
+never runs automatically, and the user remains responsible for authorizing it.
 
 ### Portable people tags
 
@@ -231,6 +332,14 @@ self-contained x64 and ARM64 MSIX packages plus a combined Store bundle.
 See [Windows CI and Store releases](docs/STORE-RELEASE.md) for workflow triggers,
 versioning, local packaging, and Partner Center submission instructions.
 Microsoft signs the Store-distributed package; CI does not need a certificate.
+
+The RAW native build uses the build script's exit status, not diagnostic-looking
+text from dependency tools: vcpkg may report a failed mirror before successfully
+downloading from another. Logs remain intact; native command failures, script
+errors, missing artifacts and checksum failures still fail the build.
+Run `.\tools\Test-RawDecoderBuildContract.ps1` to exercise this MSBuild contract
+with Windows PowerShell and PowerShell 7 (both required for this developer test).
+CI runs the same regression check before building the application and tests.
 
 ### First run
 
@@ -631,12 +740,20 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Pan/zoom viewer | Mouse wheel (zooms around cursor) |
 | Actual size in viewer | A or the **1:1** button |
 | Show / hide viewer information pane | I or the information toggle |
+| Reset viewer zoom to fit | Ctrl+0 |
 | Next / previous in viewer | ←  →  arrow keys |
 | Previous / next while editing | Left / Right arrows (outside input controls); Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
 | Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
 | Exit slideshow | Esc or F11 |
+| Rate selected photos (0 clears; 1-5 sets) | 0-5 or Ctrl+1-Ctrl+5 |
+| Rotate selected photos clockwise / counter-clockwise | Ctrl+R / Ctrl+L |
+| Focus the selected photos' tag entry | Ctrl+T, then type a tag and press Enter |
+| Rename selected photos | F2 |
+| Move selected photos to the Recycle Bin | Delete |
+| Undo / redo pending editor changes | Ctrl+Z / Ctrl+Y |
+| Print selected photos | Ctrl+P |
 
 **Actual size** displays one decoded image pixel per physical display pixel, adjusting
 for Windows display scaling. It is available once a still image is loaded (not for video).
@@ -661,7 +778,38 @@ auto-advance. Each photo gets a full interval after loading or manual navigation
 The interval is remembered until the app closes. Exiting returns to the unchanged
 grid or viewer; slideshow shortcuts are unavailable while editing or in settings.
 
-More shortcuts (Del, F2, 0-5 rating) are tracked in [M5](https://github.com/dunclaw/PhotoLibrarian/milestone/5).
+Use **Slideshow theme** in the full-screen toolbar to change the style while
+viewing photos, or the arrow beside **Slideshow** in the viewer ribbon to choose
+it before starting. The choice is remembered until the app closes. Themes are
+display-only; no photo bytes or metadata are changed.
+
+- **Contemporary** (default): subtle colour/contrast enhancement, a gentle centered zoom, and a short crossfade.
+- **Pan and Zoom**: cycles through zoom-in and zoom-out shots with left/right and
+  up/down pans. Motion scales with the displayed photo size and stays clipped to
+  the photo area.
+- **Cinematic**: subdued colour/contrast with letterbox bars and a short crossfade.
+- **Fade**: original colours with a short crossfade.
+- **Black and White / Sepia**: monochrome or warm-toned display effects with a short crossfade.
+
+The toolbar is a compact single row; control names are available
+through accessibility names and tooltips rather than extra heading rows.
+Pause freezes theme motion in place; Resume continues from that position.
+Windows' animation setting disables slideshow motion and fades. Arrow keys
+operate the theme and interval controls when those controls have focus, rather
+than advancing photos.
+
+Slideshow layout/selection regressions can be checked without a live library:
+`.\tools\Test-PhotoGridAccessibility.ps1 -Slideshow`. This runs the production
+slideshow window in the isolated WinUI host with generated landscape/portrait
+images, checks the toolbar height, centered layout, live theme changes,
+pause/resume rendered frames, repeated full-duration Pan and Zoom transitions,
+rapid changes and close cancellation, and saves a Contemporary screenshot in the
+host's `AppX` output folder. It does not test Narrator or physical keyboard input.
+
+Rating, rotation, tagging, rename, delete, and print act on the current grid selection
+(or the current photo when only one is selected). Rating shortcuts are ignored while an
+input control is focused; text boxes keep their normal typing and undo behavior. Delete
+uses the Windows Recycle Bin confirmation so removed photos remain recoverable.
 
 ---
 

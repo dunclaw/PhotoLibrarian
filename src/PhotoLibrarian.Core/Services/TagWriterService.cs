@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using XmpCore;
 using PhotoLibrarian.Core.Models;
 using System.Security.Cryptography;
@@ -29,7 +30,8 @@ public static class TagWriterService
         IEnumerable<string> tags,
         IReadOnlyCollection<ImageTag>? tagProvenance = null,
         string? autoTagScanVersion = null,
-        TagMetadataSidecarSnapshot? expectedSidecarSnapshot = null)
+        TagMetadataSidecarSnapshot? expectedSidecarSnapshot = null,
+        string? sourceIdentity = null)
     {
         var distinct = tags
             .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -40,11 +42,16 @@ public static class TagWriterService
             ? null
             : PortableImageTagMetadataSerializer.Serialize(
                 tagProvenance,
-                autoTagScanVersion);
+                autoTagScanVersion,
+                sourceIdentity);
         Exception? embeddedError = null;
         EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
 
-        if (EmbeddedMetadataWriter.IsSupported(imagePath))
+        var reader = new MetadataReaderService();
+        // A portable fallback packet remains authoritative until migrated into
+        // the image; don't leave it stale by switching back to embedded writes.
+        if (EmbeddedMetadataWriter.IsSupported(imagePath) &&
+            reader.ReadPortableTagSidecarMetadata(imagePath) is null)
         {
             try
             {
@@ -52,6 +59,9 @@ public static class TagWriterService
                     imagePath,
                     keywords: distinct,
                     photoTagMetadata: portableMetadata);
+                if (portableMetadata is not null &&
+                    !HasMatchingPortableMetadata(reader, imagePath, portableMetadata))
+                    throw new IOException("The photo did not retain the portable tag metadata.");
                 return;
             }
             catch (Exception ex)
@@ -153,6 +163,22 @@ public static class TagWriterService
             stream.Length,
             File.GetLastWriteTimeUtc(sidecarPath),
             hash);
+    }
+
+    private static bool HasMatchingPortableMetadata(
+        MetadataReaderService reader,
+        string imagePath,
+        string expectedJson)
+    {
+        var actual = reader.ReadPortableTagMetadata(imagePath);
+        if (actual is null ||
+            !PortableImageTagMetadataSerializer.TryDeserialize(expectedJson, out var expected) ||
+            expected is null)
+            return false;
+
+        return actual.AutoTagScanVersion == expected.AutoTagScanVersion &&
+            actual.SourceIdentity == expected.SourceIdentity &&
+            actual.Tags.SequenceEqual(expected.Tags);
     }
 
     private static void EnsureSidecarSnapshot(

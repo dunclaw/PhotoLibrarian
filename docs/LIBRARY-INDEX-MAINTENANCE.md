@@ -50,6 +50,53 @@ rows regardless of whether an old development database contains unexported
 values. There is no legacy-export prerequisite or automatic whole-cache backup
 for this cleanup.
 
+## Incremental recognition
+
+Startup still enumerates watched files to discover additions and ordinary external
+changes. Cached files whose photo and associated face/tag sidecar size/timestamp
+snapshots are unchanged skip metadata parsing and tag-row comparisons. These
+snapshots are an optimization, not proof of content identity: watcher notifications,
+**Refresh**, and **Repair library index** verify file and sidecar hashes, including
+edits that preserve size and timestamps. Changes made while the app was closed
+that preserve every snapshot require an explicit Refresh or repair.
+
+Recognition uses a separate, versioned source identity. For JPEG, PNG, TIFF, BMP
+and other embedded-writable formats (including HEIC/JPEG-XR) with working Windows
+codecs, this is a SHA-256 of full-resolution, oriented,
+color-managed BGRA8 pixels and dimensions, not a thumbnail or perceptual hash.
+Descriptive metadata edits therefore do not invalidate recognition. Initial or
+changed sources require local decoding to establish this identity; stable startup
+does not. RAW and other formats conservatively use a full-file SHA-256. Their
+sidecar-only adjustment/metadata edits do not invalidate recognition, but embedded
+changes do. No claim is made that every camera/codec supports metadata-independent
+identity. Changes invisible in the recognition decoder's BGRA8 input are treated
+as the same recognition input.
+
+Face metadata refresh preserves embeddings and completion for unchanged face
+geometry, including name/review changes. New or moved regions still require
+embeddings. Face detection and embeddings are derived cache data; rebuilding a
+cache can rerun face inference without losing portable people decisions.
+
+The existing schema-1 `plib:TagMetadata` document has an optional `sourceIdentity`
+field. Its scan version is restored only when that identity matches the current
+source; stale or older unbound completion does not suppress inference. Tag values,
+sources and confidence still import independently. Background tagging, selected
+review and manual keyword edits retain this binding. No bookkeeping keywords
+are added. Embedded provenance is read back before accepting success; codecs
+that fail to retain it use the existing sidecar fallback. An explicit portable
+tag-sidecar packet is authoritative, and subsequent tag writes keep it current
+until migration, rather than leaving stale sidecar provenance behind.
+Tagging completion also includes non-default output settings and model
+directory, in addition to the model/pipeline version. Metadata-write failure and
+cancellation leave unfinished work retryable; unavailable photos retain their
+cache entries.
+
+Temporary-library tests use deterministic fake inference, real SQLite and generated
+images to assert inference-call counts across restarts, metadata/pixel edits,
+model/pipeline/settings changes, cancellation, persistence failures, watched scope
+and offline storage. A 100-photo synthetic scoped-startup fixture reports elapsed
+time but is not a representative camera-library performance benchmark.
+
 ## Person picture portability
 
 Choosing a person's picture now saves the selection in that photo's

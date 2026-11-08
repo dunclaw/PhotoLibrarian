@@ -22,6 +22,7 @@ public sealed class EditParameters
     public double Saturation { get; set; }
     public double Temperature { get; set; }
     public double Tint { get; set; }
+    public PhotoEffect Effect { get; set; }
 
     // Detail
     public double Clarity { get; set; }
@@ -45,16 +46,17 @@ public sealed class EditParameters
     // Crop & Rotation
     public double RotationAngle { get; set; }
     public CropRect? Crop { get; set; }
+    public List<RetouchStroke> RetouchStrokes { get; set; } = [];
 
     public bool HasAdjustments =>
-        Brightness != 0 || Contrast != 0 || Exposure != 0 ||
+        Effect != PhotoEffect.None || Brightness != 0 || Contrast != 0 || Exposure != 0 ||
         RawExposureEv != 0 || RawWhitePoint != 4.0 ||
         Highlights != 0 || Shadows != 0 || Saturation != 0 ||
         Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
         SharpeningMode != PhotoLibrarian.Core.Models.SharpeningMode.Legacy || UnsharpMaskAmount != 0 ||
         UnsharpMaskRadius != 1.0 || UnsharpMaskThreshold != 0.02 ||
         BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 ||
-        RotationAngle != 0 || Crop is not null;
+        RotationAngle != 0 || Crop is not null || RetouchStrokes.Count != 0;
 
     public EditParameters Clone() => new()
     {
@@ -68,6 +70,7 @@ public sealed class EditParameters
         Saturation = Saturation,
         Temperature = Temperature,
         Tint = Tint,
+        Effect = Effect,
         Clarity = Clarity,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
@@ -79,7 +82,8 @@ public sealed class EditParameters
         WhitePoint = WhitePoint,
         Midtones = Midtones,
         RotationAngle = RotationAngle,
-        Crop = Crop?.Clone()
+        Crop = Crop?.Clone(),
+        RetouchStrokes = RetouchStrokes.Select(stroke => stroke.Copy()).ToList()
     };
 
     public void Reset()
@@ -89,6 +93,7 @@ public sealed class EditParameters
         RawWhitePoint = 4.0;
         Highlights = Shadows = 0;
         Saturation = Temperature = Tint = 0;
+        Effect = PhotoEffect.None;
         Clarity = Sharpness = NoiseReduction = UnsharpMaskAmount = 0;
         SharpeningMode = PhotoLibrarian.Core.Models.SharpeningMode.Legacy;
         UnsharpMaskRadius = 1.0;
@@ -98,6 +103,7 @@ public sealed class EditParameters
         Midtones = 0.5;
         RotationAngle = 0;
         Crop = null;
+        RetouchStrokes.Clear();
     }
 
     // XMP namespace for PhotoLibrarian edit parameters

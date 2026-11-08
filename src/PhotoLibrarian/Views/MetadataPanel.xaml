@@ -110,7 +110,12 @@
                             Margin="0,2,0,0" />
 
                     <TextBlock Text="Geotag" Style="{StaticResource SectionHeaderStyle}" />
-                    <TextBlock x:Name="GeotagText" Style="{StaticResource PlaceholderStyle}" Margin="0,2,0,0" />
+                    <TextBox x:Name="GeotagCoordinatesBox"
+                             PlaceholderText="latitude, longitude"
+                             AutomationProperties.AutomationId="GeotagCoordinatesBox"
+                             AutomationProperties.Name="Latitude and longitude"
+                             TextChanged="OnGeotagCoordinatesTextChanged"
+                             LostFocus="OnGeotagCoordinatesLostFocus" />
 
                     <TextBlock Text="Caption" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBox x:Name="CaptionBox"
@@ -484,6 +489,11 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Longitude:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoLongitude" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoPlaceNameRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Place:" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoPlaceName" Style="{StaticResource InfoValueStyle}" />
                         </Grid>
                         <Grid Margin="0,4,0,0" ColumnSpacing="4">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>

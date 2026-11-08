@@ -26,19 +26,25 @@ public partial class ImageEditorViewModel : ObservableObject
     private string _editLabel = "";
     private bool _restoring;
     private CropRect? _crop;
+    private List<RetouchStroke> _retouchStrokes = [];
     private CancellationTokenSource? _rawExport;
     private List<ImageEntry> _images = [];
     private int _openVersion;
 
     public ImageEntry? CurrentEntry => _currentEntry;
     public event Action<ImageEntry?>? CurrentEntryChanged;
-    public bool IsBusy => IsSaving || IsTransitioning;
+    public bool IsBusy => IsSaving || IsTransitioning || IsRetouching;
     public bool CanNavigate => IsOpen && !IsBusy && FindNavigationTarget(1) is not null;
 
     [ObservableProperty]
     public partial bool IsTransitioning { get; set; }
 
     partial void OnIsTransitioningChanged(bool value) => NotifyHistoryChanged();
+
+    [ObservableProperty]
+    public partial bool IsRetouching { get; set; }
+
+    partial void OnIsRetouchingChanged(bool value) => NotifyHistoryChanged();
 
     public void UpdateLibraryImages(IEnumerable<ImageEntry> images)
     {
@@ -179,6 +185,18 @@ public partial class ImageEditorViewModel : ObservableObject
     [ObservableProperty]
     public partial double Tint { get; set; }
 
+    [ObservableProperty]
+    public partial PhotoEffect Effect { get; set; }
+
+    public void SelectEffect(PhotoEffect effect, string label)
+    {
+        if (!Enum.IsDefined(effect)) throw new ArgumentOutOfRangeException(nameof(effect));
+        if (!IsOpen || IsBusy || IsRawPreview) return;
+        BeginEdit(label);
+        Effect = effect;
+        EndEdit();
+    }
+
     // Detail
     [ObservableProperty]
     public partial double Clarity { get; set; }
@@ -252,7 +270,7 @@ public partial class ImageEditorViewModel : ObservableObject
 
     public async Task OpenForEditAsync(ImageEntry entry)
     {
-        if (IsTransitioning || (IsSaving && _rawExport is null))
+        if (IsTransitioning || IsRetouching || (IsSaving && _rawExport is null))
             throw new InvalidOperationException("An editor operation is already in progress.");
         // A programmatic replacement must still cancel a non-cooperative RAW export.
         _rawExport?.Cancel();
@@ -298,7 +316,7 @@ public partial class ImageEditorViewModel : ObservableObject
     public async Task<bool> SaveAsync(ImageEditService.PixelRenderer renderer)
     {
         if (IsRawPreview) throw new NotSupportedException(SaveDisabledReason);
-        if (_currentEntry is null || IsSaving) return false;
+        if (_currentEntry is null || IsSaving || IsRetouching) return false;
 
         EndEdit();
         var parameters = GetCurrentParameters();
@@ -334,6 +352,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Saturation = Saturation,
         Temperature = Temperature,
         Tint = Tint,
+        Effect = Effect,
         Clarity = Clarity,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
@@ -345,8 +364,21 @@ public partial class ImageEditorViewModel : ObservableObject
         WhitePoint = WhitePoint,
         Midtones = Midtones,
         RotationAngle = RotationAngle,
-        Crop = _crop?.Clone()
+        Crop = _crop?.Clone(),
+        RetouchStrokes = _retouchStrokes.Select(stroke => stroke.Copy()).ToList()
     };
+
+    public void AddRetouchStroke(RetouchStroke stroke)
+    {
+        if (!IsOpen || IsBusy || IsRawPreview || ImagePath is null || !ImageEditRenderer.IsSupported(ImagePath))
+            throw new InvalidOperationException("Retouch requires an idle raster editor.");
+        var strokes = _retouchStrokes.Append(stroke.Copy()).ToList();
+        SpotRetouchProcessor.Validate(strokes);
+        BeginEdit("Spot retouch");
+        _retouchStrokes = strokes;
+        OnParameterChanged("Spot retouch");
+        EndEdit();
+    }
 
     public async Task KeepRawPreviewRecipeAsync()
     {
@@ -468,6 +500,8 @@ public partial class ImageEditorViewModel : ObservableObject
     private void ApplyParametersToSliders(EditParameters p)
     {
         var cropChanged = !CropEqual(_crop, p.Crop);
+        var retouchChanged = !RetouchStroke.SequenceEqual(_retouchStrokes, p.RetouchStrokes);
+        _retouchStrokes = p.RetouchStrokes.Select(stroke => stroke.Copy()).ToList();
         _crop = p.Crop?.Clone();
         Brightness = p.Brightness;
         Contrast = p.Contrast;
@@ -479,6 +513,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Saturation = p.Saturation;
         Temperature = p.Temperature;
         Tint = p.Tint;
+        Effect = p.Effect;
         Clarity = p.Clarity;
         Sharpness = p.Sharpness;
         NoiseReduction = p.NoiseReduction;
@@ -491,6 +526,7 @@ public partial class ImageEditorViewModel : ObservableObject
         Midtones = p.Midtones;
         RotationAngle = p.RotationAngle;
         if (cropChanged) OnParameterChanged("Crop");
+        if (retouchChanged) OnParameterChanged("Spot retouch");
     }
 
     // Called when any slider value changes to trigger re-render
@@ -504,6 +540,7 @@ public partial class ImageEditorViewModel : ObservableObject
     partial void OnSaturationChanged(double value) => OnParameterChanged("Saturation");
     partial void OnTemperatureChanged(double value) => OnParameterChanged("Temperature");
     partial void OnTintChanged(double value) => OnParameterChanged("Tint");
+    partial void OnEffectChanged(PhotoEffect value) => OnParameterChanged("Effect");
     partial void OnClarityChanged(double value) => OnParameterChanged("Clarity");
     partial void OnSharpnessChanged(double value) => OnParameterChanged("Sharpness");
     partial void OnNoiseReductionChanged(double value) => OnParameterChanged("Noise reduction");
@@ -613,14 +650,14 @@ public partial class ImageEditorViewModel : ObservableObject
         a.Brightness == b.Brightness && a.Contrast == b.Contrast && a.Exposure == b.Exposure &&
         a.RawExposureEv == b.RawExposureEv && a.RawWhitePoint == b.RawWhitePoint &&
         a.Highlights == b.Highlights && a.Shadows == b.Shadows && a.Saturation == b.Saturation &&
-        a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
+        a.Effect == b.Effect && a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
         a.Sharpness == b.Sharpness && a.NoiseReduction == b.NoiseReduction &&
         a.SharpeningMode == b.SharpeningMode && a.UnsharpMaskAmount == b.UnsharpMaskAmount &&
         a.UnsharpMaskRadius == b.UnsharpMaskRadius &&
         a.UnsharpMaskThreshold == b.UnsharpMaskThreshold &&
         a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
         a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle &&
-        CropEqual(a.Crop, b.Crop);
+        CropEqual(a.Crop, b.Crop) && RetouchStroke.SequenceEqual(a.RetouchStrokes, b.RetouchStrokes);
 
     private static bool CropEqual(CropRect? a, CropRect? b) =>
         a is null || b is null ? a is null && b is null :

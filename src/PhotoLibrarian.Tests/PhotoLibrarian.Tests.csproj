@@ -28,6 +28,9 @@
     <None Include="..\PhotoLibrarian\MainWindow.xaml"
           Link="TestAssets\MainWindow.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
+          Link="TestAssets\MainWindow.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageGridView.xaml"
           Link="TestAssets\ImageGridView.xaml"
           CopyToOutputDirectory="PreserveNewest" />
@@ -43,6 +46,9 @@
     <None Include="..\PhotoLibrarian\Views\MetadataPanel.xaml"
           Link="TestAssets\MetadataPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\SidecarMigrationPanel.xaml"
+          Link="TestAssets\SidecarMigrationPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\FolderNavigationPanel.xaml"
           Link="TestAssets\FolderNavigationPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />
@@ -55,6 +61,15 @@
     <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml"
           Link="TestAssets\ImageViewerOverlay.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.ContextMenu.cs"
+          Link="TestAssets\ImageViewerOverlay.ContextMenu.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml.cs"
+          Link="TestAssets\ImageViewerOverlay.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
+          Link="TestAssets\MainWindow.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml"
           Link="TestAssets\TopRibbon.xaml"
           CopyToOutputDirectory="PreserveNewest" />
@@ -63,6 +78,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\VideoEditDialog.xaml"
           Link="TestAssets\VideoEditDialog.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\VideoTrimDialog.xaml"
+          Link="TestAssets\VideoTrimDialog.xaml"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

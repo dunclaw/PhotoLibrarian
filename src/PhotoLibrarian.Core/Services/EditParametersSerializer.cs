@@ -1,6 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using XmpCore;
 using PhotoLibrarian.Core.Models;
+using System.Text.Json;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -29,6 +30,7 @@ public static class EditParametersSerializer
         SetDouble(xmp, "Saturation", p.Saturation);
         SetDouble(xmp, "Temperature", p.Temperature);
         SetDouble(xmp, "Tint", p.Tint);
+        xmp.SetProperty(Ns, $"{Pre}:Effect", p.Effect.ToString());
         SetDouble(xmp, "Clarity", p.Clarity);
         SetDouble(xmp, "Sharpness", p.Sharpness);
         SetDouble(xmp, "NoiseReduction", p.NoiseReduction);
@@ -40,6 +42,9 @@ public static class EditParametersSerializer
         SetDouble(xmp, "WhitePoint", p.WhitePoint);
         SetDouble(xmp, "Midtones", p.Midtones);
         SetDouble(xmp, "RotationAngle", p.RotationAngle);
+        SpotRetouchProcessor.Validate(p.RetouchStrokes);
+        if (p.RetouchStrokes.Count == 0) DeleteProp(xmp, "SpotRetouchV1");
+        else xmp.SetProperty(Ns, $"{Pre}:SpotRetouchV1", JsonSerializer.Serialize(p.RetouchStrokes));
 
         if (p.Crop is not null)
         {
@@ -67,10 +72,10 @@ public static class EditParametersSerializer
         foreach (var prop in new[]
         {
             "Brightness", "Contrast", "Exposure", "Highlights", "Shadows",
-            "Saturation", "Temperature", "Tint", "Clarity", "Sharpness", "NoiseReduction",
+            "Saturation", "Temperature", "Tint", "Effect", "Clarity", "Sharpness", "NoiseReduction",
             "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
             "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
-            "CropLeft", "CropTop", "CropWidth", "CropHeight"
+            "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1"
         })
         {
             DeleteProp(xmp, prop);
@@ -98,6 +103,7 @@ public static class EditParametersSerializer
             Saturation = GetDouble(xmp, "Saturation"),
             Temperature = GetDouble(xmp, "Temperature"),
             Tint = GetDouble(xmp, "Tint"),
+            Effect = GetEffect(xmp),
             Clarity = GetDouble(xmp, "Clarity"),
             Sharpness = GetDouble(xmp, "Sharpness"),
             NoiseReduction = GetDouble(xmp, "NoiseReduction"),
@@ -123,7 +129,29 @@ public static class EditParametersSerializer
             };
         }
 
+        if (xmp.DoesPropertyExist(Ns, $"{Pre}:SpotRetouchV1"))
+        {
+            var json = xmp.GetPropertyString(Ns, $"{Pre}:SpotRetouchV1");
+            if (string.IsNullOrWhiteSpace(json))
+                throw new InvalidDataException("Retouch recipe is empty.");
+            try
+            {
+                p.RetouchStrokes = JsonSerializer.Deserialize<List<RetouchStroke>>(json)
+                    ?? throw new InvalidDataException("Retouch recipe is null.");
+            }
+            catch (JsonException ex) { throw new InvalidDataException("Invalid retouch recipe.", ex); }
+            SpotRetouchProcessor.Validate(p.RetouchStrokes);
+        }
         return p;
+    }
+
+    private static PhotoEffect GetEffect(IXmpMeta xmp)
+    {
+        if (!xmp.DoesPropertyExist(Ns, $"{Pre}:Effect")) return PhotoEffect.None;
+        var value = xmp.GetPropertyString(Ns, $"{Pre}:Effect");
+        if (Enum.TryParse<PhotoEffect>(value, out var effect) && Enum.IsDefined(effect))
+            return effect;
+        throw new NotSupportedException($"Unsupported photo effect recipe: {value}");
     }
 
     private static double GetRawDouble(IXmpMeta xmp, string prop, double defaultValue) =>
@@ -138,18 +166,21 @@ public static class EditParametersSerializer
 
     private static double GetDouble(IXmpMeta xmp, string prop, double defaultValue = 0.0)
     {
-        try { return xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}"); }
-        catch { return defaultValue; }
+        return xmp.DoesPropertyExist(Ns, $"{Pre}:{prop}")
+            ? xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}")
+            : defaultValue;
     }
 
     private static double? GetDoubleOrNull(IXmpMeta xmp, string prop)
     {
-        try { return xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}"); }
-        catch { return null; }
+        return xmp.DoesPropertyExist(Ns, $"{Pre}:{prop}")
+            ? xmp.GetPropertyDouble(Ns, $"{Pre}:{prop}")
+            : null;
     }
 
     private static SharpeningMode GetSharpeningMode(IXmpMeta xmp)
     {
+        if (!xmp.DoesPropertyExist(Ns, $"{Pre}:SharpeningMode")) return SharpeningMode.Legacy;
         try
         {
             var value = xmp.GetPropertyString(Ns, $"{Pre}:SharpeningMode");
