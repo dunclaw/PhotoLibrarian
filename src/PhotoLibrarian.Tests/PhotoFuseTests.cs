@@ -481,6 +481,81 @@ public sealed class PhotoFuseTests : IDisposable
     }
 
     [Fact]
+    public async Task JpegExtendedLineagePreservesTheCompletePacketWithoutAnOutputSidecar()
+    {
+        string basis = await WriteFrameAsync("base.jpg", Frame());
+        byte[] original = await File.ReadAllBytesAsync(basis, Token);
+        using var session = Assert.IsType<PhotoFuseSession>((await PhotoFuseSession.TryPrepareFacesAsync([basis], Token)).Session);
+        var random = new byte[100_000];
+        new Random(42).NextBytes(random);
+        string mask = Convert.ToBase64String(random);
+        var rendering = session.AcceptPreview(Frame(), [new PhotoFuseRegion(1, 56, 56, 72, 72)
+        {
+            SubjectTransform = default(PhotoFuseTransform), CompressedMask = mask
+        }]);
+        var preview = Assert.IsType<PhotoFusePreview>(rendering.Preview);
+        string saved = await session.ExportAsync(preview, _folder, true, Token);
+        var metadata = ImageMetadataReader.ReadMetadata(saved).OfType<XmpDirectory>().ToArray();
+        Assert.All(metadata, item => Assert.False(item.HasError));
+        var lineage = Assert.Single(metadata.Where(item => item.XmpMeta?.DoesPropertyExist(
+            PhotoFuseSession.ProvenanceNamespace, "Regions") == true)).XmpMeta!;
+        using var regions = JsonDocument.Parse(lineage.GetPropertyString(PhotoFuseSession.ProvenanceNamespace, "Regions"));
+        Assert.Equal(mask, regions.RootElement[0].GetProperty("Mask").GetString());
+        Assert.False(File.Exists(saved + ".xmp"));
+        Assert.False(File.Exists(Path.ChangeExtension(saved, ".xmp")));
+        Assert.Equal(original, await File.ReadAllBytesAsync(basis, Token));
+    }
+
+    [Theory]
+    [InlineData(".jpg")]
+    [InlineData(".jpeg")]
+    [InlineData(".JPG")]
+    [InlineData(".png")]
+    public async Task OutputMatchesBaseFormatAndExtensionRatherThanDonor(string extension)
+    {
+        string basis = await WriteFrameAsync("base" + extension, Frame());
+        string donor = await WriteFrameAsync("donor" + (extension == ".png" ? ".jpg" : ".png"), FaceFrame(1));
+        byte[] original = await File.ReadAllBytesAsync(basis, Token);
+        var prepared = await PhotoFuseSession.TryPrepareFacesAsync([basis, donor], Token);
+        using var session = Assert.IsType<PhotoFuseSession>(prepared.Session);
+        var face = PhotoFuseFaceBounds.From(Face(1, 1, 80));
+        var preview = Assert.IsType<PhotoFusePreview>((await session.TryPreviewFacesAsync([new(1, face, face)], Token, [face])).Preview);
+        File.WriteAllText(Path.Combine(_folder, "base - Fused.xmp"), "Existing sidecar");
+        string saved = await session.ExportAsync(preview, _folder, true, Token);
+        Assert.EndsWith("base - Fused (2)" + extension, saved, StringComparison.Ordinal);
+        byte[] encoded = await File.ReadAllBytesAsync(saved, Token);
+        byte[] decoded = await ReadPixelsAsync(saved);
+        if (extension == ".png")
+        {
+            Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, encoded[..8]);
+            Assert.Equal(preview.CopyPixels(), decoded);
+        }
+        else
+        {
+            Assert.Equal(new byte[] { 255, 216, 255 }, encoded[..3]);
+            AssertJpegMatchesPreview(preview.CopyPixels(), decoded);
+        }
+        var xmp = ImageMetadataReader.ReadMetadata(saved).OfType<XmpDirectory>().Single().XmpMeta!;
+        Assert.Equal("2", xmp.GetPropertyString(PhotoFuseSession.ProvenanceNamespace, "Version"));
+        Assert.Equal(1, xmp.GetPropertyInteger("http://ns.adobe.com/tiff/1.0/", "Orientation"));
+        Assert.Equal(original, await File.ReadAllBytesAsync(basis, Token));
+        Assert.Empty(System.IO.Directory.GetFiles(_folder, ".photolibrarian-fuse-*"));
+    }
+
+    internal static void AssertJpegMatchesPreview(byte[] expected, byte[] actual)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        double error = 0;
+        for (int i = 0; i < expected.Length; i++)
+        {
+            if (i % 4 == 3) { Assert.Equal(255, actual[i]); continue; }
+            error += Math.Pow(expected[i] - actual[i], 2);
+        }
+        double rms = Math.Sqrt(error / (expected.Length / 4 * 3));
+        Assert.True(rms <= 3, $"JPEG quality 95/4:4:4 RMS error {rms:F3} exceeds 3/255.");
+    }
+
+    [Fact]
     public async Task SubjectOutputStoresActualMaskAndTransformAndCannotRenderSearchHints()
     {
         string basis = await WriteFrameAsync("base.png", Frame());
@@ -749,7 +824,16 @@ public sealed class PhotoFuseTests : IDisposable
     {
         var path = Path.Combine(_folder, name);
         await using var file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite);
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, file.AsRandomAccessStream());
+        bool jpeg = Path.GetExtension(name).Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            Path.GetExtension(name).Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
+        var options = new BitmapPropertySet();
+        if (jpeg)
+        {
+            options["ImageQuality"] = new BitmapTypedValue(0.95f, Windows.Foundation.PropertyType.Single);
+            options["JpegYCrCbSubsampling"] = new BitmapTypedValue((byte)3, Windows.Foundation.PropertyType.UInt8);
+        }
+        var encoder = await BitmapEncoder.CreateAsync(jpeg ? BitmapEncoder.JpegEncoderId : BitmapEncoder.PngEncoderId,
+            file.AsRandomAccessStream(), options);
         encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, size, size, 96, 96, pixels);
         await encoder.FlushAsync();
         return path;

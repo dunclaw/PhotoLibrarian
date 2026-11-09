@@ -28,7 +28,8 @@ rejections are explicit results, not exceptions used to control discovery.
 
 Use the viewer's normal zoom/1:1/pan controls to inspect eyes and seams. Click
 **Photo Fuse again** (the button reads **Save and exit Fuse**) to save the accepted
-preview as a new PNG beside the base photo and leave Fuse mode. The original is
+preview as a new copy in the **base photo's format** beside that photo and leave
+Fuse mode: JPEG stays JPEG (including `.jpg`/`.jpeg`), and PNG stays PNG. The original is
 never overwritten. With no replacements, exiting writes nothing. A failed save
 keeps the workspace and choices available for retry. Escape/Close in the viewer
 also finish Fuse rather than silently discarding changes.
@@ -72,7 +73,9 @@ decide not to keep the replacements; it never writes a composite.
   within 24/255 in every channel, with measured coverage proportional to face size.
   Overlapping crop rectangles are allowed; overlapping nonzero masks are not.
 - Output is **at most 1600 pixels on the longest edge**, never enlarged, opaque
-  8-bit sRGB PNG. The base is not globally cropped or warped. Donor samples are
+  8-bit sRGB in the base photo's format. JPEG uses the app's existing **95% quality,
+  4:4:4 (no chroma subsampling)** export settings; PNG is lossless.
+  The base is not globally cropped or warped. Donor samples are
   inverse-mapped into the base, bilinearly interpolated, and feathered in linear
   light over 2-8 pixels. Pixels outside the actual nonzero masks are unchanged.
   Uncovered donor pixels cannot be included in a replacement region.
@@ -107,15 +110,16 @@ PhotoLibrarian edit properties and Adobe metadata explicitly marked as pending
 settings/crop are rejected with actionable wording, not the vague “has an edit
 recipe” error. No metadata is rewritten merely to clear that error.
 
-The saved copy is the **exact accepted preview pixel buffer**, not a second render.
-PNG encoding and ICC/XMP tagging finish in uniquely named temporary files in the
+The saved copy encodes the **accepted preview pixel buffer**, not a second render.
+PNG preserves those pixels exactly; JPEG introduces normal lossy compression.
+JPEG/PNG encoding and ICC/XMP tagging finish in uniquely named temporary files in the
 destination folder before a no-overwrite rename publishes the image. Existing
 same-stem files, other image extensions, and metadata sidecars cause a numbered
 name to be chosen. Failed/canceled work removes only its own staging files.
 Cancellation after the publish commit is a successful save, not a false canceled
 result. An indexing failure reports the saved path; it does not delete the copy.
 
-The new PNG contains its own sRGB ICC profile and embedded PhotoLibrarian XMP
+The new copy contains its own sRGB ICC profile and embedded PhotoLibrarian XMP
 (`https://photolibrarian.app/ns/photo-fuse/1.0/`, payload version 2): ordered source
 basenames and SHA-256 digests, actual per-face donor-to-base similarity transforms,
 chosen crop coordinates/frame indices (zero is the base), dimensions, normalized
@@ -125,7 +129,9 @@ translation uses preview pixels, rotation radians, and scale is `1+ScaleDelta`.
 Source-level motion estimates are explicitly labeled search hints, separate from
 the measured rendering transforms. Complete UTF-8 lineage is limited to 4 MiB
 before a preview can be accepted; no arbitrary face-count cap replaces that
-portable-metadata budget. No absolute source paths are stored.
+portable-metadata budget. JPEG packets larger than a single APP1 segment use
+standard Adobe Extended XMP chunks so masks/lineage remain embedded, not truncated
+or moved to a separate sidecar. No absolute source paths are stored.
 Tags, captions, ratings, copyright claims, capture dates, GPS, thumbnails, edit
 recipes and face identities are **not copied** from any source. Those may be
 misleading for a multi-source composite; the workspace discloses this policy.
@@ -153,7 +159,9 @@ adaptive feather-neighborhood seams, opaque facial cores, exact neighboring-face
 preservation, disjoint masks in overlapping crops, actual mask overlap rejection,
 decompressed portable masks/actual transforms, metadata budgets, forbidden
 search-hint rendering, saveable accepted previews after a failed replacement,
-and whole-frame scale/parallax/occlusion rejection,
+source-format/extension preservation with mixed-format donors, JPEG container and
+quality checks (95%/4:4:4 RMS error at most 3/255 on these fixtures), large embedded
+Extended XMP roundtrips, and whole-frame scale/parallax/occlusion rejection,
 flat/localized/repeating texture, color disagreement, localized moving foregrounds,
 nonthrowing rejection/lease cleanup, exclusion of broken replacement choices, independent region choices,
 bad seams, bounds/overlap, missing/unsupported/corrupt sources, all nonidentity
@@ -206,7 +214,9 @@ from nine of the eleven neighbors, covering all six detected base faces**. Both
 nearest later shots offer all six faces. The formerly blocked turned-head
 replacement is accepted through the independently measured context path.
 Two face replacements were also rendered together with disjoint masks. The
-accepted output's stored PNG pixels equal the reviewed buffer, neighboring face
+accepted output's stored PNG pixels equaled the reviewed buffer in the original
+rework checks; the source-format regression now checks JPEG compression error
+separately rather than claiming lossless JPEG pixels. Neighboring face
 pixels remain exactly original, and source/sidecar hashes and absence of new
 sidecars are checked. Private local before/donor/composite crops were visually
 reviewed without uploads and are not committed.

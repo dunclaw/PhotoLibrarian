@@ -11,6 +11,7 @@ using XmpCore;
 using XmpCore.Options;
 using System.Globalization;
 using System.Xml.Linq;
+using Windows.Foundation;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -52,6 +53,9 @@ public sealed class PhotoFuseSession : IDisposable
     public int Height { get; private set; }
     public IReadOnlyList<string> SourceNames => _names.AsReadOnly();
     public IReadOnlyList<string> SourceHashes => _hashes.AsReadOnly();
+    private string OutputExtension => Path.GetExtension(_names[0]);
+    private RawDerivativeFormat OutputFormat => OutputExtension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+        ? RawDerivativeFormat.Png : RawDerivativeFormat.Jpeg;
 
     public (double X, double Y) DonorPointAt(int frame, double x, double y) =>
         _transforms[frame].SourceAt(x, y, Width, Height);
@@ -344,8 +348,15 @@ public sealed class PhotoFuseSession : IDisposable
             await using (var file = new FileStream(encoded, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
                 encodedCreated = true;
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId,
-                    file.AsRandomAccessStream()).AsTask(token);
+                var options = new BitmapPropertySet();
+                if (OutputFormat == RawDerivativeFormat.Jpeg)
+                {
+                    options["ImageQuality"] = new BitmapTypedValue(RawDerivativeExportService.JpegQuality / 100f, PropertyType.Single);
+                    options["JpegYCrCbSubsampling"] = new BitmapTypedValue((byte)3, PropertyType.UInt8);
+                }
+                var encoder = await BitmapEncoder.CreateAsync(
+                    OutputFormat == RawDerivativeFormat.Png ? BitmapEncoder.PngEncoderId : BitmapEncoder.JpegEncoderId,
+                    file.AsRandomAccessStream(), options).AsTask(token);
                 encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)Width,
                     (uint)Height, 96, 96, preview.Pixels);
                 await encoder.FlushAsync().AsTask(token);
@@ -356,8 +367,8 @@ public sealed class PhotoFuseSession : IDisposable
             await using (var output = new FileStream(tagged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 taggedCreated = true;
-                await SdrDerivativeMetadata.TagAsync(input, output, RawDerivativeFormat.Png,
-                    preview.Provenance, token);
+                await SdrDerivativeMetadata.TagAsync(input, output, OutputFormat,
+                    preview.Provenance, token, allowExtendedXmp: true);
             }
             File.Delete(encoded);
             encodedCreated = false;
@@ -371,7 +382,7 @@ public sealed class PhotoFuseSession : IDisposable
                 string stem = Path.GetFileNameWithoutExtension(_names[0]) + suffix;
                 // Includes same-stem recipes, face fallback sidecars, and other image extensions.
                 if (System.IO.Directory.EnumerateFileSystemEntries(folder, stem + ".*").Any()) continue;
-                var destination = Path.Combine(folder, stem + ".png");
+                var destination = Path.Combine(folder, stem + OutputExtension);
                 try
                 {
                     File.Move(tagged, destination, overwrite: false);

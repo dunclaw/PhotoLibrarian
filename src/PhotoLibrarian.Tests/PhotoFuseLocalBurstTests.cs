@@ -139,7 +139,11 @@ public sealed class PhotoFuseLocalBurstTests(ITestOutputHelper output)
                             var saved = await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8,
                                 BitmapAlphaMode.Ignore, new BitmapTransform(),
                                 ExifOrientationMode.RespectExifOrientation, ColorManagementMode.DoNotColorManage).AsTask(token);
-                            Assert.Equal(composite, saved.DetachPixelData());
+                            if (Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase))
+                                Assert.Equal(composite, saved.DetachPixelData());
+                            else
+                                PhotoFuseTests.AssertJpegMatchesPreview(composite, saved.DetachPixelData());
+                            Assert.Equal(Path.GetExtension(path), Path.GetExtension(outputPath));
                         }
                         finally { System.IO.Directory.Delete(folder, recursive: true); }
                     }

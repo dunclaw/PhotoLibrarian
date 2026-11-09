@@ -308,10 +308,10 @@
   <data name="FuseFindingFaces" xml:space="preserve"><value>Finding faces in this photo...</value></data>
   <data name="FuseSearching" xml:space="preserve"><value>Looking for replacements... {0}/{1} nearby photos</value></data>
   <data name="FuseNoFaces" xml:space="preserve"><value>No faces found. Use Add people tags in the details rail to draw a missed face.</value></data>
-  <data name="FuseDiscoveryComplete" xml:space="preserve"><value>Select a face: {0} similar photos found; {1} incompatible photos skipped. Click Fuse again to save a new PNG (up to 1600 pixels; source tags, GPS and people identities are not copied).</value></data>
+  <data name="FuseDiscoveryComplete" xml:space="preserve"><value>Select a face: {0} similar photos found; {1} incompatible photos skipped. Click Fuse again to save a new copy in the original photo's format (up to 1600 pixels; source tags, GPS and people identities are not copied).</value></data>
   <data name="FuseLastSkip" xml:space="preserve"><value>Last skip: {0}</value></data>
   <data name="FusePreparingFailed" xml:space="preserve"><value>Photo Fuse could not prepare this photo: {0}</value></data>
-  <data name="FuseReplacementPreviewed" xml:space="preserve"><value>Replacement previewed. Inspect the face and its edges; choose Original to undo. Click Photo Fuse again to save a new PNG copy (up to 1600 pixels). Originals are never overwritten; source tags, GPS and people identities are not copied.</value></data>
+  <data name="FuseReplacementPreviewed" xml:space="preserve"><value>Replacement previewed. Inspect the face and its edges; choose Original to undo. Click Photo Fuse again to save a new copy in the original photo's format (up to 1600 pixels). JPEG uses 95% quality without chroma subsampling. Originals are never overwritten; source tags, GPS and people identities are not copied.</value></data>
   <data name="FuseOriginalRestored" xml:space="preserve"><value>Original restored. Click another face to choose a replacement.</value></data>
   <data name="FuseReplacementFailed" xml:space="preserve"><value>Replacement not applied: {0}</value></data>
   <data name="FuseWaitForSearch" xml:space="preserve"><value>Wait for Photo Fuse to finish searching before adding a face.</value></data>
