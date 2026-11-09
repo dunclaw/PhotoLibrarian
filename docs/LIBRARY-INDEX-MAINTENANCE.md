@@ -91,6 +91,29 @@ directory, in addition to the model/pipeline version. Metadata-write failure and
 cancellation leave unfinished work retryable; unavailable photos retain their
 cache entries.
 
+## Composite descriptive tags
+
+A slash-separated value such as `Auto/animal/mammal/dog` is one explicit
+keyword in the photo (or its XMP sidecar) and one item in the Information
+panel's descriptive tags. The SQLite cache stores that explicit value with its
+source and confidence. A separate, indexed path-membership table derives
+`Auto`, `Auto/animal`, and `Auto/animal/mammal` for navigation and refinement;
+those paths are never exported as extra keywords. Tree counts are distinct
+photos at each level, including when a photo has several sibling tags.
+Removing the composite keyword removes its derived memberships, but a sibling
+or a genuinely independent parent keyword still supplies its own membership.
+
+There is no lossy prefix-collapse migration. Older files may already contain
+both a parent keyword and a longer composite keyword; even their source and
+confidence cannot prove whether the parent was generated or intentionally
+entered. Every serialized value therefore remains an explicit, editable tag.
+Deleting an explicitly stored parent does not break searching for descendants:
+their parent memberships are derived independently. Fresh imports and restarts
+preserve all these values. An explicit Refresh reconciles stale expanded cache
+rows to a portable `plib:TagMetadata` packet containing only the composite
+value, without rewriting the file. Without such authoritative provenance,
+ambiguous old cache rows are retained rather than guessed away.
+
 Temporary-library tests use deterministic fake inference, real SQLite and generated
 images to assert inference-call counts across restarts, metadata/pixel edits,
 model/pipeline/settings changes, cancellation, persistence failures, watched scope

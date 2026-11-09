@@ -19,39 +19,21 @@ public sealed class TagRepository : IAutoTagStore
     public async Task AddTagAsync(ImageTag tag)
     {
         using var conn = _db.CreateConnection();
-        
-        // Insert all tag paths (including parents)
-        foreach (var tagPath in GetTagPaths(tag.Tag))
-        {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT OR REPLACE INTO tags (image_id, tag, source, confidence)
-                VALUES ($id, $tag, $source, $conf)
-                """;
-            cmd.Parameters.AddWithValue("$id", tag.ImageId);
-            cmd.Parameters.AddWithValue("$tag", tagPath);
-            cmd.Parameters.AddWithValue("$source", (int)tag.Source);
-            cmd.Parameters.AddWithValue("$conf", tag.Confidence);
-            await cmd.ExecuteNonQueryAsync();
-        }
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR REPLACE INTO tags (image_id, tag, source, confidence)
+            VALUES ($id, $tag, $source, $conf)
+            """;
+        cmd.Parameters.AddWithValue("$id", tag.ImageId);
+        cmd.Parameters.AddWithValue("$tag", tag.Tag);
+        cmd.Parameters.AddWithValue("$source", (int)tag.Source);
+        cmd.Parameters.AddWithValue("$conf", tag.Confidence);
+        await cmd.ExecuteNonQueryAsync();
     }
 
-    private static IEnumerable<string> GetTagPaths(string tag)
-    {
-        if (!tag.Contains('/'))
-        {
-            yield return tag;
-            yield break;
-        }
-
-        var currentPath = "";
-        foreach (var part in tag.Split('/', StringSplitOptions.RemoveEmptyEntries))
-        {
-            currentPath = currentPath.Length == 0 ? part : $"{currentPath}/{part}";
-            yield return currentPath;
-        }
-    }
-
+    /// <summary>
+    /// Gets explicit portable keywords only, never derived ancestor memberships.
+    /// </summary>
     public async Task<List<ImageTag>> GetTagsAsync(
         long imageId,
         CancellationToken cancellationToken = default)
@@ -221,7 +203,7 @@ public sealed class TagRepository : IAutoTagStore
     }
 
     /// <summary>
-    /// Gets all unique tags with their usage count.
+    /// Gets hierarchy paths with distinct-photo usage counts.
     /// </summary>
     public async Task<List<(string Tag, int Count)>> GetAllTagsWithCountAsync(bool watchedOnly = false)
     {
@@ -229,11 +211,11 @@ public sealed class TagRepository : IAutoTagStore
         using var cmd = conn.CreateCommand();
         cmd.CommandText = watchedOnly
             ? """
-              SELECT tag, COUNT(*) as cnt FROM tags
+              SELECT tag, COUNT(*) as cnt FROM tag_hierarchy
               WHERE image_id IN (SELECT id FROM watched_images)
               GROUP BY tag ORDER BY cnt DESC
               """
-            : "SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC";
+            : "SELECT tag, COUNT(*) as cnt FROM tag_hierarchy GROUP BY tag ORDER BY cnt DESC";
 
         var results = new List<(string, int)>();
         using var reader = await cmd.ExecuteReaderAsync();
@@ -245,13 +227,13 @@ public sealed class TagRepository : IAutoTagStore
     }
 
     /// <summary>
-    /// Finds images that have a specific tag.
+    /// Finds images with an explicit tag or a descendant of that hierarchy path.
     /// </summary>
     public async Task<List<long>> GetImageIdsWithTagAsync(string tag)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT image_id FROM tags WHERE tag = $tag";
+        cmd.CommandText = "SELECT image_id FROM tag_hierarchy WHERE tag = $tag";
         cmd.Parameters.AddWithValue("$tag", tag);
 
         var ids = new List<long>();
@@ -270,7 +252,7 @@ public sealed class TagRepository : IAutoTagStore
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT image_id, tag FROM tags";
+        cmd.CommandText = "SELECT image_id, tag FROM tag_hierarchy";
 
         var results = new Dictionary<long, HashSet<string>>();
         using var reader = await cmd.ExecuteReaderAsync();
@@ -301,6 +283,18 @@ public sealed class TagRepository : IAutoTagStore
         cmd.CommandText = $"""
             SELECT COUNT(*) FROM {table} images
             WHERE NOT EXISTS (SELECT 1 FROM tags WHERE tags.image_id = images.id)
+            """;
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    public async Task<int> GetTaggedCountAsync(bool watchedOnly = false)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        var table = watchedOnly ? "watched_images" : "images";
+        cmd.CommandText = $"""
+            SELECT COUNT(*) FROM {table} images
+            WHERE EXISTS (SELECT 1 FROM tags WHERE tags.image_id = images.id)
             """;
         return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
@@ -483,8 +477,8 @@ public sealed class TagRepository : IAutoTagStore
                 tag.Tag.Trim().Trim('/'),
                 Math.Clamp(tag.Confidence, 0, 1)))
             .Where(tag => tag.Tag.Length > 0)
-            .SelectMany(tag => GetTagPaths($"{ImageTag.AutomaticRootTag}/{tag.Tag}")
-                .Select(path => new GeneratedImageTag(path, tag.Confidence)))
+            .Select(tag => new GeneratedImageTag(
+                $"{ImageTag.AutomaticRootTag}/{tag.Tag}", tag.Confidence))
             .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.MaxBy(tag => tag.Confidence)!)
             .ToList();
@@ -548,9 +542,8 @@ public sealed class TagRepository : IAutoTagStore
                 tag.Tag.Trim().Trim('/'),
                 Math.Clamp(tag.Confidence, 0, 1)))
             .Where(tag => tag.Tag.Length > 0)
-            .SelectMany(tag => GetTagPaths(
-                    $"{ImageTag.AutomaticRootTag}/{tag.Tag}")
-                .Select(path => new GeneratedImageTag(path, tag.Confidence)))
+            .Select(tag => new GeneratedImageTag(
+                $"{ImageTag.AutomaticRootTag}/{tag.Tag}", tag.Confidence))
             .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.MaxBy(tag => tag.Confidence)!)
             .ToList();
@@ -698,20 +691,17 @@ public sealed class TagRepository : IAutoTagStore
         CancellationToken cancellationToken = default)
     {
         using var conn = _db.CreateConnection();
-        foreach (var tagPath in GetTagPaths(tag))
-        {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO tags (image_id, tag, source, confidence)
-                VALUES ($id, $tag, $source, $confidence)
-                ON CONFLICT(image_id, tag) DO NOTHING
-                """;
-            cmd.Parameters.AddWithValue("$id", imageId);
-            cmd.Parameters.AddWithValue("$tag", tagPath);
-            cmd.Parameters.AddWithValue("$source", (int)source);
-            cmd.Parameters.AddWithValue("$confidence", confidence);
-            await cmd.ExecuteNonQueryAsync(cancellationToken);
-        }
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO tags (image_id, tag, source, confidence)
+            VALUES ($id, $tag, $source, $confidence)
+            ON CONFLICT(image_id, tag) DO NOTHING
+            """;
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$tag", tag);
+        cmd.Parameters.AddWithValue("$source", (int)source);
+        cmd.Parameters.AddWithValue("$confidence", confidence);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task RestoreAutoTagScanVersionAsync(
