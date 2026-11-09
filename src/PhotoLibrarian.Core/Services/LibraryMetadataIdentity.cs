@@ -36,6 +36,7 @@ internal static class LibraryMetadataIdentity
         {
             imagePath,
             FaceMetadataStore.GetSidecarPathForImage(imagePath),
+            TagSidecarLocator.GetWritePath(imagePath),
             Path.ChangeExtension(imagePath, ".xmp")
         }.Distinct(StringComparer.OrdinalIgnoreCase);
 }

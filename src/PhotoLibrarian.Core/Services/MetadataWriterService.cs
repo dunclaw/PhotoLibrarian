@@ -18,11 +18,15 @@ public static class MetadataWriterService
     /// <summary>Raised after an unexpected sidecar fallback has been saved successfully.</summary>
     public static event EventHandler<MetadataWriteFallbackEventArgs>? SidecarFallback;
 
-    internal static void ReportSidecarFallback(string imagePath, string propertyName, Exception error)
+    internal static void ReportSidecarFallback(
+        string imagePath, string propertyName, Exception error, string? sidecarPath = null)
     {
-        var args = new MetadataWriteFallbackEventArgs(imagePath, propertyName, error);
+        var args = new MetadataWriteFallbackEventArgs(imagePath, propertyName, error, sidecarPath);
         System.Diagnostics.Trace.TraceWarning(
             $"[METADATA] Saved {propertyName} to {args.SidecarPath}, not {imagePath}: {error.Message}");
+        Diagnostics.DebugLog.WriteLine(
+            $"[METADATA] Saved {propertyName} to {args.SidecarPath} because {imagePath} could not be updated: " +
+            $"{error.GetType().Name} 0x{error.HResult:X8} {error.Message}");
         SidecarFallback?.Invoke(null, args);
     }
 

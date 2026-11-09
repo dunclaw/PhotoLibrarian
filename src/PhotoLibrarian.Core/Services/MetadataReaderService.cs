@@ -286,8 +286,8 @@ public sealed class MetadataReaderService
 
     internal PortableImageTagMetadata? ReadPortableTagSidecarMetadata(string filePath)
     {
-        var sidecarPath = Path.ChangeExtension(filePath, ".xmp");
-        if (!File.Exists(sidecarPath))
+        var sidecarPath = TagSidecarLocator.ResolveReadPath(filePath);
+        if (sidecarPath is null)
             return null;
 
         try

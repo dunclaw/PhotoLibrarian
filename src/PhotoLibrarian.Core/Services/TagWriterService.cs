@@ -67,14 +67,15 @@ public static class TagWriterService
             catch (Exception ex)
             {
                 embeddedError = ex;
-                System.Diagnostics.Debug.WriteLine($"[TAGS] In-place keyword write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
+                Diagnostics.DebugLog.WriteLine(
+                    $"[TAGS] Embedded keyword write failed for {imagePath}: {ex.GetType().Name} 0x{ex.HResult:X8} {ex.Message}. Falling back to sidecar.");
             }
         }
 
         // RAW fallback: write XMP sidecar
-        await Task.Run(() =>
+        var sidecarPath = await Task.Run(() =>
         {
-            var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+            var sidecarPath = GetTagSidecarTargetPath(imagePath);
             EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
             IXmpMeta xmp;
             try
@@ -92,6 +93,10 @@ public static class TagWriterService
 
             try { xmp.DeleteProperty(DcNamespace, "dc:subject"); } catch { }
 
+            // An explicit (possibly empty) keyword bag records that this sidecar owns the
+            // photo's tags, so clearing every tag cannot resurrect stale embedded keywords.
+            xmp.SetProperty(DcNamespace, "dc:subject", null,
+                new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false });
             foreach (var tag in distinct)
             {
                 xmp.AppendArrayItem(DcNamespace, "dc:subject",
@@ -113,10 +118,19 @@ public static class TagWriterService
                 sidecarPath,
                 serialized,
                 expectedSidecarSnapshot);
+            return sidecarPath;
         });
         if (embeddedError is not null)
-            MetadataWriterService.ReportSidecarFallback(imagePath, "tags", embeddedError);
+            MetadataWriterService.ReportSidecarFallback(imagePath, "tags", embeddedError, sidecarPath);
     }
+
+    /// <summary>
+    /// Returns the sidecar that tag writes for this photo update: the sidecar already holding
+    /// its tags when one can be attributed to it, otherwise the format's preferred sidecar.
+    /// </summary>
+    public static string GetTagSidecarTargetPath(string imagePath) =>
+        TagSidecarLocator.ResolveReadPath(imagePath) ??
+        TagSidecarLocator.GetWritePath(imagePath);
 
     /// <summary>
     /// Reads existing dc:subject keywords from an XMP sidecar (RAW fallback path).
@@ -125,8 +139,8 @@ public static class TagWriterService
     public static List<string> ReadTagsFromSidecar(string imagePath)
     {
         var tags = new List<string>();
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
-        if (!File.Exists(sidecarPath)) return tags;
+        var sidecarPath = TagSidecarLocator.ResolveReadPath(imagePath);
+        if (sidecarPath is null) return tags;
 
         try
         {
@@ -148,7 +162,7 @@ public static class TagWriterService
     public static TagMetadataSidecarSnapshot CaptureSidecarSnapshot(
         string imagePath)
     {
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+        var sidecarPath = GetTagSidecarTargetPath(imagePath);
         if (!File.Exists(sidecarPath))
             return new TagMetadataSidecarSnapshot(false, 0, default, null);
 

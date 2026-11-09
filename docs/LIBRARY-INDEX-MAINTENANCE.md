@@ -97,6 +97,25 @@ model/pipeline/settings changes, cancellation, persistence failures, watched sco
 and offline storage. A 100-photo synthetic scoped-startup fixture reports elapsed
 time but is not a representative camera-library performance benchmark.
 
+### Tag sidecar naming and fallback warnings
+
+When Windows cannot rewrite a JPEG, TIFF or PNG's existing embedded metadata
+(for example malformed or unsupported XMP, reported as `0x80070057` "Value does
+not fall within the expected range"), the photo is left byte-for-byte unchanged
+and tags are written to a per-file sidecar named `photo.jpg.xmp`. Other formats
+(RAW, HEIC, video) keep `photo.xmp`. A legacy `photo.xmp` is still read and
+updated for a JPEG/TIFF/PNG only when no other supported media file shares its
+stem; in a RAW+JPEG pair (`photo.cr3` + `photo.jpg`) the shared `photo.xmp`
+belongs to the RAW file, matching the sidecar-migration ambiguity rule. This
+prevents the two companions from overwriting each other's tag provenance, which
+previously re-queued tagging and repeated the fallback warning on every launch.
+
+The banner appears once when the fallback first happens, naming the sidecar and
+the reason; the failure type, HRESULT and sidecar path are also written to
+`PhotoLibrarian.log`. Edits remain portable in the sidecar, so subsequent
+launches do not repeat the write or the warning. If the sidecar itself cannot be
+written, tagging stays pending and is retried later without losing manual tags.
+
 ## Person picture portability
 
 Choosing a person's picture now saves the selection in that photo's
