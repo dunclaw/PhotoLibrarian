@@ -20,7 +20,7 @@ public sealed partial class ImageViewerOverlay
         PhotoContextMenu.Items.Clear();
         var target = PhotoContextMenuTarget.Create(
             ViewModel?.CurrentEntry,
-            IsCropping || IsStraightening || IsRedEyeRemoving || IsManualFaceTagging ||
+            IsPhotoFusing || IsCropping || IsStraightening || IsRedEyeRemoving || IsManualFaceTagging ||
             App.ViewModel?.ImageEditor.IsOpen == true);
         if (target is not null)
             PhotoContextMenuOpening?.Invoke(PhotoContextMenu, target);

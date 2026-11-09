@@ -38,6 +38,7 @@ public sealed partial class ImageViewerOverlay
         {
             EffectsFlyout.Hide();
             StopMotionPlayback();
+            MotionPhotoButton.IsEnabled = false;
             _zoomPan ??= new ImageZoomPanController(ImageScrollViewer, ScrollContent, ImageHost, FullImage);
             workspace.PropertyChanged += OnFusePropertyChanged;
             workspace.DisplayChanged += OnFuseDisplayChanged;
@@ -50,6 +51,7 @@ public sealed partial class ImageViewerOverlay
         }
         else
         {
+            MotionPhotoButton.IsEnabled = true;
             _fuseBitmap = null;
             FuseFaceOverlay.Children.Clear();
             FuseFaceOverlay.Visibility = Visibility.Collapsed;
