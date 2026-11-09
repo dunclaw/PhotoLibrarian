@@ -300,41 +300,36 @@
   <data name="WatchedFolderUpdateFailed" xml:space="preserve">
     <value>Could not update library folders: {0}</value>
   </data>
-  <data name="FuseDialog.Title" xml:space="preserve"><value>Photo Fuse</value></data>
-  <data name="FuseTitle" xml:space="preserve"><value>Photo Fuse</value></data>
-  <data name="FuseDialog.PrimaryButtonText" xml:space="preserve"><value>Save new PNG</value></data>
-  <data name="FuseDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
-  <data name="FuseSafety.Text" xml:space="preserve"><value>Choose regions from aligned burst stills. Sources are never changed. The new sRGB PNG is at most 1600 pixels on its longest edge; tags, GPS and people identities are not copied.</value></data>
-  <data name="FuseInitialStatus.Message" xml:space="preserve"><value>Preparing burst...</value></data>
-  <data name="FuseDonor.Header" xml:space="preserve"><value>Take region from</value></data>
-  <data name="FuseDonor.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Drag on the aligned donor, or enter a rectangle in base-image pixels. Include unchanged background around a face; identities are not matched automatically.</value></data>
-  <data name="FuseLeft.Header" xml:space="preserve"><value>Left</value></data>
-  <data name="FuseTop.Header" xml:space="preserve"><value>Top</value></data>
-  <data name="FuseWidth.Header" xml:space="preserve"><value>Width</value></data>
-  <data name="FuseHeight.Header" xml:space="preserve"><value>Height</value></data>
-  <data name="FuseAdd.Content" xml:space="preserve"><value>Add region</value></data>
-  <data name="FuseRemove.Content" xml:space="preserve"><value>Remove region</value></data>
-  <data name="FuseBuild.Content" xml:space="preserve"><value>Build composite preview</value></data>
-  <data name="FuseAlignedDonor.Content" xml:space="preserve"><value>Aligned donor</value></data>
-  <data name="FuseBase.Content" xml:space="preserve"><value>Base image</value></data>
-  <data name="FuseComposite.Content" xml:space="preserve"><value>Composite preview</value></data>
-  <data name="FuseFit.Content" xml:space="preserve"><value>Fit</value></data>
-  <data name="FuseOverlapHelp.Text" xml:space="preserve"><value>Aligned donor preview uses the base outside the common overlap. Regions crossing that boundary cannot be added.</value></data>
-  <data name="FuseConfirm.Content" xml:space="preserve"><value>I reviewed this composite at 1:1, including every region and its border.</value></data>
-  <data name="FuseLaunch.Content" xml:space="preserve"><value>Photo Fuse</value></data>
-  <data name="FuseLaunch.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Select two to four burst stills in the grid, then create a new region composite</value></data>
-  <data name="FuseReady" xml:space="preserve"><value>Base: {0}. Output: {1} x {2}. Choose a donor and draw a region. Maximum eight nonoverlapping regions.</value></data>
-  <data name="FuseCancel" xml:space="preserve"><value>Cancel</value></data>
-  <data name="FuseClose" xml:space="preserve"><value>Close</value></data>
-  <data name="FuseCanceled" xml:space="preserve"><value>Canceled. No new copy was saved.</value></data>
-  <data name="FuseCanceling" xml:space="preserve"><value>Canceling...</value></data>
-  <data name="FusePreviewRequired" xml:space="preserve"><value>Build a composite preview before displaying it.</value></data>
-  <data name="FuseWholePixelsRequired" xml:space="preserve"><value>Enter whole pixel coordinates for the region.</value></data>
-  <data name="FuseRegionAdded" xml:space="preserve"><value>Region added. Add another or build the composite preview.</value></data>
-  <data name="FuseReviewRequired" xml:space="preserve"><value>Inspect every chosen region and seam using 1:1, then confirm below. Alignment checks cannot guarantee a natural-looking composite.</value></data>
-  <data name="FuseGridRequired" xml:space="preserve"><value>Return to the photo grid and select two to four burst stills for Photo Fuse.</value></data>
-  <data name="FuseSelectionRequired" xml:space="preserve"><value>Select two to four opaque JPEG or 8-bit PNG burst stills in the grid. The first in display order is the base. Use identical dimensions, zoom and exposure, a textured stationary background and only small camera shifts. Finish pending edits first.</value></data>
+  <data name="FuseViewerLaunch.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo Fuse</value></data>
+  <data name="FuseViewerLaunch.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace a face from a nearby group photo. Click again to save a new copy and exit.</value></data>
   <data name="FuseSaved" xml:space="preserve"><value>Saved Photo Fuse copy: {0}</value></data>
+  <data name="FuseTitle" xml:space="preserve"><value>Photo Fuse</value></data>
+  <data name="FuseStatusBar.Title" xml:space="preserve"><value>Photo Fuse</value></data>
+  <data name="FuseFindingFaces" xml:space="preserve"><value>Finding faces in this photo...</value></data>
+  <data name="FuseSearching" xml:space="preserve"><value>Looking for replacements... {0}/{1} nearby photos</value></data>
+  <data name="FuseNoFaces" xml:space="preserve"><value>No faces found. Use Add people tags in the details rail to draw a missed face.</value></data>
+  <data name="FuseDiscoveryComplete" xml:space="preserve"><value>Select a face: {0} similar photos found; {1} incompatible photos skipped. Click Fuse again to save a new PNG (up to 1600 pixels; source tags, GPS and people identities are not copied).</value></data>
+  <data name="FuseLastSkip" xml:space="preserve"><value>Last skip: {0}</value></data>
+  <data name="FusePreparingFailed" xml:space="preserve"><value>Photo Fuse could not prepare this photo: {0}</value></data>
+  <data name="FuseReplacementPreviewed" xml:space="preserve"><value>Replacement previewed. Inspect the face and its edges; choose Original to undo. Click Photo Fuse again to save a new PNG copy (up to 1600 pixels). Originals are never overwritten; source tags, GPS and people identities are not copied.</value></data>
+  <data name="FuseOriginalRestored" xml:space="preserve"><value>Original restored. Click another face to choose a replacement.</value></data>
+  <data name="FuseReplacementFailed" xml:space="preserve"><value>Replacement not applied: {0}</value></data>
+  <data name="FuseWaitForSearch" xml:space="preserve"><value>Wait for Photo Fuse to finish searching before adding a face.</value></data>
+  <data name="FuseNoOptions" xml:space="preserve"><value>No aligned nearby faces found for this position.</value></data>
+  <data name="FuseOptionsGuidance" xml:space="preserve"><value>Choose a nearby face. These are spatial suggestions, not verified identities.</value></data>
+  <data name="FuseOriginalButton" xml:space="preserve"><value>Original</value></data>
+  <data name="FuseReplacementList" xml:space="preserve"><value>Nearby face replacements</value></data>
+  <data name="FuseFaceAccessible" xml:space="preserve"><value>Replace {0}</value></data>
+  <data name="FuseUnnamedFace" xml:space="preserve"><value>unnamed face</value></data>
+  <data name="FuseChooseFace" xml:space="preserve"><value>Choose a face replacement</value></data>
+  <data name="FuseSaveExit" xml:space="preserve"><value>Save and exit Fuse</value></data>
+  <data name="FuseHint" xml:space="preserve"><value>Select a face in the photo. Click Photo Fuse again to save a new copy.</value></data>
+  <data name="FuseClosed" xml:space="preserve"><value>Photo Fuse closed. No changes were saved.</value></data>
+  <data name="FuseDiscard.Content" xml:space="preserve"><value>Discard and exit</value></data>
+  <data name="FuseStartFailed" xml:space="preserve"><value>Photo Fuse could not start: {0}</value></data>
+  <data name="FuseSaveFailed" xml:space="preserve"><value>Photo Fuse could not save: {0}. Your preview is still here; retry Photo Fuse to save.</value></data>
+  <data name="FuseThumbnailFailed" xml:space="preserve"><value>Could not load replacement face: {0}</value></data>
+  <data name="FuseExitBeforeNavigate" xml:space="preserve"><value>Click Photo Fuse again to save and exit before opening another photo.</value></data>
   <data name="FuseFailed" xml:space="preserve"><value>Photo Fuse failed: {0}</value></data>
   <data name="FuseIndexFailed" xml:space="preserve"><value>Photo Fuse copy saved at {0}, but could not be added to the library: {1}</value></data>
 </root>

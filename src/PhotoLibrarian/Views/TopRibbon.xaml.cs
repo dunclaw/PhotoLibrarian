@@ -1,5 +1,8 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Automation;
+using PhotoLibrarian.Services;
 using System;
 
 namespace PhotoLibrarian.Views;
@@ -13,6 +16,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? RedEyeClicked;
     public event EventHandler? SlideshowClicked;
     public event EventHandler? StabilizeVideoClicked;
+    public event EventHandler? PhotoFuseClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
     public event EventHandler? ApplyStraightenClicked;
@@ -42,6 +46,21 @@ public sealed partial class TopRibbon : UserControl
         StraightenTools.Visibility = Visibility.Collapsed;
         SetContextSubLabel(null);
     }
+
+    public void SetPhotoFuseMode(bool active)
+    {
+        MakeCopyButton.IsEnabled = !active;
+        CropButton.IsEnabled = !active;
+        StraightenButton.IsEnabled = !active;
+        AdjustButton.IsEnabled = !active;
+        RedEyeButton.IsEnabled = !active;
+        SlideshowButton.IsEnabled = !active;
+        PhotoFuseCaption.Text = PhotoFuseStrings.Get(active ? "FuseSaveExit" : "FuseTitle");
+        AutomationProperties.SetName(PhotoFuseButton, PhotoFuseCaption.Text);
+        SetContextSubLabel(active ? PhotoFuseStrings.Get("FuseHint") : null);
+    }
+
+    public void PhotoFuseButtonEnabled(bool enabled) => PhotoFuseButton.IsEnabled = enabled;
 
     /// <summary>Switch the ribbon into crop sub-mode (replaces standard viewer tools with Apply/Cancel/Aspect).</summary>
     public void EnterCropMode()
@@ -86,6 +105,7 @@ public sealed partial class TopRibbon : UserControl
     }
 
     private void OnCropClick(object sender, RoutedEventArgs e) => CropClicked?.Invoke(this, EventArgs.Empty);
+    private void OnPhotoFuseClick(object sender, RoutedEventArgs e) => PhotoFuseClicked?.Invoke(this, EventArgs.Empty);
     private void OnMakeCopyClick(object sender, RoutedEventArgs e) =>
         MakeCopyClicked?.Invoke(this, EventArgs.Empty);
     private void OnStraightenClick(object sender, RoutedEventArgs e) =>

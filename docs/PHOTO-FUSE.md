@@ -1,19 +1,35 @@
 # Photo Fuse
 
-Select **two to four burst stills in the grid**, then choose **Photo Fuse** in the
-bottom command area. The first shot in the grid's display order is the base.
-Choose a donor, drag a rectangle on its aligned preview (or enter whole-pixel
-coordinates), then **Add region**. Include unchanged background around the entire
-face or subject. Up to eight nonoverlapping regions can come from different shots.
-Remove a region to replace it; overlapping layers are deliberately unsupported.
+Open a group photo in the **full-photo viewer**, then click **Photo Fuse** in the
+top command ribbon. The photo stays in the same viewer; there is no modal dialog
+or grid multi-selection requirement. Fuse reuses the current face scan or runs the
+app's existing local face scanner. Face boxes appear on the image and unnamed faces
+are included in the existing right-rail people list. Use **Add people tags** there
+to draw a missed face; its replacements are then searched again.
 
-Choose **Build composite preview**, compare the base, aligned donor and composite,
-and use **1:1** plus scrolling to inspect every region and its border. Confirm the
-review before **Save new PNG** enables. The folder picker is cancelable. Changes to
-the rectangle or accepted regions invalidate the reviewed preview. There is no
-automatic face selection, identity inference, or reuse of cached/MWG/Microsoft
-face rectangles: the user chooses the spatial contribution in base-image
-coordinates, even when a face is missing or different between shots.
+Fuse searches **all indexed stills within ±2 minutes of capture time**, nearest
+first, including photos excluded by the current browsing filters. Without a capture
+time, it uses modification time in the same folder. There is no candidate-count
+limit. Each donor is decoded and registered independently, one pair at a time.
+The search reports progress and incompatible shots; clicking Fuse again cancels a
+search and exits (saving any previously accepted changes).
+
+Click a face box to see thumbnails of faces near its registered position in the
+other shots. Proposals must have similar size and lie within 0.75 target-face widths/
+heights of the inverse-mapped center. They are **spatial suggestions, not verified
+identities**. Choose one to preview the replacement on the full image, or choose
+**Original** to undo it. The face box is expanded by 35% on each side to leave room
+for a stationary feathered seam; incompatible borders and overlapping regions
+are rejected without replacing the accepted preview.
+
+Use the viewer's normal zoom/1:1/pan controls to inspect eyes and seams. Click
+**Photo Fuse again** (the button reads **Save and exit Fuse**) to save the accepted
+preview as a new PNG beside the base photo and leave Fuse mode. The original is
+never overwritten. With no replacements, exiting writes nothing. A failed save
+keeps the workspace and choices available for retry. Escape/Close in the viewer
+also finish Fuse rather than silently discarding changes.
+**Discard and exit** is an explicit recovery option if a source changes or you
+decide not to keep the replacements; it never writes a composite.
 
 ## Conservative support
 
@@ -35,29 +51,40 @@ coordinates, even when a face is missing or different between shots.
   (70% within 18/255 in every channel). A selected region must be entirely inside
   the donor's transformed bounds. Its feather band must agree with the base
   (90% within 24/255 in every channel). These deliberately restrictive checks can
-  reject a usable burst; selecting another shot/region is safer than weakening them.
+  reject a usable burst; selecting another replacement is safer than weakening them.
 - Output is **at most 1600 pixels on the longest edge**, never enlarged, opaque
   8-bit sRGB PNG. The base is not globally cropped or warped. Donor samples are
   inverse-mapped into the base, bilinearly interpolated, and feathered in linear
   light over 2-16 pixels. Pixels outside the selected rectangles are unchanged.
-  The aligned donor preview uses base pixels outside common coverage; such
-  uncovered pixels cannot be included in a region.
+  Uncovered donor pixels cannot be included in a replacement region.
 - Compressed sources are limited to 100 MiB and source dimensions to 100
-  megapixels. At most four 1600-by-1600 BGRA snapshots are retained (about 39 MiB
-  total), plus bounded analysis planes, preview/export buffers, codec working
-  memory and UI bitmaps. WIC may need source-resolution decode memory depending on
-  the codec. Frames are processed sequentially; no full-resolution burst stack or
-  external process/model is used.
+  megapixels. Discovery holds only one base/donor pair at once, regardless of burst
+  size. Final selected-donor buffers have a 192 MiB decoded-memory budget, plus
+  analysis planes, preview/export buffers, codec memory and UI bitmaps. This is a
+  memory safety bound, not a four-photo or eight-face cap. WIC may need
+  source-resolution decode memory depending on the codec.
+
+No new model is required: Fuse uses the app's existing detector/embedder. It never
+downloads models or contacts a service. If models are not already available, a
+clear message explains this; existing stored faces and explicit manual boxes remain
+usable. A completed face scan is reused only for the current indexed file snapshot.
 
 ## Persistence and safety
 
-The source files and existing same-stem/image-qualified XMP sidecars are held
-read-only until the dialog closes. A busy, missing, unreadable, unsupported, or
-unregisterable shot fails preparation. Source bytes and sidecars are never written,
-including on failure or cancellation. A newly appearing source sidecar invalidates
-export. Any PhotoLibrarian or Camera Raw edit recipe is rejected conservatively:
-finish/bake it into a separate copy first, rather than silently ignoring a crop,
-rotation, unknown property, or incomplete edit.
+Source files and existing XMP sidecars are leased read-only during registration
+and accepted-preview review. Leases are released for an explicit manual face-tag
+operation, then the accepted choices are rebuilt and validated before save.
+Sources are hashed during discovery and checked again during composition. A
+changed source, newly appearing sidecar, pending edit or failed registration
+cannot silently publish a stale composite. Background recognition is paused while
+Fuse is active, then resumed. Explicit face scans use the existing database/portable
+face-metadata pipeline; Fuse never rewrites source pixels.
+
+An XMP namespace declaration, default PhotoLibrarian recipe, or Adobe camera-profile
+metadata is **not** treated as an unapplied edit. Actual nondefault/unknown
+PhotoLibrarian edit properties and Adobe metadata explicitly marked as pending
+settings/crop are rejected with actionable wording, not the vague “has an edit
+recipe” error. No metadata is rewritten merely to clear that error.
 
 The saved copy is the **exact accepted preview pixel buffer**, not a second render.
 PNG encoding and ICC/XMP tagging finish in uniquely named temporary files in the
@@ -74,8 +101,8 @@ chosen region coordinates/frame indices (zero is the base), dimensions, normaliz
 orientation and a baked-composite marker. No absolute source paths are stored.
 Tags, captions, ratings, copyright claims, capture dates, GPS, thumbnails, edit
 recipes and face identities are **not copied** from any source. Those may be
-misleading for a multi-source composite; the dialog discloses this policy before
-export. There is no output sidecar or catalog-only lineage to lose when moving the
+misleading for a multi-source composite; the workspace discloses this policy.
+There is no output sidecar or catalog-only lineage to lose when moving the
 copy. Source metadata remains with its original photo.
 
 The output is indexed, revealed and selected in the grid, even outside the current
@@ -90,7 +117,7 @@ temporary directories. They do not touch a live library, user photos, or network
 services. No proprietary Photo Gallery code, UI assets, or algorithms are used.
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 -- -class PhotoLibrarian.Tests.PhotoFuseTests -class PhotoLibrarian.Tests.StabilizedVideoLibraryTests -class PhotoLibrarian.Tests.PhotoPrintLayoutTests -parallelMode none -reporter verbose -showliveoutput
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 -- -class PhotoLibrarian.Tests.PhotoFuseTests -class PhotoLibrarian.Tests.FaceLibraryProcessorTests -class PhotoLibrarian.Tests.ImageViewerNavigationTests -class PhotoLibrarian.Tests.StabilizedVideoLibraryTests -parallelMode none -reporter verbose -showliveoutput
 ```
 
 Fixtures cover translation/subpixel rotation, scale/parallax/occlusion rejection,
@@ -101,7 +128,7 @@ leases, cancellation, concurrent naming collisions, immutable preview bytes,
 lossless stored output pixels, portable lineage, and library reveal/selection.
 
 On the development Windows x64 machine in Debug, the 384-pixel synthetic pairs
-registered in approximately **20-23 ms**, with maximum landmark errors under
+registered in approximately **19-35 ms**, with maximum landmark errors under
 **0.004 pixels**. A 1600-pixel rotated/translated fixture also stayed under
 **0.004 pixels**. Four 1601-square PNG sources, including fixture encoding,
 downsampling, registration, preview and tagged export, took approximately
@@ -110,21 +137,21 @@ These are synthetic measurements, not guarantees for real faces, image codecs,
 hardware, memory pressure or arbitrary handheld bursts.
 
 The isolated `PhotoLibrarian.AccessibilityTests` host accepts `--photo-fuse` for
-dialog state tests or `--photo-fuse --preview` for interactive synthetic-only
+full-viewer state tests or `--photo-fuse --preview` for interactive synthetic-only
 review (`--dark` selects Dark). It creates/cleans its own fixtures and never
 initializes the user's library. Launch it through `winapp run` with an isolated
 test package identity.
 
-The isolated UI run passed eight real-dialog state assertions: fitting at current
-DPI, no premature save
-or confirmation, accepting a manual donor region, preview creation without export
-authorization, requiring both 1:1 review and confirmation, and invalidating that
-authorization after an edit.
+The isolated host exercises single-photo entry, discovered face boxes and nearby
+replacement thumbnails, preview/Original undo and new-copy save on exit. Core
+regressions additionally cover 12-candidate discovery, independently chosen faces
+from different donors, manual misses, stale donors, default recipes and a
+25-photo time-window query.
 
 **Manual visual review with a representative, consented local burst is still
 needed.** Inspect eyes, hair, occluding hands, shoulders, fine edges, expression
 changes, exposure/white-balance boundaries, and all feather bands at 1:1. Check
-Light/Dark/High Contrast, keyboard/numeric region entry, pointer drawing, scrolling,
-picker cancellation and filesystem permissions. No identity-matching or
+Light/Dark/High Contrast, keyboard face selection, manual face drawing, scrolling
+and filesystem permissions. No identity-matching or
 photometric quality metric can prove a natural-looking composite; do not approve
 an output with visible seams or geometry errors.

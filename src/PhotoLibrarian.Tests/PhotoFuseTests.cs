@@ -5,6 +5,10 @@ using System.Security.Cryptography;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Xmp;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Data;
+using PhotoLibrarian.ViewModels;
+using XmpCore;
 using Windows.Graphics.Imaging;
 using Xunit;
 
@@ -23,7 +27,11 @@ public sealed class PhotoFuseTests : IDisposable
         System.IO.Directory.CreateDirectory(_folder);
     }
 
-    public void Dispose() => System.IO.Directory.Delete(_folder, recursive: true);
+    public void Dispose()
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        System.IO.Directory.Delete(_folder, recursive: true);
+    }
 
     [Theory]
     [InlineData(0, 0, 0)]
@@ -372,6 +380,178 @@ public sealed class PhotoFuseTests : IDisposable
         File.Delete(Path.ChangeExtension(first, ".xmp"));
         using var session = await PhotoFuseSession.PrepareAsync([first, second], Token);
         await Assert.ThrowsAsync<ArgumentException>(() => session.PreviewAsync([], Token));
+    }
+
+    [Fact]
+    public async Task NamespaceDeclarationsAndDefaultRecipesDoNotRejectAnUntouchedPhoto()
+    {
+        var path = await WriteFrameAsync("untouched.png", Frame());
+        var xmp = XmpMetaFactory.Create();
+        EditParametersSerializer.WriteToXmp(xmp, new EditParameters());
+        const string adobe = "http://ns.adobe.com/camera-raw-settings/1.0/";
+        XmpMetaFactory.SchemaRegistry.RegisterNamespace(adobe, "crs");
+        xmp.SetProperty(adobe, "CameraProfile", "Camera Standard");
+        xmp.SetPropertyBoolean(adobe, "HasSettings", false);
+        File.WriteAllText(path + ".xmp", XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
+        using (var single = await PhotoFuseSession.PrepareAsync([path], Token))
+            Assert.Equal(Size, single.Width);
+        xmp.SetPropertyDouble(EditParameters.XmpNamespace, "Brightness", 0.2);
+        File.WriteAllText(path + ".xmp", XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => PhotoFuseSession.PrepareAsync([path], Token));
+        Assert.Contains("unapplied PhotoLibrarian adjustments", error.Message);
+    }
+
+    [Fact]
+    public async Task FullPhotoWorkflowSearchesMoreThanFourShotsAndOffersOnlyNearbyFaces()
+    {
+        var basis = Entry(await WriteFrameAsync("base.png", Frame()), 1);
+        var photos = new List<ImageEntry>();
+        for (int i = 0; i < 12; i++)
+            photos.Add(Entry(await WriteFrameAsync($"burst-{i}.png", Frame(changed: i % 2 + 1)), i + 2));
+        FaceRegion first = Face(1, 1, 80), second = Face(2, 1, 272);
+        List<FaceRegion> baseFaces = [first, second];
+        var faces = photos.ToDictionary(photo => photo.Id, photo => new List<FaceRegion>
+        {
+            Face(photo.Id * 10, photo.Id, 80), Face(photo.Id * 10 + 1, photo.Id, 272),
+            Face(photo.Id * 10 + 2, photo.Id, 190)
+        });
+        int scanned = 0;
+        using var workspace = new PhotoFuseViewModel((_, _) => Task.FromResult(photos),
+            (photo, _) =>
+            {
+                scanned++;
+                return Task.FromResult<IReadOnlyList<FaceRegion>>(photo.Id == 1 ? baseFaces : faces[photo.Id]);
+            }, _ => Task.FromResult(baseFaces));
+        await workspace.StartAsync(basis);
+        Assert.Equal(13, scanned);
+        Assert.Equal(12, workspace.GetReplacements(first).Count);
+        Assert.All(workspace.GetReplacements(first), choice => Assert.Equal(80.0 / Size, choice.Face.X));
+        Assert.Equal(12, workspace.GetReplacements(second).Count);
+        using (var manyFrames = await PhotoFuseSession.PrepareAsync(
+            new[] { basis.FilePath }.Concat(photos.Select(photo => photo.FilePath)).ToArray(), Token))
+            Assert.Equal(13, manyFrames.SourceNames.Count);
+        await workspace.SelectAsync(first, workspace.GetReplacements(first)[0]);
+        Assert.True(workspace.HasChanges, workspace.Status);
+        await workspace.SelectAsync(second, workspace.GetReplacements(second)[1]);
+        Assert.True(workspace.HasChanges, workspace.Status);
+        Assert.Equal(Pixel(Frame(changed: 1), 90, 90), Pixel(workspace.DisplayPixels!, 90, 90));
+        Assert.Equal(Pixel(Frame(changed: 2), 280, 280), Pixel(workspace.DisplayPixels!, 280, 280));
+        byte[] accepted = workspace.DisplayPixels!.ToArray();
+        workspace.ReleaseForManualFace();
+        await workspace.RefreshFacesAsync();
+        Assert.Equal(accepted, workspace.DisplayPixels);
+        string? saved = await workspace.FinishAsync();
+        Assert.NotNull(saved);
+        Assert.True(File.Exists(saved));
+        Assert.False(workspace.IsActive);
+        Assert.Equal(Frame(), await ReadPixelsAsync(basis.FilePath));
+    }
+
+    [Fact]
+    public async Task MissedFacesCanBeAddedAndStaleReplacementCannotBeApplied()
+    {
+        var basis = Entry(await WriteFrameAsync("base.png", Frame()), 1);
+        var donor = Entry(await WriteFrameAsync("donor.png", Frame(changed: 1)), 2);
+        List<FaceRegion> baseFaces = [];
+        using var workspace = new PhotoFuseViewModel((_, _) => Task.FromResult(new List<ImageEntry> { donor }),
+            (photo, _) => Task.FromResult<IReadOnlyList<FaceRegion>>(photo.Id == 1 ? baseFaces : [Face(20, 2, 80)]),
+            _ => Task.FromResult(baseFaces));
+        await workspace.StartAsync(basis);
+        Assert.Empty(workspace.Faces);
+        baseFaces.Add(Face(10, 1, 80));
+        workspace.ReleaseForManualFace();
+        await workspace.RefreshFacesAsync();
+        var face = Assert.Single(workspace.Faces);
+        var replacement = Assert.Single(workspace.GetReplacements(face));
+        var altered = await WriteFrameAsync("altered.png", Frame(changed: 2));
+        File.Move(altered, donor.FilePath, true);
+        await workspace.SelectAsync(face, replacement);
+        Assert.False(workspace.HasChanges);
+        Assert.Contains("changed", workspace.Status);
+        Assert.Null(await workspace.FinishAsync());
+        Assert.Empty(System.IO.Directory.GetFiles(_folder, "*Fused*"));
+    }
+
+    [Fact]
+    public async Task NearbyTimeSearchHasNoCountLimitAndExcludesUnrelatedTimes()
+    {
+        using var db = new CacheDatabase(Path.Combine(_folder, "index.db"));
+        await db.InitializeAsync();
+        var repo = new ImageRepository(db);
+        DateTime time = new(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+        var basis = Entry(Path.Combine(_folder, "base.png"), 0);
+        basis.DateTaken = time;
+        basis.FileSize = 0;
+        basis.Id = await repo.UpsertImageAsync(basis);
+        for (int i = 0; i < 25; i++)
+        {
+            var photo = new ImageEntry { FilePath = Path.Combine(_folder, $"photo-{i}.png"),
+                FileName = $"photo-{i}.png", DateTaken = time.AddSeconds(i - 12), DateModified = time };
+            await repo.UpsertImageAsync(photo);
+        }
+        await repo.UpsertImageAsync(new ImageEntry { FilePath = Path.Combine(_folder, "later.png"),
+            FileName = "later.png", DateTaken = time.AddHours(1), DateModified = time });
+        var nearby = await repo.GetNearbyBurstAsync(basis, TimeSpan.FromMinutes(2), Token);
+        Assert.Equal(25, nearby.Count);
+        Assert.DoesNotContain(nearby, photo => photo.FileName == "later.png");
+    }
+
+    [Fact]
+    public void NineIndependentRegionsAreNotRejectedByAnArbitraryCountCap()
+    {
+        var basis = Frame();
+        var regions = new List<PhotoFuseRegion>();
+        for (int y = 0; y < 3; y++)
+        for (int x = 0; x < 3; x++)
+            regions.Add(new PhotoFuseRegion(1, 40 + x * 96, 40 + y * 96, 24, 24));
+        var result = PhotoFuseComposer.Render([basis, Frame()], [default, default], Size, Size, regions, Token);
+        Assert.Equal(basis, result);
+    }
+
+    [Fact]
+    public async Task DiscardDuringDiscoveryCancelsWithoutSavingOrRetainingLeases()
+    {
+        var basis = Entry(await WriteFrameAsync("base.png", Frame()), 1);
+        var donor = Entry(await WriteFrameAsync("donor.png", Frame(changed: 1)), 2);
+        var entered = new TaskCompletionSource();
+        using var workspace = new PhotoFuseViewModel((_, _) => Task.FromResult(new List<ImageEntry> { donor }),
+            async (photo, token) =>
+            {
+                if (photo.Id != 1)
+                {
+                    entered.TrySetResult();
+                    await Task.Delay(TimeSpan.FromSeconds(30), token);
+                }
+                return new List<FaceRegion> { Face(photo.Id, photo.Id, 80) };
+            }, _ => Task.FromResult(new List<FaceRegion> { Face(1, 1, 80) }));
+        var started = workspace.StartAsync(basis);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        await workspace.DiscardAsync();
+        await started;
+        Assert.False(workspace.IsActive);
+        Assert.Empty(System.IO.Directory.GetFiles(_folder, "*Fused*"));
+        using var released = File.Open(basis.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        Assert.Equal(basis.FileSize, released.Length);
+    }
+
+    private static ImageEntry Entry(string path, long id) => new()
+    {
+        Id = id, FilePath = path, FileName = Path.GetFileName(path),
+        FileSize = File.Exists(path) ? new FileInfo(path).Length : 0,
+        DateModified = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.UtcNow
+    };
+
+    private static FaceRegion Face(long id, long image, int position) => new()
+    {
+        Id = id, ImageId = image, X = position / (double)Size, Y = position / (double)Size,
+        Width = 24.0 / Size, Height = 24.0 / Size
+    };
+
+    private static async Task<byte[]> ReadPixelsAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
+        return (await decoder.GetPixelDataAsync()).DetachPixelData();
     }
 
     private async Task<string> WriteFrameAsync(string name, byte[] pixels, uint size = Size)

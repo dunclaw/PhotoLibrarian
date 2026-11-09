@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ML.Services;
@@ -7,6 +8,61 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class FaceLibraryProcessorTests
 {
+    [Fact]
+    public async Task ScanPhotoAsyncReusesCompletedScanAndRejectsChangedSources()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-FuseScan-{Guid.NewGuid():N}.png");
+        try
+        {
+            await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+            var image = CreateImage(1);
+            image.FilePath = path;
+            image.FileSize = new FileInfo(path).Length;
+            image.DateModified = File.GetLastWriteTimeUtc(path);
+            image.FaceScanVersion = FaceModelCatalog.PipelineVersion;
+            var store = new FakeStore([image]);
+            store.ExistingFaces[1] = [new FaceRegion { Id = 5, ImageId = 1, X = 0.2, Y = 0.2, Width = 0.1, Height = 0.1 }];
+            var models = new FakeModelProvider();
+            var detector = new FakeDetector([]);
+            var processor = new FaceLibraryProcessor(store, models, detector, new FakeEmbedder([]));
+            var result = await processor.ScanPhotoAsync(image, TestContext.Current.CancellationToken);
+            Assert.Equal(5, Assert.Single(result).Id);
+            Assert.False(models.WasCalled);
+            Assert.False(detector.WasLoaded);
+            Assert.Empty(store.Saved);
+            await File.WriteAllBytesAsync(path, [1, 2, 3, 4], TestContext.Current.CancellationToken);
+            await Assert.ThrowsAsync<IOException>(() => processor.ScanPhotoAsync(image, TestContext.Current.CancellationToken));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task ScanPhotoAsyncScansOnlyRequestedPhotoAndLocalProviderNeverDownloads()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-FuseModels-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, "synthetic.png");
+        try
+        {
+            await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+            var image = CreateImage(1);
+            image.FilePath = path;
+            image.FileSize = new FileInfo(path).Length;
+            image.DateModified = File.GetLastWriteTimeUtc(path);
+            var store = new FakeStore([image, CreateImage(2)]);
+            var processor = new FaceLibraryProcessor(store, new FakeModelProvider(),
+                new FakeDetector([CreateFace()]), new FakeEmbedder([[0.6f, 0.8f]]));
+            await processor.ScanPhotoAsync(image, TestContext.Current.CancellationToken);
+            Assert.Equal(1, Assert.Single(store.Saved).ImageId);
+            Assert.Equal(FaceModelCatalog.PipelineVersion, image.FaceScanVersion);
+            using var sessions = new OnnxSessionManager(folder);
+            await Assert.ThrowsAsync<FaceModelsUnavailableException>(() =>
+                new LocalFaceModelProvider(sessions).EnsureModelsAsync(TestContext.Current.CancellationToken));
+            Assert.Equal([path], Directory.GetFiles(folder));
+        }
+        finally { Directory.Delete(folder, recursive: true); }
+    }
+
     [Fact]
     public async Task ProcessLibraryAsync_StoresDetectedFacesAndReportsCompletion()
     {

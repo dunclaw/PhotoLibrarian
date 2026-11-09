@@ -35,6 +35,7 @@ public partial class MainViewModel : ObservableObject
     private bool _recognitionRescanRequested;
     private bool _duplicateScanActive;
     private bool _autoTagReviewActive;
+    private bool _photoFuseRecognitionPaused;
     private int _lastAutoTagTreeRefresh;
     private volatile bool _isShuttingDown;
 
@@ -55,6 +56,19 @@ public partial class MainViewModel : ObservableObject
     public Services.PhotoOperationsService PhotoOps { get; }
     public OriginalBackupService BackupService => _backupService;
     public LibrarySearchViewModel Search { get; }
+    public PhotoFuseViewModel PhotoFuse { get; }
+
+    public async Task PauseRecognitionForPhotoFuseAsync()
+    {
+        _photoFuseRecognitionPaused = true;
+        await StopRecognitionAsync();
+    }
+
+    public void ResumeRecognitionAfterPhotoFuse()
+    {
+        _photoFuseRecognitionPaused = false;
+        StartRecognitionProcessing();
+    }
 
     [ObservableProperty]
     public partial string StatusText { get; set; }
@@ -104,7 +118,8 @@ public partial class MainViewModel : ObservableObject
         AutoTagBenchmarkProcessor autoTagBenchmarkProcessor,
         SelectedPhotoAutoTagReviewProcessor selectedPhotoAutoTagReviewProcessor,
         UserActivityGate activityGate,
-        Services.GridLayoutSettingsStore? gridLayoutSettingsStore = null)
+        Services.GridLayoutSettingsStore? gridLayoutSettingsStore = null,
+        FaceLibraryProcessor? photoFuseFaces = null)
     {
         _db = db;
         _imageRepo = imageRepo;
@@ -122,6 +137,12 @@ public partial class MainViewModel : ObservableObject
         _faceReviewService = faceReviewService;
         _faceResources = faceResources;
         _activityGate = activityGate;
+        PhotoFuse = new PhotoFuseViewModel(
+            (image, token) => _imageRepo.GetNearbyBurstAsync(image, TimeSpan.FromMinutes(2), token),
+            (image, token) => photoFuseFaces is null
+                ? throw new InvalidOperationException("Local face scanning is unavailable.")
+                : photoFuseFaces.ScanPhotoAsync(image, token),
+            image => _faceRepo.GetFacesForImageAsync(image.Id));
 
         StatusText = "Ready";
 
@@ -393,6 +414,8 @@ public partial class MainViewModel : ObservableObject
             personName,
             cancellationToken);
         await MetadataPanel.ReloadPeopleTagsAsync();
+        if (PhotoFuse.IsActive)
+            await PhotoFuse.RefreshFacesAsync();
         if (App.MainWindow is MainWindow window)
             await window.RefreshPeopleFiltersAsync();
         StatusText = $"Added people tag for {personName.Trim()}.";
@@ -468,6 +491,7 @@ public partial class MainViewModel : ObservableObject
         if (_isShuttingDown ||
             _duplicateScanActive ||
             _autoTagReviewActive ||
+            _photoFuseRecognitionPaused ||
             TotalImages == 0)
         {
             return;

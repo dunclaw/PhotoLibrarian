@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.ML.Services;
 
 public interface IFaceModelProvider
@@ -71,7 +72,7 @@ public sealed class FaceModelProvider : IFaceModelProvider
         }
     }
 
-    private static async Task<bool> HasExpectedHashAsync(
+    internal static async Task<bool> HasExpectedHashAsync(
         string path,
         FaceModelDefinition model,
         CancellationToken cancellationToken)

@@ -5,82 +5,100 @@ using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Views;
+using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.ViewModels;
 using Windows.Graphics.Imaging;
 
 namespace PhotoLibrarian.AccessibilityTests;
 
-/// <summary>Exercises the real dialog in isolation: no library initialization or user-photo access.</summary>
+/// <summary>Exercises the real viewer workspace with synthetic faces; no live library or models.</summary>
 internal static class PhotoFuseUiTests
 {
     internal static async Task RunAsync(Grid root, List<string> passed, bool previewOnly)
     {
+        root.RequestedTheme = Environment.GetCommandLineArgs().Contains("--dark") ? ElementTheme.Dark : ElementTheme.Light;
+        // Root-only theme overrides need an opaque backing independent of the Window's system theme.
+        root.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            root.RequestedTheme == ElementTheme.Dark ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
         string folder = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-FuseUi-{Guid.NewGuid():N}");
         Directory.CreateDirectory(folder);
         try
         {
             string[] paths = [Path.Combine(folder, "base.png"), Path.Combine(folder, "donor.png")];
             for (int frame = 0; frame < 2; frame++) await WriteFixtureAsync(paths[frame], frame);
-            var dialog = new PhotoFuseDialog(paths) { XamlRoot = root.XamlRoot };
-            if (Environment.GetCommandLineArgs().Contains("--dark"))
-                dialog.RequestedTheme = ElementTheme.Dark;
-            var shown = dialog.ShowAsync();
-            if (previewOnly) { await shown; return; }
+            var photos = paths.Select((path, i) => new ImageEntry
+            {
+                Id = i + 1, FilePath = path, FileName = Path.GetFileName(path),
+                FileSize = new FileInfo(path).Length, DateModified = File.GetLastWriteTimeUtc(path)
+            }).ToArray();
+            var faces = photos.ToDictionary(photo => photo.Id, photo => new List<FaceRegion>
+            {
+                new() { Id = photo.Id, ImageId = photo.Id, X = 80.0 / 384, Y = 80.0 / 384,
+                    Width = 24.0 / 384, Height = 24.0 / 384 }
+            });
+            using var workspace = new PhotoFuseViewModel(
+                (_, _) => Task.FromResult(new List<ImageEntry> { photos[1] }),
+                (photo, _) => Task.FromResult<IReadOnlyList<FaceRegion>>(faces[photo.Id]),
+                photo => Task.FromResult(faces[photo.Id]));
+            var viewer = new ImageViewerOverlay();
+            var ribbon = new TopRibbon();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.Children.Add(ribbon);
+            Grid.SetRow(viewer, 1);
+            root.Children.Add(viewer);
+            viewer.SetPhotoFuseWorkspace(workspace);
+            ribbon.SetPhotoFuseMode(true);
+            await workspace.StartAsync(photos[0]);
+            await Task.Delay(150);
+            if (previewOnly)
+            {
+                var exited = new TaskCompletionSource();
+                ribbon.PhotoFuseClicked += async (_, _) => { await workspace.FinishAsync(); exited.TrySetResult(); };
+                viewer.PhotoFuseDiscardRequested += async (_, _) => { await workspace.DiscardAsync(); exited.TrySetResult(); };
+                await exited.Task;
+                return;
+            }
             try
             {
-                var workspace = Element<ContentControl>(dialog, "Workspace");
-                await WaitAsync(() => workspace.IsEnabled);
-                await Task.Delay(100);
-                var surface = Element<Grid>(dialog, "PreviewSurface");
-                var scroll = Element<ScrollViewer>(dialog, "PreviewScroll");
-                Check(surface.ActualHeight <= scroll.ActualHeight + 1 &&
-                    surface.ActualWidth <= scroll.ActualWidth + 1,
-                    "Fit preview stays fully inside its viewport at current DPI", passed);
-                Check(!dialog.IsPrimaryButtonEnabled, "Save is disabled before a composite exists", passed);
-                var confirm = Element<CheckBox>(dialog, "ConfirmBox");
-                Check(!confirm.IsEnabled, "Confirmation is disabled before actual-pixel review", passed);
-                Element<NumberBox>(dialog, "LeftBox").Value = 56;
-                Element<NumberBox>(dialog, "TopBox").Value = 56;
-                Element<NumberBox>(dialog, "WidthBox").Value = 72;
-                Element<NumberBox>(dialog, "HeightBox").Value = 72;
-                Invoke(FindButton(dialog, "Add region"));
-                var regions = Element<ListView>(dialog, "RegionsList");
-                await WaitAsync(() => regions.Items.Count == 1 && workspace.IsEnabled);
-                Check(regions.Items.Count == 1, "Manual donor region accepted through real dialog", passed);
-                Invoke(FindButton(dialog, "Build composite preview"));
-                await WaitAsync(() => Element<ComboBox>(dialog, "DisplayBox").SelectedIndex == 2 && workspace.IsEnabled);
-                Check(!confirm.IsEnabled && !dialog.IsPrimaryButtonEnabled,
-                    "Building preview does not authorize export", passed);
-                Invoke(FindButton(dialog, "1:1"));
-                await WaitAsync(() => confirm.IsEnabled);
-                Check(!dialog.IsPrimaryButtonEnabled, "Actual-pixel view still requires explicit confirmation", passed);
-                var peer = FrameworkElementAutomationPeer.CreatePeerForElement(confirm);
-                ((IToggleProvider)peer.GetPattern(PatternInterface.Toggle)).Toggle();
-                Check(dialog.IsPrimaryButtonEnabled, "Reviewed preview enables new-copy save", passed);
-                Element<NumberBox>(dialog, "LeftBox").Value = 57;
-                Check(!dialog.IsPrimaryButtonEnabled && confirm.IsChecked == false,
-                    "Changing a region invalidates the reviewed preview", passed);
+                Check(workspace.IsActive && !workspace.IsBusy && !workspace.HasChanges,
+                    "Single-photo entry discovers a nearby donor without preselection", passed);
+                var overlay = (Canvas)viewer.FindName("FuseFaceOverlay");
+                Check(overlay.Children.Count == 1, "Detected face is highlighted in the full viewer", passed);
+                Check(((Button)viewer.FindName("NextButton")).Visibility == Visibility.Collapsed,
+                    "Navigation does not discard active Fuse changes", passed);
+                Check(!((Button)ribbon.FindName("CropButton")).IsEnabled &&
+                    ((Button)ribbon.FindName("PhotoFuseButton")).IsEnabled,
+                    "Top ribbon keeps Fuse exit available and excludes conflicting edits", passed);
+                Invoke((Button)overlay.Children[0]);
+                await Task.Delay(150);
+                var options = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot)
+                    .Select(popup => TryFindList(popup.Child, "FuseReplacements")).FirstOrDefault(list => list is not null);
+                Check(options?.Items.Count == 1, "Face click opens a nearby replacement thumbnail flyout", passed);
+                options!.SelectedIndex = 0;
+                await WaitAsync(() => !workspace.IsBusy && workspace.HasChanges);
+                Check(workspace.HasChanges && workspace.DisplayPixels is not null,
+                    "Face selection updates the full-view composite", passed);
+                await workspace.SelectAsync(workspace.Faces[0], null);
+                Check(!workspace.HasChanges, "Original face can be restored", passed);
+                await workspace.SelectAsync(workspace.Faces[0], workspace.GetReplacements(workspace.Faces[0])[0]);
+                string? saved = await workspace.FinishAsync();
+                Check(saved is not null && File.Exists(saved) && !workspace.IsActive,
+                    "Exit saves a new copy and ends Fuse mode", passed);
             }
-            finally { dialog.Hide(); await shown; }
+            finally { viewer.SetPhotoFuseWorkspace(null); root.Children.Clear(); root.RowDefinitions.Clear(); }
         }
         finally { Directory.Delete(folder, recursive: true); }
     }
 
-    private static T Element<T>(PhotoFuseDialog dialog, string name) where T : FrameworkElement =>
-        (T)dialog.FindName(name);
-
-    private static Button FindButton(DependencyObject parent, string content)
+    private static ListView? TryFindList(DependencyObject parent, string name)
     {
-        return TryFindButton(parent, content) ??
-            throw new InvalidOperationException($"Button not found: {content}");
-    }
-
-    private static Button? TryFindButton(DependencyObject parent, string content)
-    {
-        if (parent is Button button && button.Content as string == content) return button;
+        if (parent is ListView list && Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(list) == name)
+            return list;
         int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
         for (int i = 0; i < count; i++)
         {
-            var found = TryFindButton(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i), content);
+            var found = TryFindList(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i), name);
             if (found is not null) return found;
         }
         return null;
@@ -97,7 +115,7 @@ internal static class PhotoFuseUiTests
             if (ready()) return;
             await Task.Delay(50);
         }
-        throw new TimeoutException("The Photo Fuse dialog did not reach its expected state.");
+        throw new TimeoutException("The Photo Fuse viewer did not reach its expected state.");
     }
 
     private static void Check(bool condition, string message, List<string> passed)

@@ -19,7 +19,9 @@
   <Target Name="CopyPhotoGridResources" AfterTargets="Build">
     <ItemGroup>
       <_GridResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Controls\VirtualizingPhotoGrid.xbf" />
-      <_FuseResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\PhotoFuseDialog.xbf" />
+      <_FuseResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\ImageViewerOverlay.xbf" />
+      <_FuseResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\CropOverlay.xbf" />
+      <_FuseResource Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\Views\TopRibbon.xbf" />
       <_PhotoResources Include="..\PhotoLibrarian\bin\$(Platform)\$(Configuration)\$(TargetFramework)\PhotoLibrarian.pri" />
     </ItemGroup>
     <Copy SourceFiles="@(_GridResource)" DestinationFolder="$(TargetDir)Controls" />

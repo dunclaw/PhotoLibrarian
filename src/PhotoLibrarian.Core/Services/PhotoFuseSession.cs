@@ -8,6 +8,8 @@ using MetadataExtractor.Formats.Xmp;
 using Windows.Graphics.Imaging;
 using XmpCore;
 using XmpCore.Options;
+using System.Globalization;
+using System.Xml.Linq;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -29,7 +31,8 @@ public sealed class PhotoFusePreview
 public sealed class PhotoFuseSession : IDisposable
 {
     public const int MaximumDimension = 1600;
-    public const int MaximumFrames = 4;
+    // Frame count is determined by decoded memory, not the number of nearby photos searched.
+    public const long MaximumFrameBytes = 192L * 1024 * 1024;
     internal const string ProvenanceNamespace = "https://photolibrarian.app/ns/photo-fuse/1.0/";
     private readonly List<FileStream> _leases = [];
     private readonly List<string> _absentSidecars = [];
@@ -41,6 +44,10 @@ public sealed class PhotoFuseSession : IDisposable
     public int Width { get; private set; }
     public int Height { get; private set; }
     public IReadOnlyList<string> SourceNames => _names.AsReadOnly();
+    public IReadOnlyList<string> SourceHashes => _hashes.AsReadOnly();
+
+    public (double X, double Y) DonorPointAt(int frame, double x, double y) =>
+        _transforms[frame].SourceAt(x, y, Width, Height);
 
     private PhotoFuseSession() { }
 
@@ -52,9 +59,9 @@ public sealed class PhotoFuseSession : IDisposable
     {
         ArgumentNullException.ThrowIfNull(paths);
         var snapshot = paths.Select(Path.GetFullPath).ToArray();
-        if (snapshot.Length is < 2 or > MaximumFrames ||
+        if (snapshot.Length < 1 ||
             snapshot.Distinct(StringComparer.OrdinalIgnoreCase).Count() != snapshot.Length)
-            throw new ArgumentException($"Select two to {MaximumFrames} distinct burst stills.");
+            throw new ArgumentException("Choose distinct source photos.");
         var session = new PhotoFuseSession();
         uint originalWidth = 0, originalHeight = 0;
         try
@@ -112,6 +119,11 @@ public sealed class PhotoFuseSession : IDisposable
                     throw new NotSupportedException("All shots must have identical oriented source dimensions.");
                 double scale = Math.Min(1, MaximumDimension / (double)Math.Max(
                     decoder.OrientedPixelWidth, decoder.OrientedPixelHeight));
+                long frameBytes = checked((long)Math.Round(decoder.OrientedPixelWidth * scale) *
+                    (long)Math.Round(decoder.OrientedPixelHeight * scale) * 4);
+                if (frameBytes * (session._frames.Count + 1) > MaximumFrameBytes)
+                    throw new NotSupportedException("The selected replacements exceed Photo Fuse's decoded-memory budget. " +
+                        "Use fewer different donor photos; nearby-photo discovery itself has no photo-count limit.");
                 var transform = new BitmapTransform
                 {
                     ScaledWidth = Math.Max(1, (uint)Math.Round(decoder.PixelWidth * scale)),
@@ -152,11 +164,45 @@ public sealed class PhotoFuseSession : IDisposable
     private static void RejectRecipe(IXmpMeta xmp)
     {
         string xml = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions { OmitPacketWrapper = true });
-        if (xml.Contains(Models.EditParameters.XmpNamespace, StringComparison.Ordinal) ||
-            xml.Contains("http://ns.adobe.com/camera-raw-settings/1.0/", StringComparison.Ordinal))
-            throw new NotSupportedException("A source has an edit recipe. Finish/bake edits into a separate copy first. " +
-                "Photo Fuse will not silently ignore pending crops or adjustments.");
+        var defaults = XmpMetaFactory.Create();
+        EditParametersSerializer.WriteToXmp(defaults, new Models.EditParameters());
+        var defaultValues = Properties(XmpMetaFactory.SerializeToString(defaults,
+            new SerializeOptions { OmitPacketWrapper = true }), Models.EditParameters.XmpNamespace)
+            .ToDictionary(property => property.Name, property => property.Value);
+        foreach (var property in Properties(xml, Models.EditParameters.XmpNamespace))
+        {
+            if (!defaultValues.TryGetValue(property.Name, out var value) || !SameValue(value, property.Value))
+                throw new NotSupportedException("This photo has unapplied PhotoLibrarian adjustments. " +
+                    "Apply them or make an adjusted copy before using Photo Fuse. The original has not been changed.");
+        }
+        // An Adobe namespace declaration, camera profile or processing history is not an edit.
+        // JPEGs commonly carry these even when the user has never edited them.
+        foreach (var property in Properties(xml, "http://ns.adobe.com/camera-raw-settings/1.0/"))
+        {
+            if (property.Name is "HasSettings" or "HasCrop" &&
+                property.Value.Equals("True", StringComparison.OrdinalIgnoreCase))
+                throw new NotSupportedException("This photo's metadata marks Adobe adjustments as pending. " +
+                    "Use a rendered JPEG/PNG copy with those pending settings cleared before fusing.");
+        }
     }
+
+    private static IEnumerable<(string Name, string Value)> Properties(string xml, string ns)
+    {
+        var document = XDocument.Parse(xml.TrimStart('\uFEFF'));
+        foreach (var element in document.Descendants())
+        {
+            if (element.Name.NamespaceName == ns)
+                yield return (element.Name.LocalName, element.Value);
+            foreach (var attribute in element.Attributes().Where(attribute =>
+                !attribute.IsNamespaceDeclaration && attribute.Name.NamespaceName == ns))
+                yield return (attribute.Name.LocalName, attribute.Value);
+        }
+    }
+
+    private static bool SameValue(string left, string right) =>
+        left == right || (double.TryParse(left, NumberStyles.Float, CultureInfo.InvariantCulture, out var a) &&
+            double.TryParse(right, NumberStyles.Float, CultureInfo.InvariantCulture, out var b) &&
+            double.IsFinite(a) && a == b);
 
     private static void RejectAnimatedPng(FileStream stream)
     {

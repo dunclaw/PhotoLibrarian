@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Services;
 
 namespace PhotoLibrarian.ViewModels;
 
@@ -65,6 +66,7 @@ public partial class ImageViewerViewModel : ObservableObject
     /// metadata panel follow the image on screen instead of staying on the grid selection.
     /// </summary>
     public event Action<ImageEntry?>? CurrentEntryChanged;
+    public bool IsPhotoFuseActive { get; set; }
 
     private void RaiseCurrentEntryChanged()
     {
@@ -81,6 +83,11 @@ public partial class ImageViewerViewModel : ObservableObject
 
     public void OpenImage(ImageEntry entry, List<ImageEntry> allImages)
     {
+        if (IsPhotoFuseActive)
+        {
+            App.ViewModel.StatusText = PhotoFuseStrings.Get("FuseExitBeforeNavigate");
+            return;
+        }
         _allImages = allImages.ToList();
         _currentIndex = _allImages.FindIndex(image =>
             string.Equals(image.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
@@ -113,6 +120,7 @@ public partial class ImageViewerViewModel : ObservableObject
 
     public void UpdateLibraryImages(List<ImageEntry> images)
     {
+        if (IsPhotoFuseActive) return; // Keep the base stable during indexing/filter refreshes.
         var current = CurrentEntry;
         if (current is null) return;
 
@@ -148,6 +156,11 @@ public partial class ImageViewerViewModel : ObservableObject
     [RelayCommand]
     private void Close()
     {
+        if (IsPhotoFuseActive)
+        {
+            App.ViewModel.StatusText = PhotoFuseStrings.Get("FuseExitBeforeNavigate");
+            return;
+        }
         _loadVersion++;
         _pendingExportPath = null;
         IsOpen = false;
@@ -168,6 +181,7 @@ public partial class ImageViewerViewModel : ObservableObject
     [RelayCommand]
     private async Task NextImageAsync()
     {
+        if (IsPhotoFuseActive) return;
         if (_allImages.Count == 0) return;
         _currentIndex = (_currentIndex + 1) % _allImages.Count;
         await LoadCurrentImageAsync();
@@ -176,6 +190,7 @@ public partial class ImageViewerViewModel : ObservableObject
     [RelayCommand]
     private async Task PreviousImageAsync()
     {
+        if (IsPhotoFuseActive) return;
         if (_allImages.Count == 0) return;
         _currentIndex = (_currentIndex - 1 + _allImages.Count) % _allImages.Count;
         await LoadCurrentImageAsync();

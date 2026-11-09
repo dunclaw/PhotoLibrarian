@@ -125,6 +125,33 @@ public sealed partial class ImageRepository
         return results;
     }
 
+    public async Task<List<ImageEntry>> GetNearbyBurstAsync(ImageEntry basis,
+        TimeSpan timeRadius, CancellationToken token = default)
+    {
+        if (timeRadius <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeRadius));
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // No LIMIT: stream all indexed stills in the time window, including filtered-out photos.
+        // Without capture time, restrict the fallback to the same folder and file modification time.
+        string column = basis.DateTaken.HasValue ? "date_taken" : "date_modified";
+        DateTime time = basis.DateTaken ?? basis.DateModified;
+        cmd.CommandText = $"SELECT * FROM images WHERE id != $id AND media_type = 0 " +
+            $"AND {column} >= $start AND {column} <= $end ORDER BY {column}";
+        cmd.Parameters.AddWithValue("$id", basis.Id);
+        cmd.Parameters.AddWithValue("$start", time.Subtract(timeRadius).ToString("O"));
+        cmd.Parameters.AddWithValue("$end", time.Add(timeRadius).ToString("O"));
+        var results = new List<ImageEntry>();
+        using var reader = await cmd.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token))
+        {
+            var image = ReadImageEntry(reader);
+            if (basis.DateTaken.HasValue || string.Equals(Path.GetDirectoryName(image.FilePath),
+                Path.GetDirectoryName(basis.FilePath), StringComparison.OrdinalIgnoreCase))
+                results.Add(image);
+        }
+        return results.OrderBy(image => Math.Abs(((image.DateTaken ?? image.DateModified) - time).Ticks)).ToList();
+    }
+
     public async Task<List<ImageEntry>> GetFilteredAsync(
         bool tagRootSelected,
         List<string>? tagFilters,

@@ -128,6 +128,7 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public ObservableCollection<TagDisplayItem> Tags { get; } = [];
     public ObservableCollection<PersonTagDisplayItem> PeopleTags { get; } = [];
+    public bool IncludeUnnamedFaces { get; set; }
 
     /// <summary>Date taken common to all selected entries; null if mixed or unset.</summary>
     [ObservableProperty]
@@ -536,7 +537,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         foreach (var entry in _entries.Where(entry => entry.Id > 0))
         {
             var faces = await _faceRepo.GetFacesForImageAsync(entry.Id);
-            foreach (var face in faces.Where(face => !string.IsNullOrWhiteSpace(face.PersonName)))
+            foreach (var face in faces.Where(face => IncludeUnnamedFaces || !string.IsNullOrWhiteSpace(face.PersonName)))
             {
                 var item = new PersonTagDisplayItem(entry, face);
                 PeopleTags.Add(item);

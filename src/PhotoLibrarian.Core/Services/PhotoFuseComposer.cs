@@ -6,15 +6,12 @@ public sealed record PhotoFuseRegion(int Frame, int Left, int Top, int Width, in
 
 internal static class PhotoFuseComposer
 {
-    internal const int MaximumRegions = 8;
     private static readonly double[] Linear = Enumerable.Range(0, 256).Select(value => ToLinear(value)).ToArray();
 
     internal static byte[] Render(IReadOnlyList<byte[]> frames, IReadOnlyList<PhotoFuseTransform> transforms,
         int width, int height, IReadOnlyList<PhotoFuseRegion> regions, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (regions.Count > MaximumRegions)
-            throw new ArgumentException($"Choose at most {MaximumRegions} regions.");
         for (int i = 0; i < regions.Count; i++)
         for (int j = i + 1; j < regions.Count; j++)
         {

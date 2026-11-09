@@ -156,6 +156,16 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterManualFaceTagging()
     {
+        if (IsPhotoFusing)
+        {
+            if (_fuse!.IsBusy)
+            {
+                _fuse.Status = PhotoFuseStrings.Get("FuseWaitForSearch");
+                return;
+            }
+            _fuse.ReleaseForManualFace();
+            FuseFaceOverlay.Visibility = Visibility.Collapsed;
+        }
         if (ViewModel?.CurrentEntry?.MediaType != MediaType.Image) return;
         if (ViewModel.CurrentImage is null ||
             _currentImagePixelWidth == 0 ||
@@ -199,6 +209,12 @@ public sealed partial class ImageViewerOverlay : UserControl
         SetZoomControlsEnabled(true);
         ProtectedCursor = null;
         ManualFaceTagFlyout.Hide();
+        if (IsPhotoFusing)
+        {
+            PreviousButton.Visibility = Visibility.Collapsed;
+            NextButton.Visibility = Visibility.Collapsed;
+            DrawFuseFaces();
+        }
         if (wasActive) ManualFaceTaggingExited?.Invoke(this, EventArgs.Empty);
     }
 
@@ -356,6 +372,7 @@ public sealed partial class ImageViewerOverlay : UserControl
                     if (!ViewModel.IsOpen) StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
+                    if (IsPhotoFusing) break;
                     // Cancel any in-progress edit mode when navigating to a different image.
                     if (IsCropping) ExitCropMode();
                     if (IsStraightening) ExitStraightenMode();
@@ -573,7 +590,11 @@ public sealed partial class ImageViewerOverlay : UserControl
         _videoSource = null;
     }
 
-    private void OnClose(object sender, RoutedEventArgs e) => ViewModel?.CloseCommand.Execute(null);
+    private void OnClose(object sender, RoutedEventArgs e)
+    {
+        if (IsPhotoFusing) PhotoFuseExitRequested?.Invoke(this, EventArgs.Empty);
+        else ViewModel?.CloseCommand.Execute(null);
+    }
     private async void OnNext(object sender, RoutedEventArgs e) =>
         await (ViewModel?.NextImageCommand.ExecuteAsync(null) ?? Task.CompletedTask);
     private async void OnPrevious(object sender, RoutedEventArgs e) =>
@@ -730,6 +751,16 @@ public sealed partial class ImageViewerOverlay : UserControl
     /// </summary>
     public bool HandleViewerKey(Windows.System.VirtualKey key)
     {
+        if (IsPhotoFusing && key is Windows.System.VirtualKey.Escape or
+            Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)
+        {
+            if (key == Windows.System.VirtualKey.Escape)
+            {
+                if (IsManualFaceTagging) ExitManualFaceTagging();
+                else PhotoFuseExitRequested?.Invoke(this, EventArgs.Empty);
+            }
+            return true;
+        }
         if (ViewModel is null) return false;
 
         if (key is Windows.System.VirtualKey.A or Windows.System.VirtualKey.I &&
