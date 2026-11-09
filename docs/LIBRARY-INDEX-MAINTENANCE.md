@@ -110,6 +110,16 @@ belongs to the RAW file, matching the sidecar-migration ambiguity rule. This
 prevents the two companions from overwriting each other's tag provenance, which
 previously re-queued tagging and repeated the fallback warning on every launch.
 
+Rating, flag, caption, capture date and GPS fallbacks follow the same ownership
+rule, resolved per property by `MetadataSidecarLocator`. A photo keeps updating
+whichever sidecar already holds that value. A lone JPEG/TIFF/PNG otherwise keeps
+the legacy `photo.xmp`. When another media file shares the stem, the JPEG/PNG
+value goes to `photo.jpg.xmp` and the RAW file keeps `photo.xmp`, including
+any unrelated editor settings already in it. Values a JPEG previously wrote into
+a shared `photo.xmp` are treated as the RAW file's and are no longer shown on
+the JPEG. A sidecar that exists but cannot be parsed is reported as a write
+failure and left unchanged instead of being replaced.
+
 The banner appears once when the fallback first happens, naming the sidecar and
 the reason; the failure type, HRESULT and sidecar path are also written to
 `PhotoLibrarian.log`. Edits remain portable in the sidecar, so subsequent

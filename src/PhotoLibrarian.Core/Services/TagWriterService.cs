@@ -129,8 +129,8 @@ public static class TagWriterService
     /// its tags when one can be attributed to it, otherwise the format's preferred sidecar.
     /// </summary>
     public static string GetTagSidecarTargetPath(string imagePath) =>
-        TagSidecarLocator.ResolveReadPath(imagePath) ??
-        TagSidecarLocator.GetWritePath(imagePath);
+        MetadataSidecarLocator.ResolveReadPath(imagePath, MetadataSidecarLocator.OwnsTags) ??
+        MetadataSidecarLocator.GetWritePath(imagePath);
 
     /// <summary>
     /// Reads existing dc:subject keywords from an XMP sidecar (RAW fallback path).
@@ -139,7 +139,7 @@ public static class TagWriterService
     public static List<string> ReadTagsFromSidecar(string imagePath)
     {
         var tags = new List<string>();
-        var sidecarPath = TagSidecarLocator.ResolveReadPath(imagePath);
+        var sidecarPath = MetadataSidecarLocator.ResolveReadPath(imagePath, MetadataSidecarLocator.OwnsTags);
         if (sidecarPath is null) return tags;
 
         try
@@ -160,9 +160,12 @@ public static class TagWriterService
     }
 
     public static TagMetadataSidecarSnapshot CaptureSidecarSnapshot(
-        string imagePath)
+        string imagePath) =>
+        CaptureSidecarSnapshotAt(GetTagSidecarTargetPath(imagePath));
+
+    /// <summary>Captures the size, timestamp and content hash of a specific sidecar file.</summary>
+    public static TagMetadataSidecarSnapshot CaptureSidecarSnapshotAt(string sidecarPath)
     {
-        var sidecarPath = GetTagSidecarTargetPath(imagePath);
         if (!File.Exists(sidecarPath))
             return new TagMetadataSidecarSnapshot(false, 0, default, null);
 

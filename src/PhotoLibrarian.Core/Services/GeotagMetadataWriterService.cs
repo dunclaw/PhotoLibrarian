@@ -74,8 +74,8 @@ public sealed class GeotagMetadataWriterService
         }
         catch (Exception exception) when (IsEmbeddedWriteFailure(exception))
         {
-            await WriteSidecarAsync(imagePath, coordinate);
-            MetadataWriterService.ReportSidecarFallback(imagePath, "GPS coordinates", exception);
+            var sidecarPath = await WriteSidecarAsync(imagePath, coordinate);
+            MetadataWriterService.ReportSidecarFallback(imagePath, "GPS coordinates", exception, sidecarPath);
             return GeotagWriteLocation.XmpSidecar;
         }
     }
@@ -140,12 +140,12 @@ public sealed class GeotagMetadataWriterService
         }
     }
 
-    private static async Task WriteSidecarAsync(string imagePath, GeoCoordinate coordinate)
+    private static async Task<string> WriteSidecarAsync(string imagePath, GeoCoordinate coordinate)
     {
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+        var sidecarPath = MetadataSidecarLocator.ResolveTargetPath(imagePath, MetadataSidecarLocator.OwnsGps);
         var directory = Path.GetDirectoryName(sidecarPath)!;
         var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(sidecarPath)}.{Guid.NewGuid():N}.tmp");
-        var originalSnapshot = TagWriterService.CaptureSidecarSnapshot(imagePath);
+        var originalSnapshot = TagWriterService.CaptureSidecarSnapshotAt(sidecarPath);
 
         try
         {
@@ -166,7 +166,7 @@ public sealed class GeotagMetadataWriterService
                 stream.Flush(flushToDisk: true);
             }
 
-            if (TagWriterService.CaptureSidecarSnapshot(imagePath) != originalSnapshot)
+            if (TagWriterService.CaptureSidecarSnapshotAt(sidecarPath) != originalSnapshot)
                 throw new IOException("The XMP sidecar changed during geotag editing. Refresh and retry.");
 
             if (originalSnapshot.Exists)
@@ -176,6 +176,8 @@ public sealed class GeotagMetadataWriterService
             }
             else
                 File.Move(temporaryPath, sidecarPath);
+
+            return sidecarPath;
         }
         finally
         {

@@ -51,16 +51,19 @@ public sealed class MetadataReaderService
 
     private static void ReadSidecarText(ImageEntry entry)
     {
-        var sidecarPath = Path.ChangeExtension(entry.FilePath, ".xmp");
-        if (!File.Exists(sidecarPath)) return;
-        try
+        // Only sidecars attributable to this photo are read, most authoritative first, so a
+        // RAW companion's shared filename.xmp cannot leak into the JPEG of a RAW+JPEG pair.
+        foreach (var sidecarPath in MetadataSidecarLocator.GetOwnedSidecarPaths(entry.FilePath))
         {
-            var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
-            ReadXmpData(xmp, entry, replaceText: false);
-        }
-        catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
-        {
-            Diagnostics.DebugLog.WriteLine($"Could not read search metadata from {sidecarPath}: {exception.Message}");
+            try
+            {
+                var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+                ReadXmpData(xmp, entry, replaceText: false);
+            }
+            catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
+            {
+                Diagnostics.DebugLog.WriteLine($"Could not read search metadata from {sidecarPath}: {exception.Message}");
+            }
         }
     }
 
@@ -286,7 +289,7 @@ public sealed class MetadataReaderService
 
     internal PortableImageTagMetadata? ReadPortableTagSidecarMetadata(string filePath)
     {
-        var sidecarPath = TagSidecarLocator.ResolveReadPath(filePath);
+        var sidecarPath = MetadataSidecarLocator.ResolveReadPath(filePath, MetadataSidecarLocator.OwnsTags);
         if (sidecarPath is null)
             return null;
 
