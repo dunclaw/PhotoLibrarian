@@ -114,6 +114,26 @@ rows to a portable `plib:TagMetadata` packet containing only the composite
 value, without rewriting the file. Without such authoritative provenance,
 ambiguous old cache rows are retained rather than guessed away.
 
+To deliberately clean old prefix keywords, use **Settings > Collapse redundant
+hierarchy tags...**. After confirmation, this scans indexed photos in all watched
+folders and keeps only the longest explicit value in each slash-delimited branch.
+For example, `Auto`, `Auto/animal`, and `Auto/animal/dog` become
+`Auto/animal/dog`. Sibling branches, unrelated tags, and the retained tags'
+portable provenance are preserved. This explicit operation removes matching
+prefixes regardless of their source, including intentionally entered parents;
+it is not an automatic migration and should only be used on folders you want
+cleaned.
+
+Each changed photo and its existing `.xmp` are copied before writing into a
+unique folder under `%LOCALAPPDATA%\PhotoLibrarian\TagCleanupBackups`. The result
+shows the backup location and per-file errors. Backups remain for manual
+recovery; copy the original photo and XMP from its backup folder back together,
+then Refresh to reconcile the index. A newly created cleanup sidecar must be
+removed when restoring a photo that originally had no sidecar. Missing,
+unreadable, reparse-point, or pending-metadata-export files are not rewritten.
+Successful changes are portable and the index is reconciled only after file
+persistence. Repeating cleanup is a no-op once the prefix keywords are gone.
+
 Temporary-library tests use deterministic fake inference, real SQLite and generated
 images to assert inference-call counts across restarts, metadata/pixel edits,
 model/pipeline/settings changes, cancellation, persistence failures, watched scope

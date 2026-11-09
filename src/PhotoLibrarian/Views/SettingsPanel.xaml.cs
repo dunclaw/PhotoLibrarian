@@ -84,7 +84,8 @@ public sealed partial class SettingsPanel : UserControl
                     ViewModel.ThumbnailCacheSizeMB);
             CachePathText.Text = ViewModel.CacheLocation;
             RepairLibraryIndexButton.IsEnabled =
-                !ViewModel.IsIndexMaintenanceRunning;
+                !ViewModel.IsIndexMaintenanceRunning &&
+                !ViewModel.IsHierarchyTagCleanupRunning;
             CancelIndexMaintenanceButton.Visibility =
                 ViewModel.IsIndexMaintenanceRunning
                     ? Visibility.Visible
@@ -278,9 +279,15 @@ public sealed partial class SettingsPanel : UserControl
                 !ViewModel.IsModelDownloadRunning;
             RemoveAutoTagsButton.IsEnabled =
                 !ViewModel.IsAutoTagCleanupRunning &&
+                !ViewModel.IsHierarchyTagCleanupRunning &&
                 !ViewModel.IsBenchmarkRunning &&
                 !ViewModel.IsModelImportRunning &&
                 !ViewModel.IsModelDownloadRunning;
+            HierarchyCleanupButton.IsEnabled =
+                !ViewModel.IsHierarchyTagCleanupRunning &&
+                !ViewModel.IsAutoTagCleanupRunning &&
+                !ViewModel.IsIndexMaintenanceRunning;
+            HierarchyCleanupStatusText.Text = ViewModel.HierarchyTagCleanupStatus;
         }
         finally
         {
@@ -463,6 +470,17 @@ public sealed partial class SettingsPanel : UserControl
         }
 
         await ViewModel.DeleteSelectedModelAssetsAsync();
+    }
+
+    private async void OnCleanupHierarchicalTags(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null ||
+            !await ConfirmAsync(
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupConfirmTitle"),
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupConfirmMessage"),
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupConfirmPrimary")))
+            return;
+        await App.ViewModel.CleanupHierarchicalTagsAsync();
     }
 
     private async void OnRemoveAutoTags(

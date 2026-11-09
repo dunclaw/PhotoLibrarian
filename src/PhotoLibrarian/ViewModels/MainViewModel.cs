@@ -530,6 +530,7 @@ public partial class MainViewModel : ObservableObject
         if (_libraryFoldersChanging)
             return;
         if (_isShuttingDown ||
+            Settings.IsHierarchyTagCleanupRunning ||
             _duplicateScanActive ||
             _autoTagReviewActive ||
             _photoFuseRecognitionPaused ||
@@ -838,6 +839,52 @@ public partial class MainViewModel : ObservableObject
             Settings.SetAutoTaggingProgress(
                 "Automatic tagging is off",
                 false);
+        }
+    }
+
+    public async Task CleanupHierarchicalTagsAsync()
+    {
+        if (Settings.IsHierarchyTagCleanupRunning ||
+            Settings.IsAutoTagCleanupRunning ||
+            Settings.IsIndexMaintenanceRunning ||
+            IsIndexing)
+        {
+            Settings.HierarchyTagCleanupStatus =
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupBusy");
+            return;
+        }
+        Settings.IsHierarchyTagCleanupRunning = true;
+        Settings.HierarchyTagCleanupStatus =
+            LibraryIndexMaintenanceStrings.Get("HierarchyCleanupStarting");
+        try
+        {
+            await StopRecognitionAsync();
+            var backups = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PhotoLibrarian", "TagCleanupBackups");
+            var cleanup = new HierarchicalTagCleanupService(_imageRepo, _indexingService, backups);
+            var result = await Task.Run(() => cleanup.CleanupAsync());
+            await RefreshAfterIndexAsync();
+            await MetadataPanel.ReloadTagsAsync();
+            var status = LibraryIndexMaintenanceStrings.Format(
+                "HierarchyCleanupCompleted", result.RemovedTags, result.UpdatedPhotos,
+                result.ScannedPhotos, result.BackupDirectory);
+            if (result.Failures.Count > 0)
+                status += Environment.NewLine + string.Join(Environment.NewLine, result.Failures);
+            Settings.HierarchyTagCleanupStatus = status;
+            StatusText = status;
+        }
+        catch (Exception exception)
+        {
+            DebugLog.WriteLine($"Hierarchy tag cleanup failed: {exception}");
+            Settings.HierarchyTagCleanupStatus =
+                LibraryIndexMaintenanceStrings.Format("HierarchyCleanupFailed", exception.Message);
+            StatusText = Settings.HierarchyTagCleanupStatus;
+        }
+        finally
+        {
+            Settings.IsHierarchyTagCleanupRunning = false;
+            StartRecognitionProcessing();
         }
     }
 

@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="HierarchyCleanupDescription.Text" xml:space="preserve"><value>Clean up legacy hierarchy keywords in watched photos. Keep the longest tag in each slash-delimited branch and remove its separately stored prefixes.</value></data>
+  <data name="HierarchyCleanupButton.Content" xml:space="preserve"><value>Collapse redundant hierarchy tags...</value></data>
+  <data name="HierarchyCleanupButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Collapse redundant hierarchy tags</value></data>
+  <data name="HierarchyCleanupConfirmTitle" xml:space="preserve"><value>Collapse hierarchy tags in watched photos?</value></data>
+  <data name="HierarchyCleanupConfirmMessage" xml:space="preserve"><value>This scans indexed photos in all watched folders and rewrites matching file metadata. For example, Auto, Auto/animal, and Auto/animal/dog become only Auto/animal/dog. Sibling branches and unrelated tags are kept. A prefix is removed even if you originally entered it independently. Photo and existing XMP backups are retained before each change. Unavailable or unreadable files are skipped and reported. This cannot be undone from the tag panel; use the backups to recover removed keywords.</value></data>
+  <data name="HierarchyCleanupConfirmPrimary" xml:space="preserve"><value>Back up and collapse tags</value></data>
+  <data name="HierarchyCleanupStarting" xml:space="preserve"><value>Stopping recognition and scanning watched photos for redundant hierarchy keywords...</value></data>
+  <data name="HierarchyCleanupCompleted" xml:space="preserve"><value>Removed {0:N0} redundant tag assignments from {1:N0} photos; scanned {2:N0} photos. Backups for changed files: {3}</value></data>
+  <data name="HierarchyCleanupFailed" xml:space="preserve"><value>Hierarchy cleanup could not finish: {0}</value></data>
+  <data name="HierarchyCleanupBusy" xml:space="preserve"><value>Wait for the current indexing or cleanup operation to finish, then try again.</value></data>
   <data name="RibbonUndoCaption.Text" xml:space="preserve"><value>Undo</value></data>
   <data name="RibbonRedoCaption.Text" xml:space="preserve"><value>Redo</value></data>
   <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Undo</value></data>

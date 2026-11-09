@@ -169,6 +169,16 @@
                             HorizontalAlignment="Left"
                             Content="Remove all automatic tags"
                             Click="OnRemoveAutoTags" />
+                    <TextBlock x:Uid="HierarchyCleanupDescription"
+                               TextWrapping="Wrap" />
+                    <Button x:Name="HierarchyCleanupButton"
+                            x:Uid="HierarchyCleanupButton"
+                            AutomationProperties.AutomationId="HierarchyCleanupButton"
+                            HorizontalAlignment="Left"
+                            Click="OnCleanupHierarchicalTags" />
+                    <TextBlock x:Name="HierarchyCleanupStatusText"
+                               AutomationProperties.AutomationId="HierarchyCleanupStatusText"
+                               TextWrapping="Wrap" />
                 </StackPanel>
 
                 <Border Height="1"

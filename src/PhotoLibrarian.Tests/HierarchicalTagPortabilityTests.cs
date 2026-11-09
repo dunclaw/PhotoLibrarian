@@ -266,12 +266,199 @@ public sealed class HierarchicalTagPortabilityTests : IDisposable
             Assert.Equal(image.Id, Assert.Single(await images.GetFilteredAsync(false, [prefix])).Id);
             Assert.Equal(1, Assert.Single(await tags.GetAllTagsWithCountAsync(), row => row.Tag == prefix).Count);
         }
-        Assert.Empty(await tags.GetImageIdsWithTagAsync("Auto/anim"));
+        Assert.Empty(await tags.GetImageIdsWithTagAsync("Auto/anima"));
         var membership = (await tags.GetTagsByImageIdAsync())[image.Id];
         Assert.True(new ImageRefinementFilter { IncludedTags = ["Auto/animal"] }.Matches(image, membership));
         Assert.False(new ImageRefinementFilter { ExcludedTags = ["Auto/animal"] }.Matches(image, membership));
         Assert.Equal(image.Id, Assert.Single(await new ImageSearchRepository(database)
             .FilterAsync("animal", [image])).Id);
+    }
+
+    [Theory]
+    [InlineData(".raw", false)]
+    [InlineData(".raw", true)]
+    [InlineData(".jpg", false)]
+    [InlineData(".jpg", true)]
+    public async Task ExplicitCleanup_CollapsesFilePrefixesAndKeepsBranchesBackupsAndProvenance(
+        string extension, bool provenance)
+    {
+        var path = await CreateMediaAsync("cleanup" + extension);
+        string[] values = ["Auto", "Auto/animal", "Auto/animal/mammal", Dog,
+            "Auto/animal/mammal/cat", "family", "Auto/anim"];
+        var rows = values.Select(value => new ImageTag
+        {
+            Tag = value, Source = value == Dog ? TagSource.AutoML : TagSource.Manual,
+            Confidence = value == Dog ? 0.87f : 1f
+        }).ToArray();
+        await TagWriterService.WriteTagsToSidecarAsync(path, values, provenance ? rows : null);
+        var original = await File.ReadAllBytesAsync(path);
+        var originalPixels = await RecognitionSourceIdentity.ComputeAsync(path, CancellationToken.None);
+        var sidecar = Path.ChangeExtension(path, ".xmp");
+        var originalSidecar = File.Exists(sidecar) ? await File.ReadAllBytesAsync(sidecar) : null;
+        using var database = await OpenDatabaseAsync("cleanup.db");
+        var image = await IndexAsync(database, path);
+        await WatchDirectoryAsync(database);
+        using var scanner = new FolderScannerService();
+        var indexer = new LibraryIndexingService(database, new ImageRepository(database),
+            new TagRepository(database), new FaceRepository(database), scanner,
+            new MetadataReaderService(), new FaceMetadataStore());
+        var service = new HierarchicalTagCleanupService(new ImageRepository(database), indexer,
+            Path.Combine(_directory, "backups"));
+        var result = await service.CleanupAsync();
+        Assert.Empty(result.Failures);
+        Assert.Equal(1, result.ScannedPhotos);
+        Assert.Equal(1, result.UpdatedPhotos);
+        Assert.Equal(3, result.RemovedTags);
+        Assert.Equal(originalPixels, await RecognitionSourceIdentity.ComputeAsync(path, CancellationToken.None));
+        string[] expected = [Dog, "Auto/animal/mammal/cat", "family", "Auto/anim"];
+        Assert.Equal(expected.Order(), new MetadataReaderService().ReadTags(path).Order());
+        var tags = new TagRepository(database);
+        Assert.Equal(expected.Order(), (await tags.GetTagsAsync(image.Id)).Select(tag => tag.Tag).Order());
+        if (provenance)
+        {
+            var dog = Assert.Single(await tags.GetTagsAsync(image.Id), tag => tag.Tag == Dog);
+            Assert.Equal(TagSource.AutoML, dog.Source);
+            Assert.Equal(0.87f, dog.Confidence);
+        }
+        await AssertHierarchyAsync(database, image);
+        var backup = Assert.Single(Directory.GetDirectories(result.BackupDirectory));
+        Assert.Equal(original, await File.ReadAllBytesAsync(Path.Combine(backup, Path.GetFileName(path))));
+        if (originalSidecar is not null)
+            Assert.Equal(originalSidecar,
+                await File.ReadAllBytesAsync(Path.Combine(backup, Path.GetFileName(sidecar))));
+
+        var after = await File.ReadAllBytesAsync(path);
+        var afterSidecar = File.Exists(sidecar) ? await File.ReadAllBytesAsync(sidecar) : null;
+        var again = await service.CleanupAsync();
+        Assert.Empty(again.Failures);
+        Assert.Equal(0, again.UpdatedPhotos);
+        Assert.Equal(after, await File.ReadAllBytesAsync(path));
+        if (afterSidecar is not null)
+            Assert.Equal(afterSidecar, await File.ReadAllBytesAsync(sidecar));
+        Assert.False(Directory.Exists(again.BackupDirectory));
+
+        using var fresh = await OpenDatabaseAsync("clean-import.db");
+        var imported = await IndexAsync(fresh, path);
+        Assert.Equal(expected.Order(),
+            (await new TagRepository(fresh).GetTagsAsync(imported.Id)).Select(tag => tag.Tag).Order());
+        await AssertHierarchyAsync(fresh, imported);
+    }
+
+    [Fact]
+    public async Task CleanupReportsMalformedMissingAndBackupFailuresWithoutChangingCachedTags()
+    {
+        using var database = await OpenDatabaseAsync("errors.db");
+        await WatchDirectoryAsync(database);
+        var malformedPath = await CreateMediaAsync("malformed.raw");
+        var missingPath = await CreateMediaAsync("missing.raw");
+        var backupFailPath = await CreateMediaAsync("backup-fail.raw");
+        foreach (var path in new[] { malformedPath, missingPath, backupFailPath })
+            await TagWriterService.WriteTagsToSidecarAsync(path, ["Places", "Places/Beach"]);
+        var malformed = await IndexAsync(database, malformedPath);
+        var missing = await IndexAsync(database, missingPath);
+        var backupFail = await IndexAsync(database, backupFailPath);
+        await File.WriteAllTextAsync(Path.ChangeExtension(malformedPath, ".xmp"), "not XML");
+        File.Delete(missingPath);
+        var backupLocation = Path.Combine(_directory, "blocked-backups");
+        await File.WriteAllTextAsync(backupLocation, "not a directory");
+        using var scanner = new FolderScannerService();
+        var indexer = new LibraryIndexingService(database, new ImageRepository(database),
+            new TagRepository(database), new FaceRepository(database), scanner,
+            new MetadataReaderService(), new FaceMetadataStore());
+        var result = await new HierarchicalTagCleanupService(new ImageRepository(database),
+            indexer, backupLocation).CleanupAsync();
+        Assert.Equal(3, result.Failures.Count);
+        Assert.Equal(0, result.UpdatedPhotos);
+        var tags = new TagRepository(database);
+        foreach (var image in new[] { malformed, missing, backupFail })
+            Assert.Equal(2, (await tags.GetTagsAsync(image.Id)).Count);
+        Assert.Equal("not XML", await File.ReadAllTextAsync(Path.ChangeExtension(malformedPath, ".xmp")));
+        Assert.Equal(new[] { "Places", "Places/Beach" },
+            new MetadataReaderService().ReadTags(backupFailPath).Order());
+    }
+
+    [Fact]
+    public void CleanupUsesSlashBoundariesAndKeepsLongestSiblingValues()
+    {
+        string[] values = ["A", "A/B", "A/B/C", "A/B/D", "AB", "AB/CD", "Other", "a/B/Cat"];
+        var tags = values.Select(value => new ImageTag { Tag = value }).ToArray();
+        Assert.Equal(new[] { "A/B/C", "A/B/D", "AB/CD", "Other", "a/B/Cat" },
+            HierarchicalTagCleanupService.CollapsePrefixes(tags).Select(tag => tag.Tag));
+        Assert.Empty(HierarchicalTagCleanupService.CollapsePrefixes([]));
+    }
+
+    [Fact]
+    public void SettingsDeclaresAccessibleCleanupButtonAndExplicitDestructiveConfirmation()
+    {
+        var xaml = System.Xml.Linq.XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "TestAssets", "SettingsPanel.xaml"));
+        var button = Assert.Single(xaml.Descendants(),
+            element => element.Name.LocalName == "Button" &&
+                (string?)element.Attribute("AutomationProperties.AutomationId") == "HierarchyCleanupButton");
+        Assert.Equal("OnCleanupHierarchicalTags", (string?)button.Attribute("Click"));
+        var resources = System.Xml.Linq.XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"));
+        var confirmation = Assert.Single(resources.Descendants("data"),
+            element => (string?)element.Attribute("name") == "HierarchyCleanupConfirmMessage")
+            .Element("value")!.Value;
+        Assert.Contains("all watched folders", confirmation);
+        Assert.Contains("even if you originally entered it independently", confirmation);
+        Assert.Contains("backups", confirmation);
+    }
+
+    [Fact]
+    public async Task CleanupSkipsUnwatchedVideoAndPendingExportsAndHonorsCancellation()
+    {
+        using var database = await OpenDatabaseAsync("scope.db");
+        var watched = Path.Combine(_directory, "watched");
+        Directory.CreateDirectory(watched);
+        var outsidePath = await CreateMediaAsync("outside.raw");
+        var pendingPath = await CreateMediaAsync("pending.raw");
+        var videoPath = await CreateMediaAsync("video.raw");
+        var watchedPending = Path.Combine(watched, "pending.raw");
+        var watchedVideo = Path.Combine(watched, "video.raw");
+        File.Move(pendingPath, watchedPending);
+        File.Move(videoPath, watchedVideo);
+        foreach (var path in new[] { outsidePath, watchedPending, watchedVideo })
+            await TagWriterService.WriteTagsToSidecarAsync(path, ["A", "A/B"]);
+        var outside = await IndexAsync(database, outsidePath);
+        var pending = await IndexAsync(database, watchedPending);
+        var video = await IndexAsync(database, watchedVideo);
+        video.MediaType = MediaType.Video;
+        await new ImageRepository(database).UpsertImageAsync(video);
+        await new FaceRepository(database).SetFaceMetadataExportRequiredAsync(pending.Id, true);
+        using (var connection = database.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO watched_folders(path) VALUES ($path)";
+            command.Parameters.AddWithValue("$path", watched);
+            await command.ExecuteNonQueryAsync();
+        }
+        using var scanner = new FolderScannerService();
+        var indexer = new LibraryIndexingService(database, new ImageRepository(database),
+            new TagRepository(database), new FaceRepository(database), scanner,
+            new MetadataReaderService(), new FaceMetadataStore());
+        var cleanup = new HierarchicalTagCleanupService(new ImageRepository(database),
+            indexer, Path.Combine(_directory, "backups"));
+        var result = await cleanup.CleanupAsync();
+        Assert.Equal(1, result.ScannedPhotos);
+        Assert.Equal(0, result.UpdatedPhotos);
+        Assert.Contains(watchedPending, Assert.Single(result.Failures));
+        Assert.False(Directory.Exists(result.BackupDirectory));
+        foreach (var image in new[] { outside, pending, video })
+            Assert.Equal(new[] { "A", "A/B" }, new MetadataReaderService().ReadTags(image.FilePath).Order());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cleanup.CleanupAsync(cancellation.Token));
+    }
+
+    private async Task WatchDirectoryAsync(CacheDatabase database)
+    {
+        using var connection = database.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO watched_folders(path) VALUES ($path)";
+        command.Parameters.AddWithValue("$path", _directory);
+        await command.ExecuteNonQueryAsync();
     }
 
     private async Task<CacheDatabase> OpenDatabaseAsync(string name)
