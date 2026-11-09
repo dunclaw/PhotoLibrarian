@@ -6,15 +6,15 @@ using Windows.Media.MediaProperties;
 namespace PhotoLibrarian.Core.Services;
 
 /// <summary>
-/// Feeds stabilized frames to the Windows MP4 encoder. Frames are decoded in order and warped
-/// with corrections planned in a prior analysis pass (see <see cref="VideoFrameStabilizer"/>).
+/// Feeds decoded frames to the Windows MP4 encoder, optionally warping them with corrections
+/// planned in a prior analysis pass (see <see cref="VideoFrameStabilizer"/>).
 /// </summary>
 internal sealed class WindowsStabilizedVideoSource : IDisposable
 {
     private readonly MediaFoundationFrameReader _reader;
     private readonly object _gate = new();
     private readonly CancellationToken _cancellationToken;
-    private readonly VideoFrameStabilizer _stabilizer;
+    private readonly VideoFrameStabilizer? _stabilizer;
     private readonly IReadOnlyList<VideoFrameStabilizer.Correction> _corrections;
     private int _frameIndex;
     private bool _disposed;
@@ -24,7 +24,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
 
     public WindowsStabilizedVideoSource(
         string sourcePath, MediaEncodingProfile profile, TimeSpan duration,
-        VideoFrameStabilizer stabilizer, IReadOnlyList<VideoFrameStabilizer.Correction> corrections,
+        VideoFrameStabilizer? stabilizer, IReadOnlyList<VideoFrameStabilizer.Correction> corrections,
         CancellationToken cancellationToken)
     {
         _cancellationToken = cancellationToken;
@@ -76,7 +76,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                 if (_reader.Read(isVideo, _cancellationToken) is not { } sample) return;
 
                 byte[] data = sample.Data;
-                if (isVideo)
+                if (isVideo && _stabilizer is not null)
                 {
                     // The analysis pass decodes the same frames in the same order; any extra frame
                     // beyond the plan (not expected) reuses the last planned correction.

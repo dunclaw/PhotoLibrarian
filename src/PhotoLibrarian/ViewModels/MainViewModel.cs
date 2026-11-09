@@ -6,6 +6,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -54,6 +55,7 @@ public partial class MainViewModel : ObservableObject
     public AutoTagReviewViewModel AutoTagReview { get; }
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
+    public PhotoImportService PhotoImport { get; }
     public OriginalBackupService BackupService => _backupService;
     public LibrarySearchViewModel Search { get; }
     public PhotoFuseViewModel PhotoFuse { get; }
@@ -143,6 +145,10 @@ public partial class MainViewModel : ObservableObject
                 ? throw new InvalidOperationException("Local face scanning is unavailable.")
                 : photoFuseFaces.ScanPhotoAsync(image, token),
             image => _faceRepo.GetFacesForImageAsync(image.Id));
+        PhotoImport = new PhotoImportService(
+            metadataReader,
+            indexingService,
+            imageRepo);
 
         StatusText = "Ready";
 
@@ -163,10 +169,11 @@ public partial class MainViewModel : ObservableObject
             this,
             gridLayoutSettingsStore ?? new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
+        ImageViewer.EffectRecipeChanged += ImageGrid.RefreshSingleImageAsync;
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
         MetadataPanel = new MetadataPanelViewModel();
-        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this);
+        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this, backupService);
         PeopleReview = new PeopleReviewViewModel(faceReviewService);
         Settings = new SettingsViewModel(
             db,
@@ -289,6 +296,27 @@ public partial class MainViewModel : ObservableObject
         StartBackgroundAutoTagging();
     }
 
+    public async Task EnsureImportDestinationWatchedAsync(string destinationPath)
+    {
+        var fullPath = Path.GetFullPath(destinationPath);
+        var probePath = Path.Combine(fullPath, "_");
+        if (FolderNav.RootFolders.Any(folder =>
+                WatchedFolderScope.ContainsFile(
+                    probePath,
+                    folder.Path,
+                    folder.IncludeSubfolders)))
+            return;
+
+        await new WatchedFolderRepository(_db).AddAsync(fullPath);
+        await FolderNav.LoadWatchedFoldersAsync();
+    }
+
+    public async Task RefreshAfterPhotoImportAsync(IReadOnlyCollection<string> importedPaths)
+    {
+        ImageGrid.RevealImportedPhotos(importedPaths);
+        await RefreshAfterIndexAsync();
+    }
+
     public void SyncWatchedFolders()
     {
         try
@@ -325,7 +353,9 @@ public partial class MainViewModel : ObservableObject
             StatusText = $"Library update failed: {error.Message}");
     }
 
-    private void OnWatchedLibraryChanged(object? sender, EventArgs e)
+    private void OnWatchedLibraryChanged(
+        object? sender,
+        WatchedFolderChangeService.WatchedLibraryChangedEventArgs e)
     {
         if (_isShuttingDown) return;
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
@@ -333,11 +363,22 @@ public partial class MainViewModel : ObservableObject
             if (_isShuttingDown) return;
             try
             {
-                DebugLog.WriteLine("Library: refreshing after watched-folder change");
+                DebugLog.WriteLine(e.RequiresGridReload
+                    ? "Library: refreshing after watched-folder membership change"
+                    : $"Library: refreshing {e.ChangedImagePaths.Count} watched item(s) in place");
                 if (ImageViewer.CurrentEntry is { } current &&
                     !System.IO.File.Exists(current.FilePath))
                     ImageViewer.CloseCommand.Execute(null);
-                await RefreshAfterIndexAsync();
+
+                if (e.RequiresGridReload)
+                {
+                    await RefreshAfterIndexAsync();
+                }
+                else
+                {
+                    await ImageGrid.RefreshWatchedItemsAsync(e.ChangedImagePaths);
+                    await RefreshNavigationAfterIndexAsync();
+                }
             }
             catch (Exception ex)
             {
@@ -596,6 +637,7 @@ public partial class MainViewModel : ObservableObject
             await Task.Delay(2000, ct);
             
             DebugLog.WriteLine($"StartBackgroundIndexing: Starting scan of {folders.Count} folders");
+            var libraryChanged = false;
 
             foreach (var folder in folders)
             {
@@ -604,17 +646,11 @@ public partial class MainViewModel : ObservableObject
                 try
                 {
                     DebugLog.WriteLine($"  Indexing folder: {folder.Path}");
-                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct);
+                    libraryChanged |= await _indexingService.IndexFolderAsync(
+                        folder.Path,
+                        folder.IncludeSubfolders,
+                        ct);
                     DebugLog.WriteLine($"  Completed folder: {folder.Path}");
-                    
-                    if (!ct.IsCancellationRequested)
-                    {
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
-                        {
-                            await RefreshAfterIndexAsync();
-                        });
-                    }
-
                 }
                 catch (OperationCanceledException)
                 {
@@ -629,6 +665,14 @@ public partial class MainViewModel : ObservableObject
             }
             
             DebugLog.WriteLine($"StartBackgroundIndexing: All folders complete");
+            if (libraryChanged && !ct.IsCancellationRequested)
+            {
+                App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
+                {
+                    if (!_isShuttingDown)
+                        await RefreshAfterIndexAsync();
+                });
+            }
         }, ct);
     }
 
@@ -1048,7 +1092,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task RefreshTagsTreeAsync()
     {
-        if (ImageGrid.RequiresTagData)
+        if (ImageGrid.HasTagDependentFilter)
             await ImageGrid.LoadImagesAsync();
 
         if (App.MainWindow is MainWindow window)
@@ -1113,7 +1157,8 @@ public partial class MainViewModel : ObservableObject
                 await TagWriterService.WriteTagsToSidecarAsync(path,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
-                    entry.AutoTagScanVersion);
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
 
                 applied++;
             }
@@ -1224,7 +1269,23 @@ public partial class MainViewModel : ObservableObject
         await RefreshAfterIndexAsync();
     }
 
-    public async Task OpenStabilizedVideoAsync(string path)
+    public async Task IndexPanoramaAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var entry = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException(
+                $"The panorama at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedImage(entry.FilePath);
+        await RefreshAfterIndexAsync();
+        ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
+        StatusText = PanoramaStrings.Format("PanoramaCreatedStatus", entry.FileName);
+    }
+
+    public Task OpenStabilizedVideoAsync(string path) => OpenVideoCopyAsync(path, edited: false);
+
+    public Task OpenEditedVideoAsync(string path) => OpenVideoCopyAsync(path, edited: true);
+
+    private async Task OpenVideoCopyAsync(string path, bool edited)
     {
         await _indexingService.IndexFileAsync(path);
         var copy = await _imageRepo.GetByPathAsync(path)
@@ -1235,7 +1296,21 @@ public partial class MainViewModel : ObservableObject
             string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
             ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
         ImageViewer.OpenExportedVideo(copy);
-        StatusText = $"Opened stabilized copy: {path}";
+        StatusText = edited ? Services.VideoEditStrings.Format("VideoEditOpened", path) : $"Opened stabilized copy: {path}";
+    }
+
+    public async Task OpenTrimmedVideoAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The trimmed copy at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The trimmed copy at '{path}' could not be shown in the grid.");
+        ImageViewer.OpenExportedVideo(copy);
+        StatusText = $"Opened trimmed copy: {path}";
     }
 
     public async Task RevealPhotoFuseCopyAsync(string path)
@@ -1290,15 +1365,19 @@ public partial class MainViewModel : ObservableObject
         await ImageGrid.LoadImagesAsync();
         TotalImages = await _imageRepo.GetCountAsync(watchedOnly: true);
         StatusText = $"{TotalImages:N0} items";
-        // Refresh date and tag navigation data
+        await RefreshNavigationAfterIndexAsync();
+        StartBackgroundFaceDetection();
+        StartBackgroundAutoTagging();
+    }
+
+    private async Task RefreshNavigationAfterIndexAsync()
+    {
         await DateNav.LoadDatesAsync();
         await PeopleNav.LoadPeopleAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
         await NotTaggedNav.LoadAsync();
-        StartBackgroundFaceDetection();
-        StartBackgroundAutoTagging();
-        
+
         // Update UI trees on main thread
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
         {

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Diagnostics;
 using PhotoLibrarian.Core.Models;
@@ -72,7 +73,11 @@ public sealed class LibraryIndexingService
     /// <summary>
     /// Indexes a folder: scans files, reads metadata, generates thumbnails.
     /// </summary>
-    public async Task IndexFolderAsync(string folderPath, bool includeSubfolders = true, CancellationToken ct = default)
+    public async Task<bool> IndexFolderAsync(
+        string folderPath,
+        bool includeSubfolders = true,
+        CancellationToken ct = default,
+        bool verifyContent = false)
     {
         int processed = 0;
         int skipped = 0;
@@ -90,7 +95,7 @@ public sealed class LibraryIndexingService
             
             try
             {
-                if (!await IndexFileAsync(filePath, ct))
+                if (!await IndexFileAsync(filePath, ct, verifyContent))
                 {
                     skipped++;
                     if (processed % 10 == 0)
@@ -122,10 +127,14 @@ public sealed class LibraryIndexingService
 
         DebugLog.WriteLine($"IndexFolderAsync: Complete - processed={processed}, skipped={skipped}, errors={errors}");
         Progress?.Invoke(this, new IndexingProgressEventArgs(processed, skipped, folderPath, isComplete: true));
+        return processed > 0;
     }
 
     /// <summary>Indexes a single changed file without rescanning its containing folder.</summary>
-    public async Task<bool> IndexFileAsync(string filePath, CancellationToken ct = default)
+    public async Task<bool> IndexFileAsync(
+        string filePath,
+        CancellationToken ct = default,
+        bool verifyContent = true)
     {
         ct.ThrowIfCancellationRequested();
         var existing = await _imageRepo.GetByPathAsync(filePath);
@@ -147,7 +156,33 @@ public sealed class LibraryIndexingService
             (!string.Equals(existing.FaceSidecarPath, sidecar?.FullName, StringComparison.OrdinalIgnoreCase) ||
              existing.FaceSidecarSize != sidecar?.Length ||
              existing.FaceSidecarModified != sidecar?.LastWriteTimeUtc);
+        var metadataStamp = LibraryMetadataIdentity.CaptureStamp(filePath);
+        // Folder reconciliation uses stat data only as a fast-path hint. Explicit
+        // refreshes, repair, and watcher notifications verify bytes even when an
+        // external editor preserved the timestamp and file length.
+        if (!verifyContent &&
+            existing is not null &&
+            existing.SourceIdentity is not null &&
+            existing.FileSize == fileInfo.Length &&
+            existing.DateModified == fileInfo.LastWriteTimeUtc &&
+            existing.SearchMetadataIndexed &&
+            existing.FaceMetadataImported &&
+            !existing.FaceMetadataExportRequired &&
+            existing.MetadataStamp == metadataStamp &&
+            !sidecarChanged)
+            return false;
+
+        var metadataHash = await LibraryMetadataIdentity.ComputeAsync(filePath, ct);
+        var sourceIdentity = existing?.SourceIdentity is not null &&
+            existing.MetadataHash == metadataHash
+            ? existing.SourceIdentity
+            : await RecognitionSourceIdentity.ComputeAsync(filePath, ct);
+        var contentChanged = existing is not null &&
+            existing.SourceIdentity != sourceIdentity;
         var portableTagMetadata = _metadataReader.ReadPortableTagMetadata(filePath);
+        var portableScanVersion = portableTagMetadata?.SourceIdentity == sourceIdentity
+            ? portableTagMetadata.AutoTagScanVersion
+            : null;
         var portableTagsChanged = false;
         if (existing is not null && portableTagMetadata is not null)
         {
@@ -156,12 +191,15 @@ public sealed class LibraryIndexingService
                 portableTagMetadata);
             var cachedTagRows = await _tagRepo.GetTagsAsync(existing.Id, ct);
             portableTagsChanged =
-                existing.AutoTagScanVersion != portableTagMetadata.AutoTagScanVersion ||
+                existing.AutoTagScanVersion != portableScanVersion ||
                 !HaveSameTagRows(cachedTagRows, portableTagRows);
         }
 
         if (existing is not null &&
-            existing.DateModified >= fileInfo.LastWriteTimeUtc &&
+            existing.DateModified == fileInfo.LastWriteTimeUtc &&
+            existing.FileSize == fileInfo.Length &&
+            !contentChanged &&
+            existing.MetadataHash == metadataHash &&
             existing.SearchMetadataIndexed &&
             existing.FaceMetadataImported &&
             !sidecarChanged &&
@@ -169,12 +207,13 @@ public sealed class LibraryIndexingService
             return false;
 
         var entry = _metadataReader.ReadMetadata(filePath);
+        entry.SourceIdentity = sourceIdentity;
+        entry.MetadataStamp = metadataStamp;
+        entry.MetadataHash = metadataHash;
         var imageId = await _imageRepo.UpsertImageAsync(entry);
         await _faceRepo.SetFaceMetadataImportedAsync(imageId, false, cancellationToken: ct);
         var faceMetadata = _faceMetadataStore.Read(filePath);
         await _faceRepo.ImportFaceMetadataAsync(imageId, faceMetadata, ct);
-        await _faceRepo.SetFaceMetadataImportedAsync(
-            imageId, true, sidecar?.FullName, sidecar?.Length, sidecar?.LastWriteTimeUtc, ct);
         await _faceRepo.SetFaceMetadataExportRequiredAsync(imageId, false, ct);
 
         var tags = _metadataReader.ReadTags(filePath);
@@ -195,8 +234,12 @@ public sealed class LibraryIndexingService
 
         await _tagRepo.RestoreAutoTagScanVersionAsync(
             imageId,
-            portableTagMetadata?.AutoTagScanVersion,
+            portableScanVersion,
             ct);
+        if (metadataStamp != LibraryMetadataIdentity.CaptureStamp(filePath))
+            throw new IOException("The photo or its metadata changed during indexing; it will be retried.");
+        await _faceRepo.SetFaceMetadataImportedAsync(
+            imageId, true, sidecar?.FullName, sidecar?.Length, sidecar?.LastWriteTimeUtc, ct);
         return true;
     }
 

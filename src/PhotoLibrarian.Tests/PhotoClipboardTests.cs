@@ -75,13 +75,14 @@ public sealed class PhotoClipboardTests
         var contextFlyout = root.Elements()
             .Single(element => element.Name.LocalName == "UserControl.ContextFlyout");
         var menu = Assert.Single(contextFlyout.Elements());
-        var item = Assert.Single(menu.Elements());
-
         Assert.Equal("MenuFlyout", menu.Name.LocalName);
-        Assert.Equal("OnCopyContextMenuOpening", (string?)menu.Attribute("Opening"));
-        Assert.Equal("Copy full path", (string?)item.Attribute("Text"));
-        Assert.Equal("ViewerCopyFullPath", (string?)item.Attribute("AutomationProperties.AutomationId"));
-        Assert.Equal("OnCopyFullPathClick", (string?)item.Attribute("Click"));
+        Assert.Equal("OnPhotoContextMenuOpening", (string?)menu.Attribute("Opening"));
+        Assert.Equal("OnPhotoContextMenuClosed", (string?)menu.Attribute("Closed"));
+        Assert.Empty(menu.Elements()); // Populated by the same builder as the grid.
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageGridView.xaml.cs"));
+        Assert.Contains("Text = \"Copy full path\"", source);
+        Assert.Contains("PhotoClipboardService.CopyText(", source);
+        Assert.Contains("\"CopyFullPath\");", source);
     }
 
     private static XDocument LoadXaml(string fileName) =>

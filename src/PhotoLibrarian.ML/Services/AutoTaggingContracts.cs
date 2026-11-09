@@ -1,3 +1,8 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+
 namespace PhotoLibrarian.ML.Services;
 
 public enum AutoTagQualityStatus
@@ -15,6 +20,23 @@ public sealed record AutoTaggingSettings(
     string? ModelDirectory = null,
     Dictionary<string, AutoTagQualityStatus>? ProfileQualityStatuses = null)
 {
+    public string GetScanVersion()
+    {
+        var definition = AutoTagModelCatalog.ForId(ProfileId);
+        if (MaximumTags == definition.DefaultMaximumTags &&
+            ConfidenceThreshold == definition.DefaultConfidenceThreshold &&
+            string.IsNullOrWhiteSpace(ModelDirectory))
+            return definition.PipelineVersion;
+
+        var directory = string.IsNullOrWhiteSpace(ModelDirectory)
+            ? ""
+            : Path.GetFullPath(ModelDirectory).ToUpperInvariant();
+        var input = string.Create(CultureInfo.InvariantCulture,
+            $"{MaximumTags}|{ConfidenceThreshold:R}|{directory}");
+        return definition.PipelineVersion + "|settings:" +
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
+    }
+
     public AutoTagQualityStatus GetQualityStatus(string profileId)
     {
         if (!AutoTagModelCatalog.TryGet(profileId, out var definition))

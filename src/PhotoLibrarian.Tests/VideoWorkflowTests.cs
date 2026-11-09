@@ -74,8 +74,11 @@ public sealed class VideoWorkflowTests
         var ribbon = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml"));
         var videoTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoTools");
         var buttons = videoTools.Descendants().Where(element => element.Name.LocalName == "Button").ToList();
-        var stabilize = Assert.Single(buttons);
+        var stabilize = Assert.Single(buttons.Where(button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick"));
         Assert.Equal("OnStabilizeVideoClick", (string?)stabilize.Attribute("Click"));
+        Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnEditVideoClick");
+        Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick");
+        Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnTrimVideoClick");
         var viewer = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
         Assert.DoesNotContain(viewer.Descendants(), element => (string?)element.Attribute("Click") == "OnStabilizeVideo");
         var dialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoStabilizationDialog.xaml"));
@@ -87,6 +90,38 @@ public sealed class VideoWorkflowTests
         var smoothness = Assert.Single(dialog.Descendants(presentation + "ComboBox"));
         Assert.Equal("StabilizationSmoothness", (string?)smoothness.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("1", (string?)smoothness.Attribute("SelectedIndex"));
+
+        var trimDialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoTrimDialog.xaml"));
+        Assert.Contains(trimDialog.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimStartSlider");
+        Assert.Contains(trimDialog.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimEndSlider");
+        Assert.Contains(trimDialog.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimStartSeconds");
+        Assert.Contains(trimDialog.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimEndSeconds");
+    }
+
+    [Fact]
+    public void VideoEditDialogRequiresPreparedPreviewAndLocalizesAccessibleControls()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var dialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoEditDialog.xaml"));
+        Assert.Equal("False", (string?)dialog.Root!.Attribute("IsPrimaryButtonEnabled"));
+        var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"))
+            .Descendants("data").Select(element => (string)element.Attribute("name")!).ToHashSet();
+        foreach (var control in dialog.Descendants().Where(element =>
+                     element.Name.LocalName is "Button" or "ComboBox" or "CheckBox" or "TextBox" or "MediaPlayerElement"))
+        {
+            Assert.False(string.IsNullOrWhiteSpace((string?)control.Attribute("AutomationProperties.AutomationId")));
+            string uid = (string)control.Attribute(x + "Uid")!;
+            Assert.Contains(resources, key => key.StartsWith(uid + ".", StringComparison.Ordinal));
+        }
+        Assert.Contains("VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
+        Assert.Contains("VideoEditRibbon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
+        var prepare = dialog.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "PrepareButton");
+        Assert.Equal("OnPrepare", (string?)prepare.Attribute("Click"));
+        Assert.Equal("False", (string?)prepare.Attribute("IsEnabled"));
     }
 
     [Fact]

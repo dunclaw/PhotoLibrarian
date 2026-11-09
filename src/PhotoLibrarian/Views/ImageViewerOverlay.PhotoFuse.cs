@@ -36,6 +36,8 @@ public sealed partial class ImageViewerOverlay
         _fuse = workspace;
         if (workspace is not null)
         {
+            EffectsFlyout.Hide();
+            StopMotionPlayback();
             _zoomPan ??= new ImageZoomPanController(ImageScrollViewer, ScrollContent, ImageHost, FullImage);
             workspace.PropertyChanged += OnFusePropertyChanged;
             workspace.DisplayChanged += OnFuseDisplayChanged;

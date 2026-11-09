@@ -1,5 +1,7 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Diagnostics;
+using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -18,7 +20,7 @@ public sealed class WatchedFolderChangeService : IDisposable
     private bool _processing;
     private bool _disposed;
 
-    public event EventHandler? LibraryChanged;
+    public event EventHandler<WatchedLibraryChangedEventArgs>? LibraryChanged;
     public event EventHandler<Exception>? SyncFailed;
 
     public WatchedFolderChangeService(
@@ -79,18 +81,36 @@ public sealed class WatchedFolderChangeService : IDisposable
             }
 
             var changed = false;
+            var requiresGridReload = false;
+            var changedImagePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<ImageEntry>? indexedImages = null;
             foreach (var directory in directories)
             {
                 try
                 {
                     if (Directory.Exists(directory))
                     {
-                        await _indexer.IndexFolderAsync(directory, true, _shutdown.Token);
-                        changed = true;
+                        var directoryChanged = await _indexer.IndexFolderAsync(
+                            directory,
+                            true,
+                            _shutdown.Token,
+                            verifyContent: true);
+                        changed |= directoryChanged;
+                        requiresGridReload |= directoryChanged;
                     }
                     else
                     {
-                        changed = true;
+                        indexedImages ??= await _images.GetAllAsync(
+                            cancellationToken: _shutdown.Token);
+                        var prefix = Path.TrimEndingDirectorySeparator(directory);
+                        if (!Path.EndsInDirectorySeparator(prefix))
+                            prefix += Path.DirectorySeparatorChar;
+                        if (indexedImages.Any(image =>
+                            image.FilePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            changed = true;
+                            requiresGridReload = true;
+                        }
                     }
                 }
                 catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -110,7 +130,17 @@ public sealed class WatchedFolderChangeService : IDisposable
                 {
                     try
                     {
-                        changed |= await ProcessFileAsync(imagePath, _shutdown.Token);
+                        var wasIndexed = await _images.GetByPathAsync(imagePath) is not null;
+                        var fileChanged = await ProcessFileAsync(imagePath, _shutdown.Token);
+                        var isIndexed = File.Exists(imagePath) &&
+                                        await _images.GetByPathAsync(imagePath) is not null;
+                        if (wasIndexed != isIndexed)
+                            requiresGridReload = true;
+                        if (fileChanged)
+                        {
+                            changed = true;
+                            changedImagePaths.Add(imagePath);
+                        }
                     }
                     catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
                     {
@@ -125,7 +155,9 @@ public sealed class WatchedFolderChangeService : IDisposable
             }
 
             if (changed && !_disposed)
-                LibraryChanged?.Invoke(this, EventArgs.Empty);
+                LibraryChanged?.Invoke(this, new WatchedLibraryChangedEventArgs(
+                    requiresGridReload,
+                    changedImagePaths.ToArray()));
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
@@ -144,6 +176,7 @@ public sealed class WatchedFolderChangeService : IDisposable
                     _timer.Change(_quietPeriod, Timeout.InfiniteTimeSpan);
             }
         }
+
     }
 
     private async Task<bool> ProcessFileAsync(string path, CancellationToken cancellationToken)
@@ -214,5 +247,13 @@ public sealed class WatchedFolderChangeService : IDisposable
             _pending.Clear();
             _pendingDirectories.Clear();
         }
+    }
+
+    public sealed class WatchedLibraryChangedEventArgs(
+        bool requiresGridReload,
+        IReadOnlyList<string> changedImagePaths) : EventArgs
+    {
+        public bool RequiresGridReload { get; } = requiresGridReload;
+        public IReadOnlyList<string> ChangedImagePaths { get; } = changedImagePaths;
     }
 }

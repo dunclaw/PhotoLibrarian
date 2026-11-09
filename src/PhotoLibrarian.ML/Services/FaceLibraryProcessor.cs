@@ -58,13 +58,15 @@ public sealed class FaceLibraryProcessor
         CancellationToken cancellationToken = default)
     {
         Progress?.Invoke(this, FaceProcessingProgressEventArgs.Preparing());
-        await _modelProvider.EnsureModelsAsync(cancellationToken);
-        _detector.LoadModel();
-        _embedder.LoadModel();
-
         var pending = await _store.GetImagesNeedingFaceScanAsync(
             FaceModelCatalog.PipelineVersion,
             cancellationToken);
+        if (pending.Count > 0)
+        {
+            await _modelProvider.EnsureModelsAsync(cancellationToken);
+            _detector.LoadModel();
+            _embedder.LoadModel();
+        }
         var processed = 0;
         var failed = 0;
         var faceCount = 0;

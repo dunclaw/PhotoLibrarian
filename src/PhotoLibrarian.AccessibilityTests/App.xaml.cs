@@ -5,9 +5,11 @@ using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Controls;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Windows.Graphics;
@@ -33,6 +35,11 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if (Environment.GetCommandLineArgs().Contains("--motion-photo"))
+        {
+            await RunMotionPhotoSuiteAsync();
+            return;
+        }
         string? failure = null;
         try
         {
@@ -48,34 +55,70 @@ public partial class App : Application
                 await FinishAsync(null);
                 return;
             }
-            _grid = new VirtualizingPhotoGrid { ItemSize = 120 };
-            var group = new PhotoGroup { Header = "Synthetic photos" };
-            for (int i = 0; i < 10_000; i++)
-                group.Items.Add(new ImageThumbnailViewModel(new ImageEntry
+            if (Environment.GetCommandLineArgs().Contains("--slideshow"))
+            {
+                await RunSlideshowTestsAsync();
+                return;
+            }
+            if (Environment.GetCommandLineArgs().Contains("--retouch"))
+            {
+                _window = await RetouchEditorFixture.OpenAsync(this);
+                return;
+            }
+            if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
+            {
+                await RunViewerContextMenuTestsAsync();
+            }
+            else
+            {
+                _grid = new VirtualizingPhotoGrid { ItemSize = 120 };
+                var group = new PhotoGroup { Header = "Synthetic photos" };
+                for (int i = 0; i < 10_000; i++)
+                    group.Items.Add(new ImageThumbnailViewModel(new ImageEntry
+                    {
+                        Id = i + 1,
+                        FileName = $"Photo-{i:D5}.jpg",
+                        FilePath = $@"C:\SyntheticPhotos\Photo-{i:D5}.jpg"
+                    }) { IsLoading = false });
+                _groups.Add(group);
+                _grid.SetGroups(_groups);
+                var layout = new Grid();
+                layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                layout.RowDefinitions.Add(new RowDefinition());
+                layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var before = new Button { Content = "Before grid" };
+                var after = new Button { Content = "After grid" };
+                layout.Children.Add(before);
+                layout.Children.Add(_grid);
+                layout.Children.Add(after);
+                Grid.SetRow(_grid, 1);
+                Grid.SetRow(after, 2);
+                _window = new Window { Title = "Photo grid accessibility regression", Content = layout };
+                _window.AppWindow.Resize(new SizeInt32(920, 700));
+                _window.Activate();
+                await Task.Delay(500);
+                if (Environment.GetCommandLineArgs().Contains("--preview")) return;
+                await RunTestsAsync(group, before, after);
+                await RunViewerCommandTestsAsync();
+                if (Environment.GetCommandLineArgs().Contains("--viewer-preview"))
                 {
-                    Id = i + 1,
-                    FileName = $"Photo-{i:D5}.jpg",
-                    FilePath = $@"C:\SyntheticPhotos\Photo-{i:D5}.jpg"
-                }) { IsLoading = false });
-            _groups.Add(group);
-            _grid.SetGroups(_groups);
-            var layout = new Grid();
-            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            layout.RowDefinitions.Add(new RowDefinition());
-            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var before = new Button { Content = "Before grid" };
-            var after = new Button { Content = "After grid" };
-            layout.Children.Add(before);
-            layout.Children.Add(_grid);
-            layout.Children.Add(after);
-            Grid.SetRow(_grid, 1);
-            Grid.SetRow(after, 2);
-            _window = new Window { Title = "Photo grid accessibility regression", Content = layout };
-            _window.AppWindow.Resize(new SizeInt32(920, 700));
-            _window.Activate();
-            await Task.Delay(500);
-            if (Environment.GetCommandLineArgs().Contains("--preview")) return;
-            await RunTestsAsync(group, before, after);
+                    var preview = (Grid)_window.Content;
+                    var themeToggle = new Button
+                    {
+                        Content = "Switch preview theme",
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Margin = new Thickness(12)
+                    };
+                    AutomationProperties.SetAutomationId(themeToggle, "TestPreviewTheme");
+                    themeToggle.Click += (_, _) =>
+                        preview.RequestedTheme = preview.RequestedTheme == ElementTheme.Dark
+                            ? ElementTheme.Light : ElementTheme.Dark;
+                    Grid.SetRow(themeToggle, 1);
+                    preview.Children.Add(themeToggle);
+                    return;
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -205,6 +248,158 @@ public partial class App : Application
     {
         if (!condition) throw new InvalidOperationException(name);
         _passed.Add(name);
+    }
+
+    private async Task RunViewerCommandTestsAsync()
+    {
+        var ribbon = new TopRibbon();
+        var viewer = new ImageViewerOverlay();
+        var layout = new Grid { Style = (Style)Resources["TestSurfaceStyle"] };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition());
+        layout.Children.Add(ribbon);
+        layout.Children.Add(viewer);
+        ((TextBlock)viewer.FindName("TitleText")).Text = "Synthetic preview";
+        ((TextBlock)viewer.FindName("IndexText")).Text = "No library loaded";
+        Grid.SetRow(viewer, 1);
+        _window.Content = layout;
+        await Task.Delay(200);
+        var viewerPeer = FrameworkElementAutomationPeer.CreatePeerForElement(viewer);
+        Check(viewerPeer.GetName() == "Full photo viewer" && !string.IsNullOrWhiteSpace(viewerPeer.GetHelpText()),
+            "Viewer focus stop has a name and keyboard help");
+
+        foreach (var id in new[] { "ViewerZoomOut", "ViewerZoomFit", "ViewerZoomIn",
+            "ViewerActualSize", "ViewerClose", "ViewerPrevious", "ViewerNext" })
+        {
+            var control = FindControl(viewer, id);
+            var peer = FrameworkElementAutomationPeer.CreatePeerForElement(control);
+            Check(peer.GetAutomationControlType() == AutomationControlType.Button &&
+                !string.IsNullOrWhiteSpace(peer.GetName()) &&
+                peer.GetPattern(PatternInterface.Invoke) is IInvokeProvider,
+                $"{id} exposes named Button/Invoke semantics");
+        }
+        var information = FrameworkElementAutomationPeer.CreatePeerForElement(
+            FindControl(viewer, "ViewerInformationPane"));
+        Check(!string.IsNullOrWhiteSpace(information.GetName()) &&
+            information.GetPattern(PatternInterface.Toggle) is IToggleProvider,
+            "Viewer information pane exposes named Toggle semantics");
+        var calls = new List<string>();
+        ribbon.MakeCopyClicked += (_, _) => calls.Add("RibbonMakeCopy");
+        ribbon.CropClicked += (_, _) => calls.Add("RibbonCrop");
+        ribbon.StraightenClicked += (_, _) => calls.Add("RibbonStraighten");
+        ribbon.AdjustClicked += (_, _) => calls.Add("RibbonAdjust");
+        ribbon.RetouchClicked += (_, _) => calls.Add("RibbonRetouch");
+        ribbon.RedEyeClicked += (_, _) => calls.Add("RibbonRedEye");
+        ribbon.SlideshowClicked += (_, _) => calls.Add("RibbonSlideshow");
+        ribbon.ApplyCropClicked += (_, _) => calls.Add("RibbonCropApply");
+        ribbon.CancelCropClicked += (_, _) => calls.Add("RibbonCropCancel");
+        ribbon.ApplyStraightenClicked += (_, _) => calls.Add("RibbonStraightenApply");
+        ribbon.CancelStraightenClicked += (_, _) => calls.Add("RibbonStraightenCancel");
+        foreach (var id in new[] { "RibbonMakeCopy", "RibbonCrop", "RibbonStraighten",
+            "RibbonAdjust", "RibbonRetouch", "RibbonRedEye", "RibbonSlideshow" })
+        {
+            await VerifyCommandAsync(ribbon, id, calls);
+        }
+
+        viewer.Focus(FocusState.Keyboard);
+        foreach (var id in new[] { "RibbonSlideshow", "RibbonRedEye", "RibbonRetouch", "RibbonAdjust",
+            "RibbonStraighten", "RibbonCrop", "RibbonMakeCopy" })
+        {
+            MoveFocus(FocusNavigationDirection.Previous);
+            Check(FocusedId() == id, $"Shift+Tab from viewer reaches {id}");
+        }
+        foreach (var id in new[] { "RibbonCrop", "RibbonStraighten", "RibbonAdjust",
+            "RibbonRetouch", "RibbonRedEye", "RibbonSlideshow", "ViewerPhotoSurface" })
+        {
+            MoveFocus(FocusNavigationDirection.Next);
+            Check(FocusedId() == id, $"Tab from ribbon reaches {id}");
+        }
+        MoveFocus(FocusNavigationDirection.Next);
+        Check(FocusedId() == "ViewerZoomOut", "Tab from viewer reaches first zoom control");
+        foreach (var id in new[] { "ViewerZoomFit", "ViewerZoomIn", "ViewerInformationPane",
+            "ViewerClose", "ViewerPrevious", "ViewerNext" })
+        {
+            MoveFocus(FocusNavigationDirection.Next);
+            Check(FocusedId() == id, $"Tab reaches {id} and skips unavailable controls");
+        }
+        FindControl(ribbon, "RibbonCrop").Focus(FocusState.Keyboard);
+        ribbon.EnterCropMode();
+        Check(FocusedId() == "RibbonCropAspect", "Entering crop transfers focus to proportion selector");
+        var aspectPeer = FrameworkElementAutomationPeer.CreatePeerForElement(
+            FindControl(ribbon, "RibbonCropAspect"));
+        Check(aspectPeer.GetName() == "Crop proportion" &&
+            aspectPeer.GetPattern(PatternInterface.ExpandCollapse) is IExpandCollapseProvider,
+            "Crop proportion exposes standard ComboBox expansion");
+        MoveFocus(FocusNavigationDirection.Next);
+        Check(FocusedId() == "RibbonCropApply", "Tab reaches apply crop");
+        await VerifyCommandAsync(ribbon, "RibbonCropApply", calls);
+        MoveFocus(FocusNavigationDirection.Next);
+        Check(FocusedId() == "RibbonCropCancel", "Tab reaches cancel crop");
+        await VerifyCommandAsync(ribbon, "RibbonCropCancel", calls);
+        ribbon.ExitCropMode();
+        Check(FocusedId() == "RibbonCrop", "Leaving crop restores its ribbon command focus");
+        FindControl(ribbon, "RibbonStraighten").Focus(FocusState.Keyboard);
+        ribbon.EnterStraightenMode();
+        Check(FocusedId() == "RibbonStraightenApply", "Entering straighten transfers focus to apply");
+        await VerifyCommandAsync(ribbon, "RibbonStraightenApply", calls);
+        MoveFocus(FocusNavigationDirection.Next);
+        Check(FocusedId() == "RibbonStraightenCancel", "Tab reaches cancel straighten");
+        await VerifyCommandAsync(ribbon, "RibbonStraightenCancel", calls);
+        ribbon.ExitStraightenMode();
+        Check(FocusedId() == "RibbonStraighten", "Leaving straighten restores its command focus");
+        viewer.Focus(FocusState.Keyboard);
+        ribbon.EnterCropMode();
+        Check(ReferenceEquals(FocusManager.GetFocusedElement(layout.XamlRoot), viewer),
+            "Ribbon mode changes do not steal focus from the image viewport");
+        ribbon.ExitCropMode();
+
+        foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
+        {
+            layout.RequestedTheme = theme;
+            await Task.Delay(100);
+            var zoom = FindControl(viewer, "ViewerZoomOut");
+            zoom.Focus(FocusState.Keyboard);
+            Check(zoom.ActualTheme == theme && FocusedId() == "ViewerZoomOut",
+                $"{theme} viewer retains theme-aware, focusable controls");
+        }
+    }
+
+    private void MoveFocus(FocusNavigationDirection direction)
+    {
+        if (!FocusManager.TryMoveFocus(direction, new FindNextElementOptions { SearchRoot = _window.Content }))
+            throw new InvalidOperationException($"WinUI could not move focus {direction}.");
+    }
+
+    private async Task VerifyCommandAsync(DependencyObject root, string id, List<string> calls)
+    {
+        var control = FindControl(root, id);
+        var peer = FrameworkElementAutomationPeer.CreatePeerForElement(control);
+        Check(!string.IsNullOrWhiteSpace(peer.GetName()) &&
+            peer.GetPattern(PatternInterface.Invoke) is IInvokeProvider,
+            $"{id} exposes a named Invoke command");
+        control.Focus(FocusState.Keyboard);
+        ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();
+        await Task.Delay(50);
+        Check(calls.LastOrDefault() == id, $"{id} invokes its production command event");
+    }
+
+    private string? FocusedId() =>
+        FocusManager.GetFocusedElement(_window.Content.XamlRoot) is DependencyObject focused
+            ? AutomationProperties.GetAutomationId(focused) : null;
+
+    private static Control FindControl(DependencyObject root, string id) =>
+        FindElement(root, id) ?? throw new InvalidOperationException($"Control {id} not found.");
+
+    private static Control? FindElement(DependencyObject root, string id)
+    {
+        if (root is Control control && AutomationProperties.GetAutomationId(control) == id)
+            return control;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var found = FindElement(VisualTreeHelper.GetChild(root, i), id);
+            if (found is not null) return found;
+        }
+        return null;
     }
 
     private async Task PressAsync(params VirtualKey[] keys)

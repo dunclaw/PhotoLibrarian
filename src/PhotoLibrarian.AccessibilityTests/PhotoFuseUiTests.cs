@@ -48,6 +48,7 @@ internal static class PhotoFuseUiTests
             Grid.SetRow(viewer, 1);
             root.Children.Add(viewer);
             viewer.SetPhotoFuseWorkspace(workspace);
+            ribbon.SetHistoryAvailability(true, true);
             ribbon.SetPhotoFuseMode(true);
             await workspace.StartAsync(photos[0]);
             await Task.Delay(150);
@@ -68,8 +69,16 @@ internal static class PhotoFuseUiTests
                 Check(((Button)viewer.FindName("NextButton")).Visibility == Visibility.Collapsed,
                     "Navigation does not discard active Fuse changes", passed);
                 Check(!((Button)ribbon.FindName("CropButton")).IsEnabled &&
+                    !((Button)ribbon.FindName("EffectsButton")).IsEnabled &&
+                    !((Button)ribbon.FindName("RetouchButton")).IsEnabled &&
+                    !((Button)ribbon.FindName("UndoButton")).IsEnabled &&
+                    !((Button)ribbon.FindName("RedoButton")).IsEnabled &&
+                    !((SplitButton)ribbon.FindName("SlideshowButton")).IsEnabled &&
                     ((Button)ribbon.FindName("PhotoFuseButton")).IsEnabled,
                     "Top ribbon keeps Fuse exit available and excludes conflicting edits", passed);
+                ribbon.SetHistoryAvailability(false, true);
+                Check(!((Button)ribbon.FindName("RedoButton")).IsEnabled,
+                    "History availability refresh cannot enable editing during Fuse", passed);
                 Invoke((Button)overlay.Children[0]);
                 await Task.Delay(150);
                 var options = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot)
@@ -85,6 +94,13 @@ internal static class PhotoFuseUiTests
                 string? saved = await workspace.FinishAsync();
                 Check(saved is not null && File.Exists(saved) && !workspace.IsActive,
                     "Exit saves a new copy and ends Fuse mode", passed);
+                ribbon.SetPhotoFuseMode(false);
+                Check(((Button)ribbon.FindName("EffectsButton")).IsEnabled &&
+                    ((Button)ribbon.FindName("RetouchButton")).IsEnabled &&
+                    !((Button)ribbon.FindName("UndoButton")).IsEnabled &&
+                    ((Button)ribbon.FindName("RedoButton")).IsEnabled &&
+                    ((SplitButton)ribbon.FindName("SlideshowButton")).IsEnabled,
+                    "Exit restores newer viewer commands and current history availability", passed);
             }
             finally { viewer.SetPhotoFuseWorkspace(null); root.Children.Clear(); root.RowDefinitions.Clear(); }
         }

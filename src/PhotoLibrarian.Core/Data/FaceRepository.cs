@@ -349,7 +349,8 @@ public sealed class FaceRepository : IFaceScanStore
         DateTime expectedDateModified,
         IReadOnlyCollection<FaceRegion> faces,
         string scanVersion,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? expectedSourceIdentity = null)
     {
         using var conn = _db.CreateConnection();
         using var transaction = conn.BeginTransaction();
@@ -363,9 +364,11 @@ public sealed class FaceRepository : IFaceScanStore
                 WHERE id = $imageId
                   AND file_size = $fileSize
                   AND date_modified = $dateModified
+                  AND ($sourceIdentity IS NULL OR source_identity = $sourceIdentity)
                 """;
             markComplete.Parameters.AddWithValue("$scanVersion", scanVersion);
             markComplete.Parameters.AddWithValue("$imageId", imageId);
+            markComplete.Parameters.AddWithValue("$sourceIdentity", (object?)expectedSourceIdentity ?? DBNull.Value);
             markComplete.Parameters.AddWithValue("$fileSize", expectedFileSize);
             markComplete.Parameters.AddWithValue("$dateModified", expectedDateModified.ToString("O"));
             if (await markComplete.ExecuteNonQueryAsync(cancellationToken) != 1)
@@ -559,6 +562,7 @@ public sealed class FaceRepository : IFaceScanStore
             })
             .ToList();
         var matches = MatchExistingFaces(existingFaces, importedFaces);
+        var needsEmbeddings = false;
         for (var index = 0; index < metadata.Faces.Count; index++)
         {
             var imported = metadata.Faces[index];
@@ -568,6 +572,10 @@ public sealed class FaceRepository : IFaceScanStore
             long faceId;
             if (matches.TryGetValue(index, out var existing))
             {
+                var sameGeometry =
+                    existing.X == imported.X && existing.Y == imported.Y &&
+                    existing.Width == imported.Width && existing.Height == imported.Height;
+                needsEmbeddings |= !sameGeometry || existing.Embedding is null;
                 faceId = existing.Id;
                 using var update = conn.CreateCommand();
                 update.Transaction = transaction;
@@ -575,10 +583,12 @@ public sealed class FaceRepository : IFaceScanStore
                     UPDATE face_regions
                     SET x = $x, y = $y, width = $width, height = $height,
                         person_name = $personName, person_id = $personId,
-                        embedding = NULL, metadata_managed = 1
+                        embedding = CASE WHEN $sameGeometry = 1 THEN embedding ELSE NULL END,
+                        metadata_managed = 1
                     WHERE id = $faceId
                     """;
                 update.Parameters.AddWithValue("$faceId", faceId);
+                update.Parameters.AddWithValue("$sameGeometry", sameGeometry ? 1 : 0);
                 update.Parameters.AddWithValue("$x", imported.X);
                 update.Parameters.AddWithValue("$y", imported.Y);
                 update.Parameters.AddWithValue("$width", imported.Width);
@@ -593,6 +603,7 @@ public sealed class FaceRepository : IFaceScanStore
             }
             else
             {
+                needsEmbeddings = true;
                 using var insert = conn.CreateCommand();
                 insert.Transaction = transaction;
                 insert.CommandText = """
@@ -707,8 +718,9 @@ public sealed class FaceRepository : IFaceScanStore
             await clearPortableState.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        using (var invalidateScan = conn.CreateCommand())
+        if (needsEmbeddings)
         {
+            using var invalidateScan = conn.CreateCommand();
             invalidateScan.Transaction = transaction;
             invalidateScan.CommandText = """
                 UPDATE images

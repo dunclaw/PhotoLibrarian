@@ -13,6 +13,49 @@ namespace PhotoLibrarian.Tests;
 public sealed class WatchedFolderRemovalTests
 {
     [Fact]
+    public async Task BackgroundTagRefresh_DoesNotRebuildFolderGridOrLoseSelection()
+    {
+        await using var library = await Library.CreateAsync();
+        await library.WatchAsync(library.Photos);
+        var image = await library.AddVideoAsync(library.Photos);
+        await library.Main.ImageGrid.FilterByFolderAsync(library.Photos);
+        var selected = Assert.Single(library.Main.ImageGrid.Images);
+        library.Main.ImageGrid.UpdateSelection([selected], selected);
+        var resultChanges = 0;
+        library.Main.ImageGrid.ResultsChanged += (_, _) => resultChanges++;
+
+        await library.Tags.AddTagAsync(new ImageTag { ImageId = image.Id, Tag = "Travel" });
+        await library.Main.RefreshTagsTreeAsync();
+        await library.Main.RefreshTagsTreeAsync();
+
+        Assert.Equal(0, resultChanges);
+        Assert.Same(selected, Assert.Single(library.Main.ImageGrid.Images));
+        Assert.Same(selected, library.Main.ImageGrid.SelectedImage);
+        Assert.Same(selected, Assert.Single(library.Main.ImageGrid.SelectedImages));
+    }
+
+    [Fact]
+    public async Task BackgroundTagRefresh_UpdatesTagFilteredResultsAndPreservesSelection()
+    {
+        await using var library = await Library.CreateAsync();
+        await library.WatchAsync(library.Photos);
+        var first = await library.AddVideoAsync(library.Photos);
+        var second = await library.AddVideoAsync(library.Photos, "other.mp4");
+        await library.Tags.AddTagAsync(new ImageTag { ImageId = first.Id, Tag = "Travel" });
+        await library.Main.ImageGrid.FilterByMultipleCriteriaAsync(
+            null, false, null, null, false, null, true, null);
+        var selected = Assert.Single(library.Main.ImageGrid.Images);
+        library.Main.ImageGrid.UpdateSelection([selected], selected);
+
+        await library.Tags.AddTagAsync(new ImageTag { ImageId = second.Id, Tag = "Travel" });
+        await library.Main.RefreshTagsTreeAsync();
+
+        Assert.Equal(2, library.Main.ImageGrid.Images.Count);
+        Assert.Equal(first.Id, library.Main.ImageGrid.SelectedImage?.Entry.Id);
+        Assert.Equal(first.Id, Assert.Single(library.Main.ImageGrid.SelectedImages).Entry.Id);
+    }
+
+    [Fact]
     public async Task RemovingCheckedRoot_RefreshesGridSelectionViewerAndCountsWithoutChangingFiles()
     {
         await using var library = await Library.CreateAsync();

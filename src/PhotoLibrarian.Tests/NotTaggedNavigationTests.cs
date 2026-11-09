@@ -4,6 +4,7 @@ using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
 using System.Xml.Linq;
 using Xunit;
 
@@ -11,6 +12,18 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class NotTaggedNavigationTests : IAsyncLifetime
 {
+    [Fact]
+    public void TreeRefresh_OnlyChangesGridFiltersWhenSelectionChanges()
+    {
+        Assert.False(FolderNavigationPanel.HasSelectionChanged(
+            ["tag:Travel", "tag:Family"],
+            ["TAG:FAMILY", "tag:travel"]));
+        Assert.True(FolderNavigationPanel.HasSelectionChanged(
+            ["tag:Travel"], []));
+        Assert.True(FolderNavigationPanel.HasSelectionChanged(
+            ["tag:Travel"], ["tag:Family"]));
+    }
+
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(), "PhotoLibrarianTests", Guid.NewGuid().ToString("N"));
     private CacheDatabase _database = null!;

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
@@ -84,6 +85,50 @@ public static class EmbeddedMetadataWriter
 
         await WritePropertiesAsync(filePath, props);
     }
+
+    /// <summary>Writes EXIF GPS coordinates and hemisphere references into a JPEG or TIFF.</summary>
+    public static async Task WriteGeotagAsync(string filePath, GeoCoordinate coordinate)
+    {
+        if (!IsSupported(filePath))
+            throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
+
+        var latitude = GeotagMetadataWriterService.ToDegreesMinutesSeconds(coordinate.Latitude);
+        var longitude = GeotagMetadataWriterService.ToDegreesMinutesSeconds(coordinate.Longitude);
+        const uint secondsDenominator = 10_000;
+
+        var properties = new BitmapPropertySet();
+        properties.Add("System.GPS.LatitudeNumerator", new BitmapTypedValue(
+            CreateGpsNumerators(latitude, secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LatitudeDenominator", new BitmapTypedValue(
+            CreateGpsDenominators(secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LatitudeRef", new BitmapTypedValue(
+            coordinate.Latitude < 0 ? "S" : "N",
+            Windows.Foundation.PropertyType.String));
+        properties.Add("System.GPS.LongitudeNumerator", new BitmapTypedValue(
+            CreateGpsNumerators(longitude, secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LongitudeDenominator", new BitmapTypedValue(
+            CreateGpsDenominators(secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LongitudeRef", new BitmapTypedValue(
+            coordinate.Longitude < 0 ? "W" : "E",
+            Windows.Foundation.PropertyType.String));
+
+        await WritePropertiesAsync(filePath, properties);
+    }
+
+    private static uint[] CreateGpsNumerators(
+        (uint Degrees, uint Minutes, double Seconds) coordinate,
+        uint secondsDenominator) =>
+    [
+        coordinate.Degrees,
+        coordinate.Minutes,
+        (uint)Math.Round(coordinate.Seconds * secondsDenominator)
+    ];
+
+    private static uint[] CreateGpsDenominators(uint secondsDenominator) => [1, 1, secondsDenominator];
 
     /// <summary>
     /// Removes a property from the file (e.g. clearing a rating).
@@ -240,6 +285,7 @@ public static class EmbeddedMetadataWriter
 
     private static async Task WritePropertiesOnceAsync(string filePath, BitmapPropertySet props)
     {
+        byte[]? compatibleJpeg = null;
         // === Tier 1: in-place (preserves bytes exactly) ===
         try
         {
@@ -264,17 +310,29 @@ public static class EmbeddedMetadataWriter
             // Other WIC error — also try transcoding as a more resilient path
             System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder threw 0x{ex.HResult:X8}, attempting transcode…");
         }
+        catch (ArgumentException ex) when (ex.HResult == unchecked((int)0x80070057))
+        {
+            var bytes = await File.ReadAllBytesAsync(filePath);
+            compatibleJpeg = RemoveJpegXmpByteOrderMarks(bytes);
+            if (compatibleJpeg.Length == bytes.Length)
+                throw;
+            System.Diagnostics.Debug.WriteLine(
+                $"[METADATA] Normalizing legacy JPEG XMP for {filePath} before transcode: {ex.Message}");
+        }
 
         // === Tier 2: transcode (rewrites file, but preserves encoded image data losslessly) ===
-        await TranscodeWriteAsync(filePath, props);
+        await TranscodeWriteAsync(filePath, props, compatibleJpeg);
     }
 
-    private static async Task TranscodeWriteAsync(string filePath, BitmapPropertySet props)
+    private static async Task TranscodeWriteAsync(
+        string filePath, BitmapPropertySet props, byte[]? compatibleJpeg)
     {
         using var destBuffer = new InMemoryRandomAccessStream();
 
         // 1) Read source + transcode into memory with merged properties
-        using (var fileStream = File.OpenRead(filePath))
+        using (var fileStream = compatibleJpeg is not null
+            ? new MemoryStream(compatibleJpeg, writable: false)
+            : (Stream)File.OpenRead(filePath))
         using (var srcStream = fileStream.AsRandomAccessStream())
         {
             var decoder = await BitmapDecoder.CreateAsync(srcStream);
@@ -292,5 +350,46 @@ public static class EmbeddedMetadataWriter
             await RandomAccessStream.CopyAsync(destBuffer.GetInputStreamAt(0), outStream);
             await outStream.FlushAsync();
         }
+    }
+
+    private static byte[] RemoveJpegXmpByteOrderMarks(byte[] bytes)
+    {
+        if (bytes.Length < 4 || bytes[0] != 0xff || bytes[1] != 0xd8)
+            return bytes;
+
+        ReadOnlySpan<byte> xmpHeader = "http://ns.adobe.com/xap/1.0/\0"u8;
+        ReadOnlySpan<byte> byteOrderMark = [0xef, 0xbb, 0xbf];
+        var length = bytes.Length;
+        var offset = 2;
+        while (offset + 4 <= length && bytes[offset] == 0xff)
+        {
+            var marker = bytes[offset + 1];
+            if (marker is 0xda or 0xd9)
+                break;
+            if (marker is >= 0xd0 and <= 0xd7 or 0x01)
+            {
+                offset += 2;
+                continue;
+            }
+            var segmentLength = bytes[offset + 2] << 8 | bytes[offset + 3];
+            if (segmentLength < 2 || offset + segmentLength + 2 > length)
+                throw new InvalidDataException("The JPEG metadata segment is invalid.");
+            var payload = bytes.AsSpan(offset + 4, segmentLength - 2);
+            if (marker == 0xe1 && payload.StartsWith(xmpHeader) &&
+                payload[xmpHeader.Length..].StartsWith(byteOrderMark))
+            {
+                // Normalize only the in-memory input; a failed write leaves the original intact.
+                var bomOffset = offset + 4 + xmpHeader.Length;
+                System.Buffer.BlockCopy(bytes, bomOffset + 3, bytes, bomOffset, length - bomOffset - 3);
+                length -= 3;
+                segmentLength -= 3;
+                bytes[offset + 2] = (byte)(segmentLength >> 8);
+                bytes[offset + 3] = (byte)segmentLength;
+            }
+            offset += segmentLength + 2;
+        }
+        if (length != bytes.Length)
+            Array.Resize(ref bytes, length);
+        return bytes;
     }
 }

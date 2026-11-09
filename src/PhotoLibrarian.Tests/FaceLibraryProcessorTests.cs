@@ -232,7 +232,8 @@ public sealed class FaceLibraryProcessorTests
             DateTime expectedDateModified,
             IReadOnlyCollection<FaceRegion> faces,
             string scanVersion,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string? expectedSourceIdentity = null)
         {
             Saved.Add((imageId, faces, scanVersion));
             return Task.FromResult(AcceptSave);

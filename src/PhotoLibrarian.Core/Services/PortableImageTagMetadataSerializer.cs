@@ -14,7 +14,8 @@ internal static class PortableImageTagMetadataSerializer
 
     public static string Serialize(
         IEnumerable<ImageTag> tags,
-        string? autoTagScanVersion)
+        string? autoTagScanVersion,
+        string? sourceIdentity = null)
     {
         var records = tags
             .Where(tag => !string.IsNullOrWhiteSpace(tag.Tag))
@@ -31,7 +32,8 @@ internal static class PortableImageTagMetadataSerializer
             new PortableImageTagMetadata(
                 CurrentSchemaVersion,
                 autoTagScanVersion,
-                records),
+                records,
+                sourceIdentity),
             SerializerOptions);
     }
 

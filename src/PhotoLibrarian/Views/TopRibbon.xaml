@@ -41,6 +41,22 @@
 
             <!-- ===== Viewer mode (default) ===== -->
             <StackPanel x:Name="ViewerTools" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="UndoButton" x:Uid="RibbonUndoButton" Click="OnUndoClick"
+                        Style="{StaticResource RibbonCommandStyle}" IsEnabled="False"
+                        AutomationProperties.AutomationId="RibbonUndo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7A7;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="RibbonUndoCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RedoButton" x:Uid="RibbonRedoButton" Click="OnRedoClick"
+                        Style="{StaticResource RibbonCommandStyle}" IsEnabled="False"
+                        AutomationProperties.AutomationId="RibbonRedo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7A6;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="RibbonRedoCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="MakeCopyButton" Click="OnMakeCopyClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonMakeCopy"
@@ -81,6 +97,27 @@
                         <TextBlock Text="Adjust" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="EffectsButton" x:Uid="RibbonEffectsButton" Click="OnEffectsClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonEffects">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE790;" Style="{StaticResource RibbonIconStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock x:Uid="RibbonEffectsCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                            <FontIcon Glyph="&#xE70D;" FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RetouchButton" Click="OnRetouchClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonRetouch"
+                        AutomationProperties.Name="Spot retouch"
+                        ToolTipService.ToolTip="Paint over small blemishes to fill them from surrounding pixels">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE70F;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock Text="Retouch" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="RedEyeButton" Click="OnRedEyeClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonRedEye"
@@ -102,20 +139,62 @@
                         <TextBlock x:Name="PhotoFuseCaption" Text="Photo Fuse" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="SlideshowButton" Click="OnSlideshowClick"
-                        Style="{StaticResource RibbonCommandStyle}"
-                        AutomationProperties.AutomationId="RibbonSlideshow"
-                        AutomationProperties.Name="Slideshow"
-                        ToolTipService.ToolTip="Play a full-screen slideshow starting at this photo (F11)">
+                <SplitButton x:Name="SlideshowButton" Click="OnSlideshowClick"
+                             Padding="12,4" MinWidth="64" MinHeight="56"
+                             VerticalAlignment="Stretch"
+                             AutomationProperties.AutomationId="RibbonSlideshow"
+                             AutomationProperties.Name="Slideshow"
+                             ToolTipService.ToolTip="Play a full-screen slideshow starting at this photo. Open the arrow to choose a theme.">
                     <StackPanel Spacing="4">
                         <FontIcon Glyph="&#xE786;" Style="{StaticResource RibbonIconStyle}" />
                         <TextBlock Text="Slideshow" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
-                </Button>
+                    <SplitButton.Flyout>
+                        <Flyout Placement="Bottom">
+                            <StackPanel x:Name="SlideshowThemeOptions" Padding="8" Spacing="4">
+                                <TextBlock Text="Slideshow theme"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <RadioButton Content="Pan and Zoom" Tag="PanAndZoom"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemePanAndZoom"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton x:Name="ContemporaryThemeButton" Content="Contemporary"
+                                             Tag="Contemporary" GroupName="SlideshowThemes"
+                                             IsChecked="True"
+                                             AutomationProperties.AutomationId="SlideshowThemeContemporary"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Cinematic" Tag="Cinematic"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeCinematic"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Fade" Tag="Fade"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeFade"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Black and White" Tag="BlackAndWhite"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeBlackAndWhite"
+                                             Checked="OnSlideshowThemeChecked" />
+                                <RadioButton Content="Sepia" Tag="Sepia"
+                                             GroupName="SlideshowThemes"
+                                             AutomationProperties.AutomationId="SlideshowThemeSepia"
+                                             Checked="OnSlideshowThemeChecked" />
+                            </StackPanel>
+                        </Flyout>
+                    </SplitButton.Flyout>
+                </SplitButton>
             </StackPanel>
 
             <StackPanel x:Name="VideoTools" Orientation="Horizontal" VerticalAlignment="Center"
                         Visibility="Collapsed">
+                <Button x:Uid="VideoEditRibbon" Click="OnEditVideoClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonEditVideo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE70F;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="VideoEditRibbonCaption" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <Button Click="OnStabilizeVideoClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonStabilizeVideo"
@@ -124,6 +203,16 @@
                     <StackPanel Spacing="4">
                         <FontIcon Glyph="&#xE714;" Style="{StaticResource RibbonIconStyle}" />
                         <TextBlock Text="Stabilize" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
+                <Button Click="OnTrimVideoClick"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonTrimVideo"
+                        x:Uid="RibbonTrimVideo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE7C3;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Uid="RibbonTrimVideoLabel"
+                                   Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
             </StackPanel>
