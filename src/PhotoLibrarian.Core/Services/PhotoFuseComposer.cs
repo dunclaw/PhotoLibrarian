@@ -2,7 +2,11 @@
 namespace PhotoLibrarian.Core.Services;
 
 /// <summary>A rectangle in oriented base-preview pixels; frame zero is the base, not a donor.</summary>
-public sealed record PhotoFuseRegion(int Frame, int Left, int Top, int Width, int Height);
+public sealed record PhotoFuseRegion(int Frame, int Left, int Top, int Width, int Height)
+{
+    internal PhotoFuseTransform? SubjectTransform { get; init; }
+    internal string? CompressedMask { get; init; }
+}
 
 internal static class PhotoFuseComposer
 {
@@ -134,12 +138,12 @@ internal static class PhotoFuseComposer
         return null;
     }
 
-    private static double ToLinear(double value)
+    internal static double ToLinear(double value)
     {
         value /= 255;
         return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
     }
 
-    private static byte FromLinear(double value) => (byte)Math.Clamp(Math.Round(255 *
+    internal static byte FromLinear(double value) => (byte)Math.Clamp(Math.Round(255 *
         (value <= 0.0031308 ? value * 12.92 : 1.055 * Math.Pow(value, 1 / 2.4) - 0.055)), 0, 255);
 }

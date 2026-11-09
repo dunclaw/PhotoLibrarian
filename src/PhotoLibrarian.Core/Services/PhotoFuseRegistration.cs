@@ -1,20 +1,57 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.Core.Services;
 
-/// <summary>Donor-to-base rigid transform about the center of the oriented, decoded image.</summary>
-internal readonly record struct PhotoFuseTransform(double X, double Y, double Angle)
+/// <summary>Donor-to-base similarity about the oriented image center; scale delta keeps default as identity.</summary>
+internal readonly record struct PhotoFuseTransform(double X, double Y, double Angle, double ScaleDelta = 0)
 {
+    internal (double X, double Y) BaseAt(double x, double y, int width, int height)
+    {
+        double cx = (width - 1) / 2.0, cy = (height - 1) / 2.0;
+        var (sin, cos) = Math.SinCos(Angle);
+        double scale = 1 + ScaleDelta, dx = x - cx, dy = y - cy;
+        return (scale * (cos * dx - sin * dy) + X + cx, scale * (sin * dx + cos * dy) + Y + cy);
+    }
+
     internal (double X, double Y) SourceAt(double x, double y, int width, int height)
     {
         double cx = (width - 1) / 2.0, cy = (height - 1) / 2.0;
         var (sin, cos) = Math.SinCos(Angle);
         double dx = x - cx - X, dy = y - cy - Y;
-        return (cos * dx + sin * dy + cx, -sin * dx + cos * dy + cy);
+        double scale = 1 + ScaleDelta;
+        return ((cos * dx + sin * dy) / scale + cx, (-sin * dx + cos * dy) / scale + cy);
     }
 }
 
 internal static class PhotoFuseRegistration
 {
+    internal static PhotoFuseTransform? FindSearchHint(byte[] donor, byte[] basis, int width, int height,
+        CancellationToken token)
+    {
+        int scale = Math.Max(1, (int)Math.Ceiling(Math.Max(width, height) / 640.0));
+        var current = AlignmentImage.FromNv12(Luma(donor), width, height, scale, token);
+        var reference = AlignmentImage.FromNv12(Luma(basis), width, height, scale, token);
+        PhotoFuseTransform? best = null;
+        double support = 0;
+        foreach (var guess in CoarseGuesses(current, reference, token))
+        {
+            var fit = RigidAligner.Align(current, reference, guess, token, fitShear: false);
+            if (fit is not { InlierFraction: >= 0.80 } found ||
+                Math.Abs(found.Motion.X) > current.Width * 0.10 ||
+                Math.Abs(found.Motion.Y) > current.Height * 0.10 ||
+                Math.Abs(found.Motion.Angle) > Math.PI / 30) continue;
+            double deltaX = -(width % scale) / 2.0, deltaY = -(height % scale) / 2.0;
+            var (sin, cos) = Math.SinCos(found.Motion.Angle);
+            var transform = new PhotoFuseTransform(found.Motion.X * scale + (1 - cos) * deltaX + sin * deltaY,
+                found.Motion.Y * scale - sin * deltaX + (1 - cos) * deltaY, found.Motion.Angle);
+            var agreement = ValidateAgreement(donor, basis, width, height, transform, token);
+            if (agreement.Fraction <= support) continue;
+            support = agreement.Fraction;
+            best = transform;
+        }
+        // This is only a search coordinate hint. It is never used to render a replacement.
+        return best;
+    }
+
     internal sealed record Result(PhotoFuseTransform? Transform, string? Reason)
     {
         internal bool Accepted => Transform.HasValue;

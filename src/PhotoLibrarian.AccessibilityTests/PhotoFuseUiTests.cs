@@ -134,7 +134,7 @@ internal static class PhotoFuseUiTests
             double value = 125 + 28 * Math.Sin(x * 0.18 + Math.Sin(y * 0.044) * 4) +
                 24 * Math.Cos(y * 0.23 + Math.Cos(x * 0.021) * 3);
             int index = (y * size + x) * 4;
-            bool patch = frame == 1 && x is > 80 and < 104 && y is > 80 and < 104;
+            bool patch = frame == 1 && x is >= 90 and < 96 && y is >= 90 and < 94;
             pixels[index] = (byte)(value + (patch ? 55 : -12));
             pixels[index + 1] = (byte)(value + (patch ? -35 : 8));
             pixels[index + 2] = (byte)(value + (patch ? 40 : 16));

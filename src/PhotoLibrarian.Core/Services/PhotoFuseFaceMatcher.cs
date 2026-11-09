@@ -24,7 +24,7 @@ public static class PhotoFuseFaceMatcher
             double areaRatio = face.Width * face.Height / (target.Width * target.Height);
             double dx = (face.X + face.Width / 2 - x) / target.Width;
             double dy = (face.Y + face.Height / 2 - y) / target.Height;
-            return areaRatio is >= 0.5 and <= 2 && dx * dx + dy * dy <= 0.75 * 0.75;
+            return areaRatio is >= 0.5 and <= 2 && dx * dx + dy * dy <= 1.25 * 1.25;
         }).OrderBy(face => Math.Pow(face.X + face.Width / 2 - x, 2) +
             Math.Pow(face.Y + face.Height / 2 - y, 2)).ToArray();
     }

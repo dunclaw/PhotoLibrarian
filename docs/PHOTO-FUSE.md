@@ -10,18 +10,19 @@ to draw a missed face; its replacements are then searched again.
 Fuse searches **all indexed stills within ±2 minutes of capture time**, nearest
 first, including photos excluded by the current browsing filters. Without a capture
 time, it uses modification time in the same folder. There is no candidate-count
-limit. Each donor is decoded and registered independently, one pair at a time.
+limit. Each donor is decoded independently, one pair at a time, and each proposed
+face replacement is aligned and seam-checked separately.
 The search reports progress and incompatible shots; clicking Fuse again cancels a
 search and exits (saving any previously accepted changes).
 
 Click a face box to see thumbnails of faces near its registered position in the
-other shots. Proposals must have similar size and lie within 0.75 target-face widths/
+other shots. Proposals must have similar size and lie within 1.25 target-face widths/
 heights of the inverse-mapped center. They are **spatial suggestions, not verified
 identities**. Choose one to preview the replacement on the full image, or choose
-**Original** to undo it. The face box is expanded by 35% on each side to leave room
-for a stationary feathered seam. Discovery checks that seam before offering a
+**Original** to undo it. A bounded crop around the face leaves room for an adaptive
+seam through matching hair, clothing or background. Discovery checks that seam before offering a
 replacement, so the flyout does not advertise a face that cannot actually be
-composited. Overlapping regions or a failed revalidation leave the accepted preview
+composited. Overlapping actual masks or a failed revalidation leave the accepted preview
 unchanged. Ordinary registration, seam, unsupported-format and pending-recipe
 rejections are explicit results, not exceptions used to control discovery.
 
@@ -41,37 +42,45 @@ decide not to keep the replacements; it never writes a composite.
   mirroring, are applied before registration. Embedded profiles are converted to
   sRGB by Windows Imaging Component. Transparency, animated PNG, higher-bit-depth
   input, RAW, video and other containers are rejected.
-- Use the same zoom, exposure and white balance, a textured stationary background,
-  and only small camera shifts. The existing local robust rigid aligner is reused,
-  without the video stabilizer's motion-guess fallback. Translation is limited to
-  3% of each preview dimension and rotation to two degrees. Still photos fit
-  rotation, translation and a brightness offset, not video rolling-shutter shear.
-  Zoom/scale changes, perspective correction, parallax and
-  large subject movement are unsupported; unreliable registrations are rejected,
-  not quietly replaced with identity transforms.
-- Distributed texture is required in all nine analysis tiles. Plausible distinct
-  coarse translations are refined before deciding whether the image is ambiguous.
-  Incompatible refined transforms with RGB support within two percentage points
-  are rejected, including repeating-texture aliases outside the final motion bound.
-  At least 85% of the aligner's samples must agree. The independent RGB holdout
-  grid requires 70% overall agreement within 18/255 in every channel, at least five
-  of nine tiles with 70% agreement, and no tile below 40%. This permits localized
-  movement of people without treating it as failed camera alignment.
-  Independent local rigid fits must corroborate the global transform in at least
-  five tiles (translation and corner-angle displacement within 0.4 analysis pixels).
-  This additional geometric check keeps small zoom changes and parallax from
-  passing the more movement-tolerant RGB gate. A selected region must be entirely inside
-  the donor's transformed bounds. Its feather band must agree with the base
-  (90% within 24/255 in every channel). These deliberately restrictive checks can
-  reject a usable burst; selecting another replacement is safer than weakening them.
+- Prefer the same viewpoint, exposure and white balance, with enough matching
+  detail around each head. Whole-frame motion is only a **search/initialization
+  hint**, never an accepted output warp. It may be absent. A face replacement must
+  independently measure translation, rotation and scale on local detail. Small
+  expression/blink changes use facial detail first; changed head poses can instead
+  use surrounding stationary hair, clothing and background, excluding the chosen
+  facial pixels and other people's face boxes from that fit. Unrelated movement or
+  parallax elsewhere in the image need not invalidate a locally reliable swap.
+  Perspective/nonrigid changes around the chosen head remain unsupported.
+- Local analysis is at most 256 pixels on its longest edge, with at most 4096
+  spatially distributed fitting samples and 30 robust iterations per seed. Faces
+  must be at least 24 preview pixels across both dimensions. Similarity scale is
+  bounded to 0.75-1.33; correction motion is bounded to 35% of the smaller face
+  dimension and 15 degrees around its initializer. At least 80 textured samples
+  and 80% robust inliers are needed. Independent full-resolution RGB checks require
+  at least 400 samples and 70% agreement within 24/255 in every channel, on the
+  facial detail or surrounding context used by that mode. Competing local fits
+  with average clipped RGB errors within 0.5/255 but face-corner mappings more than
+  1.5 pixels apart are rejected. No guessed transform is rendered.
+- A minimum-cut seam searches a crop extending one face width/height on each side,
+  on a grid of at most 192 pixels per dimension. Its costs include the entire
+  possible feather neighborhood, so it can route outside changed facial pixels
+  rather than placing a cut immediately beside them and fading back into them.
+  Target and mapped donor elliptical face cores must remain opaque. Other base
+  face boxes, image/crop edges and uncovered donor pixels stay original. A neighbor
+  obscuring the protected core rejects the swap rather than partially replacing
+  that person. The **actual** 2-8-pixel feather band must still have 90% agreement
+  within 24/255 in every channel, with measured coverage proportional to face size.
+  Overlapping crop rectangles are allowed; overlapping nonzero masks are not.
 - Output is **at most 1600 pixels on the longest edge**, never enlarged, opaque
   8-bit sRGB PNG. The base is not globally cropped or warped. Donor samples are
   inverse-mapped into the base, bilinearly interpolated, and feathered in linear
-  light over 2-16 pixels. Pixels outside the selected rectangles are unchanged.
+  light over 2-8 pixels. Pixels outside the actual nonzero masks are unchanged.
   Uncovered donor pixels cannot be included in a replacement region.
 - Compressed sources are limited to 100 MiB and source dimensions to 100
   megapixels. Discovery holds only one base/donor pair at once, regardless of burst
-  size. Final selected-donor buffers have a 192 MiB decoded-memory budget, plus
+  size. Each selected-donor session has a 192 MiB decoded-memory budget. Changing a
+  selection retains the previous accepted session until the new one passes, so
+  at most two sessions' decoded snapshots coexist (384 MiB), plus
   analysis planes, preview/export buffers, codec memory and UI bitmaps. This is a
   memory safety bound, not a four-photo or eight-face cap. WIC may need
   source-resolution decode memory depending on the codec.
@@ -107,10 +116,16 @@ Cancellation after the publish commit is a successful save, not a false canceled
 result. An indexing failure reports the saved path; it does not delete the copy.
 
 The new PNG contains its own sRGB ICC profile and embedded PhotoLibrarian XMP
-(`https://photolibrarian.app/ns/photo-fuse/1.0/`): ordered source basenames and
-SHA-256 digests, donor-to-base transforms in oriented preview pixels/radians,
-chosen region coordinates/frame indices (zero is the base), dimensions, normalized
-orientation and a baked-composite marker. No absolute source paths are stored.
+(`https://photolibrarian.app/ns/photo-fuse/1.0/`, payload version 2): ordered source
+basenames and SHA-256 digests, actual per-face donor-to-base similarity transforms,
+chosen crop coordinates/frame indices (zero is the base), dimensions, normalized
+orientation and a baked-composite marker. Each crop includes its zlib/base64
+row-major alpha8 mask. Transforms are centered on `((width-1)/2,(height-1)/2)`;
+translation uses preview pixels, rotation radians, and scale is `1+ScaleDelta`.
+Source-level motion estimates are explicitly labeled search hints, separate from
+the measured rendering transforms. Complete UTF-8 lineage is limited to 4 MiB
+before a preview can be accepted; no arbitrary face-count cap replaces that
+portable-metadata budget. No absolute source paths are stored.
 Tags, captions, ratings, copyright claims, capture dates, GPS, thumbnails, edit
 recipes and face identities are **not copied** from any source. Those may be
 misleading for a multi-source composite; the workspace discloses this policy.
@@ -129,10 +144,16 @@ temporary directories. They do not touch a live library, user photos, or network
 services. No proprietary Photo Gallery code, UI assets, or algorithms are used.
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 -- -class PhotoLibrarian.Tests.PhotoFuseTests -class PhotoLibrarian.Tests.FaceLibraryProcessorTests -class PhotoLibrarian.Tests.ImageViewerNavigationTests -class PhotoLibrarian.Tests.StabilizedVideoLibraryTests -parallelMode none -reporter verbose -showliveoutput
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 -- -class PhotoLibrarian.Tests.PhotoFuseTests -class PhotoLibrarian.Tests.PhotoFuseSubjectTests -class PhotoLibrarian.Tests.FaceLibraryProcessorTests -class PhotoLibrarian.Tests.ImageViewerNavigationTests -class PhotoLibrarian.Tests.StabilizedVideoLibraryTests -parallelMode none -reporter verbose -showliveoutput
 ```
 
-Fixtures cover translation/subpixel rotation, scale/parallax/occlusion rejection,
+Fixtures cover independent subject translation/subpixel rotation/scale despite
+unrelated background movement, pose changes requiring surrounding-context fits,
+adaptive feather-neighborhood seams, opaque facial cores, exact neighboring-face
+preservation, disjoint masks in overlapping crops, actual mask overlap rejection,
+decompressed portable masks/actual transforms, metadata budgets, forbidden
+search-hint rendering, saveable accepted previews after a failed replacement,
+and whole-frame scale/parallax/occlusion rejection,
 flat/localized/repeating texture, color disagreement, localized moving foregrounds,
 nonthrowing rejection/lease cleanup, exclusion of broken replacement choices, independent region choices,
 bad seams, bounds/overlap, missing/unsupported/corrupt sources, all nonidentity
@@ -141,10 +162,12 @@ leases, cancellation, concurrent naming collisions, immutable preview bytes,
 lossless stored output pixels, portable lineage, and library reveal/selection.
 
 On the development Windows x64 machine in the isolated `FuseReview` configuration,
-the 384-pixel synthetic pairs registered in approximately **47-55 ms**, including
-local geometric corroboration, with maximum landmark errors under
-**0.004 pixels**. A 1600-pixel rotated/translated fixture also stayed under
-**0.004 pixels**. The four-source fixture also exercises downsampling, registration,
+the 384-pixel subject similarity fixtures aligned and seam-checked in approximately
+**64-78 ms**, with maximum landmark errors under **0.009 pixels**, including
+scale factors 0.92/1.08 and unrelated background movement. The retained whole-frame
+fixtures registered in approximately **43-45 ms** and under **0.003 pixels**;
+a 1600-pixel rotated/translated fixture stayed under **0.002 pixels**.
+The four-source fixture also exercises downsampling, registration,
 preview and tagged export and records elapsed time and peak process working set.
 These are synthetic measurements, not guarantees for real faces, image codecs,
 hardware, memory pressure or arbitrary handheld bursts.
@@ -169,25 +192,37 @@ and filesystem permissions. No identity-matching or
 photometric quality metric can prove a natural-looking composite; do not approve
 an output with visible seams or geometry errors.
 
-### Real-burst reproduction and current limitation
+### Real-burst reproduction
 
 The reported six-face group-photo case was reproduced locally, without opening
 the live library or changing source photos/sidecars. Previously all 11 capture-time
 neighbors were rejected: some by per-tile RGB agreement, some by fitting unused
 rolling-shutter shear, and most before refinement of broad coarse-search minima.
-After the changes, one neighboring shot passes registration and produces **two
-accepted face previews**; the other four faces fail the unchanged seam gate.
-The remaining neighbors are conservatively excluded by geometric/RGB checks.
-The accepted output's stored PNG pixels were compared with the reviewed buffer,
-and source/sidecar hashes and absence of new sidecars are checked.
+The conservative whole-frame/rectangular-seam revision allowed two of six faces
+from one neighbor, which still made the feature inadequate for this case.
 
-**This is an improvement, not evidence of generally reliable Photo Fuse.** The
-reported burst is still not broadly usable with the current rigid alignment and
-rectangular feather seam. Do not resolve that limitation by weakening the seam
-gate or inventing identity motion. A bounded face-local rigid refinement was also
-tried and did not improve this case; it was not retained. Broader usability needs
-better subject-local registration and seam placement, with representative visual
-review, before this feature can be considered ready for general release.
+The subject-local/adaptive-seam revision now produces **32 accepted face previews
+from nine of the eleven neighbors, covering all six detected base faces**. Both
+nearest later shots offer all six faces. The formerly blocked turned-head
+replacement is accepted through the independently measured context path.
+Two face replacements were also rendered together with disjoint masks. The
+accepted output's stored PNG pixels equal the reviewed buffer, neighboring face
+pixels remain exactly original, and source/sidecar hashes and absence of new
+sidecars are checked. Private local before/donor/composite crops were visually
+reviewed without uploads and are not committed.
+
+In this run, one base/donor preparation took approximately **0.19-1.36 seconds**,
+and measuring/rendering all six face proposals took **1.44-2.02 seconds** per
+neighbor, excluding detection, diagnostics, export and visual-capture overhead.
+The fitting sample budget roughly halved the reproduction's elapsed time without
+loosening its RGB/seam gates. These are development-machine observations, not
+performance guarantees.
+
+This resolves the supplied burst's no-usable-replacement blocker, not every
+possible handheld burst. Several later faces/shots remain rejected for local
+mismatch, ambiguity, occlusion or unsafe seams. User visual approval is still
+essential, especially for large head-pose changes and close neighboring people;
+inspect each offered composite before saving.
 
 An optional diagnostic regression reads only the explicitly supplied local photo
 and JPEG capture-time neighbors, uses already-installed local models without

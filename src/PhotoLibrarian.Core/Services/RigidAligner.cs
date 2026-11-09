@@ -301,7 +301,7 @@ internal static class RigidAligner
     }
 
     /// <summary>Solves the normal equations with Gaussian elimination and partial pivoting.</summary>
-    private static double[]? Solve(double[] matrix, double[] vector)
+    internal static double[]? Solve(double[] matrix, double[] vector)
     {
         int n = vector.Length;
         var a = (double[])matrix.Clone();

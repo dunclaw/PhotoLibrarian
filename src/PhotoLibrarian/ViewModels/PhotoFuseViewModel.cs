@@ -66,7 +66,7 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
             Status = PhotoFuseStrings.Get("FuseFindingFaces");
             var basis = _basis ?? throw new InvalidOperationException("Open a photo first.");
             // Validate the base before scanning; no writes to invalid/pending-edit sources.
-            var prepared = await PhotoFuseSession.TryPrepareAsync([basis.FilePath], token);
+            var prepared = await PhotoFuseSession.TryPrepareFacesAsync([basis.FilePath], token);
             if (prepared.Session is not { } initial)
             {
                 Status = PhotoFuseStrings.Format("FusePreparingFailed", prepared.Rejection);
@@ -118,7 +118,7 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
                         scanWarning ??= ex.Message;
                         donorFaces = await _faces(image);
                     }
-                    var preparation = await PhotoFuseSession.TryPrepareAsync([basis.FilePath, image.FilePath], token);
+                    var preparation = await PhotoFuseSession.TryPrepareFacesAsync([basis.FilePath, image.FilePath], token);
                     if (preparation.Session is not { } pair)
                     {
                         rejected++;
@@ -133,22 +133,29 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
                     {
                         var candidates = PhotoFuseFaceMatcher.Nearby(face, donorFaces, pair);
                         if (candidates.Count == 0) continue;
-                        string? seam = await Task.Run(() => pair.CheckRegions(
-                            [PhotoFuseFaceMatcher.Region(face, 1, Width, Height)], token), token);
-                        if (seam is not null)
-                        {
-                            Core.Diagnostics.DebugLog.WriteLine($"Photo Fuse skipped face {face.Id} in {image.FileName}: {seam}");
-                            continue;
-                        }
                         if (!_replacements.TryGetValue(face.Id, out var list))
                             _replacements[face.Id] = list = [];
                         foreach (var candidate in candidates)
                         {
+                            var selection = new PhotoFuseFaceSelection(1, PhotoFuseFaceBounds.From(face),
+                                PhotoFuseFaceBounds.From(candidate));
+                            string? rejection = await pair.CheckFaceAsync(selection, token,
+                                Faces.Select(PhotoFuseFaceBounds.From).ToArray());
+                            if (rejection is not null)
+                            {
+                                Core.Diagnostics.DebugLog.WriteLine($"Photo Fuse skipped face {face.Id} in {image.FileName}: {rejection}");
+                                continue;
+                            }
                             list.Add(new PhotoFuseReplacement(image, candidate, pair.SourceHashes[1]));
                             hasMatch = true;
                         }
                     }
                     if (hasMatch) matched++;
+                    else
+                    {
+                        rejected++;
+                        lastRejection = $"{image.FileName}: {PhotoFuseStrings.Get("FuseNoOptions")}";
+                    }
                 }
                 catch (Exception ex) when (ex is IOException or NotSupportedException or ArgumentException)
                 {
@@ -194,11 +201,8 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
             foreach (var choice in choices.Values)
                 if (!paths.Contains(choice.Image.FilePath, StringComparer.OrdinalIgnoreCase))
                     paths.Add(choice.Image.FilePath);
-            // Free previous leases before reacquiring; old accepted pixels stay visible on any failure.
-            _session?.Dispose();
-            _session = null;
-            _preview = null;
-            var preparation = await PhotoFuseSession.TryPrepareAsync(paths, token);
+            // Read leases can coexist. Keep the last accepted preview saveable if the new choice fails.
+            var preparation = await PhotoFuseSession.TryPrepareFacesAsync(paths, token);
             next = preparation.Session;
             if (next is null)
             {
@@ -207,7 +211,7 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
             }
             if (next.SourceHashes[0] != _baseHash)
                 throw new IOException("The original photo changed. Exit Photo Fuse and refresh the library.");
-            var regions = new List<PhotoFuseRegion>();
+            var selections = new List<PhotoFuseFaceSelection>();
             foreach (var target in Faces.Where(target => choices.ContainsKey(target.Id)))
             {
                 var choice = choices[target.Id];
@@ -218,14 +222,15 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
                 // Revalidate spatial mapping, not just source identity, before applying a face.
                 if (!PhotoFuseFaceMatcher.Nearby(target, [choice.Face], next, frame).Contains(choice.Face))
                     throw new IOException("The replacement no longer aligns with this face.");
-                regions.Add(PhotoFuseFaceMatcher.Region(target, frame, Width, Height));
+                selections.Add(new(frame, PhotoFuseFaceBounds.From(target), PhotoFuseFaceBounds.From(choice.Face)));
             }
-            if (regions.Count != choices.Count)
+            if (selections.Count != choices.Count)
                 throw new IOException("A selected face changed during rescanning. Discard replacements and start again.");
             PhotoFusePreview? preview = null;
-            if (regions.Count != 0)
+            if (selections.Count != 0)
             {
-                var rendering = await next.TryPreviewAsync(regions, token);
+                var rendering = await next.TryPreviewFacesAsync(selections, token,
+                    Faces.Select(PhotoFuseFaceBounds.From).ToArray());
                 if (rendering.Preview is null)
                 {
                     Status = PhotoFuseStrings.Format("FuseReplacementFailed", rendering.Rejection);
@@ -236,6 +241,7 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
             DisplayPixels = preview?.CopyPixels() ?? _basePixels;
             _selected.Clear();
             foreach (var choice in choices) _selected.Add(choice.Key, choice.Value);
+            _session?.Dispose();
             _session = next;
             _preview = preview;
             next = null;

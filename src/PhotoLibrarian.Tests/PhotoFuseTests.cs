@@ -2,6 +2,9 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Security.Cryptography;
+using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Xmp;
 using PhotoLibrarian.Core.Services;
@@ -478,12 +481,93 @@ public sealed class PhotoFuseTests : IDisposable
     }
 
     [Fact]
+    public async Task SubjectOutputStoresActualMaskAndTransformAndCannotRenderSearchHints()
+    {
+        string basis = await WriteFrameAsync("base.png", Frame());
+        string donor = await WriteFrameAsync("donor.png", FaceFrame(1));
+        var prepared = await PhotoFuseSession.TryPrepareFacesAsync([basis, donor], Token);
+        using var session = Assert.IsType<PhotoFuseSession>(prepared.Session);
+        var face = PhotoFuseFaceBounds.From(Face(1, 1, 80));
+        var rendering = await session.TryPreviewFacesAsync([new(1, face, face)], Token, [face]);
+        var preview = Assert.IsType<PhotoFusePreview>(rendering.Preview);
+        Assert.Null((await session.TryPreviewAsync([new(1, 56, 56, 72, 72)], Token)).Preview);
+        Assert.NotNull(session.CheckRegions([new(1, 56, 56, 72, 72)], Token));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.GetAlignedFrameAsync(1, Token));
+        using (var generic = await PrepareAsync([basis, donor], Token))
+        {
+            Assert.NotNull(await generic.CheckFaceAsync(new(1, face, face), Token));
+            Assert.Null((await generic.TryPreviewFacesAsync([new(1, face, face)], Token)).Preview);
+        }
+        string saved = await session.ExportAsync(preview, _folder, true, Token);
+        Assert.Equal(preview.CopyPixels(), await ReadPixelsAsync(saved));
+        var xmp = ImageMetadataReader.ReadMetadata(saved).OfType<XmpDirectory>().Single().XmpMeta!;
+        Assert.Equal("2", xmp.GetPropertyString(PhotoFuseSession.ProvenanceNamespace, "Version"));
+        Assert.Contains("Scale=1+ScaleDelta", xmp.GetPropertyString(PhotoFuseSession.ProvenanceNamespace, "TransformConvention"));
+        Assert.Contains("Search coordinate hint only", xmp.GetPropertyString(PhotoFuseSession.ProvenanceNamespace, "Sources"));
+        using var regions = JsonDocument.Parse(xmp.GetPropertyString(PhotoFuseSession.ProvenanceNamespace, "Regions"));
+        var stored = regions.RootElement[0];
+        var region = Assert.Single(preview.Regions);
+        Assert.Equal(region.SubjectTransform!.Value.ScaleDelta, stored.GetProperty("Transform").GetProperty("ScaleDelta").GetDouble());
+        using var compressed = new MemoryStream(Convert.FromBase64String(stored.GetProperty("Mask").GetString()!));
+        using var zipper = new ZLibStream(compressed, CompressionMode.Decompress);
+        var alpha = new byte[region.Width * region.Height];
+        zipper.ReadExactly(alpha);
+        Assert.Equal(-1, zipper.ReadByte());
+        Assert.Equal(255, alpha[(90 - region.Top) * region.Width + 90 - region.Left]);
+        Assert.True(Encoding.UTF8.GetByteCount(preview.Provenance) <= PhotoFuseSession.MaximumLineageBytes);
+        var oversized = session.AcceptPreview(Frame(), [region with
+        {
+            CompressedMask = new string('a', PhotoFuseSession.MaximumLineageBytes)
+        }]);
+        Assert.Null(oversized.Preview);
+        Assert.Contains("metadata budget", oversized.Rejection);
+    }
+
+    [Fact]
+    public async Task FailedReplacementKeepsTheLastAcceptedPreviewSaveableWithoutRerendering()
+    {
+        var basis = Entry(await WriteFrameAsync("base.png", Frame()), 1);
+        var donor = Entry(await WriteFrameAsync("donor.png", FaceFrame(1)), 2);
+        var later = Entry(await WriteFrameAsync("later.png", FaceFrame(2)), 3);
+        List<FaceRegion> faces = [Face(1, 1, 80), Face(2, 1, 272)];
+        using var workspace = new PhotoFuseViewModel(
+            (_, _) => Task.FromResult(new List<ImageEntry> { donor, later }),
+            (photo, _) => Task.FromResult<IReadOnlyList<FaceRegion>>(photo.Id == 1 ? faces :
+                [Face(photo.Id * 10, photo.Id, 80), Face(photo.Id * 10 + 1, photo.Id, 272)]),
+            _ => Task.FromResult(faces));
+        await workspace.StartAsync(basis);
+        await workspace.SelectAsync(faces[0], workspace.GetReplacements(faces[0]).First(choice => choice.Image.Id == donor.Id));
+        byte[] accepted = workspace.DisplayPixels!.ToArray();
+        var replacement = workspace.GetReplacements(faces[1]).First(choice => choice.Image.Id == later.Id);
+        string altered = await WriteFrameAsync("altered.png", Frame(changed: 2));
+        File.Move(altered, later.FilePath, overwrite: true);
+        await workspace.SelectAsync(faces[1], replacement);
+        Assert.Equal(accepted, workspace.DisplayPixels);
+        Assert.True(workspace.HasChanges);
+        Assert.Contains("changed", workspace.Status, StringComparison.OrdinalIgnoreCase);
+        string saved = Assert.IsType<string>(await workspace.FinishAsync());
+        Assert.Equal(accepted, await ReadPixelsAsync(saved));
+    }
+
+    [Fact]
+    public void SmallSubjectBlinkHasAnIndependentlyMeasuredCleanSeam()
+    {
+        var face = PhotoFuseFaceBounds.From(Face(1, 1, 80));
+        var selection = new PhotoFuseFaceSelection(1, face, face);
+        var patch = PhotoFuseSubjectComposer.BuildPatch([Frame(), FaceFrame(1)], Size, Size,
+            selection, null, [face], Token);
+        Assert.True(patch.Patch is not null, patch.Rejection);
+        Assert.Equal(255, patch.Patch.Alpha[(90 - patch.Patch.Region.Top) * patch.Patch.Region.Width +
+            90 - patch.Patch.Region.Left]);
+    }
+
+    [Fact]
     public async Task FullPhotoWorkflowSearchesMoreThanFourShotsAndOffersOnlyNearbyFaces()
     {
         var basis = Entry(await WriteFrameAsync("base.png", Frame()), 1);
         var photos = new List<ImageEntry>();
         for (int i = 0; i < 12; i++)
-            photos.Add(Entry(await WriteFrameAsync($"burst-{i}.png", Frame(changed: i % 2 + 1)), i + 2));
+            photos.Add(Entry(await WriteFrameAsync($"burst-{i}.png", FaceFrame(i % 2 + 1)), i + 2));
         FaceRegion first = Face(1, 1, 80), second = Face(2, 1, 272);
         List<FaceRegion> baseFaces = [first, second];
         var faces = photos.ToDictionary(photo => photo.Id, photo => new List<FaceRegion>
@@ -510,8 +594,8 @@ public sealed class PhotoFuseTests : IDisposable
         Assert.True(workspace.HasChanges, workspace.Status);
         await workspace.SelectAsync(second, workspace.GetReplacements(second)[1]);
         Assert.True(workspace.HasChanges, workspace.Status);
-        Assert.Equal(Pixel(Frame(changed: 1), 90, 90), Pixel(workspace.DisplayPixels!, 90, 90));
-        Assert.Equal(Pixel(Frame(changed: 2), 280, 280), Pixel(workspace.DisplayPixels!, 280, 280));
+        Assert.Equal(Pixel(FaceFrame(1), 90, 90), Pixel(workspace.DisplayPixels!, 90, 90));
+        Assert.Equal(Pixel(FaceFrame(2), 280, 280), Pixel(workspace.DisplayPixels!, 280, 280));
         byte[] accepted = workspace.DisplayPixels!.ToArray();
         workspace.ReleaseForManualFace();
         await workspace.RefreshFacesAsync();
@@ -527,7 +611,7 @@ public sealed class PhotoFuseTests : IDisposable
     public async Task MissedFacesCanBeAddedAndStaleReplacementCannotBeApplied()
     {
         var basis = Entry(await WriteFrameAsync("base.png", Frame()), 1);
-        var donor = Entry(await WriteFrameAsync("donor.png", Frame(changed: 1)), 2);
+        var donor = Entry(await WriteFrameAsync("donor.png", FaceFrame(1)), 2);
         List<FaceRegion> baseFaces = [];
         using var workspace = new PhotoFuseViewModel((_, _) => Task.FromResult(new List<ImageEntry> { donor }),
             (photo, _) => Task.FromResult<IReadOnlyList<FaceRegion>>(photo.Id == 1 ? baseFaces : [Face(20, 2, 80)]),
@@ -561,7 +645,7 @@ public sealed class PhotoFuseTests : IDisposable
         for (int x = 60; x < 124; x++)
             for (int c = 0; c < 3; c++) badSeam[(y * Size + x) * 4 + c] = 250;
         var incompatible = Entry(await WriteFrameAsync("bad-seam.png", badSeam), 3);
-        var good = Entry(await WriteFrameAsync("good.png", Frame(changed: 1)), 4);
+        var good = Entry(await WriteFrameAsync("good.png", FaceFrame(1)), 4);
         List<ImageEntry> photos = [unalignable, incompatible, good];
         using var workspace = new PhotoFuseViewModel((_, _) => Task.FromResult(photos),
             (photo, _) => Task.FromResult<IReadOnlyList<FaceRegion>>([Face(photo.Id, photo.Id, 80)]),
@@ -572,7 +656,7 @@ public sealed class PhotoFuseTests : IDisposable
         Assert.Equal(good.Id, choice.Image.Id);
         await workspace.SelectAsync(face, choice);
         Assert.True(workspace.HasChanges, workspace.Status);
-        Assert.Equal(Pixel(Frame(changed: 1), 90, 90), Pixel(workspace.DisplayPixels!, 90, 90));
+        Assert.Equal(Pixel(FaceFrame(1), 90, 90), Pixel(workspace.DisplayPixels!, 90, 90));
         await workspace.DiscardAsync();
         Assert.Empty(System.IO.Directory.GetFiles(_folder, "*Fused*"));
     }
@@ -656,7 +740,9 @@ public sealed class PhotoFuseTests : IDisposable
     {
         await using var stream = File.OpenRead(path);
         var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
-        return (await decoder.GetPixelDataAsync()).DetachPixelData();
+        return (await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore,
+            new BitmapTransform(), ExifOrientationMode.RespectExifOrientation,
+            ColorManagementMode.DoNotColorManage)).DetachPixelData();
     }
 
     private async Task<string> WriteFrameAsync(string name, byte[] pixels, uint size = Size)
@@ -671,9 +757,24 @@ public sealed class PhotoFuseTests : IDisposable
 
     private static byte[] Pixel(byte[] pixels, int x, int y) => pixels.AsSpan((y * Size + x) * 4, 4).ToArray();
 
+    internal static byte[] FaceFrame(int changed)
+    {
+        var pixels = Frame();
+        int position = changed == 1 ? 90 : 280;
+        for (int y = position; y < position + 4; y++)
+        for (int x = position; x < position + 6; x++)
+        {
+            int i = (y * Size + x) * 4;
+            pixels[i] = (byte)Math.Min(255, pixels[i] + 60);
+            pixels[i + 1] = (byte)Math.Max(0, pixels[i + 1] - 40);
+            pixels[i + 2] = (byte)Math.Min(255, pixels[i + 2] + 30);
+        }
+        return pixels;
+    }
+
     // Original, deterministic synthetic scenery, evaluated continuously so the expected transform
     // is known exactly. Two small foreground regions can change independently of the background.
-    private static byte[] Frame(double dx = 0, double dy = 0, double angle = 0, double scale = 1, int changed = 0,
+    internal static byte[] Frame(double dx = 0, double dy = 0, double angle = 0, double scale = 1, int changed = 0,
         int size = Size)
     {
         var pixels = new byte[size * size * 4];

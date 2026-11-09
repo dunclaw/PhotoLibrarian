@@ -3,6 +3,7 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Xmp;
 using Windows.Graphics.Imaging;
@@ -19,13 +20,14 @@ public sealed class PhotoFusePreview
     internal PhotoFuseSession Owner { get; }
     internal byte[] Pixels { get; }
     internal PhotoFuseRegion[] Regions { get; }
-    internal PhotoFusePreview(PhotoFuseSession owner, byte[] pixels, PhotoFuseRegion[] regions) =>
-        (Owner, Pixels, Regions) = (owner, pixels, regions);
+    internal string Provenance { get; }
+    internal PhotoFusePreview(PhotoFuseSession owner, byte[] pixels, PhotoFuseRegion[] regions, string provenance) =>
+        (Owner, Pixels, Regions, Provenance) = (owner, pixels, regions, provenance);
     public byte[] CopyPixels() => (byte[])Pixels.Clone();
 }
 
 /// <summary>
-/// Owns bounded oriented sRGB snapshots and read leases until the dialog closes. Source files and
+/// Owns bounded oriented sRGB snapshots and read leases until the workspace closes. Source files and
 /// existing sidecars cannot be changed or replaced while a preview is being reviewed.
 /// </summary>
 public sealed class PhotoFuseSession : IDisposable
@@ -35,14 +37,17 @@ public sealed class PhotoFuseSession : IDisposable
     public const int MaximumDimension = 1600;
     // Frame count is determined by decoded memory, not the number of nearby photos searched.
     public const long MaximumFrameBytes = 192L * 1024 * 1024;
+    internal const int MaximumLineageBytes = 4 * 1024 * 1024;
     internal const string ProvenanceNamespace = "https://photolibrarian.app/ns/photo-fuse/1.0/";
     private readonly List<FileStream> _leases = [];
     private readonly List<string> _absentSidecars = [];
     private readonly List<byte[]> _frames = [];
     private readonly List<PhotoFuseTransform> _transforms = [];
+    private readonly List<PhotoFuseTransform?> _searchHints = [];
     private readonly List<string> _names = [];
     private readonly List<string> _hashes = [];
     private bool _disposed;
+    private readonly bool _subjectMode;
     public int Width { get; private set; }
     public int Height { get; private set; }
     public IReadOnlyList<string> SourceNames => _names.AsReadOnly();
@@ -51,20 +56,26 @@ public sealed class PhotoFuseSession : IDisposable
     public (double X, double Y) DonorPointAt(int frame, double x, double y) =>
         _transforms[frame].SourceAt(x, y, Width, Height);
 
-    private PhotoFuseSession() { }
+    private PhotoFuseSession(bool subjectMode) => _subjectMode = subjectMode;
 
     public static bool IsSupported(string path) =>
         Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png";
 
-    public static async Task<Preparation> TryPrepareAsync(IReadOnlyList<string> paths,
-        CancellationToken token = default)
+    public static Task<Preparation> TryPrepareAsync(IReadOnlyList<string> paths, CancellationToken token = default) =>
+        PrepareCoreAsync(paths, false, token);
+
+    public static Task<Preparation> TryPrepareFacesAsync(IReadOnlyList<string> paths, CancellationToken token = default) =>
+        PrepareCoreAsync(paths, true, token);
+
+    private static async Task<Preparation> PrepareCoreAsync(IReadOnlyList<string> paths, bool subjectMode,
+        CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(paths);
         var snapshot = paths.Select(Path.GetFullPath).ToArray();
         if (snapshot.Length < 1 ||
             snapshot.Distinct(StringComparer.OrdinalIgnoreCase).Count() != snapshot.Length)
             throw new ArgumentException("Choose distinct source photos.");
-        var session = new PhotoFuseSession();
+        var session = new PhotoFuseSession(subjectMode);
         uint originalWidth = 0, originalHeight = 0;
         try
         {
@@ -151,17 +162,26 @@ public sealed class PhotoFuseSession : IDisposable
                 else if (session.Width != width || session.Height != height)
                     return session.Reject("All shots must have identical oriented preview dimensions and aspect ratio.");
                 PhotoFuseTransform registration = default;
+                PhotoFuseTransform? searchHint = null;
                 if (session._frames.Count != 0)
                 {
-                    var result = await Task.Run(
-                        () => PhotoFuseRegistration.TryRegister(pixels, session._frames[0], width, height, token), token);
-                    if (result.Transform is not { } accepted)
+                    if (subjectMode)
                     {
-                        return session.Reject(result.Reason!);
+                        // Search-only hint: rendering requires a separately measured face transform.
+                        searchHint = await Task.Run(() => PhotoFuseRegistration.FindSearchHint(
+                            pixels, session._frames[0], width, height, token), token);
+                        registration = searchHint ?? default;
                     }
-                    registration = accepted;
+                    else
+                    {
+                        var result = await Task.Run(
+                            () => PhotoFuseRegistration.TryRegister(pixels, session._frames[0], width, height, token), token);
+                        if (result.Transform is not { } accepted) return session.Reject(result.Reason!);
+                        registration = accepted;
+                    }
                 }
                 session._transforms.Add(registration);
+                session._searchHints.Add(searchHint);
                 session._frames.Add(pixels);
                 session._names.Add(Path.GetFileName(path));
             }
@@ -251,6 +271,8 @@ public sealed class PhotoFuseSession : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (index < 0 || index >= _frames.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        if (_subjectMode && index != 0)
+            throw new InvalidOperationException("Search coordinate hints are not accepted donor image alignments.");
         return Task.Run(() => PhotoFuseComposer.AlignedPreview(_frames[index], _frames[0],
             _transforms[index], Width, Height, token), token);
     }
@@ -258,6 +280,7 @@ public sealed class PhotoFuseSession : IDisposable
     public string? CheckRegions(IReadOnlyList<PhotoFuseRegion> regions, CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_subjectMode) return "Choose an independently aligned face replacement.";
         return PhotoFuseComposer.CheckRegions(_frames, _transforms, Width, Height, regions, token);
     }
 
@@ -265,13 +288,42 @@ public sealed class PhotoFuseSession : IDisposable
         CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_subjectMode)
+            return Task.FromResult(new Rendering(null, "Choose an independently aligned face replacement."));
         var snapshot = regions.ToArray();
         if (snapshot.Length == 0) throw new ArgumentException("Add at least one donor region before previewing.");
         return Task.Run(() =>
         {
             var result = PhotoFuseComposer.TryRender(_frames, _transforms, Width, Height, snapshot, token);
-            return new Rendering(result.Pixels is { } pixels ? new PhotoFusePreview(this, pixels, snapshot) : null,
-                result.Rejection);
+            return result.Pixels is { } pixels ? AcceptPreview(pixels, snapshot) : new Rendering(null, result.Rejection);
+        }, token);
+    }
+
+    public Task<string?> CheckFaceAsync(PhotoFuseFaceSelection selection, CancellationToken token = default,
+        IReadOnlyList<PhotoFuseFaceBounds>? originalFaces = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_subjectMode)
+            return Task.FromResult<string?>("Open a face replacement workspace before checking independently aligned faces.");
+        var faces = originalFaces?.ToArray() ?? [];
+        PhotoFuseTransform? hint = selection.Frame >= 0 && selection.Frame < _searchHints.Count
+            ? _searchHints[selection.Frame] : null;
+        return Task.Run(() => PhotoFuseSubjectComposer.BuildPatch(_frames, Width, Height, selection, hint, faces, token).Rejection, token);
+    }
+
+    public Task<Rendering> TryPreviewFacesAsync(IReadOnlyList<PhotoFuseFaceSelection> selections,
+        CancellationToken token = default, IReadOnlyList<PhotoFuseFaceBounds>? originalFaces = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_subjectMode)
+            return Task.FromResult(new Rendering(null, "Open a face replacement workspace before previewing independently aligned faces."));
+        var snapshot = selections.ToArray();
+        var faces = originalFaces?.ToArray() ?? [];
+        if (snapshot.Length == 0) return Task.FromResult(new Rendering(null, "Choose at least one face replacement."));
+        return Task.Run(() =>
+        {
+            var result = PhotoFuseSubjectComposer.TryRender(_frames, Width, Height, snapshot, _searchHints, faces, token);
+            return result.Pixels is { } pixels ? AcceptPreview(pixels, result.Regions) : new Rendering(null, result.Rejection);
         }, token);
     }
 
@@ -305,7 +357,7 @@ public sealed class PhotoFuseSession : IDisposable
             {
                 taggedCreated = true;
                 await SdrDerivativeMetadata.TagAsync(input, output, RawDerivativeFormat.Png,
-                    CreateXmp(preview), token);
+                    preview.Provenance, token);
             }
             File.Delete(encoded);
             encodedCreated = false;
@@ -337,15 +389,34 @@ public sealed class PhotoFuseSession : IDisposable
         }
     }
 
-    private string CreateXmp(PhotoFusePreview preview)
+    internal Rendering AcceptPreview(byte[] pixels, PhotoFuseRegion[] regions)
+    {
+        string provenance = CreateXmp(regions);
+        if (Encoding.UTF8.GetByteCount(provenance) > MaximumLineageBytes)
+            return new(null, "The composite exceeds the portable metadata budget. Restore some faces to their originals.");
+        return new(new PhotoFusePreview(this, pixels, regions, provenance), null);
+    }
+
+    private string CreateXmp(IReadOnlyList<PhotoFuseRegion> regions)
     {
         var xmp = XmpMetaFactory.Create();
         XmpMetaFactory.SchemaRegistry.RegisterNamespace(ProvenanceNamespace, "plfuse");
-        xmp.SetProperty(ProvenanceNamespace, "Version", "1");
-        xmp.SetProperty(ProvenanceNamespace, "State", "Baked composite; manually selected regions");
+        xmp.SetProperty(ProvenanceNamespace, "Version", _subjectMode ? "2" : "1");
+        xmp.SetProperty(ProvenanceNamespace, "State", _subjectMode
+            ? "Baked composite; manually selected independently aligned faces" : "Baked composite; manually selected regions");
+        xmp.SetProperty(ProvenanceNamespace, "TransformConvention",
+            "Donor-to-base similarity around ((width-1)/2,(height-1)/2); X/Y pixels; Angle radians; Scale=1+ScaleDelta");
         xmp.SetProperty(ProvenanceNamespace, "Sources", JsonSerializer.Serialize(
-            _names.Select((name, i) => new { Name = name, Sha256 = _hashes[i], Transform = _transforms[i] })));
-        xmp.SetProperty(ProvenanceNamespace, "Regions", JsonSerializer.Serialize(preview.Regions));
+            _names.Select((name, i) => new { Name = name, Sha256 = _hashes[i],
+                Transform = _subjectMode ? _searchHints[i] : _transforms[i],
+                TransformPurpose = _subjectMode ? "Search coordinate hint only" : "Frame alignment" })));
+        xmp.SetProperty(ProvenanceNamespace, "Regions", JsonSerializer.Serialize(regions.Select(region => new
+        {
+            region.Frame, region.Left, region.Top, region.Width, region.Height,
+            Transform = region.SubjectTransform,
+            MaskEncoding = region.CompressedMask is null ? "Rectangle" : "zlib/base64 alpha8 row-major",
+            Mask = region.CompressedMask
+        })));
         xmp.SetProperty(ProvenanceNamespace, "ColorPolicy", "Opaque 8-bit sRGB; source metadata and face identities not copied");
         xmp.SetPropertyInteger("http://ns.adobe.com/tiff/1.0/", "Orientation", 1);
         xmp.SetPropertyInteger("http://ns.adobe.com/tiff/1.0/", "ImageWidth", Width);
@@ -361,5 +432,7 @@ public sealed class PhotoFuseSession : IDisposable
         foreach (var lease in _leases) lease.Dispose();
         _leases.Clear();
         _frames.Clear();
+        _transforms.Clear();
+        _searchHints.Clear();
     }
 }
