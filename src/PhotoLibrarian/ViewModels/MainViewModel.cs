@@ -36,6 +36,7 @@ public partial class MainViewModel : ObservableObject
     private bool _recognitionRescanRequested;
     private bool _duplicateScanActive;
     private bool _autoTagReviewActive;
+    private bool _photoFuseRecognitionPaused;
     private int _lastAutoTagTreeRefresh;
     private volatile bool _isShuttingDown;
 
@@ -57,6 +58,19 @@ public partial class MainViewModel : ObservableObject
     public PhotoImportService PhotoImport { get; }
     public OriginalBackupService BackupService => _backupService;
     public LibrarySearchViewModel Search { get; }
+    public PhotoFuseViewModel PhotoFuse { get; }
+
+    public async Task PauseRecognitionForPhotoFuseAsync()
+    {
+        _photoFuseRecognitionPaused = true;
+        await StopRecognitionAsync();
+    }
+
+    public void ResumeRecognitionAfterPhotoFuse()
+    {
+        _photoFuseRecognitionPaused = false;
+        StartRecognitionProcessing();
+    }
 
     [ObservableProperty]
     public partial string StatusText { get; set; }
@@ -105,7 +119,9 @@ public partial class MainViewModel : ObservableObject
         AutoTagModelManager autoTagModelManager,
         AutoTagBenchmarkProcessor autoTagBenchmarkProcessor,
         SelectedPhotoAutoTagReviewProcessor selectedPhotoAutoTagReviewProcessor,
-        UserActivityGate activityGate)
+        UserActivityGate activityGate,
+        Services.GridLayoutSettingsStore? gridLayoutSettingsStore = null,
+        FaceLibraryProcessor? photoFuseFaces = null)
     {
         _db = db;
         _imageRepo = imageRepo;
@@ -123,6 +139,12 @@ public partial class MainViewModel : ObservableObject
         _faceReviewService = faceReviewService;
         _faceResources = faceResources;
         _activityGate = activityGate;
+        PhotoFuse = new PhotoFuseViewModel(
+            (image, token) => _imageRepo.GetNearbyBurstAsync(image, TimeSpan.FromMinutes(2), token),
+            (image, token) => photoFuseFaces is null
+                ? throw new InvalidOperationException("Local face scanning is unavailable.")
+                : photoFuseFaces.ScanPhotoAsync(image, token),
+            image => _faceRepo.GetFacesForImageAsync(image.Id));
         PhotoImport = new PhotoImportService(
             metadataReader,
             indexingService,
@@ -145,7 +167,7 @@ public partial class MainViewModel : ObservableObject
             scanner,
             metadataReader,
             this,
-            new PhotoLibrarian.Services.GridLayoutSettingsStore());
+            gridLayoutSettingsStore ?? new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
         ImageViewer.EffectRecipeChanged += ImageGrid.RefreshSingleImageAsync;
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
@@ -433,6 +455,8 @@ public partial class MainViewModel : ObservableObject
             personName,
             cancellationToken);
         await MetadataPanel.ReloadPeopleTagsAsync();
+        if (PhotoFuse.IsActive)
+            await PhotoFuse.RefreshFacesAsync();
         if (App.MainWindow is MainWindow window)
             await window.RefreshPeopleFiltersAsync();
         StatusText = $"Added people tag for {personName.Trim()}.";
@@ -508,6 +532,7 @@ public partial class MainViewModel : ObservableObject
         if (_isShuttingDown ||
             _duplicateScanActive ||
             _autoTagReviewActive ||
+            _photoFuseRecognitionPaused ||
             TotalImages == 0)
         {
             return;
@@ -1286,6 +1311,22 @@ public partial class MainViewModel : ObservableObject
             ?? throw new InvalidOperationException($"The trimmed copy at '{path}' could not be shown in the grid.");
         ImageViewer.OpenExportedVideo(copy);
         StatusText = $"Opened trimmed copy: {path}";
+    }
+
+    public async Task RevealPhotoFuseCopyAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The composite at '{path}' could not be added to the library.");
+        if (copy.MediaType != MediaType.Image)
+            throw new InvalidOperationException("The saved Photo Fuse copy is not a still image.");
+        // The existing transient export reveal is media-neutral despite its historical name.
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The composite at '{path}' could not be shown in the grid.");
+        ImageGrid.SelectViewerEntry(copy);
     }
 
     public async Task MakeCopyForEditingAsync(ImageEntry entry)

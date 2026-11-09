@@ -20,8 +20,8 @@ public partial class ImageViewerViewModel : ObservableObject
     private readonly ViewerEffectService _effects = new(new OriginalBackupService());
     public bool IsApplyingEffect { get; private set; }
     public bool IsEffectImageUpdate { get; private set; }
-    public bool CanUndoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanUndo(entry.FilePath);
-    public bool CanRedoEffect => !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanRedo(entry.FilePath);
+    public bool CanUndoEffect => !IsPhotoFuseActive && !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanUndo(entry.FilePath);
+    public bool CanRedoEffect => !IsPhotoFuseActive && !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanRedo(entry.FilePath);
     public event Func<string, Task>? EffectRecipeChanged;
 
     private void NotifyEffectHistory()
@@ -39,7 +39,7 @@ public partial class ImageViewerViewModel : ObservableObject
     private async Task UpdateEffectAsync(Func<string, Task<ImageEditRenderer.RenderedPixels>> render)
     {
         var entry = CurrentEntry;
-        if (entry is null || IsVideo || IsApplyingEffect) return;
+        if (entry is null || IsVideo || IsApplyingEffect || IsPhotoFuseActive) return;
         IsApplyingEffect = true;
         NotifyEffectHistory();
         var version = ++_loadVersion;
@@ -146,6 +146,7 @@ public partial class ImageViewerViewModel : ObservableObject
     /// metadata panel follow the image on screen instead of staying on the grid selection.
     /// </summary>
     public event Action<ImageEntry?>? CurrentEntryChanged;
+    public bool IsPhotoFuseActive { get; set; }
 
     private void RaiseCurrentEntryChanged()
     {
@@ -163,6 +164,11 @@ public partial class ImageViewerViewModel : ObservableObject
 
     public void OpenImage(ImageEntry entry, List<ImageEntry> allImages)
     {
+        if (IsPhotoFuseActive)
+        {
+            App.ViewModel.StatusText = PhotoFuseStrings.Get("FuseExitBeforeNavigate");
+            return;
+        }
         _allImages = allImages.ToList();
         _currentIndex = _allImages.FindIndex(image =>
             string.Equals(image.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
@@ -195,6 +201,7 @@ public partial class ImageViewerViewModel : ObservableObject
 
     public void UpdateLibraryImages(List<ImageEntry> images)
     {
+        if (IsPhotoFuseActive) return; // Keep the base stable during indexing/filter refreshes.
         var current = CurrentEntry;
         if (current is null) return;
 
@@ -230,6 +237,11 @@ public partial class ImageViewerViewModel : ObservableObject
     [RelayCommand]
     private void Close()
     {
+        if (IsPhotoFuseActive)
+        {
+            App.ViewModel.StatusText = PhotoFuseStrings.Get("FuseExitBeforeNavigate");
+            return;
+        }
         _loadVersion++;
         _pendingExportPath = null;
         IsOpen = false;
@@ -251,6 +263,7 @@ public partial class ImageViewerViewModel : ObservableObject
     [RelayCommand]
     private async Task NextImageAsync()
     {
+        if (IsPhotoFuseActive) return;
         if (_allImages.Count == 0) return;
         _currentIndex = (_currentIndex + 1) % _allImages.Count;
         await LoadCurrentImageAsync();
@@ -259,6 +272,7 @@ public partial class ImageViewerViewModel : ObservableObject
     [RelayCommand]
     private async Task PreviousImageAsync()
     {
+        if (IsPhotoFuseActive) return;
         if (_allImages.Count == 0) return;
         _currentIndex = (_currentIndex - 1 + _allImages.Count) % _allImages.Count;
         await LoadCurrentImageAsync();

@@ -10,6 +10,7 @@ public sealed class FaceLibraryProcessor
     private readonly IFaceModelProvider _modelProvider;
     private readonly IFaceDetector _detector;
     private readonly IFaceEmbedder _embedder;
+    private bool _modelsReady;
 
     public FaceLibraryProcessor(
         IFaceScanStore store,
@@ -24,6 +25,34 @@ public sealed class FaceLibraryProcessor
     }
 
     public event EventHandler<FaceProcessingProgressEventArgs>? Progress;
+
+    public async Task<IReadOnlyList<FaceRegion>> ScanPhotoAsync(ImageEntry image,
+        CancellationToken token = default)
+    {
+        var file = new FileInfo(image.FilePath);
+        if (!file.Exists || file.Length != image.FileSize || file.LastWriteTimeUtc != image.DateModified.ToUniversalTime())
+            throw new IOException("The photo changed since indexing. Refresh the library before fusing.");
+        if (image.FaceScanVersion != FaceModelCatalog.PipelineVersion)
+        {
+            if (!_modelsReady)
+            {
+                await _modelProvider.EnsureModelsAsync(token);
+                await Task.Run(() =>
+                {
+                    _detector.LoadModel();
+                    _embedder.LoadModel();
+                }, token);
+                _modelsReady = true;
+            }
+            await FaceScanWorkItem.ScanAsync(image, DecodedImage.WithoutPixels(image.FilePath),
+                _store, _detector, _embedder, token);
+            image.FaceScanVersion = FaceModelCatalog.PipelineVersion;
+        }
+        file.Refresh();
+        if (!file.Exists || file.Length != image.FileSize || file.LastWriteTimeUtc != image.DateModified.ToUniversalTime())
+            throw new IOException("The photo changed during face scanning. Refresh the library before fusing.");
+        return await _store.GetFacesForImageAsync(image.Id);
+    }
 
     public async Task<FaceProcessingResult> ProcessLibraryAsync(
         CancellationToken cancellationToken = default)

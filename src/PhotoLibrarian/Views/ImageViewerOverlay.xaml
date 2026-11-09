@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:views="using:PhotoLibrarian.Views"
+    xmlns:viewModels="using:PhotoLibrarian.ViewModels"
     AutomationProperties.AutomationId="ViewerPhotoSurface"
     AutomationProperties.Name="Full photo viewer"
     AutomationProperties.HelpText="Use Left and Right to browse photos. Tab moves to viewer controls and the ribbon."
@@ -44,6 +45,25 @@
 
     <Grid x:Name="RootGrid" Background="{ThemeResource ViewerCanvasBrush}">
         <Grid.Resources>
+            <Style x:Key="FuseFaceButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="{ThemeResource SystemFillColorCautionBrush}" />
+                <Setter Property="BorderThickness" Value="2" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+            </Style>
+            <DataTemplate x:Key="FuseReplacementTemplate" x:DataType="viewModels:PersonTagDisplayItem">
+                <Grid ColumnSpacing="12" Padding="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="64" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Width="64" Height="64" Stretch="Uniform" />
+                    <TextBlock Grid.Column="1" Text="{x:Bind Image.FileName, Mode=OneWay}"
+                               TextWrapping="Wrap" VerticalAlignment="Center" />
+                </Grid>
+            </DataTemplate>
             <Flyout x:Name="EffectsFlyout" Placement="Bottom" Closed="OnEffectsClosed">
                 <StackPanel Width="384" Spacing="8">
                     <TextBlock x:Uid="EditorEffectsTitle" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -127,6 +147,7 @@
                  viewport used for best-fit is the space the image actually gets. -->
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -250,6 +271,11 @@
                                    StrokeThickness="3"
                                    Visibility="Collapsed" />
                     </Canvas>
+                    <Canvas x:Name="FuseFaceOverlay"
+                            AutomationProperties.AutomationId="FuseFaceOverlay"
+                            AutomationProperties.Name="Choose a face to replace"
+                            SizeChanged="OnFuseOverlaySizeChanged"
+                            Visibility="Collapsed" />
                     <Canvas x:Name="ManualFaceOverlay"
                             AutomationProperties.AutomationId="ManualFaceTagCanvas"
                             AutomationProperties.Name="Draw a box around a face"
@@ -431,6 +457,17 @@
                 ToolTipService.ToolTip="Next (Right arrow)">
             <FontIcon Glyph="&#xE76C;" FontSize="20" />
         </Button>
+        <InfoBar x:Name="FuseStatusBar" x:Uid="FuseStatusBar" Grid.Row="2" Grid.ColumnSpan="2"
+                 AutomationProperties.AutomationId="FuseStatus"
+                 IsOpen="False" IsClosable="False" Title="Photo Fuse"
+                 Visibility="Collapsed">
+            <InfoBar.ActionButton>
+                <Button x:Uid="FuseDiscard"
+                        AutomationProperties.AutomationId="FuseDiscard"
+                        Content="Discard and exit"
+                        Click="OnFuseDiscardClick" />
+            </InfoBar.ActionButton>
+        </InfoBar>
 
     </Grid>
 </UserControl>

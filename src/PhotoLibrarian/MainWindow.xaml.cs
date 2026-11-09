@@ -28,6 +28,91 @@ public sealed partial class MainWindow : Window
     private double _slideshowIntervalSeconds = 5;
     private Core.Models.SlideshowTheme _slideshowTheme = Core.Models.SlideshowTheme.Contemporary;
     private PhotoPrintSession? _printSession;
+    private bool _photoFuseOpen;
+    private bool _photoFuseFinishing;
+
+    private async void OnPhotoFuseClick(object? sender, EventArgs args)
+    {
+        if (_photoFuseFinishing) return;
+        if (ViewModel.PhotoFuse.IsActive)
+        {
+            await FinishPhotoFuseAsync();
+            return;
+        }
+        if (_photoFuseOpen || ViewModel.ImageViewer.IsApplyingEffect || !CanPrintPhotos() ||
+            ViewModel.ImageViewer.CurrentEntry is not { MediaType: Core.Models.MediaType.Image } basis) return;
+        _photoFuseOpen = true;
+        TopRibbon.PhotoFuseButtonEnabled(false);
+        try
+        {
+            await ViewModel.PauseRecognitionForPhotoFuseAsync();
+            if (_isClosing || !_photoFuseOpen) return;
+            ViewModel.ImageViewer.IsPhotoFuseActive = true;
+            ViewModel.ImageViewer.IsInformationPaneVisible = true;
+            ViewModel.MetadataPanel.IncludeUnnamedFaces = true;
+            ViewerOverlay.SetPhotoFuseWorkspace(ViewModel.PhotoFuse);
+            TopRibbon.SetPhotoFuseMode(true);
+            var preparing = ViewModel.PhotoFuse.StartAsync(basis);
+            TopRibbon.PhotoFuseButtonEnabled(true);
+            await preparing;
+            if (ViewModel.PhotoFuse.IsActive)
+                await ViewModel.MetadataPanel.ReloadPeopleTagsAsync();
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusText = PhotoFuseStrings.Format("FuseStartFailed", ex.Message);
+            await FinishPhotoFuseAsync();
+        }
+        finally { TopRibbon.PhotoFuseButtonEnabled(true); }
+    }
+
+    private async Task FinishPhotoFuseAsync(bool discard = false)
+    {
+        if (_photoFuseFinishing) return;
+        _photoFuseFinishing = true;
+        string? saved = null;
+        try
+        {
+            if (discard) await ViewModel.PhotoFuse.DiscardAsync();
+            else saved = await ViewModel.PhotoFuse.FinishAsync();
+            ViewModel.ImageViewer.IsPhotoFuseActive = false;
+            ViewerOverlay.SetPhotoFuseWorkspace(null);
+            TopRibbon.SetPhotoFuseMode(false);
+            ViewModel.MetadataPanel.IncludeUnnamedFaces = false;
+            _photoFuseOpen = false;
+            ViewModel.ResumeRecognitionAfterPhotoFuse();
+            if (saved is not null)
+            {
+                await ViewModel.RevealPhotoFuseCopyAsync(saved);
+                var copy = ViewModel.ImageGrid.GetViewerImages().FirstOrDefault(image =>
+                    string.Equals(image.FilePath, saved, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException("The saved Photo Fuse copy could not be opened in the viewer.");
+                ViewModel.ImageViewer.OpenImage(copy, ViewModel.ImageGrid.GetViewerImages());
+                ViewModel.StatusText = PhotoFuseStrings.Format("FuseSaved", saved);
+            }
+            else ViewModel.StatusText = PhotoFuseStrings.Get("FuseClosed");
+            await ViewModel.MetadataPanel.ReloadPeopleTagsAsync();
+        }
+        catch (Exception ex)
+        {
+            // A failed save stays in the workspace with the accepted choices intact.
+            ViewModel.PhotoFuse.Status = saved is null
+                ? PhotoFuseStrings.Format("FuseSaveFailed", ex.Message)
+                : PhotoFuseStrings.Format("FuseIndexFailed", saved, ex.Message);
+            ViewModel.StatusText = ViewModel.PhotoFuse.Status;
+        }
+        finally { _photoFuseFinishing = false; }
+    }
+
+    private async void OnAppWindowClosing(Microsoft.UI.Windowing.AppWindow sender,
+        Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (!_photoFuseOpen) return;
+        args.Cancel = true;
+        if (_photoFuseFinishing) return;
+        await FinishPhotoFuseAsync();
+        if (!_photoFuseOpen) Close();
+    }
     private RemovableVolumeMonitor? _removableVolumeMonitor;
     private readonly Queue<string> _detectedDeviceRoots = new();
     private string? _pendingDetectedDeviceRoot;
@@ -42,7 +127,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool CanPrintPhotos() =>
-        !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+        !(_isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
           ViewModel.DuplicateReview.IsOpen || ViewModel.ImageEditor.IsOpen ||
           ViewerOverlay.IsCropping || ViewerOverlay.IsStraightening ||
           ViewerOverlay.IsRedEyeRemoving || ViewerOverlay.IsManualFaceTagging);
@@ -185,7 +270,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool CanStartSlideshow() =>
-        !(_isClosing || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+        !(_isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
           ViewModel.DuplicateReview.IsOpen ||
           ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
           ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
@@ -327,6 +412,7 @@ public sealed partial class MainWindow : Window
             true);
 
         var appWindow = this.AppWindow;
+        appWindow.Closing += OnAppWindowClosing;
         appWindow.Resize(new Windows.Graphics.SizeInt32(1600, 900));
         appWindow.Title = "PhotoLibrarian";
 
@@ -354,6 +440,9 @@ public sealed partial class MainWindow : Window
 
         // Top-ribbon events
         TopRibbon.CropClicked += OnRibbonCropClicked;
+        TopRibbon.PhotoFuseClicked += OnPhotoFuseClick;
+        ViewerOverlay.PhotoFuseExitRequested += OnPhotoFuseClick;
+        ViewerOverlay.PhotoFuseDiscardRequested += async (_, _) => await FinishPhotoFuseAsync(discard: true);
         TopRibbon.EditVideoClicked += OnEditVideo;
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
@@ -813,7 +902,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool CanRunPhotoLibraryShortcut() =>
-        !_isClosing && _slideshow is null &&
+        !_isClosing && !_photoFuseOpen && _slideshow is null &&
         !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen &&
         !ViewModel.DuplicateReview.IsOpen && !ViewModel.ImageEditor.IsOpen &&
         !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening &&
@@ -1068,6 +1157,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> OpenRibbonEditorAsync(bool retouch)
     {
+        if (_photoFuseOpen) return false;
         if (ViewModel.ImageEditor.IsOpen) return !ViewModel.ImageEditor.IsBusy;
         var entry = ViewModel.ImageViewer.CurrentEntry;
         if (entry is null || ViewModel.ImageViewer.IsVideo) return false;

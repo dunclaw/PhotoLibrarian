@@ -43,6 +43,18 @@ public partial class App : Application
         string? failure = null;
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--photo-fuse"))
+            {
+                var fuseLayout = new Grid();
+                _window = new Window { Title = "Photo Fuse synthetic UI regression", Content = fuseLayout };
+                _window.AppWindow.Resize(new SizeInt32(1200, 900));
+                _window.Activate();
+                await Task.Delay(300);
+                await PhotoFuseUiTests.RunAsync(fuseLayout, _passed,
+                    Environment.GetCommandLineArgs().Contains("--preview"));
+                await FinishAsync(null);
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--slideshow"))
             {
                 await RunSlideshowTestsAsync();
@@ -112,6 +124,11 @@ public partial class App : Application
         {
             failure = exception.ToString();
         }
+        await FinishAsync(failure);
+    }
+
+    private async Task FinishAsync(string? failure)
+    {
         var result = new { passed = _passed, failure };
         await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "accessibility-results.json"),
             JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));

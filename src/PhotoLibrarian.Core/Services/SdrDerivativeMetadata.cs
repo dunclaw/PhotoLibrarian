@@ -2,6 +2,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
@@ -82,7 +83,7 @@ internal static class SdrDerivativeMetadata
     }
 
     internal static async Task TagAsync(Stream input, FileStream output, RawDerivativeFormat format,
-        string xmp, CancellationToken token)
+        string xmp, CancellationToken token, bool allowExtendedXmp = false)
     {
         var text = Encoding.UTF8.GetBytes(xmp);
         if (format == RawDerivativeFormat.Jpeg)
@@ -93,7 +94,11 @@ internal static class SdrDerivativeMetadata
                 throw new InvalidDataException("JPEG encoder returned an invalid container.");
             await output.WriteAsync(header, token);
             WriteJpegSegment(output, 0xe2, Combine("ICC_PROFILE\0"u8.ToArray(), [1, 1], Profile));
-            WriteJpegSegment(output, 0xe1, Combine("http://ns.adobe.com/xap/1.0/\0"u8.ToArray(), text));
+            byte[] standardHeader = "http://ns.adobe.com/xap/1.0/\0"u8.ToArray();
+            if (text.Length + standardHeader.Length <= 65533 || !allowExtendedXmp)
+                WriteJpegSegment(output, 0xe1, Combine(standardHeader, text));
+            else
+                WriteExtendedJpegXmp(output, text, standardHeader, token);
         }
         else
         {
@@ -157,6 +162,31 @@ internal static class SdrDerivativeMetadata
             offset += piece.Length;
         }
         return result;
+    }
+
+    private static void WriteExtendedJpegXmp(Stream stream, byte[] text, byte[] standardHeader, CancellationToken token)
+    {
+        // Adobe's Extended XMP stores the complete packet in ordered APP1 chunks. MD5 is
+        // the format's packet identifier, not a security or source-integrity checksum.
+        string identifier = Convert.ToHexString(MD5.HashData(text));
+        const string noteNamespace = "http://ns.adobe.com/xmp/note/";
+        var main = XmpMetaFactory.Create();
+        XmpMetaFactory.SchemaRegistry.RegisterNamespace(noteNamespace, "xmpNote");
+        main.SetProperty(noteNamespace, "HasExtendedXMP", identifier);
+        var packet = Encoding.UTF8.GetBytes(XmpMetaFactory.SerializeToString(main,
+            new SerializeOptions { OmitPacketWrapper = true }));
+        WriteJpegSegment(stream, 0xe1, Combine(standardHeader, packet));
+        byte[] header = Combine("http://ns.adobe.com/xmp/extension/\0"u8.ToArray(),
+            Encoding.ASCII.GetBytes(identifier), new byte[8]);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(header.Length - 8), (uint)text.Length);
+        int chunkSize = 65533 - header.Length;
+        for (int offset = 0; offset < text.Length; offset += chunkSize)
+        {
+            token.ThrowIfCancellationRequested();
+            BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(header.Length - 4), (uint)offset);
+            WriteJpegSegment(stream, 0xe1, Combine(header, text.AsSpan(offset,
+                Math.Min(chunkSize, text.Length - offset)).ToArray()));
+        }
     }
 
     private static void WriteJpegSegment(Stream stream, byte marker, byte[] data)

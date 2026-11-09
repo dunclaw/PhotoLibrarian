@@ -14,6 +14,40 @@ public sealed class StabilizedVideoLibraryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task FusedStillCopyIsIndexedRevealedAndSelected(bool outsideFolder)
+    {
+        await using var library = await LibraryFixture.CreateAsync();
+        var main = library.Main;
+        var source = Path.Combine(library.Photos, "original.png");
+        var pixels = RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 256, 256);
+        await RenderQualityFixtures.WriteImageAsync(source, 256, 256, pixels);
+        await main.IndexRawDerivativeAsync(source);
+        await main.ImageGrid.FilterByFolderAsync(library.Photos);
+        if (outsideFolder) await main.ImageGrid.ApplySearchAsync("no match");
+        var outputFolder = outsideFolder ? library.Root : library.Photos;
+        var output = Path.Combine(outputFolder, "original - Fused.png");
+        await RenderQualityFixtures.WriteImageAsync(output, 256, 256, pixels);
+
+        await main.RevealPhotoFuseCopyAsync(output);
+
+        var indexed = await library.Images.GetByPathAsync(output);
+        Assert.NotNull(indexed);
+        Assert.Equal(MediaType.Image, indexed.MediaType);
+        Assert.Equal(output, main.ImageGrid.SelectedImage?.Entry.FilePath);
+        Assert.Equal(output, Assert.Single(main.ImageGrid.SelectedImages).Entry.FilePath);
+        Assert.False(main.ImageViewer.IsOpen);
+        await main.RefreshAfterIndexAsync();
+        await main.ImageGrid.SortByNameCommand.ExecuteAsync(null);
+        Assert.Equal(output, main.ImageGrid.SelectedImage?.Entry.FilePath);
+        await main.ImageGrid.ApplySearchAsync("no match");
+        Assert.Empty(main.ImageGrid.Images);
+        Assert.True(File.Exists(source));
+        Assert.True(File.Exists(output));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task PanoramaIsIndexedOpenedAndSelectedInTheGrid(bool filtered)
     {
         await using var library = await LibraryFixture.CreateAsync();
@@ -210,8 +244,11 @@ public sealed class StabilizedVideoLibraryTests
         public TaskCompletionSource<(SendOrPostCallback Callback, object? State)> Continuation { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public override void Post(SendOrPostCallback callback, object? state) =>
-            Continuation.SetResult((callback, state));
+        public override void Post(SendOrPostCallback callback, object? state)
+        {
+            if (!Continuation.TrySetResult((callback, state)))
+                ThreadPool.QueueUserWorkItem(_ => callback(state));
+        }
     }
 
     private sealed class LibraryFixture : IAsyncDisposable
@@ -247,7 +284,8 @@ public sealed class StabilizedVideoLibraryTests
                 new AutoTaggingSettingsStore(Path.Combine(Root, "settings.json")), models,
                 new AutoTagBenchmarkProcessor(models, tagger),
                 new SelectedPhotoAutoTagReviewProcessor(models, tagger),
-                activity);
+                activity,
+                new PhotoLibrarian.Services.GridLayoutSettingsStore(Path.Combine(Root, "grid-layout.json")));
         }
 
         public static async Task<LibraryFixture> CreateAsync()

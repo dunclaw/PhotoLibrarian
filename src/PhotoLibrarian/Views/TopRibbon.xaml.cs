@@ -2,6 +2,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using PhotoLibrarian.Services;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Core.Models;
@@ -11,6 +12,9 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class TopRibbon : UserControl
 {
+    private bool _photoFuseActive;
+    private bool _canUndo;
+    private bool _canRedo;
     public event EventHandler? CropClicked;
     public event EventHandler? MakeCopyClicked;
     public event EventHandler? StraightenClicked;
@@ -25,6 +29,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? SlideshowClicked;
     public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
     public event EventHandler? StabilizeVideoClicked;
+    public event EventHandler? PhotoFuseClicked;
     public event EventHandler? EditVideoClicked;
     public event EventHandler? TrimVideoClicked;
     public event EventHandler? ApplyCropClicked;
@@ -40,8 +45,10 @@ public sealed partial class TopRibbon : UserControl
 
     public void SetHistoryAvailability(bool canUndo, bool canRedo)
     {
-        UndoButton.IsEnabled = canUndo;
-        RedoButton.IsEnabled = canRedo;
+        _canUndo = canUndo;
+        _canRedo = canRedo;
+        UndoButton.IsEnabled = canUndo && !_photoFuseActive;
+        RedoButton.IsEnabled = canRedo && !_photoFuseActive;
     }
 
     /// <summary>Set the centered context label (e.g. file name being viewed).</summary>
@@ -62,6 +69,25 @@ public sealed partial class TopRibbon : UserControl
         StraightenTools.Visibility = Visibility.Collapsed;
         SetContextSubLabel(null);
     }
+
+    public void SetPhotoFuseMode(bool active)
+    {
+        _photoFuseActive = active;
+        MakeCopyButton.IsEnabled = !active;
+        CropButton.IsEnabled = !active;
+        StraightenButton.IsEnabled = !active;
+        AdjustButton.IsEnabled = !active;
+        EffectsButton.IsEnabled = !active;
+        RetouchButton.IsEnabled = !active;
+        SetHistoryAvailability(_canUndo, _canRedo);
+        RedEyeButton.IsEnabled = !active;
+        SlideshowButton.IsEnabled = !active;
+        PhotoFuseCaption.Text = PhotoFuseStrings.Get(active ? "FuseSaveExit" : "FuseTitle");
+        AutomationProperties.SetName(PhotoFuseButton, PhotoFuseCaption.Text);
+        SetContextSubLabel(active ? PhotoFuseStrings.Get("FuseHint") : null);
+    }
+
+    public void PhotoFuseButtonEnabled(bool enabled) => PhotoFuseButton.IsEnabled = enabled;
 
     /// <summary>Switch the ribbon into crop sub-mode (replaces standard viewer tools with Apply/Cancel/Aspect).</summary>
     public void EnterCropMode()
@@ -125,6 +151,7 @@ public sealed partial class TopRibbon : UserControl
     }
 
     private void OnCropClick(object sender, RoutedEventArgs e) => CropClicked?.Invoke(this, EventArgs.Empty);
+    private void OnPhotoFuseClick(object sender, RoutedEventArgs e) => PhotoFuseClicked?.Invoke(this, EventArgs.Empty);
     private void OnMakeCopyClick(object sender, RoutedEventArgs e) =>
         MakeCopyClicked?.Invoke(this, EventArgs.Empty);
     private void OnStraightenClick(object sender, RoutedEventArgs e) =>

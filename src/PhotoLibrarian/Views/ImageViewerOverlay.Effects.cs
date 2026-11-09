@@ -19,6 +19,7 @@ public sealed partial class ImageViewerOverlay
 
     public async Task ShowEffectsAsync(FrameworkElement anchor)
     {
+        if (IsPhotoFusing) return;
         var entry = ViewModel?.CurrentEntry;
         if (entry?.MediaType != MediaType.Image) return;
         StopFocusGuard();
@@ -79,7 +80,7 @@ public sealed partial class ImageViewerOverlay
     public async Task MoveEffectHistoryAsync(bool undo)
     {
         var vm = ViewModel;
-        if (vm is null || IsCropping || IsStraightening || IsRedEyeRemoving ||
+        if (vm is null || IsPhotoFusing || IsCropping || IsStraightening || IsRedEyeRemoving ||
             !(undo ? vm.CanUndoEffect : vm.CanRedoEffect)) return;
         EffectsGallery.IsEnabled = false;
         try
@@ -97,7 +98,7 @@ public sealed partial class ImageViewerOverlay
 
     private async void OnEffectSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_syncingEffect || EffectsGallery.SelectedItem is not EffectGalleryItem item ||
+        if (IsPhotoFusing || _syncingEffect || EffectsGallery.SelectedItem is not EffectGalleryItem item ||
             ViewModel?.CurrentEntry is null || ViewModel.IsApplyingEffect ||
             !ReferenceEquals(_effectsEntry, ViewModel.CurrentEntry)) return;
         EffectsGallery.IsEnabled = false;

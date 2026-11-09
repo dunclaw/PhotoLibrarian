@@ -128,6 +128,17 @@
                         <TextBlock Text="Red eye" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="PhotoFuseButton" Click="OnPhotoFuseClick"
+                        x:Uid="FuseViewerLaunch"
+                        Style="{StaticResource RibbonCommandStyle}"
+                        AutomationProperties.AutomationId="RibbonPhotoFuse"
+                        AutomationProperties.Name="Photo Fuse"
+                        ToolTipService.ToolTip="Replace a face from a nearby group photo">
+                    <StackPanel Spacing="4">
+                        <FontIcon Glyph="&#xE8D4;" Style="{StaticResource RibbonIconStyle}" />
+                        <TextBlock x:Name="PhotoFuseCaption" Text="Photo Fuse" Style="{StaticResource RibbonCaptionStyle}" />
+                    </StackPanel>
+                </Button>
                 <SplitButton x:Name="SlideshowButton" Click="OnSlideshowClick"
                              Padding="12,4" MinWidth="64" MinHeight="56"
                              VerticalAlignment="Stretch"

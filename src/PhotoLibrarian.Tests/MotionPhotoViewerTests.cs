@@ -42,7 +42,10 @@ public sealed class MotionPhotoViewerTests
         Assert.Single(button.Elements(), element => element.Name.LocalName == "FontIcon");
         Assert.DoesNotContain(controls, element => (string?)element.Attribute(x + "Name") == "MotionPhotoTools");
         var rootGrid = controls.Single(element => (string?)element.Attribute(x + "Name") == "RootGrid");
-        Assert.Equal(2, rootGrid.Elements().Single(element => element.Name.LocalName == "Grid.RowDefinitions").Elements().Count());
+        Assert.Equal(3, rootGrid.Elements().Single(element => element.Name.LocalName == "Grid.RowDefinitions").Elements().Count());
+        Assert.Equal("1", (string?)player.Attribute("Grid.Row"));
+        var fuseStatus = controls.Single(element => (string?)element.Attribute(x + "Name") == "FuseStatusBar");
+        Assert.Equal("2", (string?)fuseStatus.Attribute("Grid.Row"));
         var standalone = controls.Single(element => (string?)element.Attribute(x + "Name") == "VideoPlayer");
         Assert.Equal("True", (string?)standalone.Attribute("AutoPlay"));
         var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"));

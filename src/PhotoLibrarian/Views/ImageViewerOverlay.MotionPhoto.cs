@@ -144,6 +144,7 @@ public sealed partial class ImageViewerOverlay
 
     private async Task StartMotionPlaybackAsync(string path, CancellationTokenSource lifetime)
     {
+        if (IsPhotoFusing || ViewModel?.IsPhotoFuseActive == true) return;
         if (_motionPlayer is not null || _motionPlaybackCancellation is not null ||
             !IsCurrentMotion(path, lifetime) || IsCropping || IsStraightening ||
             IsRedEyeRemoving || IsManualFaceTagging) return;

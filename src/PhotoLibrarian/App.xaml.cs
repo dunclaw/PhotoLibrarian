@@ -117,7 +117,9 @@ public partial class App : Application
             autoTagModelManager,
             autoTagBenchmarkProcessor,
             selectedPhotoAutoTagReviewProcessor,
-            activityGate);
+            activityGate,
+            photoFuseFaces: new FaceLibraryProcessor(faceRepo,
+                new LocalFaceModelProvider(sessionManager), faceDetectionService, faceEmbeddingService));
 
         _window = new MainWindow();
         LibraryInitialization = ViewModel.InitializeAsync();
