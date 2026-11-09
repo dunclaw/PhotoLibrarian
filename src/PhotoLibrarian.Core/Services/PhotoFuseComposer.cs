@@ -8,27 +8,20 @@ internal static class PhotoFuseComposer
 {
     private static readonly double[] Linear = Enumerable.Range(0, 256).Select(value => ToLinear(value)).ToArray();
 
-    internal static byte[] Render(IReadOnlyList<byte[]> frames, IReadOnlyList<PhotoFuseTransform> transforms,
+    internal sealed record Rendering(byte[]? Pixels, string? Rejection);
+
+    internal static Rendering TryRender(IReadOnlyList<byte[]> frames, IReadOnlyList<PhotoFuseTransform> transforms,
         int width, int height, IReadOnlyList<PhotoFuseRegion> regions, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        for (int i = 0; i < regions.Count; i++)
-        for (int j = i + 1; j < regions.Count; j++)
-        {
-            var region = regions[i];
-            var other = regions[j];
-            if (region.Left < other.Left + (long)other.Width && other.Left < region.Left + (long)region.Width &&
-                region.Top < other.Top + (long)other.Height && other.Top < region.Top + (long)region.Height)
-                throw new ArgumentException("Regions must not overlap. Remove or resize an existing region.");
-        }
+        string? rejection = CheckRegions(frames, transforms, width, height, regions, token);
+        if (rejection is not null) return new(null, rejection);
         var output = (byte[])frames[0].Clone();
         foreach (var region in regions)
         {
-            Validate(region, transforms, width, height);
             var donor = frames[region.Frame];
             var transform = transforms[region.Frame];
             int feather = Math.Clamp(Math.Min(region.Width, region.Height) / 8, 2, 16);
-            ValidateBoundary(donor, frames[0], transform, width, height, region, feather, token);
             for (int y = region.Top; y < region.Top + region.Height; y++)
             {
                 token.ThrowIfCancellationRequested();
@@ -49,7 +42,33 @@ internal static class PhotoFuseComposer
                 }
             }
         }
-        return output;
+        return new(output, null);
+    }
+
+    internal static string? CheckRegions(IReadOnlyList<byte[]> frames, IReadOnlyList<PhotoFuseTransform> transforms,
+        int width, int height, IReadOnlyList<PhotoFuseRegion> regions, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        for (int i = 0; i < regions.Count; i++)
+        for (int j = i + 1; j < regions.Count; j++)
+        {
+            var region = regions[i];
+            var other = regions[j];
+            if (region.Left < other.Left + (long)other.Width && other.Left < region.Left + (long)region.Width &&
+                region.Top < other.Top + (long)other.Height && other.Top < region.Top + (long)region.Height)
+                return "Regions must not overlap. Remove or resize an existing region.";
+        }
+        foreach (var region in regions)
+        {
+            string? rejection = Validate(region, transforms, width, height);
+            if (rejection is not null) return rejection;
+            var donor = frames[region.Frame];
+            var transform = transforms[region.Frame];
+            int feather = Math.Clamp(Math.Min(region.Width, region.Height) / 8, 2, 16);
+            rejection = ValidateBoundary(donor, frames[0], transform, width, height, region, feather, token);
+            if (rejection is not null) return rejection;
+        }
+        return null;
     }
 
     internal static byte[] AlignedPreview(byte[] donor, byte[] basis, PhotoFuseTransform transform,
@@ -71,23 +90,24 @@ internal static class PhotoFuseComposer
         return output;
     }
 
-    private static void Validate(PhotoFuseRegion region,
+    private static string? Validate(PhotoFuseRegion region,
         IReadOnlyList<PhotoFuseTransform> transforms, int width, int height)
     {
         if (region.Frame < 1 || region.Frame >= transforms.Count || region.Left < 0 || region.Top < 0 ||
             region.Width < 16 || region.Height < 16 || region.Width > width || region.Height > height ||
             region.Left > width - region.Width || region.Top > height - region.Height)
-            throw new ArgumentException("Choose a donor and a region at least 16 pixels wide and high, inside the base.");
+            return "Choose a donor and a region at least 16 pixels wide and high, inside the base.";
         foreach (int y in new[] { region.Top, region.Top + region.Height - 1 })
         foreach (int x in new[] { region.Left, region.Left + region.Width - 1 })
         {
             var p = transforms[region.Frame].SourceAt(x, y, width, height);
             if (!PhotoFuseRegistration.Inside(p.X, p.Y, width, height))
-                throw new ArgumentException("This region extends outside the aligned donor. Move it away from the edge.");
+                return "This region extends outside the aligned donor. Move it away from the edge.";
         }
+        return null;
     }
 
-    private static void ValidateBoundary(byte[] donor, byte[] basis, PhotoFuseTransform transform,
+    private static string? ValidateBoundary(byte[] donor, byte[] basis, PhotoFuseTransform transform,
         int width, int height, PhotoFuseRegion region, int feather, CancellationToken token)
     {
         int count = 0, inliers = 0;
@@ -109,8 +129,9 @@ internal static class PhotoFuseComposer
             }
         }
         if (count == 0 || inliers < count * 0.90)
-            throw new InvalidDataException("This region's border does not match the base. Include stationary " +
-                "background around the entire subject, or use another shot. No composite was accepted.");
+            return "This face has moved too much for a clean replacement from this shot. " +
+                "Choose another replacement; the previous preview has not changed.";
+        return null;
     }
 
     private static double ToLinear(double value)

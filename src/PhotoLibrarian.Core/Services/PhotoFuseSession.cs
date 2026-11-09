@@ -30,6 +30,8 @@ public sealed class PhotoFusePreview
 /// </summary>
 public sealed class PhotoFuseSession : IDisposable
 {
+    public sealed record Preparation(PhotoFuseSession? Session, string? Rejection);
+    public sealed record Rendering(PhotoFusePreview? Preview, string? Rejection);
     public const int MaximumDimension = 1600;
     // Frame count is determined by decoded memory, not the number of nearby photos searched.
     public const long MaximumFrameBytes = 192L * 1024 * 1024;
@@ -54,7 +56,7 @@ public sealed class PhotoFuseSession : IDisposable
     public static bool IsSupported(string path) =>
         Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png";
 
-    public static async Task<PhotoFuseSession> PrepareAsync(IReadOnlyList<string> paths,
+    public static async Task<Preparation> TryPrepareAsync(IReadOnlyList<string> paths,
         CancellationToken token = default)
     {
         ArgumentNullException.ThrowIfNull(paths);
@@ -70,13 +72,15 @@ public sealed class PhotoFuseSession : IDisposable
             {
                 token.ThrowIfCancellationRequested();
                 if (!IsSupported(path))
-                    throw new NotSupportedException("Photo Fuse supports only opaque JPEG and 8-bit PNG stills.");
+                    return session.Reject("Photo Fuse supports only opaque JPEG and 8-bit PNG stills.");
                 var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
                 session._leases.Add(lease);
                 if (lease.Length > 100 * 1024 * 1024)
-                    throw new NotSupportedException("Each compressed source must be at most 100 MiB.");
+                    return session.Reject("Each compressed source must be at most 100 MiB.");
                 if (Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase))
-                    RejectAnimatedPng(lease);
+                {
+                    if (IsAnimatedPng(lease)) return session.Reject("Animated PNG sources are not supported.");
+                }
                 else
                 {
                     var signature = new byte[3];
@@ -93,7 +97,8 @@ public sealed class PhotoFuseSession : IDisposable
                         session._leases.Add(sidecarLease);
                         if (sidecarLease.Length > 4 * 1024 * 1024)
                             throw new InvalidDataException("A source metadata sidecar is too large to inspect safely.");
-                        RejectRecipe(XmpMetaFactory.Parse(sidecarLease));
+                        if (CheckRecipe(XmpMetaFactory.Parse(sidecarLease)) is { } recipe)
+                            return session.Reject(recipe);
                     }
                     else session._absentSidecars.Add(sidecar);
                 }
@@ -102,7 +107,7 @@ public sealed class PhotoFuseSession : IDisposable
                 {
                     if (xmp.HasError || xmp.XmpMeta is null)
                         throw new InvalidDataException("Source XMP could not be read. Resolve its metadata before fusing.");
-                    RejectRecipe(xmp.XmpMeta);
+                    if (CheckRecipe(xmp.XmpMeta) is { } recipe) return session.Reject(recipe);
                 }
                 // Decode with the same lease used for hashing; replacement races cannot change the image.
                 session._hashes.Add(Convert.ToHexString(await SHA256.HashDataAsync(lease, token)));
@@ -112,17 +117,17 @@ public sealed class PhotoFuseSession : IDisposable
                     (long)decoder.PixelWidth * decoder.PixelHeight > 100_000_000 ||
                     decoder.BitmapPixelFormat is not (BitmapPixelFormat.Bgra8 or BitmapPixelFormat.Rgba8 or
                         BitmapPixelFormat.Gray8))
-                    throw new NotSupportedException("Use single-frame 8-bit stills between 192 pixels and 100 megapixels.");
+                    return session.Reject("Use single-frame 8-bit stills between 192 pixels and 100 megapixels.");
                 if (originalWidth == 0)
                     (originalWidth, originalHeight) = (decoder.OrientedPixelWidth, decoder.OrientedPixelHeight);
                 else if (originalWidth != decoder.OrientedPixelWidth || originalHeight != decoder.OrientedPixelHeight)
-                    throw new NotSupportedException("All shots must have identical oriented source dimensions.");
+                    return session.Reject("All shots must have identical oriented source dimensions.");
                 double scale = Math.Min(1, MaximumDimension / (double)Math.Max(
                     decoder.OrientedPixelWidth, decoder.OrientedPixelHeight));
                 long frameBytes = checked((long)Math.Round(decoder.OrientedPixelWidth * scale) *
                     (long)Math.Round(decoder.OrientedPixelHeight * scale) * 4);
                 if (frameBytes * (session._frames.Count + 1) > MaximumFrameBytes)
-                    throw new NotSupportedException("The selected replacements exceed Photo Fuse's decoded-memory budget. " +
+                    return session.Reject("The selected replacements exceed Photo Fuse's decoded-memory budget. " +
                         "Use fewer different donor photos; nearby-photo discovery itself has no photo-count limit.");
                 var transform = new BitmapTransform
                 {
@@ -140,19 +145,28 @@ public sealed class PhotoFuseSession : IDisposable
                     throw new InvalidDataException("The decoded orientation or dimensions are inconsistent.");
                 for (int i = 3; i < pixels.Length; i += 4)
                     if (pixels[i] != 255)
-                        throw new NotSupportedException("Transparent sources are not supported.");
+                        return session.Reject("Transparent sources are not supported.");
                 if (session._frames.Count == 0)
                     (session.Width, session.Height) = (width, height);
                 else if (session.Width != width || session.Height != height)
-                    throw new NotSupportedException("All shots must have identical oriented preview dimensions and aspect ratio.");
-                var registration = session._frames.Count == 0 ? default : await Task.Run(
-                    () => PhotoFuseRegistration.Register(pixels, session._frames[0], width, height, token), token);
+                    return session.Reject("All shots must have identical oriented preview dimensions and aspect ratio.");
+                PhotoFuseTransform registration = default;
+                if (session._frames.Count != 0)
+                {
+                    var result = await Task.Run(
+                        () => PhotoFuseRegistration.TryRegister(pixels, session._frames[0], width, height, token), token);
+                    if (result.Transform is not { } accepted)
+                    {
+                        return session.Reject(result.Reason!);
+                    }
+                    registration = accepted;
+                }
                 session._transforms.Add(registration);
                 session._frames.Add(pixels);
                 session._names.Add(Path.GetFileName(path));
             }
             token.ThrowIfCancellationRequested();
-            return session;
+            return new(session, null);
         }
         catch
         {
@@ -161,7 +175,13 @@ public sealed class PhotoFuseSession : IDisposable
         }
     }
 
-    private static void RejectRecipe(IXmpMeta xmp)
+    private Preparation Reject(string reason)
+    {
+        Dispose();
+        return new(null, reason);
+    }
+
+    private static string? CheckRecipe(IXmpMeta xmp)
     {
         string xml = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions { OmitPacketWrapper = true });
         var defaults = XmpMetaFactory.Create();
@@ -172,8 +192,8 @@ public sealed class PhotoFuseSession : IDisposable
         foreach (var property in Properties(xml, Models.EditParameters.XmpNamespace))
         {
             if (!defaultValues.TryGetValue(property.Name, out var value) || !SameValue(value, property.Value))
-                throw new NotSupportedException("This photo has unapplied PhotoLibrarian adjustments. " +
-                    "Apply them or make an adjusted copy before using Photo Fuse. The original has not been changed.");
+                return "This photo has unapplied PhotoLibrarian adjustments. " +
+                    "Apply them or make an adjusted copy before using Photo Fuse. The original has not been changed.";
         }
         // An Adobe namespace declaration, camera profile or processing history is not an edit.
         // JPEGs commonly carry these even when the user has never edited them.
@@ -181,9 +201,10 @@ public sealed class PhotoFuseSession : IDisposable
         {
             if (property.Name is "HasSettings" or "HasCrop" &&
                 property.Value.Equals("True", StringComparison.OrdinalIgnoreCase))
-                throw new NotSupportedException("This photo's metadata marks Adobe adjustments as pending. " +
-                    "Use a rendered JPEG/PNG copy with those pending settings cleared before fusing.");
+                return "This photo's metadata marks Adobe adjustments as pending. " +
+                    "Use a rendered JPEG/PNG copy with those pending settings cleared before fusing.";
         }
+        return null;
     }
 
     private static IEnumerable<(string Name, string Value)> Properties(string xml, string ns)
@@ -204,7 +225,7 @@ public sealed class PhotoFuseSession : IDisposable
             double.TryParse(right, NumberStyles.Float, CultureInfo.InvariantCulture, out var b) &&
             double.IsFinite(a) && a == b);
 
-    private static void RejectAnimatedPng(FileStream stream)
+    private static bool IsAnimatedPng(FileStream stream)
     {
         Span<byte> header = stackalloc byte[8];
         stream.ReadExactly(header);
@@ -217,12 +238,13 @@ public sealed class PhotoFuseSession : IDisposable
             if (length > stream.Length - stream.Position)
                 throw new InvalidDataException("The selected PNG is truncated.");
             if (header[4..].SequenceEqual("acTL"u8))
-                throw new NotSupportedException("Animated PNG sources are not supported.");
+                return true;
             // APNG's animation control chunk must precede the first image data.
             if (header[4..].SequenceEqual("IDAT"u8)) break;
             stream.Seek(length, SeekOrigin.Current);
         }
         stream.Position = 0;
+        return false;
     }
 
     public Task<byte[]> GetAlignedFrameAsync(int index, CancellationToken token = default)
@@ -233,14 +255,24 @@ public sealed class PhotoFuseSession : IDisposable
             _transforms[index], Width, Height, token), token);
     }
 
-    public Task<PhotoFusePreview> PreviewAsync(IReadOnlyList<PhotoFuseRegion> regions,
+    public string? CheckRegions(IReadOnlyList<PhotoFuseRegion> regions, CancellationToken token = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return PhotoFuseComposer.CheckRegions(_frames, _transforms, Width, Height, regions, token);
+    }
+
+    public Task<Rendering> TryPreviewAsync(IReadOnlyList<PhotoFuseRegion> regions,
         CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var snapshot = regions.ToArray();
         if (snapshot.Length == 0) throw new ArgumentException("Add at least one donor region before previewing.");
-        return Task.Run(() => new PhotoFusePreview(this,
-            PhotoFuseComposer.Render(_frames, _transforms, Width, Height, snapshot, token), snapshot), token);
+        return Task.Run(() =>
+        {
+            var result = PhotoFuseComposer.TryRender(_frames, _transforms, Width, Height, snapshot, token);
+            return new Rendering(result.Pixels is { } pixels ? new PhotoFusePreview(this, pixels, snapshot) : null,
+                result.Rejection);
+        }, token);
     }
 
     public async Task<string> ExportAsync(PhotoFusePreview preview, string folder, bool confirmed,

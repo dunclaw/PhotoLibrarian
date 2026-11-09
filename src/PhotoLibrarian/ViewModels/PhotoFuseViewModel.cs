@@ -66,7 +66,13 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
             Status = PhotoFuseStrings.Get("FuseFindingFaces");
             var basis = _basis ?? throw new InvalidOperationException("Open a photo first.");
             // Validate the base before scanning; no writes to invalid/pending-edit sources.
-            using (var initial = await PhotoFuseSession.PrepareAsync([basis.FilePath], token))
+            var prepared = await PhotoFuseSession.TryPrepareAsync([basis.FilePath], token);
+            if (prepared.Session is not { } initial)
+            {
+                Status = PhotoFuseStrings.Format("FusePreparingFailed", prepared.Rejection);
+                return;
+            }
+            using (initial)
             {
                 if (_baseHash is not null && initial.SourceHashes[0] != _baseHash)
                     throw new IOException("The original photo changed. Exit Photo Fuse and refresh the library.");
@@ -112,13 +118,28 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
                         scanWarning ??= ex.Message;
                         donorFaces = await _faces(image);
                     }
-                    using var pair = await PhotoFuseSession.PrepareAsync([basis.FilePath, image.FilePath], token);
+                    var preparation = await PhotoFuseSession.TryPrepareAsync([basis.FilePath, image.FilePath], token);
+                    if (preparation.Session is not { } pair)
+                    {
+                        rejected++;
+                        Core.Diagnostics.DebugLog.WriteLine($"Photo Fuse skipped {image.FileName}: {preparation.Rejection}");
+                        continue;
+                    }
+                    using var pairLease = pair;
                     if (pair.SourceHashes[0] != _baseHash)
                         throw new IOException("The original photo changed during discovery.");
                     bool hasMatch = false;
                     foreach (var face in Faces)
                     {
                         var candidates = PhotoFuseFaceMatcher.Nearby(face, donorFaces, pair);
+                        if (candidates.Count == 0) continue;
+                        string? seam = await Task.Run(() => pair.CheckRegions(
+                            [PhotoFuseFaceMatcher.Region(face, 1, Width, Height)], token), token);
+                        if (seam is not null)
+                        {
+                            Core.Diagnostics.DebugLog.WriteLine($"Photo Fuse skipped face {face.Id} in {image.FileName}: {seam}");
+                            continue;
+                        }
                         if (!_replacements.TryGetValue(face.Id, out var list))
                             _replacements[face.Id] = list = [];
                         foreach (var candidate in candidates)
@@ -177,7 +198,13 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
             _session?.Dispose();
             _session = null;
             _preview = null;
-            next = await PhotoFuseSession.PrepareAsync(paths, token);
+            var preparation = await PhotoFuseSession.TryPrepareAsync(paths, token);
+            next = preparation.Session;
+            if (next is null)
+            {
+                Status = PhotoFuseStrings.Format("FuseReplacementFailed", preparation.Rejection);
+                return;
+            }
             if (next.SourceHashes[0] != _baseHash)
                 throw new IOException("The original photo changed. Exit Photo Fuse and refresh the library.");
             var regions = new List<PhotoFuseRegion>();
@@ -195,7 +222,17 @@ public partial class PhotoFuseViewModel : ObservableObject, IDisposable
             }
             if (regions.Count != choices.Count)
                 throw new IOException("A selected face changed during rescanning. Discard replacements and start again.");
-            var preview = regions.Count == 0 ? null : await next.PreviewAsync(regions, token);
+            PhotoFusePreview? preview = null;
+            if (regions.Count != 0)
+            {
+                var rendering = await next.TryPreviewAsync(regions, token);
+                if (rendering.Preview is null)
+                {
+                    Status = PhotoFuseStrings.Format("FuseReplacementFailed", rendering.Rejection);
+                    return;
+                }
+                preview = rendering.Preview;
+            }
             DisplayPixels = preview?.CopyPixels() ?? _basePixels;
             _selected.Clear();
             foreach (var choice in choices) _selected.Add(choice.Key, choice.Value);

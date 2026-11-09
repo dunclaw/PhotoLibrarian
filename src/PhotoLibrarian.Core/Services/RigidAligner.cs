@@ -156,35 +156,42 @@ internal static class RigidAligner
     /// rotation. Returns null when the alignment fails to converge or too little of the image agrees.
     /// </summary>
     public static Result? Align(AlignmentImage current, AlignmentImage reference,
-        VideoFrameStabilizer.Motion guess, CancellationToken cancellationToken)
+        VideoFrameStabilizer.Motion guess, CancellationToken cancellationToken, bool fitShear = true)
     {
         (double X, double Y) shear = default;
         if (current.Coarser is { } coarseCurrent && reference.Coarser is { } coarseReference)
         {
             var coarseGuess = guess with { X = guess.X / 2, Y = guess.Y / 2 };
-            if (AlignLevel(coarseCurrent, coarseReference, coarseGuess, default, cancellationToken) is { } coarse)
+            if (AlignLevel(coarseCurrent, coarseReference, coarseGuess, default, cancellationToken, fitShear) is { } coarse)
             {
                 guess = coarse.Motion with { X = coarse.Motion.X * 2, Y = coarse.Motion.Y * 2 };
                 shear = (coarse.Shear.X * 2, coarse.Shear.Y * 2);
             }
         }
-        return AlignLevel(current, reference, guess, shear, cancellationToken);
+        return AlignLevel(current, reference, guess, shear, cancellationToken, fitShear);
     }
 
     private sealed class Accumulator
     {
-        public readonly double[] Hessian = new double[Parameters * Parameters];
-        public readonly double[] Gradient = new double[Parameters];
+        public readonly double[] Hessian;
+        public readonly double[] Gradient;
         public int Valid, Inliers;
+        public Accumulator(int parameters)
+        {
+            Hessian = new double[parameters * parameters];
+            Gradient = new double[parameters];
+        }
     }
 
     private static Result? AlignLevel(AlignmentImage current, AlignmentImage reference,
-        VideoFrameStabilizer.Motion guess, (double X, double Y) shearGuess, CancellationToken cancellationToken)
+        VideoFrameStabilizer.Motion guess, (double X, double Y) shearGuess, CancellationToken cancellationToken,
+        bool fitShear)
     {
         int width = current.Width, height = current.Height;
         var samples = current.Samples;
         if (reference.Width != width || reference.Height != height) return null;
         if (samples.Length < MinimumSamples) return null;
+        int parameters = fitShear ? Parameters : 4;
 
         double centerX = (width - 1) / 2.0, centerY = (height - 1) / 2.0;
         double x = guess.X, y = guess.Y, angle = guess.Angle, offset = 0;
@@ -196,11 +203,11 @@ internal static class RigidAligner
             cancellationToken.ThrowIfCancellationRequested();
             var (sin, cos) = Math.SinCos(angle);
             double threshold = Math.Max(4, 4.685 * scaleEstimate);
-            var total = new Accumulator();
+            var total = new Accumulator(parameters);
             var residuals = new float[samples.Length];
             object gate = new();
             Parallel.For(0, samples.Length, new ParallelOptions { CancellationToken = cancellationToken },
-                () => new Accumulator(),
+                () => new Accumulator(parameters),
                 (s, _, local) =>
                 {
                     int index = samples[s];
@@ -227,11 +234,11 @@ internal static class RigidAligner
                     double weight = (1 - ratio * ratio) * (1 - ratio * ratio);
                     double jAngle = gx * (-sin * px - cos * py) + gy * (cos * px - sin * py);
                     Span<double> jacobian = stackalloc double[] { gx, gy, jAngle, 1, gx * row, gy * row };
-                    for (int r = 0; r < Parameters; r++)
+                    for (int r = 0; r < parameters; r++)
                     {
                         local.Gradient[r] += weight * jacobian[r] * error;
-                        for (int c = r; c < Parameters; c++)
-                            local.Hessian[r * Parameters + c] += weight * jacobian[r] * jacobian[c];
+                        for (int c = r; c < parameters; c++)
+                            local.Hessian[r * parameters + c] += weight * jacobian[r] * jacobian[c];
                     }
                     return local;
                 },
@@ -240,7 +247,7 @@ internal static class RigidAligner
                     lock (gate)
                     {
                         for (int k = 0; k < local.Hessian.Length; k++) total.Hessian[k] += local.Hessian[k];
-                        for (int k = 0; k < Parameters; k++) total.Gradient[k] += local.Gradient[k];
+                        for (int k = 0; k < parameters; k++) total.Gradient[k] += local.Gradient[k];
                         total.Valid += local.Valid;
                         total.Inliers += local.Inliers;
                     }
@@ -249,22 +256,25 @@ internal static class RigidAligner
             if (total.Inliers < MinimumSamples) return null;
             scaleEstimate = Math.Max(1, RobustScale(residuals));
 
-            for (int r = 0; r < Parameters; r++)
-                for (int c = 0; c < r; c++) total.Hessian[r * Parameters + c] = total.Hessian[c * Parameters + r];
+            for (int r = 0; r < parameters; r++)
+                for (int c = 0; c < r; c++) total.Hessian[r * parameters + c] = total.Hessian[c * parameters + r];
             if (Solve(total.Hessian, total.Gradient) is not { } step) return null;
             x -= step[0];
             y -= step[1];
             angle -= step[2];
             offset -= step[3];
-            shearX -= step[4];
-            shearY -= step[5];
+            if (fitShear)
+            {
+                shearX -= step[4];
+                shearY -= step[5];
+            }
             if (!double.IsFinite(x) || Math.Abs(angle) > 0.3 ||
                 Math.Abs(x - guess.X) > width / 8.0 || Math.Abs(y - guess.Y) > height / 8.0 ||
                 Math.Abs(shearX) > width / 8.0 || Math.Abs(shearY) > height / 8.0)
                 return null;
             double radius = Math.Max(width, height) / 2.0;
             if (Math.Abs(step[0]) < 0.002 && Math.Abs(step[1]) < 0.002 && Math.Abs(step[2]) * radius < 0.002 &&
-                Math.Abs(step[4]) < 0.004 && Math.Abs(step[5]) < 0.004)
+                (!fitShear || Math.Abs(step[4]) < 0.004 && Math.Abs(step[5]) < 0.004))
                 break;
         }
         if (last is null || last.Valid == 0) return null;

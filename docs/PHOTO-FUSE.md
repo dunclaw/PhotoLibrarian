@@ -19,8 +19,11 @@ other shots. Proposals must have similar size and lie within 0.75 target-face wi
 heights of the inverse-mapped center. They are **spatial suggestions, not verified
 identities**. Choose one to preview the replacement on the full image, or choose
 **Original** to undo it. The face box is expanded by 35% on each side to leave room
-for a stationary feathered seam; incompatible borders and overlapping regions
-are rejected without replacing the accepted preview.
+for a stationary feathered seam. Discovery checks that seam before offering a
+replacement, so the flyout does not advertise a face that cannot actually be
+composited. Overlapping regions or a failed revalidation leave the accepted preview
+unchanged. Ordinary registration, seam, unsupported-format and pending-recipe
+rejections are explicit results, not exceptions used to control discovery.
 
 Use the viewer's normal zoom/1:1/pan controls to inspect eyes and seams. Click
 **Photo Fuse again** (the button reads **Save and exit Fuse**) to save the accepted
@@ -41,14 +44,23 @@ decide not to keep the replacements; it never writes a composite.
 - Use the same zoom, exposure and white balance, a textured stationary background,
   and only small camera shifts. The existing local robust rigid aligner is reused,
   without the video stabilizer's motion-guess fallback. Translation is limited to
-  3% of each analysis dimension, rotation to two degrees, and measured shear to
-  0.35 analysis pixels. Zoom/scale changes, perspective correction, parallax and
+  3% of each preview dimension and rotation to two degrees. Still photos fit
+  rotation, translation and a brightness offset, not video rolling-shutter shear.
+  Zoom/scale changes, perspective correction, parallax and
   large subject movement are unsupported; unreliable registrations are rejected,
   not quietly replaced with identity transforms.
-- Distributed texture is required in all nine analysis tiles. Competing coarse
-  translations are rejected for repeating textures. At least 85% of the aligner's
-  samples must agree, followed by an independent RGB holdout check in every tile
-  (70% within 18/255 in every channel). A selected region must be entirely inside
+- Distributed texture is required in all nine analysis tiles. Plausible distinct
+  coarse translations are refined before deciding whether the image is ambiguous.
+  Incompatible refined transforms with RGB support within two percentage points
+  are rejected, including repeating-texture aliases outside the final motion bound.
+  At least 85% of the aligner's samples must agree. The independent RGB holdout
+  grid requires 70% overall agreement within 18/255 in every channel, at least five
+  of nine tiles with 70% agreement, and no tile below 40%. This permits localized
+  movement of people without treating it as failed camera alignment.
+  Independent local rigid fits must corroborate the global transform in at least
+  five tiles (translation and corner-angle displacement within 0.4 analysis pixels).
+  This additional geometric check keeps small zoom changes and parallax from
+  passing the more movement-tolerant RGB gate. A selected region must be entirely inside
   the donor's transformed bounds. Its feather band must agree with the base
   (90% within 24/255 in every channel). These deliberately restrictive checks can
   reject a usable burst; selecting another replacement is safer than weakening them.
@@ -112,7 +124,7 @@ folder for continued library browsing.
 
 ## Reproducible checks and remaining visual review
 
-All automated fixtures are original deterministic generated data in per-test
+The standard automated fixtures are original deterministic generated data in per-test
 temporary directories. They do not touch a live library, user photos, or network
 services. No proprietary Photo Gallery code, UI assets, or algorithms are used.
 
@@ -121,18 +133,19 @@ dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Pla
 ```
 
 Fixtures cover translation/subpixel rotation, scale/parallax/occlusion rejection,
-flat/localized/repeating texture, color disagreement, independent region choices,
+flat/localized/repeating texture, color disagreement, localized moving foregrounds,
+nonthrowing rejection/lease cleanup, exclusion of broken replacement choices, independent region choices,
 bad seams, bounds/overlap, missing/unsupported/corrupt sources, all nonidentity
 EXIF orientations, transparency/high bit depth/animation rejection, stale metadata,
 leases, cancellation, concurrent naming collisions, immutable preview bytes,
 lossless stored output pixels, portable lineage, and library reveal/selection.
 
-On the development Windows x64 machine in Debug, the 384-pixel synthetic pairs
-registered in approximately **19-35 ms**, with maximum landmark errors under
+On the development Windows x64 machine in the isolated `FuseReview` configuration,
+the 384-pixel synthetic pairs registered in approximately **47-55 ms**, including
+local geometric corroboration, with maximum landmark errors under
 **0.004 pixels**. A 1600-pixel rotated/translated fixture also stayed under
-**0.004 pixels**. Four 1601-square PNG sources, including fixture encoding,
-downsampling, registration, preview and tagged export, took approximately
-**1.2-1.35 seconds**; the whole test process reported a **233-282 MiB** peak working set.
+**0.004 pixels**. The four-source fixture also exercises downsampling, registration,
+preview and tagged export and records elapsed time and peak process working set.
 These are synthetic measurements, not guarantees for real faces, image codecs,
 hardware, memory pressure or arbitrary handheld bursts.
 
@@ -155,3 +168,38 @@ Light/Dark/High Contrast, keyboard face selection, manual face drawing, scrollin
 and filesystem permissions. No identity-matching or
 photometric quality metric can prove a natural-looking composite; do not approve
 an output with visible seams or geometry errors.
+
+### Real-burst reproduction and current limitation
+
+The reported six-face group-photo case was reproduced locally, without opening
+the live library or changing source photos/sidecars. Previously all 11 capture-time
+neighbors were rejected: some by per-tile RGB agreement, some by fitting unused
+rolling-shutter shear, and most before refinement of broad coarse-search minima.
+After the changes, one neighboring shot passes registration and produces **two
+accepted face previews**; the other four faces fail the unchanged seam gate.
+The remaining neighbors are conservatively excluded by geometric/RGB checks.
+The accepted output's stored PNG pixels were compared with the reviewed buffer,
+and source/sidecar hashes and absence of new sidecars are checked.
+
+**This is an improvement, not evidence of generally reliable Photo Fuse.** The
+reported burst is still not broadly usable with the current rigid alignment and
+rectangular feather seam. Do not resolve that limitation by weakening the seam
+gate or inventing identity motion. A bounded face-local rigid refinement was also
+tried and did not improve this case; it was not retained. Broader usability needs
+better subject-local registration and seam placement, with representative visual
+review, before this feature can be considered ready for general release.
+
+An optional diagnostic regression reads only the explicitly supplied local photo
+and JPEG capture-time neighbors, uses already-installed local models without
+downloads, renders in memory, exports one accepted preview to a disposable test
+directory, and verifies unchanged source/sidecar hashes. It does not initialize a
+library or persist a face scan. It is not enabled by the standard test command:
+
+```powershell
+$env:PHOTOLIBRARIAN_FUSE_TEST_PHOTO = 'C:\TestPhotos\burst\base.jpg'
+dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -p:Platform=x64 -p:Configuration=FuseReview --no-restore -- -class PhotoLibrarian.Tests.PhotoFuseLocalBurstTests -parallelMode none -reporter verbose -showliveoutput
+Remove-Item Env:\PHOTOLIBRARIAN_FUSE_TEST_PHOTO
+```
+
+No user-photo bytes or identity data are included in committed fixtures or
+documentation.

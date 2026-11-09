@@ -33,6 +33,36 @@ public sealed class PhotoFuseTests : IDisposable
         System.IO.Directory.Delete(_folder, recursive: true);
     }
 
+    private static PhotoFuseTransform Register(byte[] donor, byte[] basis, int width, int height, CancellationToken token)
+    {
+        var result = PhotoFuseRegistration.TryRegister(donor, basis, width, height, token);
+        Assert.True(result.Accepted, result.Reason);
+        return result.Transform!.Value;
+    }
+
+    private static byte[] Render(IReadOnlyList<byte[]> frames, IReadOnlyList<PhotoFuseTransform> transforms,
+        int width, int height, IReadOnlyList<PhotoFuseRegion> regions, CancellationToken token)
+    {
+        var result = PhotoFuseComposer.TryRender(frames, transforms, width, height, regions, token);
+        Assert.Null(result.Rejection);
+        return Assert.IsType<byte[]>(result.Pixels);
+    }
+
+    private static async Task<PhotoFuseSession> PrepareAsync(IReadOnlyList<string> paths, CancellationToken token)
+    {
+        var result = await PhotoFuseSession.TryPrepareAsync(paths, token);
+        Assert.True(result.Session is not null, result.Rejection);
+        return result.Session!;
+    }
+
+    private static async Task<PhotoFusePreview> PreviewAsync(PhotoFuseSession session,
+        IReadOnlyList<PhotoFuseRegion> regions, CancellationToken token)
+    {
+        var result = await session.TryPreviewAsync(regions, token);
+        Assert.True(result.Preview is not null, result.Rejection);
+        return result.Preview!;
+    }
+
     [Theory]
     [InlineData(0, 0, 0)]
     [InlineData(5.2, -3.4, 0)]
@@ -43,7 +73,7 @@ public sealed class PhotoFuseTests : IDisposable
         var basis = Frame();
         var donor = Frame(dx, dy, angle, changed: 1);
         var watch = Stopwatch.StartNew();
-        var found = PhotoFuseRegistration.Register(donor, basis, Size, Size, Token);
+        var found = Register(donor, basis, Size, Size, Token);
         double error = 0;
         for (int y = 40; y < Size - 40; y += 16)
         for (int x = 40; x < Size - 40; x += 16)
@@ -64,23 +94,76 @@ public sealed class PhotoFuseTests : IDisposable
     [InlineData(1, 25, 0)]
     [InlineData(1, 0, 0.10)]
     public void RejectsUnsupportedScaleLargeShiftAndRotation(double scale, double dx, double angle) =>
-        Assert.Throws<InvalidDataException>(() => PhotoFuseRegistration.Register(
-            Frame(dx, 0, angle, scale), Frame(), Size, Size, Token));
+        Assert.False(PhotoFuseRegistration.TryRegister(
+            Frame(dx, 0, angle, scale), Frame(), Size, Size, Token).Accepted);
+
+    [Fact]
+    public void RegistersStationaryBackgroundWhenMovingPeopleDisagreeInOneTile()
+    {
+        var basis = Frame();
+        var donor = Frame();
+        for (int y = 140; y < 220; y++)
+        for (int x = 20; x < 110; x++)
+        {
+            int pixel = (y * Size + x) * 4;
+            donor[pixel] = 240;
+            donor[pixel + 1] = 50;
+            donor[pixel + 2] = 170;
+        }
+        var result = PhotoFuseRegistration.TryRegister(donor, basis, Size, Size, Token);
+        Assert.True(result.Accepted, result.Reason);
+        Assert.True(Math.Abs(result.Transform!.Value.X) < 0.1);
+        Assert.True(Math.Abs(result.Transform.Value.Y) < 0.1);
+    }
+
+    [Fact]
+    public async Task ExpectedRejectionsReturnReasonsWithoutThrowingAndReleaseSourceLeases()
+    {
+        var first = await WriteFrameAsync("base.png", Frame());
+        var flat = Enumerable.Repeat((byte)128, Size * Size * 4).ToArray();
+        for (int i = 3; i < flat.Length; i += 4) flat[i] = 255;
+        var second = await WriteFrameAsync("flat.png", flat);
+        int thrown = 0;
+        void CountRejection(object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs args)
+        {
+            if (args.Exception is InvalidDataException or NotSupportedException) thrown++;
+        }
+        PhotoFuseSession.Preparation preparation;
+        PhotoFuseComposer.Rendering rendering;
+        AppDomain.CurrentDomain.FirstChanceException += CountRejection;
+        try
+        {
+            preparation = await PhotoFuseSession.TryPrepareAsync([first, second], Token);
+            rendering = PhotoFuseComposer.TryRender([Frame(), Frame(changed: 1)], [default, default],
+                Size, Size, [new(1, 76, 80, 24, 24)], Token);
+            var unsupported = await PhotoFuseSession.TryPrepareAsync(["unsupported.dng"], Token);
+            Assert.Null(unsupported.Session);
+            Assert.NotNull(unsupported.Rejection);
+        }
+        finally { AppDomain.CurrentDomain.FirstChanceException -= CountRejection; }
+        Assert.Equal(0, thrown);
+        Assert.Null(preparation.Session);
+        Assert.NotNull(preparation.Rejection);
+        Assert.Null(rendering.Pixels);
+        Assert.NotNull(rendering.Rejection);
+        using (File.Open(first, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+        using (File.Open(second, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+    }
 
     [Fact]
     public void RejectsFlatUnrelatedAndPhotometricallyMismatchedFrames()
     {
         var flat = Enumerable.Repeat((byte)128, Size * Size * 4).ToArray();
-        Assert.Throws<InvalidDataException>(() => PhotoFuseRegistration.Register(flat, flat, Size, Size, Token));
+        Assert.False(PhotoFuseRegistration.TryRegister(flat, flat, Size, Size, Token).Accepted);
         var shiftedColor = Frame();
         for (int i = 0; i < shiftedColor.Length; i += 4)
             shiftedColor[i] = (byte)Math.Min(255, shiftedColor[i] + 45);
-        Assert.Throws<InvalidDataException>(() => PhotoFuseRegistration.Register(
-            shiftedColor, Frame(), Size, Size, Token));
+        Assert.False(PhotoFuseRegistration.TryRegister(
+            shiftedColor, Frame(), Size, Size, Token).Accepted);
         var unrelated = Frame();
         new Random(5821).NextBytes(unrelated);
-        Assert.Throws<InvalidDataException>(() => PhotoFuseRegistration.Register(
-            unrelated, Frame(), Size, Size, Token));
+        Assert.False(PhotoFuseRegistration.TryRegister(
+            unrelated, Frame(), Size, Size, Token).Accepted);
     }
 
     [Fact]
@@ -96,10 +179,8 @@ public sealed class PhotoFuseTests : IDisposable
             repeating[i] = (byte)(128 + 35 * Math.Sin(x * Math.PI / 6) + 35 * Math.Cos(y * Math.PI / 6));
             if (x < 128 || x > 256 || y < 128 || y > 256) localized[i] = 128;
         }
-        Assert.Throws<InvalidDataException>(() =>
-            PhotoFuseRegistration.Register(repeating, repeating, Size, Size, Token));
-        Assert.Throws<InvalidDataException>(() =>
-            PhotoFuseRegistration.Register(localized, localized, Size, Size, Token));
+        Assert.False(PhotoFuseRegistration.TryRegister(repeating, repeating, Size, Size, Token).Accepted);
+        Assert.False(PhotoFuseRegistration.TryRegister(localized, localized, Size, Size, Token).Accepted);
     }
 
     [Theory]
@@ -118,7 +199,7 @@ public sealed class PhotoFuseTests : IDisposable
             orientation: (ushort)orientation);
         var oriented = await WindowsImagingCodec.DecodeAsync(source, cancellationToken: Token);
         await RenderQualityFixtures.WriteImageAsync(donor, oriented.Width, oriented.Height, oriented.Pixels);
-        using var session = await PhotoFuseSession.PrepareAsync([source, donor], Token);
+        using var session = await PrepareAsync([source, donor], Token);
         Assert.Equal((int)oriented.Width, session.Width);
         Assert.Equal((int)oriented.Height, session.Height);
         Assert.Equal(oriented.Pixels, await session.GetAlignedFrameAsync(0, Token));
@@ -131,18 +212,18 @@ public sealed class PhotoFuseTests : IDisposable
         var paths = new List<string>();
         for (int i = 0; i < 4; i++)
             paths.Add(await WriteFrameAsync($"burst-{i}.png", Frame(changed: i % 3, size: 1601), 1601));
-        using var session = await PhotoFuseSession.PrepareAsync(paths, Token);
+        using var session = await PrepareAsync(paths, Token);
         Assert.Equal(PhotoFuseSession.MaximumDimension, session.Width);
         Assert.Equal(PhotoFuseSession.MaximumDimension, session.Height);
         Assert.Equal(4, session.SourceNames.Count);
-        var preview = await session.PreviewAsync([new(1, 56, 56, 72, 72)], Token);
+        var preview = await PreviewAsync(session, [new(1, 56, 56, 72, 72)], Token);
         Assert.Equal(1600 * 1600 * 4, preview.CopyPixels().Length);
         await session.ExportAsync(preview, _folder, true, Token);
         _output.WriteLine($"Four 1601px inputs, decode/register/preview/export including fixture encoding: " +
             $"{watch.ElapsedMilliseconds}ms; process peak working set {Process.GetCurrentProcess().PeakWorkingSet64 / 1048576} MiB");
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), $"End-to-end took {watch.Elapsed}");
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            PhotoFuseSession.PrepareAsync(paths.Append(paths[0]).ToArray(), Token));
+            PhotoFuseSession.TryPrepareAsync(paths.Append(paths[0]).ToArray(), Token));
     }
 
     [Fact]
@@ -152,10 +233,10 @@ public sealed class PhotoFuseTests : IDisposable
         for (int y = 10; y < 130; y++)
         for (int x = 10; x < 130; x++)
             for (int c = 0; c < 3; c++) donor[(y * Size + x) * 4 + c] = 250;
-        Assert.Throws<InvalidDataException>(() => PhotoFuseRegistration.Register(donor, Frame(), Size, Size, Token));
-        Assert.Throws<InvalidDataException>(() => PhotoFuseComposer.Render(
+        Assert.False(PhotoFuseRegistration.TryRegister(donor, Frame(), Size, Size, Token).Accepted);
+        Assert.NotNull(PhotoFuseComposer.TryRender(
             [Frame(), Frame(changed: 1)], [default, default], Size, Size,
-            [new(1, 76, 80, 24, 24)], Token));
+            [new(1, 76, 80, 24, 24)], Token).Rejection);
     }
 
     [Fact]
@@ -164,7 +245,7 @@ public sealed class PhotoFuseTests : IDisposable
         const int size = 1600;
         var basis = Frame(size: size);
         var donor = Frame(5.2, -3.4, 0.012, size: size);
-        var found = PhotoFuseRegistration.Register(donor, basis, size, size, Token);
+        var found = Register(donor, basis, size, size, Token);
         var expected = new PhotoFuseTransform(5.2, -3.4, 0.012);
         double error = 0;
         for (int y = 40; y < size - 40; y += 80)
@@ -181,8 +262,7 @@ public sealed class PhotoFuseTests : IDisposable
         var parallax = Frame();
         var shifted = Frame(8, 0);
         Array.Copy(shifted, Size * Size * 2, parallax, Size * Size * 2, Size * Size * 2);
-        Assert.Throws<InvalidDataException>(() =>
-            PhotoFuseRegistration.Register(parallax, Frame(), Size, Size, Token));
+        Assert.False(PhotoFuseRegistration.TryRegister(parallax, Frame(), Size, Size, Token).Accepted);
     }
 
     [Fact]
@@ -193,8 +273,7 @@ public sealed class PhotoFuseTests : IDisposable
         var pixels = Frame();
         Array.Clear(pixels, 0, 4);
         await RenderQualityFixtures.WriteImageAsync(transparent, Size, Size, pixels);
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            PhotoFuseSession.PrepareAsync([opaque, transparent], Token));
+        Assert.Null((await PhotoFuseSession.TryPrepareAsync([opaque, transparent], Token)).Session);
         var highDepth = Path.Combine(_folder, "16bit.png");
         await using (var file = new FileStream(highDepth, FileMode.CreateNew, FileAccess.ReadWrite))
         {
@@ -203,8 +282,7 @@ public sealed class PhotoFuseTests : IDisposable
                 new byte[Size * Size * 8]);
             await encoder.FlushAsync();
         }
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            PhotoFuseSession.PrepareAsync([opaque, highDepth], Token));
+        Assert.Null((await PhotoFuseSession.TryPrepareAsync([opaque, highDepth], Token)).Session);
         // APNG's control chunk is encountered before WIC can silently decode just its first frame.
         var animated = Path.Combine(_folder, "animated.png");
         var encoded = File.ReadAllBytes(opaque);
@@ -214,8 +292,7 @@ public sealed class PhotoFuseTests : IDisposable
             file.Write(new byte[] { 0, 0, 0, 8, 97, 99, 84, 76, 0, 0, 0, 2, 0, 0, 0, 0, 243, 141, 147, 112 });
             file.Write(encoded.AsSpan(33));
         }
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            PhotoFuseSession.PrepareAsync([opaque, animated], Token));
+        Assert.Null((await PhotoFuseSession.TryPrepareAsync([opaque, animated], Token)).Session);
     }
 
     [Fact]
@@ -224,7 +301,7 @@ public sealed class PhotoFuseTests : IDisposable
         var basis = Frame();
         var frames = new[] { basis, Frame(changed: 1), Frame(changed: 2) };
         var regions = new PhotoFuseRegion[] { new(1, 56, 56, 72, 72), new(2, 248, 248, 72, 72) };
-        var result = PhotoFuseComposer.Render(frames, [default, default, default], Size, Size, regions, Token);
+        var result = Render(frames, [default, default, default], Size, Size, regions, Token);
         Assert.Equal(Pixel(frames[1], 90, 90), Pixel(result, 90, 90));
         Assert.Equal(Pixel(frames[2], 280, 280), Pixel(result, 280, 280));
         for (int y = 0; y < Size; y++)
@@ -247,15 +324,14 @@ public sealed class PhotoFuseTests : IDisposable
             new(0, 50, 50, 40, 40), new(2, 50, 50, 40, 40), new(1, -1, 50, 40, 40),
             new(1, 0, 50, 40, 40), new(1, 50, 50, 15, 40), new(1, int.MaxValue, 50, 40, 40)
         })
-            Assert.Throws<ArgumentException>(() =>
-                PhotoFuseComposer.Render(frames, transforms, Size, Size, [region], Token));
-        Assert.Throws<ArgumentException>(() => PhotoFuseComposer.Render(frames, transforms, Size, Size,
-            [new(1, 50, 50, 40, 40), new(1, 60, 60, 40, 40)], Token));
+            Assert.NotNull(PhotoFuseComposer.TryRender(frames, transforms, Size, Size, [region], Token).Rejection);
+        Assert.NotNull(PhotoFuseComposer.TryRender(frames, transforms, Size, Size,
+            [new(1, 50, 50, 40, 40), new(1, 60, 60, 40, 40)], Token).Rejection);
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        Assert.ThrowsAny<OperationCanceledException>(() => PhotoFuseRegistration.Register(
+        Assert.ThrowsAny<OperationCanceledException>(() => PhotoFuseRegistration.TryRegister(
             frames[1], frames[0], Size, Size, cts.Token));
-        Assert.ThrowsAny<OperationCanceledException>(() => PhotoFuseComposer.Render(
+        Assert.ThrowsAny<OperationCanceledException>(() => PhotoFuseComposer.TryRender(
             frames, transforms, Size, Size, [], cts.Token));
     }
 
@@ -266,11 +342,11 @@ public sealed class PhotoFuseTests : IDisposable
         var second = await WriteFrameAsync("donor.png", Frame(changed: 1));
         byte[] sourceHash = SHA256.HashData(File.ReadAllBytes(first));
         byte[] donorHash = SHA256.HashData(File.ReadAllBytes(second));
-        using (var session = await PhotoFuseSession.PrepareAsync([first, second], Token))
+        using (var session = await PrepareAsync([first, second], Token))
         {
             Assert.Equal(Size, session.Width);
             Assert.Throws<IOException>(() => File.Open(first, FileMode.Open, FileAccess.Write, FileShare.ReadWrite));
-            var preview = await session.PreviewAsync([new(1, 56, 56, 72, 72)], Token);
+            var preview = await PreviewAsync(session, [new(1, 56, 56, 72, 72)], Token);
             await Assert.ThrowsAsync<InvalidOperationException>(() => session.ExportAsync(preview, _folder, false, Token));
             string collision = Path.Combine(_folder, "base - Fused.xmp");
             File.WriteAllText(collision, "keep metadata");
@@ -310,8 +386,8 @@ public sealed class PhotoFuseTests : IDisposable
             "<rdf:Description xmlns:mwg-rs=\"http://www.metadataworkinggroup.com/schemas/regions/\" " +
             "mwg-rs:Regions=\"Old face coordinates must not be reused\"/></rdf:RDF></x:xmpmeta>";
         File.WriteAllText(sidecar, packet);
-        using var session = await PhotoFuseSession.PrepareAsync([first, second], Token);
-        var preview = await session.PreviewAsync([new(1, 56, 56, 72, 72)], Token);
+        using var session = await PrepareAsync([first, second], Token);
+        var preview = await PreviewAsync(session, [new(1, 56, 56, 72, 72)], Token);
         // A caller cannot alter the accepted preview through the public copy accessor.
         Array.Fill(preview.CopyPixels(), (byte)0);
         var output = await session.ExportAsync(preview, _folder, true, Token);
@@ -329,12 +405,12 @@ public sealed class PhotoFuseTests : IDisposable
         var invalid = await WriteFrameAsync("invalid.png", Frame());
         File.WriteAllText(invalid, "not an image");
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            PhotoFuseSession.PrepareAsync([first, invalid], Token));
+            PhotoFuseSession.TryPrepareAsync([first, invalid], Token));
         // A failed prepare must release every earlier source lease.
         using (File.Open(first, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
-        using var session = await PhotoFuseSession.PrepareAsync([first, second], Token);
-        using var other = await PhotoFuseSession.PrepareAsync([first, second], Token);
-        var preview = await session.PreviewAsync([new(1, 56, 56, 72, 72)], Token);
+        using var session = await PrepareAsync([first, second], Token);
+        using var other = await PrepareAsync([first, second], Token);
+        var preview = await PreviewAsync(session, [new(1, 56, 56, 72, 72)], Token);
         await Assert.ThrowsAsync<InvalidOperationException>(() => other.ExportAsync(preview, _folder, true, Token));
         await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
             session.ExportAsync(preview, Path.Combine(_folder, "missing"), true, Token));
@@ -350,8 +426,8 @@ public sealed class PhotoFuseTests : IDisposable
     {
         var first = await WriteFrameAsync("base.png", Frame());
         var second = await WriteFrameAsync("donor.png", Frame(changed: 1));
-        using var session = await PhotoFuseSession.PrepareAsync([first, second], Token);
-        var preview = await session.PreviewAsync([new(1, 56, 56, 72, 72)], Token);
+        using var session = await PrepareAsync([first, second], Token);
+        var preview = await PreviewAsync(session, [new(1, 56, 56, 72, 72)], Token);
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
@@ -366,20 +442,19 @@ public sealed class PhotoFuseTests : IDisposable
     public async Task RejectsMissingUnsupportedDuplicatedPendingEditsAndEmptyRecipes()
     {
         await Assert.ThrowsAnyAsync<IOException>(() =>
-            PhotoFuseSession.PrepareAsync([Path.Combine(_folder, "missing.png"), Path.Combine(_folder, "other.png")], Token));
+            PhotoFuseSession.TryPrepareAsync([Path.Combine(_folder, "missing.png"), Path.Combine(_folder, "other.png")], Token));
         var first = await WriteFrameAsync("base.png", Frame());
         var second = await WriteFrameAsync("donor.png", Frame());
-        await Assert.ThrowsAsync<ArgumentException>(() => PhotoFuseSession.PrepareAsync([first, first], Token));
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            PhotoFuseSession.PrepareAsync([Path.Combine(_folder, "raw.dng"), second], Token));
+        await Assert.ThrowsAsync<ArgumentException>(() => PhotoFuseSession.TryPrepareAsync([first, first], Token));
+        Assert.Null((await PhotoFuseSession.TryPrepareAsync([Path.Combine(_folder, "raw.dng"), second], Token)).Session);
         File.WriteAllText(Path.ChangeExtension(first, ".xmp"),
             "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
             "<rdf:Description xmlns:pledit=\"http://ns.photolibrarian.app/edit/1.0/\" pledit:CropLeft=\"0.2\"/>" +
             "</rdf:RDF></x:xmpmeta>");
-        await Assert.ThrowsAsync<NotSupportedException>(() => PhotoFuseSession.PrepareAsync([first, second], Token));
+        Assert.Null((await PhotoFuseSession.TryPrepareAsync([first, second], Token)).Session);
         File.Delete(Path.ChangeExtension(first, ".xmp"));
-        using var session = await PhotoFuseSession.PrepareAsync([first, second], Token);
-        await Assert.ThrowsAsync<ArgumentException>(() => session.PreviewAsync([], Token));
+        using var session = await PrepareAsync([first, second], Token);
+        await Assert.ThrowsAsync<ArgumentException>(() => session.TryPreviewAsync([], Token));
     }
 
     [Fact]
@@ -393,12 +468,13 @@ public sealed class PhotoFuseTests : IDisposable
         xmp.SetProperty(adobe, "CameraProfile", "Camera Standard");
         xmp.SetPropertyBoolean(adobe, "HasSettings", false);
         File.WriteAllText(path + ".xmp", XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
-        using (var single = await PhotoFuseSession.PrepareAsync([path], Token))
+        using (var single = await PrepareAsync([path], Token))
             Assert.Equal(Size, single.Width);
         xmp.SetPropertyDouble(EditParameters.XmpNamespace, "Brightness", 0.2);
         File.WriteAllText(path + ".xmp", XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
-        var error = await Assert.ThrowsAsync<NotSupportedException>(() => PhotoFuseSession.PrepareAsync([path], Token));
-        Assert.Contains("unapplied PhotoLibrarian adjustments", error.Message);
+        var rejection = await PhotoFuseSession.TryPrepareAsync([path], Token);
+        Assert.Null(rejection.Session);
+        Assert.Contains("unapplied PhotoLibrarian adjustments", rejection.Rejection);
     }
 
     [Fact]
@@ -427,7 +503,7 @@ public sealed class PhotoFuseTests : IDisposable
         Assert.Equal(12, workspace.GetReplacements(first).Count);
         Assert.All(workspace.GetReplacements(first), choice => Assert.Equal(80.0 / Size, choice.Face.X));
         Assert.Equal(12, workspace.GetReplacements(second).Count);
-        using (var manyFrames = await PhotoFuseSession.PrepareAsync(
+        using (var manyFrames = await PrepareAsync(
             new[] { basis.FilePath }.Concat(photos.Select(photo => photo.FilePath)).ToArray(), Token))
             Assert.Equal(13, manyFrames.SourceNames.Count);
         await workspace.SelectAsync(first, workspace.GetReplacements(first)[0]);
@@ -473,6 +549,35 @@ public sealed class PhotoFuseTests : IDisposable
     }
 
     [Fact]
+    public async Task DiscoverySkipsUnalignablePhotosAndBadFaceSeamsWithoutOfferingBrokenChoices()
+    {
+        var basis = Entry(await WriteFrameAsync("base.png", Frame()), 1);
+        var flat = Frame();
+        for (int i = 0; i < flat.Length; i += 4)
+            flat[i] = flat[i + 1] = flat[i + 2] = 128;
+        var unalignable = Entry(await WriteFrameAsync("flat.png", flat), 2);
+        var badSeam = Frame();
+        for (int y = 60; y < 124; y++)
+        for (int x = 60; x < 124; x++)
+            for (int c = 0; c < 3; c++) badSeam[(y * Size + x) * 4 + c] = 250;
+        var incompatible = Entry(await WriteFrameAsync("bad-seam.png", badSeam), 3);
+        var good = Entry(await WriteFrameAsync("good.png", Frame(changed: 1)), 4);
+        List<ImageEntry> photos = [unalignable, incompatible, good];
+        using var workspace = new PhotoFuseViewModel((_, _) => Task.FromResult(photos),
+            (photo, _) => Task.FromResult<IReadOnlyList<FaceRegion>>([Face(photo.Id, photo.Id, 80)]),
+            photo => Task.FromResult(new List<FaceRegion> { Face(photo.Id, photo.Id, 80) }));
+        await workspace.StartAsync(basis);
+        var face = Assert.Single(workspace.Faces);
+        var choice = Assert.Single(workspace.GetReplacements(face));
+        Assert.Equal(good.Id, choice.Image.Id);
+        await workspace.SelectAsync(face, choice);
+        Assert.True(workspace.HasChanges, workspace.Status);
+        Assert.Equal(Pixel(Frame(changed: 1), 90, 90), Pixel(workspace.DisplayPixels!, 90, 90));
+        await workspace.DiscardAsync();
+        Assert.Empty(System.IO.Directory.GetFiles(_folder, "*Fused*"));
+    }
+
+    [Fact]
     public async Task NearbyTimeSearchHasNoCountLimitAndExcludesUnrelatedTimes()
     {
         using var db = new CacheDatabase(Path.Combine(_folder, "index.db"));
@@ -504,7 +609,7 @@ public sealed class PhotoFuseTests : IDisposable
         for (int y = 0; y < 3; y++)
         for (int x = 0; x < 3; x++)
             regions.Add(new PhotoFuseRegion(1, 40 + x * 96, 40 + y * 96, 24, 24));
-        var result = PhotoFuseComposer.Render([basis, Frame()], [default, default], Size, Size, regions, Token);
+        var result = Render([basis, Frame()], [default, default], Size, Size, regions, Token);
         Assert.Equal(basis, result);
     }
 
