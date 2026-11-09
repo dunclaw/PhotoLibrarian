@@ -613,7 +613,7 @@ public sealed partial class MainWindow : Window
             MetadataFallbackInfoBar.Message =
                 $"The latest {e.PropertyName} edit could not be written into \"{e.ImagePath}\". " +
                 $"It was saved to \"{e.SidecarPath}\" instead. Keep this sidecar with the image. " +
-                $"Reason: {e.Error.Message}";
+                $"Reason: {e.Reason}";
             MetadataFallbackInfoBar.IsOpen = true;
         });
     }

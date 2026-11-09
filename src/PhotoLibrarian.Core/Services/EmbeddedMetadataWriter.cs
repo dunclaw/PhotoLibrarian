@@ -1,5 +1,6 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices.WindowsRuntime;
+using PhotoLibrarian.Core.Diagnostics;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -286,6 +287,7 @@ public static class EmbeddedMetadataWriter
     private static async Task WritePropertiesOnceAsync(string filePath, BitmapPropertySet props)
     {
         byte[]? compatibleJpeg = null;
+        var operation = "opening the image";
         // === Tier 1: in-place (preserves bytes exactly) ===
         try
         {
@@ -293,9 +295,13 @@ public static class EmbeddedMetadataWriter
             using (var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
             using (var stream = fileStream.AsRandomAccessStream())
             {
+                operation = "creating the decoder";
                 var decoder = await BitmapDecoder.CreateAsync(stream);
+                operation = "creating the in-place encoder";
                 var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
+                operation = "setting metadata properties";
                 await encoder.BitmapProperties.SetPropertiesAsync(props);
+                operation = "flushing the in-place encoder";
                 await encoder.FlushAsync();
             }
             return;
@@ -303,42 +309,66 @@ public static class EmbeddedMetadataWriter
         catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == WINCODEC_ERR_TOOMUCHMETADATA)
         {
             // Fall through to transcoding
-            System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder full for {filePath}, transcoding…");
+            LogWriteFailure("In-place", filePath, operation, props, ex);
         }
         catch (System.Runtime.InteropServices.COMException ex) when (!IsFileLock(ex))
         {
             // Other WIC error — also try transcoding as a more resilient path
-            System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder threw 0x{ex.HResult:X8}, attempting transcode…");
+            LogWriteFailure("In-place", filePath, operation, props, ex);
         }
         catch (ArgumentException ex) when (ex.HResult == unchecked((int)0x80070057))
         {
+            LogWriteFailure("In-place", filePath, operation, props, ex);
             var bytes = await File.ReadAllBytesAsync(filePath);
             compatibleJpeg = RemoveJpegXmpByteOrderMarks(bytes);
             if (compatibleJpeg.Length == bytes.Length)
                 throw;
-            System.Diagnostics.Debug.WriteLine(
-                $"[METADATA] Normalizing legacy JPEG XMP for {filePath} before transcode: {ex.Message}");
+            DebugLog.WriteLine(
+                $"[METADATA] Removed a leading UTF-8 byte-order mark outside the JPEG XMP packet for {filePath}, in memory only; retrying with the transcode encoder.");
         }
 
         // === Tier 2: transcode (rewrites file, but preserves encoded image data losslessly) ===
         await TranscodeWriteAsync(filePath, props, compatibleJpeg);
     }
 
+    private static void LogWriteFailure(
+        string tier, string filePath, string operation, BitmapPropertySet properties, Exception exception)
+    {
+        DebugLog.WriteLine(
+            $"[METADATA] {tier} write failed while {operation} for {filePath}; " +
+            $"property keys: {string.Join(", ", properties.Keys)}; " +
+            $"{exception.GetType().Name} 0x{exception.HResult:X8}: {exception.Message}");
+    }
+
     private static async Task TranscodeWriteAsync(
         string filePath, BitmapPropertySet props, byte[]? compatibleJpeg)
     {
         using var destBuffer = new InMemoryRandomAccessStream();
+        var operation = "opening the image";
 
         // 1) Read source + transcode into memory with merged properties
-        using (var fileStream = compatibleJpeg is not null
-            ? new MemoryStream(compatibleJpeg, writable: false)
-            : (Stream)File.OpenRead(filePath))
-        using (var srcStream = fileStream.AsRandomAccessStream())
+        try
         {
-            var decoder = await BitmapDecoder.CreateAsync(srcStream);
-            var encoder = await BitmapEncoder.CreateForTranscodingAsync(destBuffer, decoder);
-            await encoder.BitmapProperties.SetPropertiesAsync(props);
-            await encoder.FlushAsync();
+            using (var fileStream = compatibleJpeg is not null
+                ? new MemoryStream(compatibleJpeg, writable: false)
+                : (Stream)File.OpenRead(filePath))
+            using (var srcStream = fileStream.AsRandomAccessStream())
+            {
+                operation = "creating the decoder";
+                var decoder = await BitmapDecoder.CreateAsync(srcStream);
+                operation = "creating the transcode encoder";
+                var encoder = await BitmapEncoder.CreateForTranscodingAsync(destBuffer, decoder);
+                operation = "setting metadata properties";
+                await encoder.BitmapProperties.SetPropertiesAsync(props);
+                operation = "flushing the transcode encoder";
+                await encoder.FlushAsync();
+            }
+        }
+        catch (Exception exception) when (
+            exception is System.Runtime.InteropServices.COMException or ArgumentException)
+        {
+            LogWriteFailure("Transcode", filePath, operation, props, exception);
+            throw;
         }
 
         // 2) Atomically replace the source file with the in-memory result
