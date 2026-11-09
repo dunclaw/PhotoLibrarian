@@ -862,13 +862,13 @@ public partial class MainViewModel : ObservableObject
             var backups = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "PhotoLibrarian", "TagCleanupBackups");
-            var cleanup = new HierarchicalTagCleanupService(_imageRepo, _indexingService, backups);
+            var cleanup = new HierarchicalTagCleanupService(_imageRepo, _tagRepo, _indexingService, backups);
             var result = await Task.Run(() => cleanup.CleanupAsync());
             await RefreshAfterIndexAsync();
             await MetadataPanel.ReloadTagsAsync();
             var status = LibraryIndexMaintenanceStrings.Format(
                 "HierarchyCleanupCompleted", result.RemovedTags, result.UpdatedPhotos,
-                result.ScannedPhotos, result.BackupDirectory);
+                result.ScannedPhotos, result.BackupDirectory, result.ReconciledPhotos);
             if (result.Failures.Count > 0)
                 status += Environment.NewLine + string.Join(Environment.NewLine, result.Failures);
             Settings.HierarchyTagCleanupStatus = status;

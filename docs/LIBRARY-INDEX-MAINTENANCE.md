@@ -124,12 +124,27 @@ prefixes regardless of their source, including intentionally entered parents;
 it is not an automatic migration and should only be used on folders you want
 cleaned.
 
+The explicit cleanup also handles older automatic tagging that wrote expanded
+tag rows only to SQLite, leaving no keywords or tag provenance in the photo.
+When no portable provenance packet exists, it combines legacy cached tags with
+file keywords, collapses prefixes, and writes the retained values and their
+sources/confidence portably before reconciling the index. Existing portable
+provenance remains authoritative: stale expanded cache rows are repaired even
+when the portable tag set is already clean, without resurrecting obsolete
+cached values. The completion report distinguishes metadata writes from cache
+reconciliations; a zero metadata-write count does not mean stale cache repair
+was skipped.
+
 Each changed photo and its existing `.xmp` are copied before writing into a
 unique folder under `%LOCALAPPDATA%\PhotoLibrarian\TagCleanupBackups`. The result
 shows the backup location and per-file errors. Backups remain for manual
 recovery; copy the original photo and XMP from its backup folder back together,
 then Refresh to reconcile the index. A newly created cleanup sidecar must be
-removed when restoring a photo that originally had no sidecar. Missing,
+removed when restoring a photo that originally had no sidecar. Each folder
+also includes `original-path.txt` and a portable schema-1 `tag-cache.json`
+snapshot of the original cached tag assignments, source/confidence, and scan
+binding. For cache-only legacy tags, restoring the photo alone cannot recover
+those tags; keep this snapshot for recovery. Missing,
 unreadable, reparse-point, or pending-metadata-export files are not rewritten.
 Successful changes are portable and the index is reconciled only after file
 persistence. Repeating cleanup is a no-op once the prefix keywords are gone.

@@ -10,13 +10,14 @@ namespace PhotoLibrarian.Core.Services;
 
 public sealed record HierarchicalTagCleanupResult(
     int ScannedPhotos, int UpdatedPhotos, int RemovedTags,
-    string BackupDirectory, IReadOnlyList<string> Failures);
+    string BackupDirectory, IReadOnlyList<string> Failures, int ReconciledPhotos);
 
 /// <summary>
-/// Explicit, user-approved removal of serialized prefix keywords. Never runs during import.
+/// Explicit, user-approved removal of portable and legacy cached prefix tags. Never runs during import.
 /// </summary>
 public sealed class HierarchicalTagCleanupService(
     ImageRepository images,
+    TagRepository tagRepository,
     LibraryIndexingService indexer,
     string backupDirectory)
 {
@@ -34,6 +35,7 @@ public sealed class HierarchicalTagCleanupService(
         var failures = new List<string>();
         var updated = 0;
         var removed = 0;
+        var reconciled = 0;
         var scanned = 0;
         var runBackup = Path.Combine(backupDirectory, Guid.NewGuid().ToString("N"));
         foreach (var image in entries)
@@ -64,18 +66,20 @@ public sealed class HierarchicalTagCleanupService(
                     ? XmpMetaFactory.ParseFromString(await File.ReadAllTextAsync(sidecar, cancellationToken))
                     : null;
                 var portable = reader.ReadPortableTagMetadata(path);
+                var cachedTags = await tagRepository.GetTagsAsync(image.Id, cancellationToken);
+                // Portable provenance wins; older builds may have left the only tag copy in SQLite.
                 var tags = portable is not null
                     ? portable.Tags.Select(tag => new ImageTag
                     {
                         ImageId = image.Id, Tag = tag.Tag,
                         Source = Enum.Parse<TagSource>(tag.Source), Confidence = tag.Confidence
                     }).ToArray()
-                    : ReadKeywords(path, sidecarXmp).Select(tag => new ImageTag
-                    {
-                        ImageId = image.Id, Tag = tag, Source = TagSource.Metadata
-                    }).ToArray();
+                    : MergeLegacyTags(image.Id, cachedTags, ReadKeywords(path, sidecarXmp));
                 var collapsed = CollapsePrefixes(tags);
-                if (collapsed.Count == tags.Length)
+                var needsFileWrite = collapsed.Count != tags.Length;
+                var needsCacheReconciliation =
+                    (portable is not null || needsFileWrite) && !HaveSameTags(cachedTags, collapsed);
+                if (!needsFileWrite && !needsCacheReconciliation)
                     continue;
 
                 var photoBackup = Path.Combine(runBackup, Guid.NewGuid().ToString("N"));
@@ -83,19 +87,47 @@ public sealed class HierarchicalTagCleanupService(
                 await CopyBackupAsync(path, Path.Combine(photoBackup, Path.GetFileName(path)), cancellationToken);
                 if (snapshot.Exists)
                     await CopyBackupAsync(sidecar, Path.Combine(photoBackup, Path.GetFileName(sidecar)), cancellationToken);
+                // Cache-only recognition from older builds has no recovery copy in the photo.
+                await File.WriteAllTextAsync(
+                    Path.Combine(photoBackup, "tag-cache.json"),
+                    PortableImageTagMetadataSerializer.Serialize(
+                        cachedTags, image.AutoTagScanVersion, image.SourceIdentity),
+                    cancellationToken);
+                await File.WriteAllTextAsync(
+                    Path.Combine(photoBackup, "original-path.txt"), path, cancellationToken);
                 if (before != await LibraryMetadataIdentity.ComputeAsync(path, cancellationToken))
                 {
                     failures.Add($"{path}: The photo or metadata changed during cleanup; skipped.");
                     continue;
                 }
+                if (!HaveSameTags(cachedTags,
+                    await tagRepository.GetTagsAsync(image.Id, cancellationToken)))
+                {
+                    failures.Add($"{path}: Cached tags changed during cleanup; skipped.");
+                    continue;
+                }
 
                 // Reconcile a committed file write before honoring cancellation.
-                await TagWriterService.WriteTagsToSidecarAsync(
-                    path, collapsed.Select(tag => tag.Tag), collapsed,
-                    portable?.AutoTagScanVersion, snapshot, portable?.SourceIdentity);
-                updated++;
-                removed += tags.Length - collapsed.Count;
+                if (needsFileWrite)
+                {
+                    await TagWriterService.WriteTagsToSidecarAsync(
+                        path, collapsed.Select(tag => tag.Tag), collapsed,
+                        portable is not null ? portable.AutoTagScanVersion : image.AutoTagScanVersion,
+                        snapshot, portable is not null ? portable.SourceIdentity : image.SourceIdentity);
+                    updated++;
+                }
                 await indexer.IndexFileAsync(path, CancellationToken.None);
+                if (!HaveSameTags(collapsed,
+                    await tagRepository.GetTagsAsync(image.Id, CancellationToken.None)))
+                    throw new IOException("The cleaned tag set was not retained in the index; refresh or retry cleanup.");
+                if (needsCacheReconciliation)
+                    reconciled++;
+                var previous = cachedTags.Concat(tags)
+                    .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First()).ToArray();
+                removed += previous.Count(tag =>
+                    collapsed.Any(leaf => leaf.Tag.StartsWith(tag.Tag + "/", StringComparison.OrdinalIgnoreCase)) &&
+                    !collapsed.Any(leaf => string.Equals(leaf.Tag, tag.Tag, StringComparison.OrdinalIgnoreCase)));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -107,7 +139,24 @@ public sealed class HierarchicalTagCleanupService(
                 DebugLog.WriteLine($"Hierarchy tag cleanup failed for {image.FilePath}: {exception}");
             }
         }
-        return new(scanned, updated, removed, runBackup, failures);
+        return new(scanned, updated, removed, runBackup, failures, reconciled);
+    }
+
+    private static ImageTag[] MergeLegacyTags(
+        long imageId, IReadOnlyList<ImageTag> cachedTags, IEnumerable<string> keywords) =>
+        cachedTags.Concat(keywords.Select(tag => new ImageTag
+        {
+            ImageId = imageId, Tag = tag, Source = TagSource.Metadata
+        }))
+        .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
+        .Select(group => group.First()).ToArray();
+
+    private static bool HaveSameTags(IReadOnlyList<ImageTag> left, IReadOnlyList<ImageTag> right)
+    {
+        if (left.Count != right.Count) return false;
+        return left.All(tag => right.Any(other =>
+            string.Equals(tag.Tag, other.Tag, StringComparison.OrdinalIgnoreCase) &&
+            tag.Source == other.Source && tag.Confidence.Equals(other.Confidence)));
     }
 
     private static IEnumerable<string> ReadKeywords(string path, IXmpMeta? sidecar)

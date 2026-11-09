@@ -302,7 +302,7 @@ public sealed class HierarchicalTagPortabilityTests : IDisposable
         var indexer = new LibraryIndexingService(database, new ImageRepository(database),
             new TagRepository(database), new FaceRepository(database), scanner,
             new MetadataReaderService(), new FaceMetadataStore());
-        var service = new HierarchicalTagCleanupService(new ImageRepository(database), indexer,
+        var service = new HierarchicalTagCleanupService(new ImageRepository(database), new TagRepository(database), indexer,
             Path.Combine(_directory, "backups"));
         var result = await service.CleanupAsync();
         Assert.Empty(result.Failures);
@@ -365,7 +365,7 @@ public sealed class HierarchicalTagPortabilityTests : IDisposable
         var indexer = new LibraryIndexingService(database, new ImageRepository(database),
             new TagRepository(database), new FaceRepository(database), scanner,
             new MetadataReaderService(), new FaceMetadataStore());
-        var result = await new HierarchicalTagCleanupService(new ImageRepository(database),
+        var result = await new HierarchicalTagCleanupService(new ImageRepository(database), new TagRepository(database),
             indexer, backupLocation).CleanupAsync();
         Assert.Equal(3, result.Failures.Count);
         Assert.Equal(0, result.UpdatedPhotos);
@@ -375,6 +375,189 @@ public sealed class HierarchicalTagPortabilityTests : IDisposable
         Assert.Equal("not XML", await File.ReadAllTextAsync(Path.ChangeExtension(malformedPath, ".xmp")));
         Assert.Equal(new[] { "Places", "Places/Beach" },
             new MetadataReaderService().ReadTags(backupFailPath).Order());
+    }
+
+    [Theory]
+    [InlineData(".jpg", false)]
+    [InlineData(".jpg", true)]
+    [InlineData(".raw", false)]
+    [InlineData(".raw", true)]
+    public async Task CleanupExportsCacheOnlyLegacyTagsAndPreservesFileKeywords(
+        string extension, bool existingKeywords)
+    {
+        var path = await CreateMediaAsync("cache-only" + extension);
+        if (existingKeywords)
+            await TagWriterService.WriteTagsToSidecarAsync(path, ["family", "Places", "Places/Beach"]);
+        using var database = await OpenDatabaseAsync("cache-only.db");
+        var image = await IndexAsync(database, path);
+        await WatchDirectoryAsync(database);
+        var tags = new TagRepository(database);
+        await AddLegacyCachedTagsAsync(tags, image);
+        var before = await File.ReadAllBytesAsync(path);
+        var pixels = await RecognitionSourceIdentity.ComputeAsync(path, CancellationToken.None);
+        Assert.Null(new MetadataReaderService().ReadPortableTagMetadata(path));
+        using var scanner = new FolderScannerService();
+        var cleanup = CreateCleanup(database, scanner);
+
+        var result = await cleanup.CleanupAsync();
+
+        Assert.Empty(result.Failures);
+        Assert.Equal(1, result.UpdatedPhotos);
+        Assert.Equal(1, result.ReconciledPhotos);
+        Assert.Equal(existingKeywords ? 5 : 4, result.RemovedTags);
+        string[] expected = existingKeywords
+            ? ["Auto/art/painting/oil painting", "Auto/activity/painting a picture", "family", "Places/Beach"]
+            : ["Auto/art/painting/oil painting", "Auto/activity/painting a picture"];
+        var stored = await tags.GetTagsAsync(image.Id);
+        Assert.Equal(expected.Order(), stored.Select(tag => tag.Tag).Order());
+        var leaf = Assert.Single(stored, tag => tag.Tag == "Auto/art/painting/oil painting");
+        Assert.Equal(TagSource.AutoML, leaf.Source);
+        Assert.Equal(0.318f, leaf.Confidence);
+        var portable = new MetadataReaderService().ReadPortableTagMetadata(path)!;
+        Assert.Equal("legacy-v1", portable.AutoTagScanVersion);
+        Assert.Equal(image.SourceIdentity, portable.SourceIdentity);
+        Assert.Equal(expected.Order(), new MetadataReaderService().ReadTags(path).Order());
+        Assert.Equal(pixels, await RecognitionSourceIdentity.ComputeAsync(path, CancellationToken.None));
+        var backup = Assert.Single(Directory.GetDirectories(result.BackupDirectory));
+        Assert.Equal(before, await File.ReadAllBytesAsync(Path.Combine(backup, Path.GetFileName(path))));
+        Assert.Equal(path, await File.ReadAllTextAsync(Path.Combine(backup, "original-path.txt")));
+        Assert.True(PortableImageTagMetadataSerializer.TryDeserialize(
+            await File.ReadAllTextAsync(Path.Combine(backup, "tag-cache.json")), out var backupTags));
+        Assert.Contains(backupTags!.Tags, tag => tag.Tag == "Auto");
+        Assert.Contains(backupTags.Tags, tag => tag.Tag == "Auto/art/painting");
+        Assert.Equal("legacy-v1", backupTags.AutoTagScanVersion);
+        Assert.Equal([image.Id], await tags.GetImageIdsWithTagAsync("Auto/art/painting"));
+        var panel = new MetadataPanelViewModel();
+        panel.Initialize(tagRepo: tags);
+        panel.ShowMetadata(image);
+        await panel.ReloadTagsAsync();
+        Assert.Equal(expected.Order(), panel.Tags.Select(tag => tag.Tag).Order());
+        await panel.StopVideoMetadataReadsAsync();
+
+        var again = await cleanup.CleanupAsync();
+        Assert.Empty(again.Failures);
+        Assert.Equal(0, again.RemovedTags);
+        Assert.Equal(0, again.UpdatedPhotos);
+        Assert.Equal(0, again.ReconciledPhotos);
+        using var fresh = await OpenDatabaseAsync("cache-only-fresh.db");
+        var imported = await IndexAsync(fresh, path);
+        Assert.Equal(expected.Order(),
+            (await new TagRepository(fresh).GetTagsAsync(imported.Id)).Select(tag => tag.Tag).Order());
+        Assert.Equal("legacy-v1", imported.AutoTagScanVersion);
+    }
+
+    [Theory]
+    [InlineData(".raw")]
+    [InlineData(".jpg")]
+    public async Task CleanupRepairsExpandedCacheWhenPortableMetadataIsAlreadyClean(string extension)
+    {
+        var path = await CreateMediaAsync("already-clean" + extension);
+        ImageTag[] portableRows = [new() { Tag = Dog, Source = TagSource.AutoML, Confidence = 0.9f }];
+        await TagWriterService.WriteTagsToSidecarAsync(path, [Dog], portableRows);
+        using var database = await OpenDatabaseAsync("already-clean.db");
+        var image = await IndexAsync(database, path);
+        await WatchDirectoryAsync(database);
+        var tags = new TagRepository(database);
+        foreach (var prefix in new[] { "Auto", "Auto/animal", "Auto/animal/mammal", "Obsolete" })
+            await tags.ImportTagAsync(image.Id, prefix, TagSource.AutoML, 0.9f);
+        var before = await File.ReadAllBytesAsync(path);
+        var sidecar = Path.ChangeExtension(path, ".xmp");
+        var beforeSidecar = File.Exists(sidecar) ? await File.ReadAllBytesAsync(sidecar) : null;
+        using var scanner = new FolderScannerService();
+        var cleanup = CreateCleanup(database, scanner);
+
+        var result = await cleanup.CleanupAsync();
+
+        Assert.Empty(result.Failures);
+        Assert.Equal(0, result.UpdatedPhotos);
+        Assert.Equal(1, result.ReconciledPhotos);
+        Assert.Equal(3, result.RemovedTags);
+        Assert.Equal(Dog, Assert.Single(await tags.GetTagsAsync(image.Id)).Tag);
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
+        if (beforeSidecar is not null)
+            Assert.Equal(beforeSidecar, await File.ReadAllBytesAsync(sidecar));
+        var backup = Assert.Single(Directory.GetDirectories(result.BackupDirectory));
+        Assert.True(PortableImageTagMetadataSerializer.TryDeserialize(
+            await File.ReadAllTextAsync(Path.Combine(backup, "tag-cache.json")), out var backupTags));
+        Assert.Equal(5, backupTags!.Tags.Count);
+        Assert.Equal(0, (await cleanup.CleanupAsync()).ReconciledPhotos);
+    }
+
+    [Fact]
+    public async Task CacheOnlyWriteFailureLeavesLegacyCacheAndPhotoUntouched()
+    {
+        var path = await CreateMediaAsync("blocked.raw");
+        using var database = await OpenDatabaseAsync("blocked.db");
+        var image = await IndexAsync(database, path);
+        await WatchDirectoryAsync(database);
+        var tags = new TagRepository(database);
+        await AddLegacyCachedTagsAsync(tags, image);
+        Directory.CreateDirectory(Path.ChangeExtension(path, ".xmp"));
+        var before = await File.ReadAllBytesAsync(path);
+        using var scanner = new FolderScannerService();
+        var result = await CreateCleanup(database, scanner).CleanupAsync();
+        Assert.Single(result.Failures);
+        Assert.Equal(0, result.UpdatedPhotos);
+        Assert.Equal(0, result.ReconciledPhotos);
+        Assert.Equal(0, result.RemovedTags);
+        Assert.Equal(6, (await tags.GetTagsAsync(image.Id)).Count);
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
+        var backup = Assert.Single(Directory.GetDirectories(result.BackupDirectory));
+        Assert.True(File.Exists(Path.Combine(backup, "tag-cache.json")));
+    }
+
+    [Fact(Explicit = true)]
+    public async Task CleanupReportedPhotoCopyExportsLegacyCacheTagsWithoutChangingOriginal()
+    {
+        var original = Environment.GetEnvironmentVariable("PHOTOLIBRARIAN_TAG_CLEANUP_TEST_PHOTO");
+        Assert.False(string.IsNullOrWhiteSpace(original),
+            "Set PHOTOLIBRARIAN_TAG_CLEANUP_TEST_PHOTO to a local JPEG to test a disposable copy.");
+        var path = Path.Combine(_directory, "reported-copy.jpg");
+        var originalHash = await HashFileAsync(original!);
+        File.Copy(original!, path);
+        var originalSidecar = Path.ChangeExtension(original, ".xmp");
+        if (File.Exists(originalSidecar))
+            File.Copy(originalSidecar, Path.ChangeExtension(path, ".xmp"));
+        using var database = await OpenDatabaseAsync("reported-copy.db");
+        var image = await IndexAsync(database, path);
+        await WatchDirectoryAsync(database);
+        var tags = new TagRepository(database);
+        Assert.Empty(await tags.GetTagsAsync(image.Id));
+        await AddLegacyCachedTagsAsync(tags, image);
+        var pixels = await RecognitionSourceIdentity.ComputeAsync(path, CancellationToken.None);
+        using var scanner = new FolderScannerService();
+        var result = await CreateCleanup(database, scanner).CleanupAsync();
+        Assert.Empty(result.Failures);
+        Assert.Equal(1, result.UpdatedPhotos);
+        Assert.Equal(1, result.ReconciledPhotos);
+        Assert.Equal(4, result.RemovedTags);
+        Assert.Equal(new[] { "Auto/activity/painting a picture", "Auto/art/painting/oil painting" },
+            (await tags.GetTagsAsync(image.Id)).Select(tag => tag.Tag).Order());
+        Assert.Equal(pixels, await RecognitionSourceIdentity.ComputeAsync(path, CancellationToken.None));
+        Assert.Equal(originalHash, await HashFileAsync(original!));
+    }
+
+    private static async Task<string> HashFileAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(stream));
+    }
+
+    private static async Task AddLegacyCachedTagsAsync(TagRepository tags, ImageEntry image)
+    {
+        foreach (var value in new[] { "Auto", "Auto/art", "Auto/art/painting",
+            "Auto/art/painting/oil painting", "Auto/activity", "Auto/activity/painting a picture" })
+            await tags.ImportTagAsync(image.Id, value, TagSource.AutoML, 0.318f);
+        await tags.RestoreAutoTagScanVersionAsync(image.Id, "legacy-v1");
+    }
+
+    private HierarchicalTagCleanupService CreateCleanup(CacheDatabase database, FolderScannerService scanner)
+    {
+        var images = new ImageRepository(database);
+        var tags = new TagRepository(database);
+        var indexer = new LibraryIndexingService(database, images, tags,
+            new FaceRepository(database), scanner, new MetadataReaderService(), new FaceMetadataStore());
+        return new(images, tags, indexer, Path.Combine(_directory, "backups"));
     }
 
     [Fact]
@@ -438,7 +621,7 @@ public sealed class HierarchicalTagPortabilityTests : IDisposable
         var indexer = new LibraryIndexingService(database, new ImageRepository(database),
             new TagRepository(database), new FaceRepository(database), scanner,
             new MetadataReaderService(), new FaceMetadataStore());
-        var cleanup = new HierarchicalTagCleanupService(new ImageRepository(database),
+        var cleanup = new HierarchicalTagCleanupService(new ImageRepository(database), new TagRepository(database),
             indexer, Path.Combine(_directory, "backups"));
         var result = await cleanup.CleanupAsync();
         Assert.Equal(1, result.ScannedPhotos);
