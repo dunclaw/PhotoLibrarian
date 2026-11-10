@@ -155,6 +155,56 @@ model/pipeline/settings changes, cancellation, persistence failures, watched sco
 and offline storage. A 100-photo synthetic scoped-startup fixture reports elapsed
 time but is not a representative camera-library performance benchmark.
 
+### Tag sidecar naming and fallback warnings
+
+JPEG sidecars are a last-resort write fallback, not the normal tag storage
+location. The embedded writer first tries WIC's in-place encoder, then its
+transcode encoder for supported failures. A legacy UTF-8 byte-order mark
+(`EF BB BF`) before the JPEG XMP packet can make WIC reject in-place encoder
+creation with `0x80070057`, before any metadata property is set. This is an
+encoding compatibility problem, not evidence of a malformed tag or broken XML.
+The existing compatibility recovery removes that external preamble in memory
+and retries the embedded write; it does not remove the legitimate byte-order
+mark inside `<?xpacket begin="..."?>`. Older PhotoLibrarian XMP serialization
+could emit the external preamble; current embedded serializers omit it.
+
+Read-only analysis and write experiments on an authorized copy of the #183
+JPEG confirmed this exact failure at encoder creation. The current embedded
+tag writer succeeds without a sidecar, preserving all original XMP properties,
+the ICC profile and decoded pixels. The file does not establish which program
+originally emitted the preamble. The malformed-XMP fixtures below exercise a
+different, genuine last-resort failure; they do not describe the affected JPEG.
+The existing compatibility recovery predates this PR.
+
+When Windows cannot rewrite a JPEG, TIFF or PNG's existing embedded metadata
+(for example malformed or unsupported XMP, reported as `0x80070057` "Value does
+not fall within the expected range"), the photo is left byte-for-byte unchanged
+and tags are written to a per-file sidecar named `photo.jpg.xmp`. Other formats
+(RAW, HEIC, video) keep `photo.xmp`. A legacy `photo.xmp` is still read and
+updated for a JPEG/TIFF/PNG only when no other supported media file shares its
+stem; in a RAW+JPEG pair (`photo.cr3` + `photo.jpg`) the shared `photo.xmp`
+belongs to the RAW file, matching the sidecar-migration ambiguity rule. This
+prevents the two companions from overwriting each other's tag provenance, which
+previously re-queued tagging and repeated the fallback warning on every launch.
+
+Rating, flag, caption, capture date and GPS fallbacks follow the same ownership
+rule, resolved per property by `MetadataSidecarLocator`. A photo keeps updating
+whichever sidecar already holds that value. A lone JPEG/TIFF/PNG otherwise keeps
+the legacy `photo.xmp`. When another media file shares the stem, the JPEG/PNG
+value goes to `photo.jpg.xmp` and the RAW file keeps `photo.xmp`, including
+any unrelated editor settings already in it. Values a JPEG previously wrote into
+a shared `photo.xmp` are treated as the RAW file's and are no longer shown on
+the JPEG. A sidecar that exists but cannot be parsed is reported as a write
+failure and left unchanged instead of being replaced.
+
+The banner appears once when the fallback first happens, naming the sidecar and
+the reason; it does not diagnose corruption from an HRESULT alone.
+The failing encoder tier and operation, property keys (not their contents),
+failure type, HRESULT, normalization attempt and sidecar path are written to
+`PhotoLibrarian.log`. Edits remain portable in the sidecar, so subsequent
+launches do not repeat the write or the warning. If the sidecar itself cannot be
+written, tagging stays pending and is retried later without losing manual tags.
+
 ## Person picture portability
 
 Choosing a person's picture now saves the selection in that photo's

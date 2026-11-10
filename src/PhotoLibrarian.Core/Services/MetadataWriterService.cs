@@ -18,11 +18,15 @@ public static class MetadataWriterService
     /// <summary>Raised after an unexpected sidecar fallback has been saved successfully.</summary>
     public static event EventHandler<MetadataWriteFallbackEventArgs>? SidecarFallback;
 
-    internal static void ReportSidecarFallback(string imagePath, string propertyName, Exception error)
+    internal static void ReportSidecarFallback(
+        string imagePath, string propertyName, Exception error, string? sidecarPath = null)
     {
-        var args = new MetadataWriteFallbackEventArgs(imagePath, propertyName, error);
+        var args = new MetadataWriteFallbackEventArgs(imagePath, propertyName, error, sidecarPath);
         System.Diagnostics.Trace.TraceWarning(
             $"[METADATA] Saved {propertyName} to {args.SidecarPath}, not {imagePath}: {error.Message}");
+        Diagnostics.DebugLog.WriteLine(
+            $"[METADATA] Saved {propertyName} to {args.SidecarPath} because {imagePath} could not be updated: " +
+            $"{error.GetType().Name} 0x{error.HResult:X8} {error.Message}");
         SidecarFallback?.Invoke(null, args);
     }
 
@@ -60,17 +64,15 @@ public static class MetadataWriterService
             }
         }
 
-        await Task.Run(() =>
+        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsFlag, xmp =>
         {
-            var xmp = LoadOrCreateSidecar(imagePath);
             if (flagged)
                 xmp.SetProperty(PhotoLibrarianNamespace, FlagPropertyName, "True");
             else
                 try { xmp.DeleteProperty(PhotoLibrarianNamespace, FlagPropertyName); } catch { }
-            SaveSidecar(imagePath, xmp);
         });
         if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "flag", embeddedError);
+            ReportSidecarFallback(imagePath, "flag", embeddedError, sidecarPath);
     }
 
     /// <summary>
@@ -79,8 +81,8 @@ public static class MetadataWriterService
     /// </summary>
     public static bool? ReadFlagFromSidecar(string imagePath)
     {
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
-        if (!File.Exists(sidecarPath)) return null;
+        var sidecarPath = MetadataSidecarLocator.ResolveReadPath(imagePath, MetadataSidecarLocator.OwnsFlag);
+        if (sidecarPath is null) return null;
 
         try
         {
@@ -115,17 +117,15 @@ public static class MetadataWriterService
         }
 
         // Fallback: XMP sidecar (for RAW or in-place write failure)
-        await Task.Run(() =>
+        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsRating, xmp =>
         {
-            var xmp = LoadOrCreateSidecar(imagePath);
             if (rating.HasValue && rating.Value > 0)
                 xmp.SetPropertyInteger(XapNamespace, "xmp:Rating", rating.Value);
             else
                 try { xmp.DeleteProperty(XapNamespace, "xmp:Rating"); } catch { }
-            SaveSidecar(imagePath, xmp);
         });
         if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "rating", embeddedError);
+            ReportSidecarFallback(imagePath, "rating", embeddedError, sidecarPath);
     }
 
     /// <summary>Writes caption to the image (in-file: System.Title + System.Comment) or sidecar fallback.</summary>
@@ -148,17 +148,15 @@ public static class MetadataWriterService
             }
         }
 
-        await Task.Run(() =>
+        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsCaption, xmp =>
         {
-            var xmp = LoadOrCreateSidecar(imagePath);
             if (!string.IsNullOrEmpty(safe))
                 xmp.SetLocalizedText(DcNamespace, "dc:description", "", "x-default", safe);
             else
                 try { xmp.DeleteProperty(DcNamespace, "dc:description"); } catch { }
-            SaveSidecar(imagePath, xmp);
         });
         if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "caption", embeddedError);
+            ReportSidecarFallback(imagePath, "caption", embeddedError, sidecarPath);
     }
 
     /// <summary>
@@ -171,9 +169,9 @@ public static class MetadataWriterService
         var fileCaption = ReadCaptionFromFile(imagePath);
         if (!string.IsNullOrWhiteSpace(fileCaption)) return fileCaption;
 
-        // 2. Legacy fallback: XMP sidecar (for files edited before in-place writes existed)
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
-        if (!File.Exists(sidecarPath)) return null;
+        // 2. Sidecar fallback (RAW, failed in-place writes, or edits that predate them)
+        var sidecarPath = MetadataSidecarLocator.ResolveReadPath(imagePath, MetadataSidecarLocator.OwnsCaption);
+        if (sidecarPath is null) return null;
 
         try
         {
@@ -238,9 +236,8 @@ public static class MetadataWriterService
             }
         }
 
-        await Task.Run(() =>
+        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsDateTaken, xmp =>
         {
-            var xmp = LoadOrCreateSidecar(imagePath);
             if (dateTaken.HasValue)
             {
                 var iso = dateTaken.Value.ToString("yyyy-MM-ddTHH:mm:ss");
@@ -254,30 +251,46 @@ public static class MetadataWriterService
                 try { xmp.DeleteProperty(XapNamespace, "xmp:ModifyDate"); } catch { }
                 try { xmp.DeleteProperty(ExifNamespace, "exif:DateTimeOriginal"); } catch { }
             }
-            SaveSidecar(imagePath, xmp);
         });
         if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "date taken", embeddedError);
+            ReportSidecarFallback(imagePath, "date taken", embeddedError, sidecarPath);
     }
 
-    private static IXmpMeta LoadOrCreateSidecar(string imagePath)
+    /// <summary>
+    /// Applies one property change to the sidecar that owns that property for the photo and
+    /// returns the sidecar path. Other properties in the sidecar are preserved; an existing
+    /// sidecar that cannot be parsed is reported rather than replaced.
+    /// </summary>
+    private static Task<string> UpdateSidecarAsync(
+        string imagePath, Func<IXmpMeta, bool> ownsProperty, Action<IXmpMeta> apply) =>
+        Task.Run(() =>
+        {
+            var sidecarPath = MetadataSidecarLocator.ResolveTargetPath(imagePath, ownsProperty);
+            var xmp = LoadOrCreateSidecar(sidecarPath);
+            apply(xmp);
+            SaveSidecar(sidecarPath, xmp);
+            return sidecarPath;
+        });
+
+    private static IXmpMeta LoadOrCreateSidecar(string sidecarPath)
     {
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
+        if (!File.Exists(sidecarPath))
+            return XmpMetaFactory.Create();
+
         try
         {
-            if (File.Exists(sidecarPath))
-            {
-                var xml = File.ReadAllText(sidecarPath);
-                return XmpMetaFactory.ParseFromString(xml);
-            }
+            return XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
         }
-        catch { }
-        return XmpMetaFactory.Create();
+        catch (XmpException exception)
+        {
+            throw new IOException(
+                $"The existing XMP sidecar could not be read and was left unchanged: {sidecarPath}.",
+                exception);
+        }
     }
 
-    private static void SaveSidecar(string imagePath, IXmpMeta xmp)
+    private static void SaveSidecar(string sidecarPath, IXmpMeta xmp)
     {
-        var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
         var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
         File.WriteAllText(sidecarPath, serialized);
     }
