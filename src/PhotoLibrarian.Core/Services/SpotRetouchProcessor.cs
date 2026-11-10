@@ -22,8 +22,8 @@ public readonly record struct RetouchResult(RetouchStatus Status)
 }
 
 /// <summary>
-/// Harmonic inpainting of the complete painted mask from its unpainted boundary.
-/// Solves the discrete Laplace equation; never samples the content being removed.
+/// Local exemplar inpainting with a Poisson boundary blend.
+/// Never samples the content being removed or writes outside the painted mask.
 /// </summary>
 public static class SpotRetouchProcessor
 {
@@ -138,6 +138,11 @@ public static class SpotRetouchProcessor
         if (boundaryCount == 0) return new(RetouchStatus.NoSurroundingPixels);
         // Check the entire stencil before solving or writing any selected pixels.
         if (transparentBoundary) return new(RetouchStatus.TransparentPixels);
+
+        var guidance = RetouchPatchSynthesis.CreateGuidance(pixels, width, height, left, top,
+            w, h, indices, selected, radius, cancellationToken);
+        for (var i = 0; i < boundary.Length; i++)
+            boundary[i] += guidance[i];
 
         var solution = new double[boundary.Length];
         var residual = new double[selected.Count];

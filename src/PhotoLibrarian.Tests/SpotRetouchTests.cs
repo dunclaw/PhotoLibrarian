@@ -192,16 +192,114 @@ public sealed class SpotRetouchTests : IDisposable
         Assert.InRange(damaged[(64 * Size + 64) * 4 + 2], 120, 220);
     }
 
-    [Fact]
-    public void TexturedAndEdgeRegions_AreFilledRatherThanRejectedByAPlaneFit()
+    [Theory]
+    [InlineData("vertical")]
+    [InlineData("horizontal")]
+    [InlineData("diagonal")]
+    [InlineData("texture")]
+    public void NearbyExemplars_PreserveStructureRatherThanBlurringThePaintedArea(string pattern)
     {
-        var pixels = Surface(false);
+        var reference = Surface(false);
         for (var y = 0; y < Size; y++)
         for (var x = 0; x < Size; x++)
-            pixels[(y * Size + x) * 4] = (byte)((x < 64 ? 50 : 200) + (x + y) % 7);
+        {
+            var bright = pattern switch
+            {
+                "vertical" => x >= 64,
+                "horizontal" => y >= 64,
+                "diagonal" => x >= y,
+                _ => (x / 4 + y / 4) % 2 == 0
+            };
+            for (var channel = 0; channel < 3; channel++)
+                reference[(y * Size + x) * 4 + channel] = (byte)(bright ? 190 + channel * 10 : 40 + channel * 10);
+        }
+        var pixels = reference.ToArray();
+        Blemish(pixels);
+        var before = pixels.ToArray();
+        Assert.True(SpotRetouchProcessor.Apply(pixels, Size, Size, [Stroke()]).Succeeded);
+        double error = 0;
+        var count = 0;
+        for (var y = 0; y < Size; y++)
+        for (var x = 0; x < Size; x++)
+        for (var channel = 0; channel < 4; channel++)
+        {
+            var offset = (y * Size + x) * 4 + channel;
+            if ((x - 64) * (x - 64) + (y - 64) * (y - 64) > 64 || channel == 3)
+                Assert.Equal(before[offset], pixels[offset]);
+            else
+            {
+                error += Math.Pow(pixels[offset] - reference[offset], 2);
+                count++;
+            }
+        }
+        // Harmonic-only filling loses these edges/texture (39-78 levels RMS).
+        Assert.InRange(Math.Sqrt(error / count), 0, 12);
+    }
+
+    [Fact]
+    public void ExemplarDonors_NeverReadPaintedContentAndReplayDeterministically()
+    {
+        var first = Surface(true);
+        var second = first.ToArray();
+        for (var y = 56; y <= 72; y++)
+        for (var x = 56; x <= 84; x++)
+        {
+            var dx = x - Math.Clamp(x, 64, 76);
+            if (dx * dx + (y - 64) * (y - 64) > 64) continue;
+            for (var channel = 0; channel < 3; channel++)
+            {
+                first[(y * Size + x) * 4 + channel] = 0;
+                second[(y * Size + x) * 4 + channel] = 255;
+            }
+        }
+        Assert.True(SpotRetouchProcessor.Apply(first, Size, Size,
+            [Stroke(8, new(64, 64), new(76, 64))]).Succeeded);
+        Assert.True(SpotRetouchProcessor.Apply(second, Size, Size,
+            [Stroke(8, Enumerable.Range(64, 13).Select(x => new RetouchPoint(x, 64)).ToArray())]).Succeeded);
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void DistantTransparency_IsExcludedFromDonorsWithoutRejectingOpaqueSelection()
+    {
+        var pixels = Surface(false);
+        pixels[(52 * Size + 64) * 4 + 3] = 0;
+        var reference = pixels.ToArray();
         Blemish(pixels);
         Assert.True(SpotRetouchProcessor.Apply(pixels, Size, Size, [Stroke()]).Succeeded);
-        Assert.InRange(pixels[(64 * Size + 64) * 4], 90, 160);
+        Assert.Equal(reference, pixels);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public void NarrowImages_UseClippedSourcePatches(int width)
+    {
+        const int height = 80;
+        var pixels = Enumerable.Repeat((byte)255, width * height * 4).ToArray();
+        pixels[(40 * width) * 4] = 0;
+        Assert.True(SpotRetouchProcessor.Apply(pixels, width, height,
+            [new(width, height, 8, [new(0, 40)])]).Succeeded);
+        Assert.All(pixels, value => Assert.Equal((byte)255, value));
+    }
+
+    [Fact]
+    public void BroadMaskWithOnlyOneSourceRow_AdaptsPatchesAndPropagatesDonors()
+    {
+        const int size = 40;
+        var pixels = Enumerable.Repeat((byte)255, size * size * 4).ToArray();
+        for (var i = size * 4; i < pixels.Length; i += 4)
+            pixels[i] = pixels[i + 1] = pixels[i + 2] = 0;
+        var points = new List<RetouchPoint>();
+        for (var y = 3; y < size; y += 4)
+        {
+            var reverse = points.Count % 4 != 0;
+            points.Add(new(reverse ? size - 1 : 0, y));
+            points.Add(new(reverse ? 0 : size - 1, y));
+        }
+        Assert.True(SpotRetouchProcessor.Apply(pixels, size, size,
+            [new(size, size, 2, points.ToArray())]).Succeeded);
+        Assert.All(pixels, value => Assert.Equal((byte)255, value));
     }
 
     [Fact]

@@ -14,12 +14,15 @@ Changing the brush radius or zoom updates the outline immediately.
 Turn the mode off to return to normal left-drag panning.
 
 This is a local **small-blemish inpainting tool**, not general object reconstruction.
-Good candidates are small spots on a plain wall, smooth sky or another locally
-flat/gradually shaded surface. Ordinary photo noise, JPEG artifacts and uneven
-shading do not prevent an operation. It interpolates color from the unpainted
-boundary; it does not synthesize missing hair, fabric, foliage, skin texture,
-text or structural edges. Larger or detailed selections can look smoothed or
-blurred. Inspect the result and undo it if it looks unnatural. Paint over the
+Good candidates are small spots on walls, sky, or locally repeating surfaces.
+Ordinary photo noise, JPEG artifacts and uneven shading do not prevent an
+operation. The fill copies matching patches from nearby unpainted pixels and
+blends their colors into the boundary, retaining local texture and continuing
+simple edges instead of only smoothing them. This is not a generative model:
+unique hair, faces, text, complex structures, or large missing objects cannot
+be reconstructed reliably. Repeated patterns, mismatched detail, seams or
+smoothed areas are still possible, especially without a suitable nearby source.
+Inspect the result and undo it if it looks unnatural. Paint over the
 whole unwanted feature: anything left outside the brush remains a source for
 the fill, including any unpainted part of the blemish.
 
@@ -52,11 +55,43 @@ the fill, including any unpainted part of the blemish.
 ## Algorithm and supported behavior
 
 The mask is the union of circular brush dabs connected by capsules, including
-between sparse pointer events. Each color channel is filled by solving the
-discrete Laplace equation inside that mask, holding the immediate unpainted
-boundary fixed. A preconditioned conjugate-gradient solver computes a smooth
-continuation of those colors without ever reading the unwanted interior as a
-source. Earlier strokes are applied in order before filling a later stroke.
+between sparse pointer events. A deterministic exemplar fill advances inward
+from the boundary, prioritizing patches with known context and strong edges.
+It matches 7 x 7 color patches against fully unpainted, opaque sources within
+four brush radii plus three pixels of each target. Matching subtracts the mean
+color difference, allowing the same structure under gradually changing lighting.
+Copied pixels are shifted by that mean difference. Newly filled pixels can guide
+later matching, but **never become source exemplars**; the entire original mask
+is excluded, regardless of how much has been filled. No color in the unwanted
+interior is read as source content.
+
+Thin images or heavily painted surroundings use smaller source patches, down
+to individual available pixels. If a target is deep inside a wide mask, matching
+can search around a previous patch's donor rather than imposing a selection-size
+limit. Image-edge footprints are clipped to available pixels. Sources with
+transparency are skipped; transparency elsewhere in the search area does not
+reject an otherwise opaque selection.
+
+A Poisson solve blends the synthesized gradients into the real, fixed unpainted
+boundary. Interior gradients come from the assembled patches; outward boundary
+gradients come from unpainted donor neighbours when available. The existing
+preconditioned conjugate-gradient solver is reused. Flat/linear surfaces remain
+smooth, while copied edges and texture are no longer forced into a harmonic
+blur. Earlier strokes are applied in order before filling a later stroke.
+Existing `SpotRetouchV1` masks remain compatible and pending recipes replay with
+the improved algorithm; already baked pixels are unchanged.
+
+### Library choice
+
+The app already bundles a minimal OpenCV 4.12.0 build for panorama stitching,
+but not its `photo` module. OpenCV's standard
+[`inpaint`](https://docs.opencv.org/4.12.0/df/d3d/tutorial_py_inpainting.html)
+offers Telea weighted-neighbour filling and Navier-Stokes edge/PDE continuation,
+not exemplar texture copying. Adding that module or a new wrapper would not
+directly address the missing texture. This managed CPU implementation adds no
+native modules, packages, models or architecture-specific deployment changes.
+It is a local patch heuristic, not a claim of parity with model-based object
+removal or a measured comparison against OpenCV on real photographs.
 
 The former planar-fit residual/texture rejection has been removed. There is no
 texture/edge classifier that refuses otherwise valid painting. Image-edge
@@ -79,10 +114,13 @@ when tone/detail/rotation controls change. Each new stroke builds on the cached
 result rather than replaying all previous strokes; Undo/reload replays the
 stored recipe. Rebuilding needs an owned BGRA8 scratch buffer (four bytes per
 source pixel) in addition to the editor's existing source, histogram pixels and
-GPU bitmap resources. The solver uses arrays proportional to the painted area
-and its bounding rectangle. Work and memory increase with the actual selection,
-not an imposed image dimension limit. Cancellation is checked while rasterizing,
-building the system and iterating the solver.
+GPU bitmap resources. Synthesis and blending use arrays proportional to the
+painted area and its bounding rectangle, not a second full-photo search image.
+Work and memory increase with the actual selection, not an imposed image
+dimension limit. Patch matching costs more CPU time than boundary-only filling,
+particularly for wide/detailed masks or sparse available sources; very large
+strokes can be slow. Cancellation is checked while rasterizing, preparing the
+fill, searching each donor row, and iterating the solver.
 
 ## Verification
 
@@ -94,7 +132,18 @@ stoplight and dark housing must heal within 7 RMS 8-bit levels of the clean
 reference, for both sparse and >128-point gestures. JPEG compression/noise is
 also tested through preview and safe save. GPU-rendered selection feedback must
 be a uniformly filled capsule, including self-overlaps, with no internal rings.
-Other tests cover textured/edge-region acceptance, image-edge filling, typed
+High-contrast vertical, horizontal and diagonal edges and a repeating checker
+texture must reconstruct within 12 RMS 8-bit levels while leaving every pixel
+outside the mask and all alpha values unchanged. Differently colored painted
+interiors and sparse/dense representations of the same mask must produce
+identical results. Narrow images, a broad mask with only one unpainted source
+row, and transparency outside the boundary exercise clipped/adaptive patches,
+donor propagation and source exclusion.
+The four structure fixtures were also run against the original harmonic-only
+fill: all failed the 12-level threshold, with approximately 39 RMS levels on the
+three edges and 78 on the checker texture. These are generated, repeatable
+regressions, not a representative photographic-quality benchmark.
+Other tests cover image-edge filling, typed
 transparency/no-source outcomes, long strokes, recipes, cancellation, history, RAW/format gating, rotated and
 EXIF-oriented preview/save equality before encoding, lossless PNG reopen and
 original-backup recovery. A generated 8256 x 5504 (~45 MP) full-resolution source
