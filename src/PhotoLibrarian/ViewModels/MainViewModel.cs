@@ -170,9 +170,14 @@ public partial class MainViewModel : ObservableObject
             this,
             gridLayoutSettingsStore ?? new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
+        ImageViewer.PersistEditAsync = (label, path, prepare) =>
+            RunPhotoEditAsync(label, [path], copies => prepare(copies[Path.GetFullPath(path)]));
         ImageViewer.EffectRecipeChanged += ImageGrid.RefreshSingleImageAsync;
         Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
+        ImageEditor.OperationFailed += (_, message) => StatusText = message;
+        ImageEditor.PersistEditAsync = (label, path, identity, prepare) =>
+            RunPhotoEditAsync(label, [path], copies => prepare(copies[Path.GetFullPath(path)]), identity);
         MetadataPanel = new MetadataPanelViewModel();
         MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this, backupService);
         PeopleReview = new PeopleReviewViewModel(faceReviewService);
@@ -1133,32 +1138,12 @@ public partial class MainViewModel : ObservableObject
     public async Task SetFlagAsync(IReadOnlyList<ImageEntry> entries, bool flagged)
     {
         if (entries is null || entries.Count == 0) return;
-
-        int changed = 0;
-        foreach (var entry in entries)
+        await RunPhotoEditAsync(flagged ? "flag photos" : "unflag photos",
+            entries.Select(entry => entry.FilePath).ToArray(), async copies =>
         {
-            try
-            {
-                await MetadataWriterService.WriteFlagAsync(entry.FilePath, flagged);
-            }
-            catch (Exception ex)
-            {
-                DebugLog.WriteLine($"[FLAG] Failed to write flag to {entry.FilePath}: {ex.Message}");
-            }
-
-            entry.IsFlagged = flagged;
-            if (entry.Id > 0)
-                await _imageRepo.UpdateFlagAsync(entry.Id, flagged);
-            changed++;
-        }
-
-        StatusText = flagged
-            ? $"Flagged {changed:N0} item(s)"
-            : $"Unflagged {changed:N0} item(s)";
-
-        await RefreshFlagNavAsync();
-        MetadataPanel.RefreshFlagState();
-        await ImageGrid.OnFlagsChangedAsync(entries, flagged);
+            foreach (var path in copies.Values)
+                await MetadataWriterService.WriteFlagAsync(path, flagged);
+        });
     }
 
     /// <summary>
@@ -1203,11 +1188,8 @@ public partial class MainViewModel : ObservableObject
         await DateNav.LoadDatesAsync();
         if (App.MainWindow is MainWindow window)
         {
-            window.DispatcherQueue.TryEnqueue(async () =>
-            {
-                await window.RefreshMetadataTreesAsync();
-                await ImageGrid.RefreshGroupingAsync();
-            });
+            await window.RefreshMetadataTreesAsync();
+            await ImageGrid.RefreshGroupingAsync();
         }
     }
 
@@ -1221,47 +1203,29 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(tag) || filePaths == null || filePaths.Count == 0) return;
         var trimmed = tag.Trim();
 
-        StatusText = $"Applying tag '{trimmed}' to {filePaths.Count:N0} item(s)…";
-
-        int applied = 0;
-        int skipped = 0;
-        foreach (var path in filePaths)
+        await RunPhotoEditAsync($"add tag '{trimmed}'", filePaths.ToArray(), async copies =>
         {
-            try
+            foreach (var (path, copy) in copies)
             {
                 var entry = await _imageRepo.GetByPathAsync(path);
-                if (entry == null || entry.Id <= 0) { skipped++; continue; }
-
-                await _tagRepo.AddTagAsync(new ImageTag
+                if (entry is null || entry.Id <= 0)
+                    throw new IOException($"The photo is no longer indexed: {path}");
+                var allTags = await _tagRepo.GetTagsAsync(entry.Id);
+                allTags.RemoveAll(item => string.Equals(item.Tag, trimmed, StringComparison.OrdinalIgnoreCase));
+                allTags.Add(new ImageTag
                 {
                     ImageId = entry.Id,
                     Tag = trimmed,
                     Source = TagSource.Manual,
                     Confidence = 1.0f
                 });
-
-                var allTags = await _tagRepo.GetTagsAsync(entry.Id);
-                await TagWriterService.WriteTagsToSidecarAsync(path,
+                await TagWriterService.WriteTagsToSidecarAsync(copy,
                     allTags.Select(t => t.Tag).Distinct(),
                     allTags,
                     entry.AutoTagScanVersion,
                     sourceIdentity: entry.SourceIdentity);
-
-                applied++;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[TAGDROP] Failed to apply '{trimmed}' to {path}: {ex.Message}");
-                skipped++;
-            }
-        }
-
-        StatusText = skipped == 0
-            ? $"Applied tag '{trimmed}' to {applied:N0} item(s)"
-            : $"Applied tag '{trimmed}' to {applied:N0} item(s) ({skipped:N0} skipped)";
-
-        await RefreshTagsTreeAsync();
-        await MetadataPanel.ReloadTagsAsync();
+        });
     }
 
     /// <summary>
@@ -1477,6 +1441,7 @@ public partial class MainViewModel : ObservableObject
 
     public async Task CleanupAsync()
     {
+        await EditHistory.WaitForIdleAsync();
         Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
@@ -1498,6 +1463,7 @@ public partial class MainViewModel : ObservableObject
         _recognitionPipeline.Progress -= OnRecognitionProgress;
         Settings.AutoTaggingSettingsChanged -= OnAutoTaggingSettingsChanged;
         _faceResources.Dispose();
+        EditHistory.Clear();
         _scanner.Dispose();
         DebugLog.WriteLine("MainViewModel: Cleanup complete");
         Core.Diagnostics.DebugLog.Flush(TimeSpan.FromSeconds(1));

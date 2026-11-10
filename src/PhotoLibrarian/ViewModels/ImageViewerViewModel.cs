@@ -23,6 +23,7 @@ public partial class ImageViewerViewModel : ObservableObject
     public bool CanUndoEffect => !IsPhotoFuseActive && !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanUndo(entry.FilePath);
     public bool CanRedoEffect => !IsPhotoFuseActive && !IsApplyingEffect && CurrentEntry is { } entry && _effects.CanRedo(entry.FilePath);
     public event Func<string, Task>? EffectRecipeChanged;
+    internal Func<string, string, Func<string, Task>, Task<bool>>? PersistEditAsync { get; set; }
 
     private void NotifyEffectHistory()
     {
@@ -30,8 +31,34 @@ public partial class ImageViewerViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRedoEffect));
     }
 
-    public Task ApplyEffectAsync(PhotoEffect effect) =>
-        UpdateEffectAsync(path => _effects.SelectAsync(path, effect));
+    public async Task ApplyEffectAsync(PhotoEffect effect)
+    {
+        if (PersistEditAsync is null)
+        {
+            await UpdateEffectAsync(path => _effects.SelectAsync(path, effect));
+            return;
+        }
+        var entry = CurrentEntry;
+        if (entry is null || IsVideo || IsApplyingEffect || IsPhotoFuseActive) return;
+        IsApplyingEffect = true;
+        NotifyEffectHistory();
+        try
+        {
+            await PersistEditAsync($"effect {effect}", entry.FilePath, async copy =>
+            {
+                var parameters = ImageEditService.ReadEditParameters(copy);
+                if (parameters.Effect == effect) return;
+                parameters.Effect = effect;
+                _ = await ViewerEffectService.RenderAsync(copy, parameters);
+                await ImageEditService.WritePendingRecipeAsync(copy, parameters);
+            });
+        }
+        finally
+        {
+            IsApplyingEffect = false;
+            NotifyEffectHistory();
+        }
+    }
 
     public Task UndoEffectAsync() => UpdateEffectAsync(path => _effects.MoveHistoryAsync(path, undo: true));
     public Task RedoEffectAsync() => UpdateEffectAsync(path => _effects.MoveHistoryAsync(path, undo: false));

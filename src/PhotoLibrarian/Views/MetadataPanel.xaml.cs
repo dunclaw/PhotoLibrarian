@@ -527,14 +527,17 @@ public sealed partial class MetadataPanel : UserControl
 
     // --- Caption ---
 
-    private void OnCaptionLostFocus(object sender, RoutedEventArgs e)
+    private async void OnCaptionLostFocus(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null || _suppressCaptionSave) return;
         if (CaptionBox.Text == _lastLoadedCaption) return;
         ViewModel.Caption = CaptionBox.Text;
-        ViewModel.SaveCaptionCommand.Execute(null);
-        _lastLoadedCaption = CaptionBox.Text;
-        CaptionMixedHint.Visibility = Visibility.Collapsed;
+        var caption = CaptionBox.Text;
+        if (await ViewModel.SaveCaptionAsync())
+        {
+            _lastLoadedCaption = caption;
+            CaptionMixedHint.Visibility = Visibility.Collapsed;
+        }
     }
 
     // --- Tags ---
@@ -687,7 +690,7 @@ public sealed partial class MetadataPanel : UserControl
         }
 
         DateParseError.Visibility = Visibility.Collapsed;
-        await ViewModel.SetDateTakenAsync(parsed);
+        if (!await ViewModel.SetDateTakenAsync(parsed)) return;
         _lastLoadedDateText = parsed.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture);
         // Re-format the box to canonical form
         _suppressDateBoxLostFocus = true;
@@ -712,7 +715,7 @@ public sealed partial class MetadataPanel : UserControl
         var combined = new DateTime(date.Year, date.Month, date.Day,
                                     time.Hours, time.Minutes, time.Seconds,
                                     DateTimeKind.Local);
-        await ViewModel.SetDateTakenAsync(combined);
+        if (!await ViewModel.SetDateTakenAsync(combined)) return;
         // Close the flyout
         DatePickerBtn.Flyout?.Hide();
     }
@@ -726,7 +729,7 @@ public sealed partial class MetadataPanel : UserControl
         ApplyShiftButton.IsEnabled = false;
         try
         {
-            await ViewModel.OffsetDateTakenAsync(offset);
+            if (!await ViewModel.OffsetDateTakenAsync(offset)) return;
         }
         finally
         {

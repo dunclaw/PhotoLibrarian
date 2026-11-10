@@ -57,6 +57,17 @@ public sealed class KeyboardShortcutTests
     }
 
     [Fact]
+    public void ShiftControlZRedoesButTextAndAltCombinationsRemainNative()
+    {
+        var modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift;
+        Assert.True(MainWindow.TryGetEditorHistoryShortcut(VirtualKey.Z, modifiers, false, out var undo));
+        Assert.False(undo);
+        Assert.False(MainWindow.TryGetEditorHistoryShortcut(VirtualKey.Z, modifiers, true, out _));
+        Assert.False(MainWindow.TryGetEditorHistoryShortcut(VirtualKey.Z,
+            VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu, false, out _));
+    }
+
+    [Fact]
     public void ExistingWindowAcceleratorsRemainTheOnlyF11AndPrintBindings()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.xaml");

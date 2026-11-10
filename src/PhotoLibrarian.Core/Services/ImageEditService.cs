@@ -55,14 +55,17 @@ public sealed class ImageEditService
     {
         // Backup original first
         await _backupService.BackupOriginalAsync(filePath);
+        await WritePendingRecipeAsync(filePath, parameters);
+    }
 
-        await Task.Run(() =>
+    /// <summary>Writes a recipe on a transaction's private copy; the caller owns original backup.</summary>
+    public static Task WritePendingRecipeAsync(string filePath, EditParameters parameters) =>
+        Task.Run(() =>
         {
             var xmp = ReadXmp(filePath);
             EditParametersSerializer.WriteToXmp(xmp, parameters);
             WriteSidecar(filePath, xmp);
         });
-    }
 
     /// <summary>Atomically keeps a portable RAW preview recipe without touching sensor bytes.</summary>
     public static async Task SaveRawPreviewRecipeAsync(string filePath, EditParameters parameters,
@@ -114,27 +117,20 @@ public sealed class ImageEditService
     /// Strips PhotoLibrarian's edit properties from the sidecar, leaving any other XMP content
     /// (a Lightroom sidecar, for example) alone. Does nothing when no sidecar exists.
     /// </summary>
-    private static Task ClearPendingEditParametersAsync(string filePath) => Task.Run(() =>
+    public static Task ClearPendingEditParametersAsync(string filePath) => Task.Run(() =>
     {
         var sidecarPath = GetSidecarPath(filePath);
         if (!File.Exists(sidecarPath)) return;
 
-        try
+        IXmpMeta xmp;
+        using (var stream = File.OpenRead(sidecarPath))
         {
-            IXmpMeta xmp;
-            using (var stream = File.OpenRead(sidecarPath))
-            {
-                xmp = XmpMetaFactory.Parse(stream);
-            }
+            xmp = XmpMetaFactory.Parse(stream);
+        }
 
-            // Same-stem RAW/raster photos can share a sidecar; raster baking must keep the RAW recipe.
-            EditParametersSerializer.ClearFromXmp(xmp, includeRawParameters: false);
-            WriteSidecar(filePath, xmp);
-        }
-        catch
-        {
-            // A sidecar we can't parse isn't ours to rewrite — leave it as-is.
-        }
+        // Same-stem RAW/raster photos can share a sidecar; raster baking must keep the RAW recipe.
+        EditParametersSerializer.ClearFromXmp(xmp, includeRawParameters: false);
+        WriteSidecar(filePath, xmp);
     });
 
     /// <summary>

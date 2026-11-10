@@ -199,7 +199,7 @@ public sealed class PhotoContextMenuTests
         Assert.Contains("DefaultButton = ContentDialogButton.Close", source);
         Assert.Contains("viewerTarget.ExecuteConfirmedAsync(", source);
         Assert.Contains("ops.DeleteToRecycleBinAsync(", source);
-        Assert.Contains("RefreshAfterPixelEditAsync(", source);
+        Assert.Contains("RunPhotoEditAsync(", source);
         Assert.Contains("RenameEntriesAsync(selectedEntries)", source);
         Assert.Contains("ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;",
             File.ReadAllText(Asset("MainWindow.xaml.cs")));

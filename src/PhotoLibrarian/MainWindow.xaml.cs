@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
 
     private CropAspectRatio _pendingAspect = CropAspectRatio.Free;
     private bool _isClosing;
+    private Control? _editHistoryFocus;
     private SlideshowWindow? _slideshow;
     private Control? _slideshowReturnFocus;
     private double _slideshowIntervalSeconds = 5;
@@ -362,11 +363,17 @@ public sealed partial class MainWindow : Window
     public Task RefreshTagsTreeAsync() =>
         FolderNavPanel.RefreshTagsTreeAsync();
 
-    public void BeginManualFaceTagging() =>
+    public void BeginManualFaceTagging()
+    {
         ViewerOverlay.EnterManualFaceTagging();
+        UpdateHistoryControls();
+    }
 
-    public void CancelManualFaceTagging() =>
+    public void CancelManualFaceTagging()
+    {
         ViewerOverlay.ExitManualFaceTagging();
+        UpdateHistoryControls();
+    }
 
     /// <summary>Forwards a hovered people-tag row to whichever surface is showing that image
     /// (the full viewer if it's open on that entry, and/or the grid thumbnail).</summary>
@@ -459,6 +466,8 @@ public sealed partial class MainWindow : Window
         TopRibbon.EffectsClicked += OnRibbonEffectsClicked;
         TopRibbon.UndoClicked += OnRibbonUndoClicked;
         TopRibbon.RedoClicked += OnRibbonRedoClicked;
+        ViewModel.EditHistory.Changed += OnEditHistoryChanged;
+        UpdateHistoryControls();
         TopRibbon.RetouchClicked += OnRibbonRetouchClicked;
         TopRibbon.RedEyeClicked += OnRibbonRedEyeClicked;
         TopRibbon.ApplyCropClicked += OnRibbonApplyCropClicked;
@@ -471,7 +480,11 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.StraightenApplyRequested += OnRibbonApplyStraightenClicked;
         ViewerOverlay.StraightenCancelRequested += OnRibbonCancelStraightenClicked;
         ViewerOverlay.RedEyeSelectionCompleted += OnRedEyeSelectionCompleted;
-        ViewerOverlay.ManualFaceTaggingExited += (_, _) => ViewModel.OnManualFaceTaggingExited();
+        ViewerOverlay.ManualFaceTaggingExited += (_, _) =>
+        {
+            ViewModel.OnManualFaceTaggingExited();
+            UpdateHistoryControls();
+        };
 
         // The grid sits underneath the full viewer; if it takes focus (double-click or a
         // selection sync), hand focus back so arrow keys navigate photos.
@@ -653,10 +666,15 @@ public sealed partial class MainWindow : Window
 
     private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_isClosing || e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
+        if (_isClosing) return;
+        UpdateHistoryControls();
+        if (e.PropertyName == nameof(ImageEditorViewModel.Title))
+            TopRibbon.SetContextLabel(ViewModel.ImageEditor.Title);
+        if (e.PropertyName != nameof(ImageEditorViewModel.IsOpen)) return;
         DispatcherQueue.TryEnqueue(() =>
         {
             if (_isClosing) return;
+            UpdateRibbonVisibility();
             if (ViewModel.ImageEditor.IsOpen)
             {
                 ViewerOverlay.StopFocusGuard();
@@ -670,12 +688,8 @@ public sealed partial class MainWindow : Window
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isClosing) return;
-        if (e.PropertyName is nameof(ImageViewerViewModel.CanUndoEffect) or nameof(ImageViewerViewModel.CanRedoEffect))
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (!_isClosing)
-                    TopRibbon.SetHistoryAvailability(ViewModel.ImageViewer.CanUndoEffect, ViewModel.ImageViewer.CanRedoEffect);
-            });
+        if (e.PropertyName == nameof(ImageViewerViewModel.IsApplyingEffect))
+            UpdateHistoryControls();
 
         if (e.PropertyName == nameof(ImageViewerViewModel.ShouldShowInformationPane))
             DispatcherQueue.TryEnqueue(() =>
@@ -735,30 +749,27 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (ViewModel.EditHistory.IsBusy)
+        {
+            e.Handled = true;
+            return;
+        }
         // Deliberate keyboard navigation must end the short opening-time focus recovery.
         if (e.Key == Windows.System.VirtualKey.Tab)
             ViewerOverlay.StopFocusGuard();
         if (ViewerOverlay.IsPhotoContextMenuOpen) return;
         var focus = Content?.XamlRoot is { } historyRoot
             ? FocusManager.GetFocusedElement(historyRoot) as DependencyObject : null;
-        var ctrl = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control) &
-            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-        var shift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift) &
-            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-        if (ctrl && (e.Key is Windows.System.VirtualKey.Z or Windows.System.VirtualKey.Y) &&
-            ViewModel.ImageViewer.IsOpen && !ViewModel.ImageEditor.IsOpen &&
-            !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen &&
-            !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening && !ViewerOverlay.IsRedEyeRemoving &&
-            !HasNativeHistoryOrDialog(focus))
+        if (!e.Handled && TryGetEditorHistoryShortcut(e.Key, GetCurrentModifiers(),
+                HasNativeHistoryOrDialog(focus), out var undo) && CanUseEditHistory())
         {
             e.Handled = true;
-            await ViewerOverlay.MoveEffectHistoryAsync(e.Key == Windows.System.VirtualKey.Z && !shift);
+            await MoveEditHistoryAsync(undo);
             return;
         }
         if (ViewModel.ImageEditor.IsOpen && !ViewModel.Settings.IsOpen && !ViewModel.PeopleReview.IsOpen)
         {
             var editorFocus = GetFocusedElement();
-            if (TryHandleEditorHistoryShortcut(e, editorFocus)) return;
             await EditorOverlay.HandleEditorKeyAsync(e, editorFocus);
             return;
         }
@@ -786,30 +797,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private bool TryHandleEditorHistoryShortcut(KeyRoutedEventArgs e, DependencyObject? focused)
-    {
-        if (e.Handled || !TryGetEditorHistoryShortcut(
-            e.Key,
-            GetCurrentModifiers(),
-            IsInputOrDialogFocused(focused),
-            out bool isUndo))
-            return false;
-
-        if (isUndo)
-        {
-            if (!ViewModel.ImageEditor.CanUndo) return false;
-            ViewModel.ImageEditor.UndoCommand.Execute(null);
-        }
-        else
-        {
-            if (!ViewModel.ImageEditor.CanRedo) return false;
-            ViewModel.ImageEditor.RedoCommand.Execute(null);
-        }
-
-        e.Handled = true;
-        return true;
-    }
-
     internal static bool TryGetEditorHistoryShortcut(
         Windows.System.VirtualKey key,
         Windows.System.VirtualKeyModifiers modifiers,
@@ -817,8 +804,12 @@ public sealed partial class MainWindow : Window
         out bool isUndo)
     {
         isUndo = false;
-        if (isInputFocused || modifiers != Windows.System.VirtualKeyModifiers.Control)
+        if (isInputFocused)
             return false;
+        if (key == Windows.System.VirtualKey.Z &&
+            modifiers == (Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift))
+            return true;
+        if (modifiers != Windows.System.VirtualKeyModifiers.Control) return false;
 
         if (key == Windows.System.VirtualKey.Z)
         {
@@ -973,7 +964,7 @@ public sealed partial class MainWindow : Window
         return false;
     }
 
-    private static bool HasNativeHistoryOrDialog(DependencyObject? element)
+    internal static bool HasNativeHistoryOrDialog(DependencyObject? element)
     {
         for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
         {
@@ -1012,6 +1003,7 @@ public sealed partial class MainWindow : Window
         ViewModel.DuplicateReview.Close();
         ViewModel.ImageViewer.PropertyChanged -= OnImageViewerPropertyChanged;
         ViewModel.ImageEditor.PropertyChanged -= OnImageEditorPropertyChanged;
+        ViewModel.EditHistory.Changed -= OnEditHistoryChanged;
         ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
         MetadataWriterService.SidecarFallback -= OnMetadataSidecarFallback;
         ViewModel.ImageGrid.Cleanup();
@@ -1056,8 +1048,10 @@ public sealed partial class MainWindow : Window
 
     private void UpdateRibbonVisibility()
     {
-        TopRibbon.Visibility = ViewModel.ImageViewer.IsOpen
-            ? Visibility.Visible : Visibility.Collapsed;
+        TopRibbon.Visibility = Visibility.Visible;
+        TopRibbon.SetPhotoContext(ViewModel.ImageViewer.IsOpen, ViewModel.ImageEditor.IsOpen);
+        TopRibbon.SetContextLabel(ViewModel.ImageEditor.IsOpen ? ViewModel.ImageEditor.Title
+            : ViewModel.ImageViewer.IsOpen ? ViewModel.ImageViewer.Title : "");
         if (!ViewModel.ImageViewer.IsOpen && ViewerOverlay.IsCropping)
         {
             ViewerOverlay.ExitCropMode();
@@ -1073,6 +1067,7 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitRedEyeMode();
             TopRibbon.ExitRedEyeMode();
         }
+        UpdateHistoryControls();
     }
 
     private void OnRibbonCropClicked(object? sender, EventArgs e)
@@ -1087,6 +1082,7 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.EnterCropMode();
         ViewerOverlay.CropOverlay.AspectRatio = _pendingAspect;
         TopRibbon.EnterCropMode();
+        UpdateHistoryControls();
     }
 
     private async void OnRibbonMakeCopyClicked(object? sender, EventArgs e)
@@ -1131,6 +1127,7 @@ public sealed partial class MainWindow : Window
 
         ViewerOverlay.EnterStraightenMode();
         TopRibbon.EnterStraightenMode();
+        UpdateHistoryControls();
     }
 
     private async void OnRibbonAdjustClicked(object? sender, EventArgs e)
@@ -1150,10 +1147,86 @@ public sealed partial class MainWindow : Window
     }
 
     private async void OnRibbonUndoClicked(object? sender, EventArgs e) =>
-        await ViewerOverlay.MoveEffectHistoryAsync(undo: true);
+        await MoveEditHistoryAsync(undo: true);
 
     private async void OnRibbonRedoClicked(object? sender, EventArgs e) =>
-        await ViewerOverlay.MoveEffectHistoryAsync(undo: false);
+        await MoveEditHistoryAsync(undo: false);
+
+    private bool CanUseEditHistory() =>
+        !_isClosing && !_photoFuseOpen && !ViewModel.Settings.IsOpen &&
+        !ViewModel.PeopleReview.IsOpen && !ViewModel.DuplicateReview.IsOpen &&
+        !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening &&
+        !ViewerOverlay.IsRedEyeRemoving && !ViewerOverlay.IsManualFaceTagging &&
+        !ViewModel.ImageEditor.IsBusy && !ViewModel.EditHistory.IsBusy;
+
+    private void OnEditHistoryChanged(object? sender, EventArgs e)
+    {
+        var enabled = !ViewModel.EditHistory.IsBusy;
+        if (!enabled && Content?.XamlRoot is { } root)
+        {
+            var focused = FocusManager.GetFocusedElement(root) as Control;
+            _editHistoryFocus = !HasNativeHistoryOrDialog(focused) && !IsWithin(focused, TopRibbon)
+                ? focused : null;
+        }
+        ImageGridPanel.IsEnabled = enabled;
+        MetadataDetailPanel.IsEnabled = enabled;
+        FolderNavPanel.IsEnabled = enabled;
+        ViewerOverlay.IsEnabled = enabled;
+        LibrarySearchBox.IsEnabled = enabled;
+        EditorOverlay.IsEnabled = enabled;
+        UpdateHistoryControls();
+        if (enabled && _editHistoryFocus is { } previous)
+        {
+            _editHistoryFocus = null;
+            if (previous.IsEnabled && previous.Visibility == Visibility.Visible)
+                previous.Focus(FocusState.Keyboard);
+        }
+    }
+
+    private void UpdateHistoryControls()
+    {
+        var editor = ViewModel.ImageEditor;
+        var preview = editor.IsOpen && (editor.UndoHistory.Count > 0 || editor.RedoHistory.Count > 0);
+        var available = CanUseEditHistory();
+        TopRibbon.SetHistoryAvailability(available && (preview ? editor.CanUndo : ViewModel.EditHistory.CanUndo),
+            available && (preview ? editor.CanRedo : ViewModel.EditHistory.CanRedo), ViewModel.EditHistory.IsBusy);
+        var undoLabel = ViewModel.EditHistory.UndoLabel;
+        var redoLabel = ViewModel.EditHistory.RedoLabel;
+        if (preview)
+        {
+            undoLabel = editor.UndoHistory.Count > 0 ? $"Undo {editor.UndoHistory[0]}" : "Undo";
+            redoLabel = editor.RedoHistory.Count > 0 ? $"Redo {editor.RedoHistory[0]}" : "Redo";
+        }
+        TopRibbon.SetHistoryLabels(undoLabel, redoLabel);
+    }
+
+    private async Task MoveEditHistoryAsync(bool undo)
+    {
+        if (!CanUseEditHistory()) return;
+        try
+        {
+            var editor = ViewModel.ImageEditor;
+            if (editor.IsOpen)
+            {
+                editor.EndEdit();
+                if (editor.UndoHistory.Count > 0 || editor.RedoHistory.Count > 0)
+                {
+                    if (undo && editor.CanUndo) editor.UndoSteps(1);
+                    else if (!undo && editor.CanRedo) editor.RedoSteps(1);
+                    return;
+                }
+            }
+            var result = undo ? await ViewModel.EditHistory.UndoAsync() : await ViewModel.EditHistory.RedoAsync();
+            if (result.Message is not null) ViewModel.StatusText = result.Message;
+            if (result.Status == EditHistoryStatus.Applied && editor.IsOpen && editor.CurrentEntry is { } entry)
+                await editor.OpenForEditAsync(entry);
+        }
+        catch (Exception exception)
+        {
+            ViewModel.StatusText = $"History action failed: {exception.Message}";
+        }
+        finally { UpdateHistoryControls(); }
+    }
 
     private async Task<bool> OpenRibbonEditorAsync(bool retouch)
     {
@@ -1219,6 +1292,7 @@ public sealed partial class MainWindow : Window
         if (ViewerOverlay.IsStraightening) OnRibbonCancelStraightenClicked(sender, e);
         ViewerOverlay.EnterRedEyeMode();
         TopRibbon.EnterRedEyeMode();
+        UpdateHistoryControls();
     }
 
     private async void OnRedEyeSelectionCompleted(object? sender, RedEyeBounds bounds)
@@ -1229,14 +1303,11 @@ public sealed partial class MainWindow : Window
         TopRibbon.IsEnabled = false;
         try
         {
-            await ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
             ViewModel.StatusText = "Removing red eye…";
-            var changed = await ImageEditRenderer.RemoveRedEyeAsync(entry.FilePath, bounds);
-            await ViewModel.RefreshAfterPixelEditAsync(
-                entry.FilePath,
-                ViewerOverlay.CurrentImagePixelWidth,
-                ViewerOverlay.CurrentImagePixelHeight,
-                changed == 0 ? "No red eye found in selection" : "Removed red eye from");
+            var changed = 0;
+            var applied = await ViewModel.RunPhotoEditAsync("red-eye removal", [entry.FilePath], async copies =>
+                changed = await ImageEditRenderer.RemoveRedEyeAsync(copies[Path.GetFullPath(entry.FilePath)], bounds));
+            if (applied && changed == 0) ViewModel.StatusText = "No red eye found in selection";
         }
         catch (Exception ex)
         {
@@ -1247,6 +1318,7 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitRedEyeMode();
             TopRibbon.ExitRedEyeMode();
             TopRibbon.IsEnabled = true;
+            UpdateHistoryControls();
         }
     }
 
@@ -1254,12 +1326,14 @@ public sealed partial class MainWindow : Window
     {
         ViewerOverlay.ExitCropMode();
         TopRibbon.ExitCropMode();
+        UpdateHistoryControls();
     }
 
     private void OnRibbonCancelStraightenClicked(object? sender, EventArgs e)
     {
         ViewerOverlay.ExitStraightenMode();
         TopRibbon.ExitStraightenMode();
+        UpdateHistoryControls();
     }
 
     private void OnRibbonCropAspectChanged(object? sender, CropAspectRatio ratio)
@@ -1285,15 +1359,21 @@ public sealed partial class MainWindow : Window
 
             // Back up the original first (no-op if a backup already exists).
             // A read-only original is left untouched; the crop is written to a new file instead.
-            var readOnlyOriginal = new System.IO.FileInfo(entry.FilePath).IsReadOnly;
-            if (!readOnlyOriginal)
-                await App.ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
-
-            var result = await CropService.CropImageAsync(entry.FilePath, bounds.Value);
-            if (result.CopyPath is not null)
-                await ViewModel.IndexCroppedCopyAsync(result.CopyPath);
+            var sidecar = FaceMetadataStore.GetSidecarPathForImage(entry.FilePath);
+            var readOnlyOriginal = new System.IO.FileInfo(entry.FilePath).IsReadOnly ||
+                (File.Exists(sidecar) && new FileInfo(sidecar).IsReadOnly);
+            if (readOnlyOriginal)
+            {
+                var result = await CropService.CropImageAsync(entry.FilePath, bounds.Value);
+                if (result.CopyPath is not null)
+                {
+                    await ViewModel.IndexCroppedCopyAsync(result.CopyPath);
+                    ViewModel.StatusText = "Created a cropped copy. Undo does not delete exported copies.";
+                }
+            }
             else
-                await ViewModel.RefreshAfterCropAsync(entry.FilePath, result);
+                await ViewModel.RunPhotoEditAsync("crop", [entry.FilePath], async copies =>
+                    _ = await CropService.CropImageAsync(copies[Path.GetFullPath(entry.FilePath)], bounds.Value));
         }
         catch (Exception ex)
         {
@@ -1305,6 +1385,7 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitCropMode();
             TopRibbon.ExitCropMode();
             TopRibbon.IsEnabled = true;
+            UpdateHistoryControls();
         }
     }
 
@@ -1331,10 +1412,8 @@ public sealed partial class MainWindow : Window
         ViewModel.StatusText = "Applying straighten…";
         try
         {
-            await ViewModel.BackupService.BackupOriginalAsync(entry.FilePath);
-            var (width, height) =
-                await ImageEditRenderer.RenderStraightenedAsync(entry.FilePath, angle);
-            await ViewModel.RefreshAfterStraightenAsync(entry.FilePath, width, height);
+            await ViewModel.RunPhotoEditAsync("straighten", [entry.FilePath], async copies =>
+                _ = await ImageEditRenderer.RenderStraightenedAsync(copies[Path.GetFullPath(entry.FilePath)], angle));
         }
         catch (Exception ex)
         {
@@ -1345,6 +1424,7 @@ public sealed partial class MainWindow : Window
             ViewerOverlay.ExitStraightenMode();
             TopRibbon.ExitStraightenMode();
             TopRibbon.IsEnabled = true;
+            UpdateHistoryControls();
         }
     }
 

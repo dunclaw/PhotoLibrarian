@@ -7,10 +7,14 @@ param(
     [switch]$Slideshow,
     [switch]$ViewerContextMenu,
     [switch]$MotionPhoto,
+    [switch]$EditHistory,
     [string]$MotionPhotoValidationPath
 )
 
 $ErrorActionPreference = 'Stop'
+if ($EditHistory -and ($Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview)) {
+    throw '-EditHistory cannot be combined with another suite.'
+}
 if ($ViewerPreview -and ($Preview -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto)) {
     throw '-ViewerPreview cannot be combined with another suite or preview.'
 }
@@ -51,6 +55,9 @@ try {
         }
         $arguments += @('--args', $testArguments)
     }
+    elseif ($EditHistory) {
+        $arguments += @('--args', $(if ($Preview) { '--edit-history --preview' } else { '--edit-history' }))
+    }
     elseif ($Slideshow) { $arguments += @('--args', '--slideshow') }
     elseif ($Preview) { $arguments += @('--args', '--preview') }
     elseif ($ViewerContextMenu) { $arguments += @('--args', '--viewer-context-menu') }
@@ -62,7 +69,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } else { 'grid and viewer command accessibility' }
+        $suite = if ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }

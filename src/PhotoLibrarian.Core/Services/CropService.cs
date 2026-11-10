@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Windows.Graphics.Imaging;
 using XmpCore;
 using XmpCore.Options;
@@ -51,7 +52,7 @@ public static class CropService
         try
         {
             var encoded = await WindowsImagingCodec.EncodeAsync(
-                filePath, pixels, crop.Width, crop.Height);
+                filePath, pixels, crop.Width, crop.Height, preserveMetadata: true);
             await File.WriteAllBytesAsync(temporaryImagePath, encoded);
 
             if (sidecar is not null)
@@ -120,7 +121,8 @@ public static class CropService
     private static async Task<string> WriteCroppedCopyAsync(
         string filePath, byte[] pixels, CropRectangle crop, string? sidecarContent)
     {
-        var encoded = await WindowsImagingCodec.EncodeAsync(filePath, pixels, crop.Width, crop.Height);
+        var encoded = await WindowsImagingCodec.EncodeAsync(filePath, pixels, crop.Width, crop.Height,
+            preserveMetadata: true);
         var directory = Path.GetDirectoryName(filePath)!;
         var name = Path.GetFileNameWithoutExtension(filePath);
         var extension = Path.GetExtension(filePath);

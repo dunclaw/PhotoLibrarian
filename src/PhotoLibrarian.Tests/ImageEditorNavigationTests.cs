@@ -49,6 +49,28 @@ public sealed class ImageEditorNavigationTests : IDisposable
     private static Task<PendingEditDecision> Save() => Task.FromResult(PendingEditDecision.Save);
     private static Task<PendingEditDecision> Cancel() => Task.FromResult(PendingEditDecision.Cancel);
 
+    [Theory]
+    [InlineData(".jpg", false)]
+    [InlineData(".jpg", true)]
+    [InlineData(".dng", false)]
+    [InlineData(".dng", true)]
+    public async Task RejectedHistoryCommitDoesNotCloseOrNavigateAwayFromPendingEdits(string extension, bool close)
+    {
+        var first = Entry("first" + extension);
+        var second = Entry("second.jpg");
+        var vm = await OpenAsync(first, first, second);
+        vm.PersistEditAsync = (_, _, _, _) => Task.FromResult(false);
+        if (vm.IsRawPreview) vm.RawExposureEv = -1;
+        else vm.Exposure = 0.3;
+        Assert.False(close
+            ? await vm.TryCloseAsync(Save, UnexpectedRenderer)
+            : await vm.NavigateAsync(1, Save, UnexpectedRenderer));
+        Assert.Same(first, vm.CurrentEntry);
+        Assert.True(vm.HasChanges);
+        Assert.Single(vm.UndoHistory);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(first.FilePath));
+    }
+
     [Fact]
     public async Task MainViewModel_SynchronizesViewerGridMetadataAndSelectionRestoreOnlyAfterCommittedMoves()
     {
@@ -281,8 +303,8 @@ public sealed class ImageEditorNavigationTests : IDisposable
         var vm = await OpenAsync(first, first, second);
         vm.Exposure = 0; // Changed from its recipe baseline, but no pixels to apply.
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => vm.NavigateAsync(1, Save, UnexpectedRenderer));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => vm.TryCloseAsync(Save, UnexpectedRenderer));
+        Assert.False(await vm.NavigateAsync(1, Save, UnexpectedRenderer));
+        Assert.False(await vm.TryCloseAsync(Save, UnexpectedRenderer));
         Assert.Same(first, vm.CurrentEntry);
         Assert.True(vm.HasChanges);
     }
