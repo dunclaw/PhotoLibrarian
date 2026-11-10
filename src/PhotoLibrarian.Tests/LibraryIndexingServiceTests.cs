@@ -386,6 +386,61 @@ public sealed class LibraryIndexingServiceTests
     }
 
     [Fact]
+    public async Task WatchedFolderChanges_SuspensionHoldsEventsAndDiscardsOnlyUnchangedReindexedPhotos()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var cleanedPath = Path.Combine(directory, "cleaned.jpg");
+        var editedPath = Path.Combine(directory, "edited.jpg");
+
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database, images, new TagRepository(database), new FaceRepository(database),
+                scanner, new MetadataReaderService(), new FaceMetadataStore());
+            using var changes = new WatchedFolderChangeService(
+                scanner, indexer, images, TimeSpan.FromMilliseconds(150));
+            var changed = new TaskCompletionSource<WatchedFolderChangeService.WatchedLibraryChangedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var syncFailures = 0;
+            changes.LibraryChanged += (_, args) => changed.TrySetResult(args);
+            changes.SyncFailed += (_, _) => Interlocked.Increment(ref syncFailures);
+            scanner.SyncWatchedFolders([(directory, false)]);
+
+            var suspension = changes.SuspendProcessing();
+            await WicTestImage.CreateAsync(cleanedPath, 16, 12);
+            await WicTestImage.CreateAsync(editedPath, 16, 12);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            Assert.Null(await images.GetByPathAsync(cleanedPath));
+            Assert.False(changed.Task.IsCompleted);
+
+            // Simulates a bulk operation that indexed both photos, after which one was edited again.
+            await indexer.IndexFileAsync(cleanedPath);
+            await indexer.IndexFileAsync(editedPath);
+            File.SetLastWriteTimeUtc(editedPath, DateTime.UtcNow.AddMinutes(5));
+            await changes.DiscardReindexedAsync([cleanedPath, editedPath]);
+
+            // An exclusive lock makes any attempt to reprocess the discarded photo report a failure.
+            using (new FileStream(cleanedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                suspension.Dispose();
+                var args = await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                Assert.Contains(editedPath, args.ChangedImagePaths);
+            }
+            Assert.Equal(0, Volatile.Read(ref syncFailures));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task WatchedFolderChanges_CoalescesRenamesAndMultipleCopies()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");

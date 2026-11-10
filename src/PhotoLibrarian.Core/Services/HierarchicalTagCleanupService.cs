@@ -10,7 +10,13 @@ namespace PhotoLibrarian.Core.Services;
 
 public sealed record HierarchicalTagCleanupResult(
     int ScannedPhotos, int UpdatedPhotos, int RemovedTags,
-    string BackupDirectory, IReadOnlyList<string> Failures, int ReconciledPhotos);
+    string BackupDirectory, IReadOnlyList<string> Failures, int ReconciledPhotos,
+    bool Cancelled = false, IReadOnlyList<string>? ReindexedPaths = null);
+
+/// <summary>Running totals for a hierarchy tag cleanup; <see cref="Processed"/> counts every library entry visited.</summary>
+public sealed record HierarchicalTagCleanupProgress(
+    int Processed, int Total, int UpdatedPhotos, int ReconciledPhotos,
+    int FailedPhotos, string CurrentPath);
 
 /// <summary>
 /// Explicit, user-approved removal of portable and legacy cached prefix tags. Never runs during import.
@@ -28,118 +34,198 @@ public sealed class HierarchicalTagCleanupService(
         .ToArray();
 
     public async Task<HierarchicalTagCleanupResult> CleanupAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await CleanupAsync(null, cancellationToken);
+
+    /// <summary>
+    /// Scans watched photos and collapses redundant prefixes. Cancellation is honored between photos
+    /// and before any write; a photo whose metadata was already written is always reindexed first.
+    /// </summary>
+    public async Task<HierarchicalTagCleanupResult> CleanupAsync(
+        IProgress<HierarchicalTagCleanupProgress>? progress,
+        CancellationToken cancellationToken)
     {
-        var entries = await images.GetAllAsync(
-            cancellationToken: cancellationToken, watchedOnly: true);
-        var failures = new List<string>();
-        var updated = 0;
-        var removed = 0;
-        var reconciled = 0;
-        var scanned = 0;
         var runBackup = Path.Combine(backupDirectory, Guid.NewGuid().ToString("N"));
+        if (cancellationToken.IsCancellationRequested)
+            return new(0, 0, 0, runBackup, [], 0, Cancelled: true, ReindexedPaths: []);
+        IReadOnlyList<ImageEntry> allEntries;
+        try
+        {
+            allEntries = await images.GetAllAsync(
+                cancellationToken: cancellationToken, watchedOnly: true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new(0, 0, 0, runBackup, [], 0, Cancelled: true, ReindexedPaths: []);
+        }
+        var entries = allEntries.Where(image => image.MediaType == MediaType.Image).ToArray();
+        var state = new CleanupState(runBackup);
+        var reportTimer = System.Diagnostics.Stopwatch.StartNew();
+        const long ReportIntervalMilliseconds = 250;
+        var lastReport = -ReportIntervalMilliseconds;
+        var cancelled = false;
         foreach (var image in entries)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (image.MediaType != MediaType.Image)
-                continue;
-            scanned++;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                cancelled = true;
+                break;
+            }
+            state.Scanned++;
             try
             {
-                if (image.FaceMetadataExportRequired)
+                if (!await CleanupPhotoAsync(image, state, cancellationToken))
                 {
-                    failures.Add($"{image.FilePath}: Pending metadata export; skipped.");
-                    continue;
+                    cancelled = true;
+                    break;
                 }
-                var path = image.FilePath;
-                var sidecar = Path.ChangeExtension(path, ".xmp");
-                if (IsReparsePoint(path) || (File.Exists(sidecar) && IsReparsePoint(sidecar)))
-                {
-                    failures.Add($"{path}: Reparse-point files are not modified by tag cleanup.");
-                    continue;
-                }
-                var before = await LibraryMetadataIdentity.ComputeAsync(path, cancellationToken);
-                var snapshot = TagWriterService.CaptureSidecarSnapshot(path);
-                var reader = new MetadataReaderService();
-                // Parse the sidecar strictly before any write; the ordinary reader tolerates failures.
-                IXmpMeta? sidecarXmp = snapshot.Exists
-                    ? XmpMetaFactory.ParseFromString(await File.ReadAllTextAsync(sidecar, cancellationToken))
-                    : null;
-                var portable = reader.ReadPortableTagMetadata(path);
-                var cachedTags = await tagRepository.GetTagsAsync(image.Id, cancellationToken);
-                // Portable provenance wins; older builds may have left the only tag copy in SQLite.
-                var tags = portable is not null
-                    ? portable.Tags.Select(tag => new ImageTag
-                    {
-                        ImageId = image.Id, Tag = tag.Tag,
-                        Source = Enum.Parse<TagSource>(tag.Source), Confidence = tag.Confidence
-                    }).ToArray()
-                    : MergeLegacyTags(image.Id, cachedTags, ReadKeywords(path, sidecarXmp));
-                var collapsed = CollapsePrefixes(tags);
-                var needsFileWrite = collapsed.Count != tags.Length;
-                var needsCacheReconciliation =
-                    (portable is not null || needsFileWrite) && !HaveSameTags(cachedTags, collapsed);
-                if (!needsFileWrite && !needsCacheReconciliation)
-                    continue;
-
-                var photoBackup = Path.Combine(runBackup, Guid.NewGuid().ToString("N"));
-                System.IO.Directory.CreateDirectory(photoBackup);
-                await CopyBackupAsync(path, Path.Combine(photoBackup, Path.GetFileName(path)), cancellationToken);
-                if (snapshot.Exists)
-                    await CopyBackupAsync(sidecar, Path.Combine(photoBackup, Path.GetFileName(sidecar)), cancellationToken);
-                // Cache-only recognition from older builds has no recovery copy in the photo.
-                await File.WriteAllTextAsync(
-                    Path.Combine(photoBackup, "tag-cache.json"),
-                    PortableImageTagMetadataSerializer.Serialize(
-                        cachedTags, image.AutoTagScanVersion, image.SourceIdentity),
-                    cancellationToken);
-                await File.WriteAllTextAsync(
-                    Path.Combine(photoBackup, "original-path.txt"), path, cancellationToken);
-                if (before != await LibraryMetadataIdentity.ComputeAsync(path, cancellationToken))
-                {
-                    failures.Add($"{path}: The photo or metadata changed during cleanup; skipped.");
-                    continue;
-                }
-                if (!HaveSameTags(cachedTags,
-                    await tagRepository.GetTagsAsync(image.Id, cancellationToken)))
-                {
-                    failures.Add($"{path}: Cached tags changed during cleanup; skipped.");
-                    continue;
-                }
-
-                // Reconcile a committed file write before honoring cancellation.
-                if (needsFileWrite)
-                {
-                    await TagWriterService.WriteTagsToSidecarAsync(
-                        path, collapsed.Select(tag => tag.Tag), collapsed,
-                        portable is not null ? portable.AutoTagScanVersion : image.AutoTagScanVersion,
-                        snapshot, portable is not null ? portable.SourceIdentity : image.SourceIdentity);
-                    updated++;
-                }
-                await indexer.IndexFileAsync(path, CancellationToken.None);
-                if (!HaveSameTags(collapsed,
-                    await tagRepository.GetTagsAsync(image.Id, CancellationToken.None)))
-                    throw new IOException("The cleaned tag set was not retained in the index; refresh or retry cleanup.");
-                if (needsCacheReconciliation)
-                    reconciled++;
-                var previous = cachedTags.Concat(tags)
-                    .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
-                    .Select(group => group.First()).ToArray();
-                removed += previous.Count(tag =>
-                    collapsed.Any(leaf => leaf.Tag.StartsWith(tag.Tag + "/", StringComparison.OrdinalIgnoreCase)) &&
-                    !collapsed.Any(leaf => string.Equals(leaf.Tag, tag.Tag, StringComparison.OrdinalIgnoreCase)));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                throw;
+                cancelled = true;
+                break;
             }
             catch (Exception exception)
             {
-                failures.Add($"{image.FilePath}: {exception.Message}");
+                state.Failures.Add($"{image.FilePath}: {DescribeFailure(exception)}");
                 DebugLog.WriteLine($"Hierarchy tag cleanup failed for {image.FilePath}: {exception}");
             }
+
+            // Throttled so a quick pass over clean photos does not flood the UI thread.
+            if (progress is not null &&
+                (state.Scanned == entries.Length || reportTimer.ElapsedMilliseconds - lastReport >= ReportIntervalMilliseconds))
+            {
+                lastReport = reportTimer.ElapsedMilliseconds;
+                progress.Report(new(state.Scanned, entries.Length, state.Updated,
+                    state.Reconciled, state.Failures.Count, image.FilePath));
+            }
         }
-        return new(scanned, updated, removed, runBackup, failures, reconciled);
+        progress?.Report(new(state.Scanned, entries.Length, state.Updated,
+            state.Reconciled, state.Failures.Count, ""));
+        return new(state.Scanned, state.Updated, state.Removed, state.RunBackup,
+            state.Failures, state.Reconciled, cancelled, state.ReindexedPaths);
+    }
+
+    /// <summary>Returns false only when cancellation was observed before this photo was written.</summary>
+    private async Task<bool> CleanupPhotoAsync(
+        ImageEntry image, CleanupState state, CancellationToken cancellationToken)
+    {
+        if (image.FaceMetadataExportRequired)
+        {
+            state.Failures.Add($"{image.FilePath}: Pending metadata export; skipped.");
+            return true;
+        }
+        var path = image.FilePath;
+        var sidecar = TagWriterService.GetTagSidecarTargetPath(path);
+        if (IsReparsePoint(path) || (File.Exists(sidecar) && IsReparsePoint(sidecar)))
+        {
+            state.Failures.Add($"{path}: Reparse-point files are not modified by tag cleanup.");
+            return true;
+        }
+        // A cheap stamp guards the read; full content hashing is reserved for photos that need changes.
+        var stamp = LibraryMetadataIdentity.CaptureStamp(path);
+        var snapshot = TagWriterService.CaptureSidecarSnapshot(path);
+        var reader = new MetadataReaderService();
+        // Parse the sidecar strictly before any write; the ordinary reader tolerates failures.
+        IXmpMeta? sidecarXmp = snapshot.Exists
+            ? XmpMetaFactory.ParseFromString(await File.ReadAllTextAsync(sidecar, cancellationToken))
+            : null;
+        var portable = reader.ReadPortableTagMetadata(path);
+        var cachedTags = await tagRepository.GetTagsAsync(image.Id, cancellationToken);
+        // Portable provenance wins; older builds may have left the only tag copy in SQLite.
+        var tags = portable is not null
+            ? portable.Tags.Select(tag => new ImageTag
+            {
+                ImageId = image.Id, Tag = tag.Tag,
+                Source = Enum.Parse<TagSource>(tag.Source), Confidence = tag.Confidence
+            }).ToArray()
+            : MergeLegacyTags(image.Id, cachedTags, ReadKeywords(path, sidecarXmp));
+        var collapsed = CollapsePrefixes(tags);
+        var needsFileWrite = collapsed.Count != tags.Length;
+        var needsCacheReconciliation =
+            (portable is not null || needsFileWrite) && !HaveSameTags(cachedTags, collapsed);
+        if (!needsFileWrite && !needsCacheReconciliation)
+            return true;
+
+        var before = await LibraryMetadataIdentity.ComputeAsync(path, cancellationToken);
+        if (stamp != LibraryMetadataIdentity.CaptureStamp(path))
+        {
+            state.Failures.Add($"{path}: The photo or metadata changed during cleanup; skipped.");
+            return true;
+        }
+        var photoBackup = Path.Combine(state.RunBackup, Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(photoBackup);
+        await CopyBackupAsync(path, Path.Combine(photoBackup, Path.GetFileName(path)), cancellationToken);
+        if (snapshot.Exists)
+            await CopyBackupAsync(sidecar, Path.Combine(photoBackup, Path.GetFileName(sidecar)), cancellationToken);
+        // Cache-only recognition from older builds has no recovery copy in the photo.
+        await File.WriteAllTextAsync(
+            Path.Combine(photoBackup, "tag-cache.json"),
+            PortableImageTagMetadataSerializer.Serialize(
+                cachedTags, image.AutoTagScanVersion, image.SourceIdentity),
+            cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(photoBackup, "original-path.txt"), path, cancellationToken);
+        if (before != await LibraryMetadataIdentity.ComputeAsync(path, cancellationToken))
+        {
+            state.Failures.Add($"{path}: The photo or metadata changed during cleanup; skipped.");
+            return true;
+        }
+        if (!HaveSameTags(cachedTags,
+            await tagRepository.GetTagsAsync(image.Id, cancellationToken)))
+        {
+            state.Failures.Add($"{path}: Cached tags changed during cleanup; skipped.");
+            return true;
+        }
+
+        // Last cancellation point: once metadata is written it is always reindexed.
+        if (cancellationToken.IsCancellationRequested)
+            return false;
+        if (needsFileWrite)
+        {
+            await TagWriterService.WriteTagsToSidecarAsync(
+                path, collapsed.Select(tag => tag.Tag), collapsed,
+                portable is not null ? portable.AutoTagScanVersion : image.AutoTagScanVersion,
+                snapshot, portable is not null ? portable.SourceIdentity : image.SourceIdentity);
+            state.Updated++;
+        }
+        await indexer.IndexFileAsync(path, CancellationToken.None);
+        state.ReindexedPaths.Add(path);
+        if (!HaveSameTags(collapsed,
+            await tagRepository.GetTagsAsync(image.Id, CancellationToken.None)))
+        {
+            state.Failures.Add($"{path}: The cleaned tag set was not retained in the index; refresh or retry cleanup.");
+            return true;
+        }
+        if (needsCacheReconciliation)
+            state.Reconciled++;
+        var previous = cachedTags.Concat(tags)
+            .GroupBy(tag => tag.Tag, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First()).ToArray();
+        state.Removed += previous.Count(tag =>
+            collapsed.Any(leaf => leaf.Tag.StartsWith(tag.Tag + "/", StringComparison.OrdinalIgnoreCase)) &&
+            !collapsed.Any(leaf => string.Equals(leaf.Tag, tag.Tag, StringComparison.OrdinalIgnoreCase)));
+        return true;
+    }
+
+    /// <summary>Some Windows imaging failures carry no message; always include the error type and code.</summary>
+    public static string DescribeFailure(Exception exception)
+    {
+        var message = string.IsNullOrWhiteSpace(exception.Message)
+            ? "No error description was provided by Windows."
+            : exception.Message;
+        return $"{message} ({exception.GetType().Name} 0x{exception.HResult:X8})";
+    }
+
+    private sealed class CleanupState(string runBackup)
+    {
+        public string RunBackup { get; } = runBackup;
+        public List<string> Failures { get; } = [];
+        public List<string> ReindexedPaths { get; } = [];
+        public int Scanned { get; set; }
+        public int Updated { get; set; }
+        public int Reconciled { get; set; }
+        public int Removed { get; set; }
     }
 
     private static ImageTag[] MergeLegacyTags(

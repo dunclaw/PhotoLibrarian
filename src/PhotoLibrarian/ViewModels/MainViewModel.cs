@@ -21,6 +21,7 @@ public partial class MainViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
     private readonly WatchedFolderChangeService _watchedChanges;
+    private CancellationTokenSource? _hierarchyCleanupCancellation;
     private bool _libraryFoldersChanging;
     private readonly OriginalBackupService _backupService;
     private readonly IDisposable _faceResources;
@@ -854,8 +855,14 @@ public partial class MainViewModel : ObservableObject
             return;
         }
         Settings.IsHierarchyTagCleanupRunning = true;
+        Settings.HierarchyTagCleanupProgress = 0;
         Settings.HierarchyTagCleanupStatus =
             LibraryIndexMaintenanceStrings.Get("HierarchyCleanupStarting");
+        using var cancellation = new CancellationTokenSource();
+        _hierarchyCleanupCancellation = cancellation;
+        // Cleanup reindexes each photo it writes; the watcher would otherwise reindex it again and
+        // hold the file exclusively while cleanup is writing the next one.
+        var watcherSuspension = _watchedChanges.SuspendProcessing();
         try
         {
             await StopRecognitionAsync();
@@ -863,14 +870,23 @@ public partial class MainViewModel : ObservableObject
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "PhotoLibrarian", "TagCleanupBackups");
             var cleanup = new HierarchicalTagCleanupService(_imageRepo, _tagRepo, _indexingService, backups);
-            var result = await Task.Run(() => cleanup.CleanupAsync());
+            var progress = new Progress<HierarchicalTagCleanupProgress>(ReportHierarchyCleanupProgress);
+            var result = await Task.Run(() => cleanup.CleanupAsync(progress, cancellation.Token));
+            await _watchedChanges.DiscardReindexedAsync(result.ReindexedPaths ?? []);
             await RefreshAfterIndexAsync();
             await MetadataPanel.ReloadTagsAsync();
             var status = LibraryIndexMaintenanceStrings.Format(
-                "HierarchyCleanupCompleted", result.RemovedTags, result.UpdatedPhotos,
+                result.Cancelled ? "HierarchyCleanupCancelled" : "HierarchyCleanupCompleted",
+                result.RemovedTags, result.UpdatedPhotos,
                 result.ScannedPhotos, result.BackupDirectory, result.ReconciledPhotos);
             if (result.Failures.Count > 0)
-                status += Environment.NewLine + string.Join(Environment.NewLine, result.Failures);
+            {
+                status += Environment.NewLine + LibraryIndexMaintenanceStrings.Format(
+                    "HierarchyCleanupFailures", result.Failures.Count);
+                status += Environment.NewLine + string.Join(Environment.NewLine, result.Failures.Take(20));
+                foreach (var failure in result.Failures)
+                    DebugLog.WriteLine($"Hierarchy tag cleanup issue: {failure}");
+            }
             Settings.HierarchyTagCleanupStatus = status;
             StatusText = status;
         }
@@ -878,14 +894,38 @@ public partial class MainViewModel : ObservableObject
         {
             DebugLog.WriteLine($"Hierarchy tag cleanup failed: {exception}");
             Settings.HierarchyTagCleanupStatus =
-                LibraryIndexMaintenanceStrings.Format("HierarchyCleanupFailed", exception.Message);
+                LibraryIndexMaintenanceStrings.Format(
+                    "HierarchyCleanupFailed", HierarchicalTagCleanupService.DescribeFailure(exception));
             StatusText = Settings.HierarchyTagCleanupStatus;
         }
         finally
         {
+            _hierarchyCleanupCancellation = null;
+            watcherSuspension.Dispose();
             Settings.IsHierarchyTagCleanupRunning = false;
             StartRecognitionProcessing();
         }
+    }
+
+    public void CancelHierarchicalTagCleanup()
+    {
+        if (_hierarchyCleanupCancellation is not { } cancellation) return;
+        cancellation.Cancel();
+        Settings.HierarchyTagCleanupStatus =
+            LibraryIndexMaintenanceStrings.Get("HierarchyCleanupCancelling");
+    }
+
+    private void ReportHierarchyCleanupProgress(HierarchicalTagCleanupProgress update)
+    {
+        if (_hierarchyCleanupCancellation is not { IsCancellationRequested: false }) return;
+        Settings.HierarchyTagCleanupProgress = update.Total > 0
+            ? 100d * update.Processed / update.Total
+            : 0;
+        Settings.HierarchyTagCleanupStatus = LibraryIndexMaintenanceStrings.Format(
+            "HierarchyCleanupProgress", update.Processed, update.Total,
+            update.UpdatedPhotos, update.ReconciledPhotos, update.FailedPhotos,
+            Path.GetFileName(update.CurrentPath));
+        StatusText = Settings.HierarchyTagCleanupStatus;
     }
 
     public async Task RemoveAllAutomaticTagsAsync(

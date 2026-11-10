@@ -579,6 +579,14 @@ public sealed class HierarchicalTagPortabilityTests : IDisposable
             element => element.Name.LocalName == "Button" &&
                 (string?)element.Attribute("AutomationProperties.AutomationId") == "HierarchyCleanupButton");
         Assert.Equal("OnCleanupHierarchicalTags", (string?)button.Attribute("Click"));
+        var cancel = Assert.Single(xaml.Descendants(),
+            element => element.Name.LocalName == "Button" &&
+                (string?)element.Attribute("AutomationProperties.AutomationId") == "CancelHierarchyCleanupButton");
+        Assert.Equal("OnCancelHierarchicalTagCleanup", (string?)cancel.Attribute("Click"));
+        Assert.Single(xaml.Descendants(),
+            element => element.Name.LocalName == "ProgressBar" &&
+                element.Attributes().Any(attribute =>
+                    attribute.Name.LocalName == "Uid" && attribute.Value == "HierarchyCleanupProgressBar"));
         var resources = System.Xml.Linq.XDocument.Load(
             Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"));
         var confirmation = Assert.Single(resources.Descendants("data"),
@@ -632,7 +640,102 @@ public sealed class HierarchicalTagPortabilityTests : IDisposable
             Assert.Equal(new[] { "A", "A/B" }, new MetadataReaderService().ReadTags(image.FilePath).Order());
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cleanup.CleanupAsync(cancellation.Token));
+        var cancelled = await cleanup.CleanupAsync(cancellation.Token);
+        Assert.True(cancelled.Cancelled);
+        Assert.Equal(0, cancelled.ScannedPhotos);
+        Assert.False(Directory.Exists(cancelled.BackupDirectory));
+    }
+
+    [Fact]
+    public async Task CleanupReportsProgressAndCancelsBetweenPhotosSoRerunResumes()
+    {
+        var first = await CreateMediaAsync("first.raw");
+        var second = await CreateMediaAsync("second.raw");
+        using var database = await OpenDatabaseAsync("progress.db");
+        foreach (var path in new[] { first, second })
+        {
+            await TagWriterService.WriteTagsToSidecarAsync(path, ["A", "A/B"]);
+            await IndexAsync(database, path);
+        }
+        await WatchDirectoryAsync(database);
+        using var scanner = new FolderScannerService();
+        var cleanup = CreateCleanup(database, scanner);
+        using var cancellation = new CancellationTokenSource();
+        var reports = new List<HierarchicalTagCleanupProgress>();
+        var cancelAfterFirst = new SynchronousProgress<HierarchicalTagCleanupProgress>(update =>
+        {
+            reports.Add(update);
+            if (update.Processed == 1)
+                cancellation.Cancel();
+        });
+
+        var partial = await cleanup.CleanupAsync(cancelAfterFirst, cancellation.Token);
+
+        Assert.True(partial.Cancelled);
+        Assert.Equal(1, partial.ScannedPhotos);
+        Assert.Equal(1, partial.UpdatedPhotos);
+        Assert.All(reports, report => Assert.Equal(2, report.Total));
+        Assert.Equal(1, reports[^1].Processed);
+        var cleaned = Assert.Single(partial.ReindexedPaths!);
+        var remaining = cleaned == first ? second : first;
+        Assert.Equal(new[] { "A/B" }, new MetadataReaderService().ReadTags(cleaned));
+        Assert.Equal(new[] { "A", "A/B" }, new MetadataReaderService().ReadTags(remaining).Order());
+
+        var resumedReports = new List<HierarchicalTagCleanupProgress>();
+        var resumed = await cleanup.CleanupAsync(
+            new SynchronousProgress<HierarchicalTagCleanupProgress>(resumedReports.Add),
+            CancellationToken.None);
+
+        Assert.False(resumed.Cancelled);
+        Assert.Empty(resumed.Failures);
+        Assert.Equal(2, resumed.ScannedPhotos);
+        Assert.Equal(1, resumed.UpdatedPhotos);
+        Assert.Equal(new[] { remaining }, resumed.ReindexedPaths);
+        Assert.Equal(2, resumedReports[^1].Processed);
+        Assert.Equal(new[] { "A/B" }, new MetadataReaderService().ReadTags(remaining));
+    }
+
+    [Fact]
+    public async Task CleanupOfJpegLeavesRawCompanionSidecarUntouched()
+    {
+        var jpeg = await CreateMediaAsync("pair.jpg");
+        var raw = Path.ChangeExtension(jpeg, ".cr3");
+        await File.WriteAllBytesAsync(raw, [1, 2, 3]);
+        await TagWriterService.WriteTagsToSidecarAsync(raw, ["rapeseed", "Places", "Places/Field"]);
+        var rawSidecar = Path.ChangeExtension(jpeg, ".xmp");
+        Assert.True(File.Exists(rawSidecar));
+        var rawSidecarBytes = await File.ReadAllBytesAsync(rawSidecar);
+        await TagWriterService.WriteTagsToSidecarAsync(jpeg, ["A", "A/B", "flower bed"]);
+        using var database = await OpenDatabaseAsync("pair.db");
+        var image = await IndexAsync(database, jpeg);
+        await WatchDirectoryAsync(database);
+        using var scanner = new FolderScannerService();
+
+        var result = await CreateCleanup(database, scanner).CleanupAsync();
+
+        Assert.Empty(result.Failures);
+        Assert.Equal(1, result.UpdatedPhotos);
+        string[] expected = ["A/B", "flower bed"];
+        Assert.Equal(expected, new MetadataReaderService().ReadTags(jpeg).Order());
+        Assert.Equal(expected,
+            (await new TagRepository(database).GetTagsAsync(image.Id)).Select(tag => tag.Tag).Order());
+        Assert.Equal(rawSidecarBytes, await File.ReadAllBytesAsync(rawSidecar));
+    }
+
+    [Fact]
+    public void CleanupFailureDescriptionsAlwaysIncludeTypeAndCode()
+    {
+        var blank = HierarchicalTagCleanupService.DescribeFailure(
+            new System.Runtime.InteropServices.COMException("", unchecked((int)0x88982F72)));
+        Assert.Contains("No error description", blank);
+        Assert.Contains("COMException 0x88982F72", blank);
+        var described = HierarchicalTagCleanupService.DescribeFailure(new IOException("Disk full"));
+        Assert.StartsWith("Disk full (IOException 0x", described);
+    }
+
+    private sealed class SynchronousProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     private async Task WatchDirectoryAsync(CacheDatabase database)

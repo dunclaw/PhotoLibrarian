@@ -39,6 +39,9 @@ public partial class SettingsViewModel : ObservableObject
     public partial string HierarchyTagCleanupStatus { get; set; } = "";
 
     [ObservableProperty]
+    public partial double HierarchyTagCleanupProgress { get; set; }
+
+    [ObservableProperty]
     public partial bool IsIndexMaintenanceProgressIndeterminate { get; set; }
 
     [ObservableProperty]

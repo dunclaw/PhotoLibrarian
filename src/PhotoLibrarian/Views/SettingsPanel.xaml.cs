@@ -288,6 +288,12 @@ public sealed partial class SettingsPanel : UserControl
                 !ViewModel.IsAutoTagCleanupRunning &&
                 !ViewModel.IsIndexMaintenanceRunning;
             HierarchyCleanupStatusText.Text = ViewModel.HierarchyTagCleanupStatus;
+            var hierarchyCleanupVisibility = ViewModel.IsHierarchyTagCleanupRunning
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CancelHierarchyCleanupButton.Visibility = hierarchyCleanupVisibility;
+            HierarchyCleanupProgressBar.Visibility = hierarchyCleanupVisibility;
+            HierarchyCleanupProgressBar.Value = ViewModel.HierarchyTagCleanupProgress;
         }
         finally
         {
@@ -482,6 +488,9 @@ public sealed partial class SettingsPanel : UserControl
             return;
         await App.ViewModel.CleanupHierarchicalTagsAsync();
     }
+
+    private void OnCancelHierarchicalTagCleanup(object sender, RoutedEventArgs e) =>
+        App.ViewModel.CancelHierarchicalTagCleanup();
 
     private async void OnRemoveAutoTags(
         object sender,

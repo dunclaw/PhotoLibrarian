@@ -10,6 +10,13 @@
   <data name="HierarchyCleanupCompleted" xml:space="preserve"><value>Removed {0:N0} redundant tag assignments; rewrote metadata for {1:N0} photos and reconciled {4:N0} cached photos; scanned {2:N0} photos. Backups for changed photos and cached tags: {3}</value></data>
   <data name="HierarchyCleanupFailed" xml:space="preserve"><value>Hierarchy cleanup could not finish: {0}</value></data>
   <data name="HierarchyCleanupBusy" xml:space="preserve"><value>Wait for the current indexing or cleanup operation to finish, then try again.</value></data>
+  <data name="HierarchyCleanupCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
+  <data name="HierarchyCleanupCancelButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Cancel hierarchy tag cleanup</value></data>
+  <data name="HierarchyCleanupProgressBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Hierarchy tag cleanup progress</value></data>
+  <data name="HierarchyCleanupProgress" xml:space="preserve"><value>Checked {0:N0} of {1:N0} photos; rewrote {2:N0}, reconciled {3:N0}, {4:N0} issues. Current: {5}</value></data>
+  <data name="HierarchyCleanupCancelling" xml:space="preserve"><value>Cancelling after the current photo is finished...</value></data>
+  <data name="HierarchyCleanupCancelled" xml:space="preserve"><value>Cleanup cancelled. Removed {0:N0} redundant tag assignments; rewrote metadata for {1:N0} photos and reconciled {4:N0} cached photos; checked {2:N0} photos. Running cleanup again resumes safely. Backups: {3}</value></data>
+  <data name="HierarchyCleanupFailures" xml:space="preserve"><value>{0:N0} photos were skipped or could not be updated. All issues are recorded in the PhotoLibrarian log; the first ones are listed below.</value></data>
   <data name="RibbonUndoCaption.Text" xml:space="preserve"><value>Undo</value></data>
   <data name="RibbonRedoCaption.Text" xml:space="preserve"><value>Redo</value></data>
   <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Undo</value></data>

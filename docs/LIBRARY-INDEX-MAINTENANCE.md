@@ -149,6 +149,23 @@ unreadable, reparse-point, or pending-metadata-export files are not rewritten.
 Successful changes are portable and the index is reconciled only after file
 persistence. Repeating cleanup is a no-op once the prefix keywords are gone.
 
+While cleanup runs, Settings shows a progress bar, the number of photos checked
+out of the total, rewritten/reconciled/issue counts, and the current file. Only
+photos that need changes are fully hashed and backed up, so already-clean photos
+are skipped quickly. **Cancel** stops between photos; a photo whose metadata was
+already written is always reindexed first, and running cleanup again resumes
+safely. Watched-folder change processing is paused during cleanup so the
+watcher does not lock and reindex each rewritten photo a second time; held
+notifications for photos cleanup already reindexed are dropped only when the
+photo and its sidecars still match the indexed metadata stamp. Everything else
+is processed when cleanup ends.
+
+Tag writes use per-photo sidecars: a JPEG/TIFF/PNG whose embedded write falls
+back to XMP uses `photo.ext.xmp`, so a RAW companion's `photo.xmp` is never read
+or rewritten for the JPEG. Each issue includes the Windows error type and
+HRESULT even when Windows provides no message; all issues are written to the
+PhotoLibrarian log and the first ones are listed in Settings.
+
 Temporary-library tests use deterministic fake inference, real SQLite and generated
 images to assert inference-call counts across restarts, metadata/pixel edits,
 model/pipeline/settings changes, cancellation, persistence failures, watched scope
