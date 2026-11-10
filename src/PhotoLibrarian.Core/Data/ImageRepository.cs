@@ -189,9 +189,7 @@ public sealed partial class ImageRepository
             else
             {
                 // Show images that have any of the selected tags (OR logic)
-                // Because we store all parent paths, we can use simple equality (uses index!)
-                // Example: Selecting "people/family" will match images with that exact tag entry,
-                // which was inserted for images tagged with "people/family/kids" and its parents
+                // Match derived ancestors without treating them as portable keywords.
                 var conditions = new List<string>();
                 for (int i = 0; i < tagFilters!.Count; i++)
                 {
@@ -202,7 +200,7 @@ public sealed partial class ImageRepository
                 var whereClause = string.Join(" OR ", conditions);
                 cmd.CommandText = $@"
                     SELECT DISTINCT i.* FROM images i
-                    INNER JOIN tags t ON i.id = t.image_id
+                    INNER JOIN tag_hierarchy t ON i.id = t.image_id
                     WHERE {whereClause}
                     ORDER BY i.{col} {dir}";
             }

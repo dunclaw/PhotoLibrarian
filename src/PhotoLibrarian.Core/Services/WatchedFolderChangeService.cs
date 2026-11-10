@@ -19,6 +19,7 @@ public sealed class WatchedFolderChangeService : IDisposable
     private readonly Timer _timer;
     private bool _processing;
     private bool _disposed;
+    private int _suspendCount;
 
     public event EventHandler<WatchedLibraryChangedEventArgs>? LibraryChanged;
     public event EventHandler<Exception>? SyncFailed;
@@ -59,11 +60,92 @@ public sealed class WatchedFolderChangeService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Holds notifications without indexing them until the returned scope is disposed, so a bulk
+    /// metadata operation is not slowed by, or blocked on, reindexing its own writes.
+    /// </summary>
+    public IDisposable SuspendProcessing()
+    {
+        lock (_sync)
+        {
+            _suspendCount++;
+        }
+        return new ProcessingSuspension(this);
+    }
+
+    /// <summary>
+    /// Drops held notifications for photos the caller already reindexed, provided each photo and
+    /// its sidecars still match the indexed metadata stamp. Anything else is still processed.
+    /// </summary>
+    public async Task DiscardReindexedAsync(IReadOnlyCollection<string> reindexedImagePaths)
+    {
+        var reindexed = new HashSet<string>(reindexedImagePaths, StringComparer.OrdinalIgnoreCase);
+        List<(string Path, string[] Images)> candidates = [];
+        lock (_sync)
+        {
+            foreach (var path in _pending)
+            {
+                var resolved = ResolveImagePaths(path).ToArray();
+                if (resolved.Length > 0 && resolved.All(reindexed.Contains))
+                    candidates.Add((path, resolved));
+            }
+            foreach (var candidate in candidates)
+                _pending.Remove(candidate.Path);
+        }
+
+        // Removal happens first so a notification arriving during verification is never lost.
+        var restore = new List<string>();
+        foreach (var candidate in candidates)
+        {
+            foreach (var imagePath in candidate.Images)
+            {
+                var indexed = await _images.GetByPathAsync(imagePath);
+                if (indexed?.MetadataStamp is null ||
+                    !File.Exists(imagePath) ||
+                    indexed.MetadataStamp != LibraryMetadataIdentity.CaptureStamp(imagePath))
+                {
+                    restore.Add(candidate.Path);
+                    break;
+                }
+            }
+        }
+
+        if (restore.Count == 0) return;
+        lock (_sync)
+        {
+            if (_disposed) return;
+            foreach (var path in restore)
+                _pending.Add(path);
+        }
+    }
+
+    private void ResumeProcessing()
+    {
+        lock (_sync)
+        {
+            _suspendCount--;
+            if (_suspendCount == 0 && !_disposed &&
+                (_pending.Count > 0 || _pendingDirectories.Count > 0))
+                _timer.Change(_quietPeriod, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private sealed class ProcessingSuspension(WatchedFolderChangeService owner) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                owner.ResumeProcessing();
+        }
+    }
+
     private async Task ProcessPendingAsync()
     {
         lock (_sync)
         {
-            if (_disposed || _processing) return;
+            if (_disposed || _processing || _suspendCount > 0) return;
             _processing = true;
         }
 

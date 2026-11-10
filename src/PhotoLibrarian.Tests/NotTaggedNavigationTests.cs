@@ -164,7 +164,7 @@ public sealed class NotTaggedNavigationTests : IAsyncLifetime
 
         await _tags.RemoveTagAsync(image.Id, "Places/Beach");
         await _navigation.LoadAsync();
-        Assert.Equal(0, _navigation.Count); // The remaining parent tag still counts as a tag.
+        Assert.Equal(1, _navigation.Count); // Derived ancestors disappear with the final explicit tag.
         await _tags.RemoveTagAsync(image.Id, "Places");
         await _navigation.LoadAsync();
         Assert.Equal(image.Id, Assert.Single(await GetResultsAsync(notTaggedSelected: true)).Id);

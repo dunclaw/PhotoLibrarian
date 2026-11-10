@@ -91,6 +91,81 @@ directory, in addition to the model/pipeline version. Metadata-write failure and
 cancellation leave unfinished work retryable; unavailable photos retain their
 cache entries.
 
+## Composite descriptive tags
+
+A slash-separated value such as `Auto/animal/mammal/dog` is one explicit
+keyword in the photo (or its XMP sidecar) and one item in the Information
+panel's descriptive tags. The SQLite cache stores that explicit value with its
+source and confidence. A separate, indexed path-membership table derives
+`Auto`, `Auto/animal`, and `Auto/animal/mammal` for navigation and refinement;
+those paths are never exported as extra keywords. Tree counts are distinct
+photos at each level, including when a photo has several sibling tags.
+Removing the composite keyword removes its derived memberships, but a sibling
+or a genuinely independent parent keyword still supplies its own membership.
+
+There is no lossy prefix-collapse migration. Older files may already contain
+both a parent keyword and a longer composite keyword; even their source and
+confidence cannot prove whether the parent was generated or intentionally
+entered. Every serialized value therefore remains an explicit, editable tag.
+Deleting an explicitly stored parent does not break searching for descendants:
+their parent memberships are derived independently. Fresh imports and restarts
+preserve all these values. An explicit Refresh reconciles stale expanded cache
+rows to a portable `plib:TagMetadata` packet containing only the composite
+value, without rewriting the file. Without such authoritative provenance,
+ambiguous old cache rows are retained rather than guessed away.
+
+To deliberately clean old prefix keywords, use **Settings > Collapse redundant
+hierarchy tags...**. After confirmation, this scans indexed photos in all watched
+folders and keeps only the longest explicit value in each slash-delimited branch.
+For example, `Auto`, `Auto/animal`, and `Auto/animal/dog` become
+`Auto/animal/dog`. Sibling branches, unrelated tags, and the retained tags'
+portable provenance are preserved. This explicit operation removes matching
+prefixes regardless of their source, including intentionally entered parents;
+it is not an automatic migration and should only be used on folders you want
+cleaned.
+
+The explicit cleanup also handles older automatic tagging that wrote expanded
+tag rows only to SQLite, leaving no keywords or tag provenance in the photo.
+When no portable provenance packet exists, it combines legacy cached tags with
+file keywords, collapses prefixes, and writes the retained values and their
+sources/confidence portably before reconciling the index. Existing portable
+provenance remains authoritative: stale expanded cache rows are repaired even
+when the portable tag set is already clean, without resurrecting obsolete
+cached values. The completion report distinguishes metadata writes from cache
+reconciliations; a zero metadata-write count does not mean stale cache repair
+was skipped.
+
+Each changed photo and its existing `.xmp` are copied before writing into a
+unique folder under `%LOCALAPPDATA%\PhotoLibrarian\TagCleanupBackups`. The result
+shows the backup location and per-file errors. Backups remain for manual
+recovery; copy the original photo and XMP from its backup folder back together,
+then Refresh to reconcile the index. A newly created cleanup sidecar must be
+removed when restoring a photo that originally had no sidecar. Each folder
+also includes `original-path.txt` and a portable schema-1 `tag-cache.json`
+snapshot of the original cached tag assignments, source/confidence, and scan
+binding. For cache-only legacy tags, restoring the photo alone cannot recover
+those tags; keep this snapshot for recovery. Missing,
+unreadable, reparse-point, or pending-metadata-export files are not rewritten.
+Successful changes are portable and the index is reconciled only after file
+persistence. Repeating cleanup is a no-op once the prefix keywords are gone.
+
+While cleanup runs, Settings shows a progress bar, the number of photos checked
+out of the total, rewritten/reconciled/issue counts, and the current file. Only
+photos that need changes are fully hashed and backed up, so already-clean photos
+are skipped quickly. **Cancel** stops between photos; a photo whose metadata was
+already written is always reindexed first, and running cleanup again resumes
+safely. Watched-folder change processing is paused during cleanup so the
+watcher does not lock and reindex each rewritten photo a second time; held
+notifications for photos cleanup already reindexed are dropped only when the
+photo and its sidecars still match the indexed metadata stamp. Everything else
+is processed when cleanup ends.
+
+Tag writes use per-photo sidecars: a JPEG/TIFF/PNG whose embedded write falls
+back to XMP uses `photo.ext.xmp`, so a RAW companion's `photo.xmp` is never read
+or rewritten for the JPEG. Each issue includes the Windows error type and
+HRESULT even when Windows provides no message; all issues are written to the
+PhotoLibrarian log and the first ones are listed in Settings.
+
 Temporary-library tests use deterministic fake inference, real SQLite and generated
 images to assert inference-call counts across restarts, metadata/pixel edits,
 model/pipeline/settings changes, cancellation, persistence failures, watched scope

@@ -108,7 +108,7 @@ public sealed class AutoTagReviewViewModelTests
             "Auto/bird",
             TagWriterService.ReadTagsFromSidecar(image.FilePath));
         Assert.Equal(
-            2,
+            1,
             (await fixture.Tags.GetTagsAsync(image.Id))
                 .Count(tag => tag.Source == TagSource.AutoML));
     }

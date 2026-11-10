@@ -183,8 +183,84 @@ public sealed class CacheDatabase : IDisposable
         }
 
         await MigrateAsync(conn);
+        await InitializeTagHierarchyAsync(conn);
         await ImageSearchRepository.InitializeAsync(conn);
     }
+
+    private static async Task InitializeTagHierarchyAsync(SqliteConnection connection)
+    {
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE name = 'tag_path_memberships' AND type = 'table'
+            """;
+        var needsBackfill = Convert.ToInt64(await command.ExecuteScalarAsync()) == 0;
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS tag_path_memberships (
+                image_id INTEGER NOT NULL,
+                explicit_tag TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (image_id, explicit_tag, tag),
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_tag_paths_tag_image
+                ON tag_path_memberships(tag, image_id);
+            CREATE VIEW IF NOT EXISTS tag_hierarchy AS
+                SELECT DISTINCT image_id, tag FROM tag_path_memberships;
+            CREATE TRIGGER IF NOT EXISTS tag_paths_delete AFTER DELETE ON tags BEGIN
+                DELETE FROM tag_path_memberships
+                WHERE image_id = OLD.image_id AND explicit_tag = OLD.tag;
+            END;
+            """;
+        await command.ExecuteNonQueryAsync();
+
+        foreach (var operation in new[] { "INSERT", "UPDATE" })
+        {
+            var eventClause = operation == "UPDATE" ? "UPDATE OF image_id, tag" : operation;
+            var removeOld = operation == "UPDATE"
+                ? "DELETE FROM tag_path_memberships WHERE image_id = OLD.image_id AND explicit_tag = OLD.tag;"
+                : "";
+            command.CommandText = $"""
+                CREATE TRIGGER IF NOT EXISTS tag_paths_{operation}
+                AFTER {eventClause} ON tags BEGIN
+                    {removeOld}
+                    {CreateTagPathInsertSql("WHERE image_id = NEW.image_id AND tag = NEW.tag")}
+                END;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // Old explicit rows are ambiguous: index them without deleting any cached or file values.
+        if (needsBackfill)
+        {
+            command.CommandText = CreateTagPathInsertSql("");
+            await command.ExecuteNonQueryAsync();
+        }
+        transaction.Commit();
+    }
+
+    private static string CreateTagPathInsertSql(string scope) => $"""
+        INSERT OR IGNORE INTO tag_path_memberships(image_id, explicit_tag, tag)
+        SELECT image_id, explicit_tag, tag FROM (
+            WITH RECURSIVE paths(image_id, explicit_tag, tag, remaining) AS (
+                SELECT image_id, tag, '', tag || '/' FROM tags {scope}
+                UNION ALL
+                SELECT image_id, explicit_tag,
+                    CASE
+                        WHEN instr(remaining, '/') = 1 THEN tag
+                        WHEN tag = '' THEN substr(remaining, 1, instr(remaining, '/') - 1)
+                        ELSE tag || '/' || substr(remaining, 1, instr(remaining, '/') - 1)
+                    END,
+                    substr(remaining, instr(remaining, '/') + 1)
+                FROM paths WHERE remaining != ''
+            )
+            SELECT image_id, explicit_tag, tag FROM paths WHERE tag != ''
+            UNION
+            SELECT image_id, tag, tag FROM tags {scope}
+        );
+        """;
 
     /// <summary>
     /// Applies additive schema changes to databases created by older versions of the app.
