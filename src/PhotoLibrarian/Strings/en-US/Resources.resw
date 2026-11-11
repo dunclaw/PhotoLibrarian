@@ -14,6 +14,16 @@
   <data name="ViewerQuickRotateRight.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate this photo 90 degrees right. Undo is available.</value></data>
   <data name="ViewerQuickAutoBrightness.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace tone settings with conservative automatic exposure and contrast. Undo is available.</value></data>
   <data name="ViewerQuickAutoColor.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace color settings with conservative automatic white balance and saturation. Undo is available.</value></data>
+  <data name="GeotagMapLink.Content" xml:space="preserve"><value>Open map</value></data>
+  <data name="GeotagMapLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open geotag coordinates on a map</value></data>
+  <data name="MapProviderCombo.Header" xml:space="preserve"><value>Map provider</value></data>
+  <data name="MapProviderCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Map provider</value></data>
+  <data name="MapProviderPrivacy.Text" xml:space="preserve"><value>Opening coordinates sends them to the selected map provider in your browser.</value></data>
+  <data name="MapLatitudeLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open latitude and longitude on a map</value></data>
+  <data name="MapLongitudeLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open latitude and longitude on a map</value></data>
+  <data name="MapProviderSaveFailed" xml:space="preserve"><value>Could not save map provider: {0}</value></data>
+  <data name="MapLaunchFailed" xml:space="preserve"><value>Could not open the map in a browser.</value></data>
+  <data name="MapLaunchError" xml:space="preserve"><value>Could not open the map: {0}</value></data>
   <data name="HierarchyCleanupDescription.Text" xml:space="preserve"><value>Clean up legacy hierarchy tags in watched photos, including older automatic tags stored only in the cache. Keep the longest tag in each slash-delimited branch and save it portably with the photo.</value></data>
   <data name="HierarchyCleanupButton.Content" xml:space="preserve"><value>Collapse redundant hierarchy tags...</value></data>
   <data name="HierarchyCleanupButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Collapse redundant hierarchy tags</value></data>
