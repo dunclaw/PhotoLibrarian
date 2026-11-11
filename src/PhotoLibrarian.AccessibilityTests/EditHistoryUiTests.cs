@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.Views;
 using Windows.Graphics;
 using Windows.System;
@@ -87,6 +88,8 @@ public partial class App
         await PressViewerKeysAsync(0x11, 0x59);
         Check(value == 2, "Ctrl+Y shares the same redo stack");
 
+        ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
+        ribbon.SetQuickEditAvailability(true);
         var pending = new TaskCompletionSource();
         var operation = history.ExecuteAsync("caption", async () =>
         {
@@ -94,13 +97,51 @@ public partial class App
             return new(EditHistoryStatus.Applied);
         }, _ => Task.FromResult(new EditHistoryResult(EditHistoryStatus.Applied)));
         Check(!undo.IsEnabled && !redo.IsEnabled, "Busy history disables both toolbar actions");
+        Check(Enum.GetValues<ViewerQuickEdit>().All(action =>
+                !FindHistoryButton(ribbon, $"ViewerQuick{action}")!.IsEnabled),
+            "Busy history disables quick edits");
         pending.SetResult();
         await operation;
         Check(undo.IsEnabled && !redo.IsEnabled, "Completed edit restores toolbar availability");
         history.Clear();
+        ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
+        ribbon.SetQuickEditAvailability(true);
+        var scale = layout.XamlRoot.RasterizationScale;
+        _window.AppWindow.Resize(new SizeInt32((int)(1280 * scale), (int)(500 * scale)));
+        await Task.Delay(150);
+        var actions = new List<ViewerQuickEdit>();
+        ribbon.QuickEditClicked += (_, action) => actions.Add(action);
+        foreach (var action in Enum.GetValues<ViewerQuickEdit>())
+        {
+            var button = FindHistoryButton(ribbon, $"ViewerQuick{action}")!;
+            var position = button.TransformToVisual(ribbon).TransformPoint(new Windows.Foundation.Point());
+            Check(button.IsEnabled && !string.IsNullOrWhiteSpace(AutomationProperties.GetName(button)) &&
+                position.X >= 0 && position.X + button.ActualWidth <= ribbon.ActualWidth &&
+                position.Y >= 0 && position.Y + button.ActualHeight <= ribbon.ActualHeight,
+                $"{action} is labeled, enabled and fully visible at 1280 DIPs");
+            ((IInvokeProvider)FrameworkElementAutomationPeer.CreatePeerForElement(button)
+                .GetPattern(PatternInterface.Invoke)).Invoke();
+            await Task.Delay(50);
+            Check(actions.LastOrDefault() == action && actions.Count == (int)action + 1,
+                $"{action} invokes its own quick edit without opening Adjust");
+        }
+        var slideshow = (FrameworkElement)ribbon.FindName("SlideshowButton");
+        var rightEdge = slideshow.TransformToVisual(ribbon).TransformPoint(new Windows.Foundation.Point()).X +
+            slideshow.ActualWidth;
+        Check(rightEdge <= ribbon.ActualWidth, "Quick edits do not clip the ribbon's rightmost command at 1280 DIPs");
+        ribbon.SetPhotoFuseMode(true);
+        Check(Enum.GetValues<ViewerQuickEdit>().All(action =>
+                !FindHistoryButton(ribbon, $"ViewerQuick{action}")!.IsEnabled),
+            "Photo Fuse disables quick edits");
+        ribbon.SetPhotoFuseMode(false);
+        ribbon.SetQuickEditAvailability(false);
+        Check(Enum.GetValues<ViewerQuickEdit>().All(action =>
+                !FindHistoryButton(ribbon, $"ViewerQuick{action}")!.IsEnabled),
+            "Unsupported photo context disables quick edits");
         if (Environment.GetCommandLineArgs().Contains("--preview"))
         {
             ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
+            ribbon.SetQuickEditAvailability(true);
             ribbon.SetContextLabel("Synthetic photo - no user library");
             await AddAsync("rating - Synthetic photo.png", 1, 0);
         }

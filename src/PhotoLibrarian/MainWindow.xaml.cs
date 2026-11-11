@@ -464,6 +464,7 @@ public sealed partial class MainWindow : Window
         ImageGridPanel.ImportRequested += OnImportRequested;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.EffectsClicked += OnRibbonEffectsClicked;
+        TopRibbon.QuickEditClicked += OnRibbonQuickEditClicked;
         TopRibbon.UndoClicked += OnRibbonUndoClicked;
         TopRibbon.RedoClicked += OnRibbonRedoClicked;
         ViewModel.EditHistory.Changed += OnEditHistoryChanged;
@@ -688,7 +689,7 @@ public sealed partial class MainWindow : Window
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isClosing) return;
-        if (e.PropertyName == nameof(ImageViewerViewModel.IsApplyingEffect))
+        if (e.PropertyName is nameof(ImageViewerViewModel.IsApplyingEffect) or nameof(ImageViewerViewModel.CurrentEntry))
             UpdateHistoryControls();
 
         if (e.PropertyName == nameof(ImageViewerViewModel.ShouldShowInformationPane))
@@ -1146,6 +1147,19 @@ public sealed partial class MainWindow : Window
         await ViewerOverlay.ShowEffectsAsync(TopRibbon.EffectsAnchor);
     }
 
+    private async void OnRibbonQuickEditClicked(object? sender, ViewerQuickEdit action)
+    {
+        var entry = ViewModel.ImageViewer.CurrentEntry;
+        if (!CanUseEditHistory() || ViewModel.ImageEditor.IsOpen ||
+            entry?.MediaType != Core.Models.MediaType.Image ||
+            !ImageEditRenderer.IsSupported(entry.FilePath)) return;
+        var label = EditorEffectStrings.Get($"ViewerQuick{action}Label");
+        ViewModel.StatusText = $"{label}...";
+        var applied = await ViewModel.RunPhotoEditAsync(label, [entry.FilePath],
+            copies => ViewerQuickEditService.PrepareAsync(copies[System.IO.Path.GetFullPath(entry.FilePath)], action));
+        if (applied) ViewModel.StatusText = $"{label} - {entry.FileName}";
+    }
+
     private async void OnRibbonUndoClicked(object? sender, EventArgs e) =>
         await MoveEditHistoryAsync(undo: true);
 
@@ -1188,6 +1202,9 @@ public sealed partial class MainWindow : Window
         var editor = ViewModel.ImageEditor;
         var preview = editor.IsOpen && (editor.UndoHistory.Count > 0 || editor.RedoHistory.Count > 0);
         var available = CanUseEditHistory();
+        TopRibbon.SetQuickEditAvailability(available && !editor.IsOpen &&
+            ViewModel.ImageViewer.CurrentEntry is { MediaType: Core.Models.MediaType.Image } entry &&
+            ImageEditRenderer.IsSupported(entry.FilePath));
         TopRibbon.SetHistoryAvailability(available && (preview ? editor.CanUndo : ViewModel.EditHistory.CanUndo),
             available && (preview ? editor.CanRedo : ViewModel.EditHistory.CanRedo), ViewModel.EditHistory.IsBusy);
         var undoLabel = ViewModel.EditHistory.UndoLabel;

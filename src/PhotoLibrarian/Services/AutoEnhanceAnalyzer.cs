@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Services;
@@ -98,6 +99,38 @@ public static class AutoEnhanceAnalyzer
             Saturation = saturation,
             Clarity = clarity
         };
+    }
+
+    /// <summary>Conservative neutral-pixel white balance plus the existing saturation estimate.</summary>
+    public static EditParameters AnalyzeColor(byte[] bgraPixels)
+    {
+        var result = new EditParameters { Saturation = Analyze(bgraPixels).Saturation };
+        double redTotal = 0, greenTotal = 0, blueTotal = 0;
+        var neutralCount = 0;
+        for (var offset = 0; offset < bgraPixels.Length; offset += 4)
+        {
+            if (bgraPixels[offset + 3] == 0) continue;
+            var blue = bgraPixels[offset] / 255d;
+            var green = bgraPixels[offset + 1] / 255d;
+            var red = bgraPixels[offset + 2] / 255d;
+            var maximum = Math.Max(red, Math.Max(green, blue));
+            var minimum = Math.Min(red, Math.Min(green, blue));
+            // Avoid shadows, clipped highlights and strongly colored objects.
+            if (minimum < 0.1 || maximum > 0.95 || (maximum - minimum) / maximum > 0.25)
+                continue;
+            redTotal += red;
+            greenTotal += green;
+            blueTotal += blue;
+            neutralCount++;
+        }
+        if (neutralCount == 0) return result;
+
+        // Invert the editor's red*(1+t), blue*(1-t), green*(1+tint) matrix.
+        var temperature = (blueTotal - redTotal) / (redTotal + blueTotal);
+        var neutral = redTotal * (1 + temperature);
+        result.Temperature = Math.Clamp(temperature / 0.3, -0.3, 0.3);
+        result.Tint = Math.Clamp((neutral / greenTotal - 1) / 0.3, -0.3, 0.3);
+        return result;
     }
 
     private static double Percentile(int[] histogram, int sampleCount, double percentile)
