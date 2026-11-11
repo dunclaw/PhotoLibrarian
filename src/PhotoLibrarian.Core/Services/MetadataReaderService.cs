@@ -2,6 +2,8 @@
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
 using MetadataExtractor.Formats.Iptc;
+using MetadataExtractor.Formats.Jpeg;
+using MetadataExtractor.Formats.Png;
 using MetadataExtractor.Formats.Xmp;
 using PhotoLibrarian.Core.Models;
 using XmpCore;
@@ -32,6 +34,7 @@ public sealed class MetadataReaderService
         {
             var directories = ImageMetadataReader.ReadMetadata(filePath);
             ReadExifData(directories, entry);
+            ReadRasterData(directories, entry);
             ReadIptcData(directories, entry);
             ReadXmpData(directories, entry);
         }
@@ -129,6 +132,33 @@ public sealed class MetadataReaderService
         }
     }
 
+    private static void ReadRasterData(IReadOnlyList<MetadataExtractor.Directory> directories, ImageEntry entry)
+    {
+        var jpeg = directories.OfType<JpegDirectory>().FirstOrDefault();
+        if (jpeg is not null)
+        {
+            if (jpeg.TryGetInt32(JpegDirectory.TagImageWidth, out var width))
+                entry.Width = width;
+            if (jpeg.TryGetInt32(JpegDirectory.TagImageHeight, out var height))
+                entry.Height = height;
+        }
+
+        foreach (var png in directories.OfType<PngDirectory>())
+        {
+            if (png.TryGetInt32(PngDirectory.TagImageWidth, out var width))
+                entry.Width = width;
+            if (png.TryGetInt32(PngDirectory.TagImageHeight, out var height))
+                entry.Height = height;
+            if (png.GetObject(PngDirectory.TagTextualData) is not IEnumerable<MetadataExtractor.KeyValuePair> text)
+                continue;
+            foreach (var pair in text)
+            {
+                if (pair.Key == "Title") entry.Title ??= pair.Value.ToString();
+                if (pair.Key is "Comment" or "Description") entry.Caption ??= pair.Value.ToString();
+            }
+        }
+    }
+
     private static void ReadIptcData(IReadOnlyList<MetadataExtractor.Directory> directories, ImageEntry entry)
     {
         var iptc = directories.OfType<IptcDirectory>().FirstOrDefault();
@@ -180,7 +210,9 @@ public sealed class MetadataReaderService
         if (replaceText || string.IsNullOrWhiteSpace(entry.Title))
             entry.Title = xmp.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value ?? entry.Title;
         if (replaceText || string.IsNullOrWhiteSpace(entry.Caption))
-            entry.Caption = xmp.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value ?? entry.Caption;
+            entry.Caption = xmp.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value
+                ?? xmp.GetLocalizedText(exifNs, "UserComment", "", "x-default")?.Value
+                ?? entry.Caption;
         entry.GpsLatitude ??= ReadCoordinate(xmp.GetPropertyString(exifNs, "GPSLatitude"));
         entry.GpsLongitude ??= ReadCoordinate(xmp.GetPropertyString(exifNs, "GPSLongitude"));
         // Read rating from XMP if not already set

@@ -274,8 +274,6 @@ public sealed partial class ImageEditorView : UserControl
 
     private void UpdateHistoryControls()
     {
-        UndoBtn.IsEnabled = ViewModel?.CanUndo == true;
-        RedoBtn.IsEnabled = ViewModel?.CanRedo == true;
         var isSaving = ViewModel?.IsBusy == true;
         PreviousBtn.IsEnabled = ViewModel?.CanNavigate == true;
         NextBtn.IsEnabled = ViewModel?.CanNavigate == true;
@@ -306,39 +304,6 @@ public sealed partial class ImageEditorView : UserControl
         if (_retouchPreviewFailed) SaveBtn.IsEnabled = false;
         UpdateBrushCursor();
         if (_brushPosition is not null) EditCanvas.Invalidate();
-    }
-
-    private void OnUndo(SplitButton sender, SplitButtonClickEventArgs args) =>
-        ViewModel?.UndoCommand.Execute(null);
-
-    private void OnRedo(SplitButton sender, SplitButtonClickEventArgs args) =>
-        ViewModel?.RedoCommand.Execute(null);
-
-    private void OnHistoryOpening(object sender, object e)
-    {
-        if (ViewModel is null || sender is not MenuFlyout flyout) return;
-        var undo = flyout == UndoFlyout;
-        var history = undo ? ViewModel.UndoHistory : ViewModel.RedoHistory;
-        flyout.Items.Clear();
-        for (var i = 0; i < history.Count; i++)
-        {
-            var steps = i + 1;
-            var item = new MenuFlyoutItem
-            {
-                Text = $"{steps}. {history[i]}",
-                IsEnabled = !ViewModel.IsSaving
-            };
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(
-                item, $"Editor{(undo ? "Undo" : "Redo")}Step{steps}");
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
-                item, $"{(undo ? "Undo" : "Redo")} {steps} {(steps == 1 ? "edit" : "edits")}: {history[i]}");
-            item.Click += (_, _) =>
-            {
-                if (undo) ViewModel.UndoSteps(steps);
-                else ViewModel.RedoSteps(steps);
-            };
-            flyout.Items.Add(item);
-        }
     }
 
     private void OnCanvasCreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
@@ -1055,8 +1020,8 @@ public sealed partial class ImageEditorView : UserControl
         if (ViewModel is null) return;
         try
         {
-            await ViewModel.KeepRawPreviewRecipeAsync();
-            SetStatus("RAW preview recipe kept in XMP sidecar; original unchanged.");
+            if (await ViewModel.KeepRawPreviewRecipeAsync())
+                SetStatus("RAW preview recipe kept in XMP sidecar; original unchanged.");
         }
         catch (Exception ex) { SetStatus($"Unable to keep RAW recipe: {ex.Message}"); }
     }
@@ -1142,12 +1107,12 @@ public sealed partial class ImageEditorView : UserControl
         try
         {
             var saved = await ViewModel.SaveAsync(RenderForSaveAsync);
+            if (!saved) return;
             SyncSlidersFromViewModel();
 
             // Reload from disk so the preview shows the baked pixels.
             await LoadImageAsync(ViewModel.ImagePath);
 
-            if (!saved) SetStatus("No adjustments to save");
         }
         catch (Exception ex)
         {

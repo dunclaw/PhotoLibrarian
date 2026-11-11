@@ -1222,6 +1222,8 @@ public partial class ImageGridViewModel : ObservableObject
 
         return (Refinement.Rating.HasValue || missing.HasFlag(MissingMetadataFilter.Rating)) &&
                    ratingChanged ||
+               (_currentFlaggedSelected || Refinement.Flag != FlagFilterMode.Any) &&
+                   previous.IsFlagged != current.IsFlagged ||
                (Refinement.DateFrom.HasValue || Refinement.DateTo.HasValue ||
                 missing.HasFlag(MissingMetadataFilter.CaptureDate) ||
                 _currentDateRootSelected ||

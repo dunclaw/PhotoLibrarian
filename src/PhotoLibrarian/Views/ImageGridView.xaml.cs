@@ -629,13 +629,12 @@ public sealed partial class ImageGridView : UserControl
         bool clockwise)
     {
         if (selected.Count == 0) return;
-        var ops = App.ViewModel!.PhotoOps;
-        foreach (var vm in selected)
+        var paths = selected.Select(item => item.Entry.FilePath).ToArray();
+        await App.ViewModel!.RunPhotoEditAsync(clockwise ? "rotate right" : "rotate left", paths, async copies =>
         {
-            var size = await ops.RotateAsync(vm.Entry, clockwise);
-            await App.ViewModel.RefreshAfterPixelEditAsync(
-                vm.Entry.FilePath, size.Width, size.Height, "Rotated");
-        }
+            foreach (var copy in copies.Values)
+                await Services.ImageEditRenderer.RenderRotatedAsync(copy, clockwise);
+        });
     }
 
     // =================================================================

@@ -15,6 +15,10 @@ public sealed partial class TopRibbon : UserControl
     private bool _photoFuseActive;
     private bool _canUndo;
     private bool _canRedo;
+    private bool _hasPhoto;
+    private bool _editorActive;
+    private bool _isVideo;
+    private Button? _historyFocus;
     public event EventHandler? CropClicked;
     public event EventHandler? MakeCopyClicked;
     public event EventHandler? StraightenClicked;
@@ -41,14 +45,44 @@ public sealed partial class TopRibbon : UserControl
     public TopRibbon()
     {
         this.InitializeComponent();
+        SetPhotoContext(hasPhoto: false, editorActive: false);
     }
 
-    public void SetHistoryAvailability(bool canUndo, bool canRedo)
+    public void SetHistoryAvailability(bool canUndo, bool canRedo, bool busy = false)
     {
+        if (busy && IsEnabled && XamlRoot is not null)
+        {
+            var focused = FocusManager.GetFocusedElement(XamlRoot);
+            _historyFocus = ReferenceEquals(focused, UndoButton) ? UndoButton
+                : ReferenceEquals(focused, RedoButton) ? RedoButton : null;
+        }
+        IsEnabled = !busy;
         _canUndo = canUndo;
         _canRedo = canRedo;
         UndoButton.IsEnabled = canUndo && !_photoFuseActive;
         RedoButton.IsEnabled = canRedo && !_photoFuseActive;
+        if (!busy && _historyFocus is { } previous)
+        {
+            _historyFocus = null;
+            var target = previous.IsEnabled ? previous : UndoButton.IsEnabled ? UndoButton
+                : RedoButton.IsEnabled ? RedoButton : null;
+            target?.Focus(FocusState.Keyboard);
+        }
+    }
+
+    public void SetHistoryLabels(string undo, string redo)
+    {
+        AutomationProperties.SetName(UndoButton, undo);
+        AutomationProperties.SetName(RedoButton, redo);
+        ToolTipService.SetToolTip(UndoButton, $"{undo} (Ctrl+Z)\n{AutomationProperties.GetHelpText(UndoButton)}");
+        ToolTipService.SetToolTip(RedoButton, $"{redo} (Ctrl+Y or Ctrl+Shift+Z)\n{AutomationProperties.GetHelpText(RedoButton)}");
+    }
+
+    public void SetPhotoContext(bool hasPhoto, bool editorActive)
+    {
+        _hasPhoto = hasPhoto;
+        _editorActive = editorActive;
+        SetVideoMode(_isVideo);
     }
 
     /// <summary>Set the centered context label (e.g. file name being viewed).</summary>
@@ -63,8 +97,9 @@ public sealed partial class TopRibbon : UserControl
 
     public void SetVideoMode(bool isVideo)
     {
-        ViewerTools.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
-        VideoTools.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        _isVideo = isVideo;
+        ViewerTools.Visibility = _hasPhoto && !_editorActive && !isVideo ? Visibility.Visible : Visibility.Collapsed;
+        VideoTools.Visibility = _hasPhoto && !_editorActive && isVideo ? Visibility.Visible : Visibility.Collapsed;
         CropTools.Visibility = Visibility.Collapsed;
         StraightenTools.Visibility = Visibility.Collapsed;
         SetContextSubLabel(null);

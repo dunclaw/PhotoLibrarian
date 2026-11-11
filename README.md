@@ -23,7 +23,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - ✏️ **Multi-select metadata panel** — rating, caption, tags, and capture date edit *every* selected image at once, with "(n of m)" hints when values differ and a date-shift mode for time-zone fix-ups. Selected videos also show available duration, dimensions, bitrate, frame rate, codec, capture/encoded dates, camera, GPS, title, album, artist, and year from local Windows properties.
 - 🎨 **Win2D real-time editor** with Exposure / Brightness / Contrast / Highlights / Shadows / Saturation / Temperature / Tint / Noise reduction / Clarity / Sharpness / Levels / Rotation.
 - **Spot retouch** on the full-photo toolbar fills painted blemishes using locally matching, unpainted texture patches with boundary blending. A circular brush cursor shows the radius at the current zoom; dragging paints one continuous selection and releasing heals it. Nearby texture and simple edges can be retained instead of only smoothed; ordinary photo noise and uneven shading are accepted. Source-resolution preview/save with undo/redo and original backups, without image-size, stroke-count or stroke-length caps. Best for small spots; repeated/mismatched detail is possible, and unique objects cannot be reconstructed reliably. Entirely local, with no new dependency. See [supported formats, behavior and verification](docs/SPOT-RETOUCH.md).
-- **Editor undo/redo** with split-button history menus. A slider or histogram drag, Auto enhance, and Reset each form one step; selecting a history entry undoes or redoes through that step. History covers pending adjustments only and clears on save, Revert, close, or opening another photo.
+- **Shared Undo/Redo** in the main toolbar and standard Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z shortcuts covers supported photo edits and metadata batches chronologically across photos. Pending adjustment gestures use the same controls until Save/Keep compacts them into one persisted step. Text controls retain native undo; conflicts never overwrite newer files. History is session-only and excludes file deletion, exports, face review, and automatic changes. See [supported edits, boundaries, and recovery](docs/EDIT-HISTORY.md).
 - **Previous/Next while editing** follows the grid's current filters, sort, and grouping, skipping videos and unsupported editing formats and wrapping at either end. Use the editor toolbar, Left / Right arrows, or Ctrl+Page Up / Ctrl+Page Down. Arrow keys still adjust focused sliders and input fields rather than changing photos. Navigation and Close offer Save (Keep recipe for RAW), Discard, or Cancel for pending changes; failed saves leave the current photo and edits open. RAW saves keep the XMP preview recipe, never overwrite the original. Each photo starts with its own adjustments and empty undo history. Filter changes do not discard an open edit: if the current photo is excluded, Next starts at the first eligible result and Previous at the last; with no eligible results navigation is disabled.
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
 - **Simple video stabilization** in the video editing ribbon exports a separate H.264/AAC MP4 and opens it immediately in the player, with no downloads or additional installs. The integrated stabilizer reduces small shakes and rotations with mirrored edges, using Windows' video codecs. Progress and cancellation are available; originals are never overwritten. See [usage, limitations and open-source options](docs/VIDEO-STABILIZATION.md).
@@ -63,19 +63,17 @@ Adjust editor can bake the recipe through its existing save flow, which clears
 pending edits after success.
 
 The main toolbar's **Undo** and **Redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
-restore previous effect selections
-in place, including returning to the effect present before the first selection.
-Effect history is per photo for the current app session, leaves other tweaks
-unchanged, and does not overwrite photo pixels. Choosing the same effect is
-not a new edit; a new selection after Undo clears Redo.
+restore effect selections in the same chronological history as other supported
+photo and metadata edits, including across photos. Effect replay leaves other
+tweaks unchanged and does not overwrite photo pixels. Choosing the same effect
+is not a new edit; a new persisted edit after Undo clears Redo.
 
 Grid thumbnails render pending raster recipes too, both immediately after an
 effect change/undo and after restarting. Edited photos bypass Windows/embedded
 source thumbnails; originals and their embedded JPEG thumbnails remain untouched.
 Unedited photos still use the fast Windows thumbnail provider.
-Unified chronological undo across all photo and metadata operations is tracked
-in [#185](https://github.com/dunclaw/PhotoLibrarian/issues/185);
-toolbar viewer undo currently covers effects.
+See [shared edit history](docs/EDIT-HISTORY.md) for pending-editor transactions,
+supported operations, external-change protection, and restart boundaries.
 
 Previews are generated locally from EXIF-oriented photo pixels, including
 current adjustments, not sample pictures. Thumbnail decoding and rendering
