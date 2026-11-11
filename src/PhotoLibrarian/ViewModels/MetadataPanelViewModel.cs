@@ -800,10 +800,19 @@ public partial class MetadataPanelViewModel : ObservableObject
                 ? 0
                 : rating;
 
+        int? persistedRating = newRating > 0 ? newRating : (int?)null;
+        if (_main is not null)
+        {
+            await _main.RunPhotoEditAsync("rating", SelectedFilePaths, async copies =>
+            {
+                foreach (var path in copies.Values)
+                    await MetadataWriterService.WriteRatingAsync(path, persistedRating);
+            });
+            return;
+        }
+
         Rating = newRating;
         IsRatingMixed = false;
-
-        int? persistedRating = newRating > 0 ? newRating : (int?)null;
         foreach (var entry in _entries)
         {
             entry.Rating = persistedRating;
@@ -817,9 +826,18 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// Saves the current caption to every selected image's XMP sidecar. (LostFocus.)
     /// </summary>
     [RelayCommand]
-    public async Task SaveCaptionAsync()
+    public async Task<bool> SaveCaptionAsync()
     {
-        if (_entries.Count == 0) return;
+        if (_entries.Count == 0) return false;
+        if (_main is not null)
+        {
+            var caption = Caption;
+            return await _main.RunPhotoEditAsync("caption", SelectedFilePaths, async copies =>
+            {
+                foreach (var path in copies.Values)
+                    await MetadataWriterService.WriteCaptionAsync(path, caption);
+            });
+        }
         IsCaptionMixed = false;
         foreach (var entry in _entries)
         {
@@ -828,6 +846,7 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await _imageRepo.UpdateCaptionAsync(entry.Id, Caption);
             entry.Caption = Caption;
         }
+        return true;
     }
 
     /// <summary>
@@ -867,6 +886,11 @@ public partial class MetadataPanelViewModel : ObservableObject
     {
         if (_entries.Count == 0 || string.IsNullOrWhiteSpace(tag)) return;
         var trimmed = tag.Trim();
+        if (_main is not null)
+        {
+            await _main.ApplyTagToImagePathsAsync(trimmed, SelectedFilePaths);
+            return;
+        }
 
         // Update UI tag list
         var existing = Tags.FirstOrDefault(t => string.Equals(t.Tag, trimmed, StringComparison.OrdinalIgnoreCase));
@@ -914,6 +938,22 @@ public partial class MetadataPanelViewModel : ObservableObject
     public async Task RemoveTagAsync(string tag)
     {
         if (_entries.Count == 0 || string.IsNullOrWhiteSpace(tag)) return;
+        if (_main is not null && _tagRepo is not null)
+        {
+            var entries = _entries.ToArray();
+            await _main.RunPhotoEditAsync($"remove tag '{tag}'", SelectedFilePaths, async copies =>
+            {
+                foreach (var entry in entries)
+                {
+                    var tags = await _tagRepo.GetTagsAsync(entry.Id);
+                    tags.RemoveAll(item => string.Equals(item.Tag, tag, StringComparison.OrdinalIgnoreCase));
+                    await TagWriterService.WriteTagsToSidecarAsync(copies[Path.GetFullPath(entry.FilePath)],
+                        tags.Select(item => item.Tag).Distinct(), tags, entry.AutoTagScanVersion,
+                        sourceIdentity: entry.SourceIdentity);
+                }
+            });
+            return;
+        }
 
         // Update UI
         var existing = Tags.FirstOrDefault(t => string.Equals(t.Tag, tag, StringComparison.OrdinalIgnoreCase));
@@ -940,9 +980,17 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// <summary>
     /// Sets the same capture date on every selected image (XMP sidecar + DB cache).
     /// </summary>
-    public async Task SetDateTakenAsync(DateTime dt)
+    public async Task<bool> SetDateTakenAsync(DateTime dt)
     {
-        if (_entries.Count == 0) return;
+        if (_entries.Count == 0) return false;
+        if (_main is not null)
+        {
+            return await _main.RunPhotoEditAsync("capture date", SelectedFilePaths, async copies =>
+            {
+                foreach (var path in copies.Values)
+                    await MetadataWriterService.WriteDateTakenAsync(path, dt);
+            });
+        }
         CommonDateTaken = dt;
         IsDateMixed = false;
         DateTaken = dt.ToString("M/d/yyyy h:mm tt");
@@ -956,12 +1004,28 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         if (_main != null) await _main.RefreshAfterDateChangeAsync();
+        return true;
     }
 
     public async Task<GeotagBatchResult> SetGeotagAsync(GeoCoordinate coordinate)
     {
         if (_entries.Count == 0 || !CanEditGeotag || _geotagWriter is null)
             return new GeotagBatchResult(0, _entries.Count, 0, []);
+
+        if (_main is not null)
+        {
+            var paths = SelectedFilePaths;
+            var sidecars = 0;
+            var applied = await _main.RunPhotoEditAsync("GPS coordinates", paths, async copies =>
+            {
+                foreach (var copy in copies.Values)
+                    if (await _geotagWriter.WriteAsync(copy, coordinate) == GeotagWriteLocation.XmpSidecar)
+                        sidecars++;
+            });
+            return applied
+                ? new(paths.Count, paths.Count, sidecars, [])
+                : new(0, paths.Count, 0, [_main.StatusText]);
+        }
 
         var entries = _entries.ToList();
         var failures = new List<string>();
@@ -1029,9 +1093,20 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// Shifts every selected image's capture date by the given offset (useful for time-zone fixes).
     /// Images without a current date are skipped.
     /// </summary>
-    public async Task OffsetDateTakenAsync(TimeSpan offset)
+    public async Task<bool> OffsetDateTakenAsync(TimeSpan offset)
     {
-        if (_entries.Count == 0 || offset == TimeSpan.Zero) return;
+        if (_entries.Count == 0 || offset == TimeSpan.Zero) return false;
+        if (_main is not null)
+        {
+            var entries = _entries.Where(entry => entry.DateTaken.HasValue).ToArray();
+            return await _main.RunPhotoEditAsync("shift capture dates", entries.Select(entry => entry.FilePath).ToArray(),
+                async copies =>
+                {
+                    foreach (var entry in entries)
+                        await MetadataWriterService.WriteDateTakenAsync(
+                            copies[Path.GetFullPath(entry.FilePath)], entry.DateTaken!.Value + offset);
+                });
+        }
 
         foreach (var entry in _entries)
         {
@@ -1059,6 +1134,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         if (_main != null) await _main.RefreshAfterDateChangeAsync();
+        return true;
     }
 
     private static string FormatExposureForDisplay(string? raw)

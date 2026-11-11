@@ -132,11 +132,12 @@ public sealed class PhotoEffectTests : IDisposable
         Assert.Equal("OnEffectsClick", (string?)effectsButton.Attribute("Click"));
         Assert.Equal("RibbonEffects", (string?)effectsButton.Attribute("AutomationProperties.AutomationId"));
         var code = File.ReadAllText(Path.Combine(assets, "MainWindow.xaml.cs"));
-        Assert.Contains("ViewerOverlay.MoveEffectHistoryAsync", code);
-        Assert.Contains("!HasNativeHistoryOrDialog(focus)", code);
+        Assert.Contains("ViewModel.EditHistory.UndoAsync", code);
+        Assert.Contains("ViewModel.EditHistory.RedoAsync", code);
+        Assert.Contains("HasNativeHistoryOrDialog(focus), out var undo", code);
         Assert.Contains("RichEditBox or ContentDialog", code);
         var effectsHandler = code[code.IndexOf("private async void OnRibbonEffectsClicked", StringComparison.Ordinal)..];
-        effectsHandler = effectsHandler[..effectsHandler.IndexOf("private async Task<bool>", StringComparison.Ordinal)];
+        effectsHandler = effectsHandler[..effectsHandler.IndexOf("private void OnEditHistoryChanged", StringComparison.Ordinal)];
         Assert.Contains("ViewerOverlay.ShowEffectsAsync", effectsHandler);
         Assert.DoesNotContain("EditorOverlay", effectsHandler);
         Assert.DoesNotContain("OpenRibbonEditorAsync", effectsHandler);
@@ -144,8 +145,8 @@ public sealed class PhotoEffectTests : IDisposable
         var window = XDocument.Load(Path.Combine(assets, "MainWindow.xaml"));
         var overlay = Assert.Single(window.Descendants().Where(element =>
             (string?)element.Attribute(xaml + "Name") == "EditorOverlay"));
-        Assert.Equal("0", (string?)overlay.Attribute("Grid.Row"));
-        Assert.Equal("2", (string?)overlay.Attribute("Grid.RowSpan"));
+        Assert.Equal("1", (string?)overlay.Attribute("Grid.Row"));
+        Assert.Null(overlay.Attribute("Grid.RowSpan"));
         Assert.Equal("Single", (string?)gallery.Attribute("SelectionMode"));
         Assert.Equal("EditorEffectsGallery", (string?)gallery.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("OnEffectSelectionChanged", (string?)gallery.Attribute("SelectionChanged"));

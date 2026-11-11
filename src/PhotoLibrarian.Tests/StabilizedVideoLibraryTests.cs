@@ -251,7 +251,7 @@ public sealed class StabilizedVideoLibraryTests
         }
     }
 
-    private sealed class LibraryFixture : IAsyncDisposable
+    internal sealed class LibraryFixture : IAsyncDisposable
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-Export-{Guid.NewGuid():N}");
         public string Photos => Path.Combine(Root, "photos");
@@ -309,6 +309,15 @@ public sealed class StabilizedVideoLibraryTests
             var path = Path.Combine(Photos, name);
             await File.WriteAllTextAsync(path, "original");
             await MetadataWriterService.WriteCaptionAsync(path, "onlyoriginal");
+            await _indexer.IndexFileAsync(path);
+            return (await Images.GetByPathAsync(path))!;
+        }
+
+        public async Task<ImageEntry> AddPhotoAsync(string name)
+        {
+            var path = Path.Combine(Photos, name);
+            await RenderQualityFixtures.WriteImageAsync(path, 32, 24,
+                RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 32, 24));
             await _indexer.IndexFileAsync(path);
             return (await Images.GetByPathAsync(path))!;
         }

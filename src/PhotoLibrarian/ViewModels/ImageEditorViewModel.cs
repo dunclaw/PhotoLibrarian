@@ -30,6 +30,8 @@ public partial class ImageEditorViewModel : ObservableObject
     private CancellationTokenSource? _rawExport;
     private List<ImageEntry> _images = [];
     private int _openVersion;
+    internal Func<string, string, string?, Func<string, Task>, Task<bool>>? PersistEditAsync { get; set; }
+    private string? _openedIdentity;
 
     public ImageEntry? CurrentEntry => _currentEntry;
     public event Action<ImageEntry?>? CurrentEntryChanged;
@@ -77,8 +79,8 @@ public partial class ImageEditorViewModel : ObservableObject
             // Resolve against the latest filtered order, not the order when the prompt opened.
             var target = FindNavigationTarget(direction);
             if (target is null) return false;
-            Task SaveBeforeMovingAsync() => decision == PendingEditDecision.Save
-                ? SavePendingEditsAsync(renderer) : Task.CompletedTask;
+            Task<bool> SaveBeforeMovingAsync() => decision == PendingEditDecision.Save
+                ? SavePendingEditsAsync(renderer) : Task.FromResult(true);
             bool IsTargetCurrent() => string.Equals(FindNavigationTarget(direction)?.FilePath,
                 target.FilePath, StringComparison.OrdinalIgnoreCase);
             return await OpenEntryAsync(target, SaveBeforeMovingAsync, IsTargetCurrent);
@@ -98,8 +100,8 @@ public partial class ImageEditorViewModel : ObservableObject
             {
                 var decision = await confirm();
                 if (decision == PendingEditDecision.Cancel) return false;
-                if (decision == PendingEditDecision.Save)
-                    await SavePendingEditsAsync(renderer);
+                if (decision == PendingEditDecision.Save && !await SavePendingEditsAsync(renderer))
+                    return false;
             }
             CloseCore();
             return true;
@@ -107,16 +109,8 @@ public partial class ImageEditorViewModel : ObservableObject
         finally { IsTransitioning = false; }
     }
 
-    private async Task SavePendingEditsAsync(ImageEditService.PixelRenderer renderer)
-    {
-        if (IsRawPreview)
-        {
-            await KeepRawPreviewRecipeAsync();
-            return;
-        }
-        if (!await SaveAsync(renderer))
-            throw new InvalidOperationException("No raster adjustments could be saved. Choose Discard to leave this photo without keeping the pending changes.");
-    }
+    private Task<bool> SavePendingEditsAsync(ImageEditService.PixelRenderer renderer) =>
+        IsRawPreview ? KeepRawPreviewRecipeAsync() : SaveAsync(renderer);
 
     private sealed record HistoryEntry(string Label, EditParameters Before, EditParameters After);
 
@@ -254,6 +248,7 @@ public partial class ImageEditorViewModel : ObservableObject
 
     /// <summary>Raised after the file has been restored from its backup.</summary>
     public event EventHandler<string>? Reverted;
+    public event EventHandler<string>? OperationFailed;
 
     public ImageEditorViewModel(OriginalBackupService backupService)
     {
@@ -279,10 +274,11 @@ public partial class ImageEditorViewModel : ObservableObject
         finally { IsTransitioning = false; }
     }
 
-    private async Task<bool> OpenEntryAsync(ImageEntry entry, Func<Task>? beforeCommit = null,
+    private async Task<bool> OpenEntryAsync(ImageEntry entry, Func<Task<bool>>? beforeCommit = null,
         Func<bool>? stillCurrent = null)
     {
         var version = ++_openVersion;
+        var identity = await FileEditTransaction.ReadIdentityAsync(entry.FilePath);
         var parameters = ImageEditService.ReadEditParameters(entry.FilePath);
         var isRaw = RawToneMappingService.IsRaw(entry.FilePath);
         if (isRaw) File.GetAttributes(entry.FilePath);
@@ -290,10 +286,13 @@ public partial class ImageEditorViewModel : ObservableObject
         var backupHash = isRaw ? null : await OriginalBackupService.ComputeFileHashAsync(entry.FilePath);
         var hasBackup = !isRaw && await _backupService.HasBackupAsync(entry.FilePath);
         if (version != _openVersion || stillCurrent?.Invoke() == false) return false;
-        if (beforeCommit is not null) await beforeCommit();
+        if (identity != await FileEditTransaction.ReadIdentityAsync(entry.FilePath)) return false;
+        if (beforeCommit is not null && !await beforeCommit()) return false;
         if (version != _openVersion || stillCurrent?.Invoke() == false) return false;
+        if (identity != await FileEditTransaction.ReadIdentityAsync(entry.FilePath)) return false;
 
         _currentEntry = entry;
+        _openedIdentity = identity;
         _backupHash = backupHash;
         HasBackup = hasBackup;
         Title = entry.FileName;
@@ -325,13 +324,26 @@ public partial class ImageEditorViewModel : ObservableObject
         IsSaving = true;
         try
         {
-            var (width, height) = await _editService.ApplyEditsAsync(
-                _currentEntry.FilePath, parameters, renderer);
+            uint width = 0, height = 0;
+            if (PersistEditAsync is not null)
+            {
+                var applied = await PersistEditAsync("adjustments", _currentEntry.FilePath, _openedIdentity, async copy =>
+                {
+                    (width, height) = await renderer(copy, parameters);
+                    await ImageEditService.ClearPendingEditParametersAsync(copy);
+                });
+                if (!applied) return false;
+            }
+            else
+                (width, height) = await _editService.ApplyEditsAsync(
+                    _currentEntry.FilePath, parameters, renderer);
 
             RestoreParameters(new EditParameters());
             ClearHistory();
             HasBackup = true;
-            EditsApplied?.Invoke(this, new EditsAppliedEventArgs(_currentEntry.FilePath, width, height));
+            _openedIdentity = await FileEditTransaction.ReadIdentityAsync(_currentEntry.FilePath);
+            if (PersistEditAsync is null)
+                EditsApplied?.Invoke(this, new EditsAppliedEventArgs(_currentEntry.FilePath, width, height));
             return true;
         }
         finally
@@ -380,7 +392,7 @@ public partial class ImageEditorViewModel : ObservableObject
         EndEdit();
     }
 
-    public async Task KeepRawPreviewRecipeAsync()
+    public async Task<bool> KeepRawPreviewRecipeAsync()
     {
         if (!IsRawPreview || _currentEntry is null)
             throw new InvalidOperationException("No RAW preview is open.");
@@ -390,9 +402,19 @@ public partial class ImageEditorViewModel : ObservableObject
         IsSaving = true;
         try
         {
-            await ImageEditService.SaveRawPreviewRecipeAsync(_currentEntry.FilePath, parameters);
+            if (PersistEditAsync is not null)
+            {
+                var applied = await PersistEditAsync("RAW preview recipe", _currentEntry.FilePath, _openedIdentity,
+                    copy => ImageEditService.SaveRawPreviewRecipeAsync(copy, parameters));
+                if (!applied) return false;
+                ClearHistory();
+            }
+            else
+                await ImageEditService.SaveRawPreviewRecipeAsync(_currentEntry.FilePath, parameters);
             _baseline = parameters.Clone();
+            _openedIdentity = await FileEditTransaction.ReadIdentityAsync(_currentEntry.FilePath);
             HasChanges = false;
+            return true;
         }
         finally { IsSaving = false; }
     }
@@ -452,11 +474,27 @@ public partial class ImageEditorViewModel : ObservableObject
         try
         {
             var hash = _backupHash ?? await OriginalBackupService.ComputeFileHashAsync(_currentEntry.FilePath);
-            if (await _backupService.RestoreOriginalAsync(_currentEntry.FilePath, hash))
+            var missingBackup = false;
+            var restored = PersistEditAsync is not null
+                ? await PersistEditAsync("restore original", _currentEntry.FilePath, _openedIdentity, async copy =>
+                {
+                    missingBackup = !await _backupService.RestoreOriginalAsync(copy, hash);
+                    if (!missingBackup)
+                        await ImageEditService.ClearPendingEditParametersAsync(copy);
+                })
+                : await _backupService.RestoreOriginalAsync(_currentEntry.FilePath, hash);
+            if (missingBackup)
+            {
+                HasBackup = false;
+                OperationFailed?.Invoke(this, "The original backup is no longer available. Pending edits were kept.");
+                return;
+            }
+            if (restored)
             {
                 RestoreParameters(new EditParameters());
                 ClearHistory();
-                Reverted?.Invoke(this, _currentEntry.FilePath);
+                _openedIdentity = await FileEditTransaction.ReadIdentityAsync(_currentEntry.FilePath);
+                if (PersistEditAsync is null) Reverted?.Invoke(this, _currentEntry.FilePath);
             }
         }
         finally

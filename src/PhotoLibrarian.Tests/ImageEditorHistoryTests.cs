@@ -29,6 +29,36 @@ public sealed class ImageEditorHistoryTests : IDisposable
     }
 
     [Fact]
+    public async Task MissingBackupDuringPersistedRevertKeepsPendingEdits()
+    {
+        var vm = await OpenAsync();
+        vm.Exposure = 0.4;
+        await vm.SaveAsync(async (path, _) =>
+        {
+            await File.WriteAllBytesAsync(path, [9, 8, 7]);
+            return (10, 10);
+        });
+        _backups.ClearAllBackups();
+        vm.Exposure = 0.6;
+        string? failure = null;
+        vm.OperationFailed += (_, message) => failure = message;
+        vm.PersistEditAsync = async (_, path, _, prepare) =>
+        {
+            await prepare(path);
+            return true;
+        };
+
+        await vm.RevertToOriginalCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasChanges);
+        Assert.Single(vm.UndoHistory);
+        Assert.Equal(0.6, vm.Exposure);
+        Assert.False(vm.HasBackup);
+        Assert.Contains("backup is no longer available", failure);
+        Assert.Equal(new byte[] { 9, 8, 7 }, File.ReadAllBytes(_entry.FilePath));
+    }
+
+    [Fact]
     public async Task IndividualEdits_UndoAndRedoInOrder_AndTrackDirtyState()
     {
         var vm = await OpenAsync();
