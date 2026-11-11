@@ -57,13 +57,29 @@ the fill, including any unpainted part of the blemish.
 The mask is the union of circular brush dabs connected by capsules, including
 between sparse pointer events. A deterministic exemplar fill advances inward
 from the boundary, prioritizing patches with known context and strong edges.
-It matches 7 x 7 color patches against fully unpainted, opaque sources within
-four brush radii plus three pixels of each target. Matching subtracts the mean
-color difference, allowing the same structure under gradually changing lighting.
-Copied pixels are shifted by that mean difference. Newly filled pixels can guide
-later matching, but **never become source exemplars**; the entire original mask
-is excluded, regardless of how much has been filled. No color in the unwanted
-interior is read as source content.
+It copies 7 x 7 color patches from fully unpainted, opaque sources within four
+brush radii plus three pixels of each target. Matching examines known pixels in
+a wider 13 x 13 context; real unpainted observations receive ten times the
+weight of previously synthesized pixels. Mean color correction still allows
+gradual lighting changes, but a squared penalty on the correction prevents a
+different-colored object from becoming an equally good match merely by shifting
+its colors. A small continuous distance penalty prefers nearer sources when
+matches are otherwise similar, rather than treating tiny noise differences as
+evidence for a distant donor.
+
+The score also inspects the **whole patch being copied**, including pixels whose
+target is not yet known. Horizontal/vertical donor gradients exceeding those
+supported by the known context are penalized (with four channel levels of
+tolerance). This discourages importing a nearby logo or another light hidden
+just beyond a good-looking overlap, while retaining supported texture and
+structural edges. It is a preference, not semantic object recognition or an
+absolute guarantee against duplicate detail.
+
+Copied pixels are shifted by the weighted mean color difference. Newly filled
+pixels can guide later matching, but **never become source exemplars**; the
+entire original mask is excluded, regardless of how much has been filled. All
+sampled donor context must also be opaque and outside that mask. No color in
+the unwanted interior is read as source content.
 
 Thin images or heavily painted surroundings use smaller source patches, down
 to individual available pixels. If a target is deep inside a wide mask, matching
@@ -139,10 +155,24 @@ interiors and sparse/dense representations of the same mask must produce
 identical results. Narrow images, a broad mask with only one unpainted source
 row, and transparency outside the boundary exercise clipped/adaptive patches,
 donor propagation and source exclusion.
+Noisy panel/blue-band fixtures with nearby green markings or red lights test
+that unrelated objects are not copied into a removed light/lettering: the
+painted region must stay within 10 RMS channel levels and 45 maximum channel
+levels of the unobstructed reference, with exact preservation outside the mask.
+Two seeds for each fixture failed the original mean-normalized matcher
+(22-64 RMS levels) and pass the revised donor scoring. Additional periodic-noise
+fixtures deliberately offer matching overlaps with red lights hidden in the
+uncopied part of a donor; painted pixels must remain within 30 channel levels.
 The four structure fixtures were also run against the original harmonic-only
 fill: all failed the 12-level threshold, with approximately 39 RMS levels on the
 three edges and 78 on the checker texture. These are generated, repeatable
 regressions, not a representative photographic-quality benchmark.
+The reviewer's supplied train crop was also processed locally at three
+approximate source-pixel scales, covering the number and separately an unlit
+lamp. The revised outputs were inspected for copied logos/lights. The original
+full-resolution photo and exact gesture were not available, so this is not an
+exact replay of the reported edits; small boundary seams/shading differences
+remain possible.
 Other tests cover image-edge filling, typed
 transparency/no-source outcomes, long strokes, recipes, cancellation, history, RAW/format gating, rotated and
 EXIF-oriented preview/save equality before encoding, lossless PNG reopen and
