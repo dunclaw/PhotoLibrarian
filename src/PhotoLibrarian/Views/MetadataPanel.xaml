@@ -116,6 +116,12 @@
                              AutomationProperties.Name="Latitude and longitude"
                              TextChanged="OnGeotagCoordinatesTextChanged"
                              LostFocus="OnGeotagCoordinatesLostFocus" />
+                    <HyperlinkButton x:Name="GeotagMapLink"
+                                     x:Uid="GeotagMapLink"
+                                     AutomationProperties.AutomationId="GeotagMapLink"
+                                     HorizontalAlignment="Left"
+                                     Visibility="Collapsed"
+                                     Click="OnMapCoordinatesClick" />
 
                     <TextBlock Text="Caption" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBox x:Name="CaptionBox"

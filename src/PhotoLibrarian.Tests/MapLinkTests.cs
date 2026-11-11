@@ -1,6 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 
 using System.Globalization;
+using System.Xml.Linq;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
@@ -12,6 +13,20 @@ public sealed class MapLinkTests : IDisposable
 {
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(), $"PhotoLibrarian-Map-{Guid.NewGuid():N}");
+
+    [Fact]
+    public void OpenMapLinkIsDirectlyAfterTheGeotagEditor()
+    {
+        var document = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MetadataPanel.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var editor = document.Descendants().Single(element => (string?)element.Attribute(xaml + "Name") == "GeotagCoordinatesBox");
+        var link = editor.ElementsAfterSelf().First();
+
+        Assert.Equal("HyperlinkButton", link.Name.LocalName);
+        Assert.Equal("GeotagMapLink", (string?)link.Attribute(xaml + "Name"));
+        Assert.Equal("GeotagMapLink", (string?)link.Attribute(xaml + "Uid"));
+        Assert.Equal("OnMapCoordinatesClick", (string?)link.Attribute("Click"));
+    }
 
     [Theory]
     [InlineData(MapProvider.Google, "https://www.google.com/maps/search/?api=1&query=47.123456789,-122.25")]

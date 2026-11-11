@@ -292,6 +292,7 @@ public sealed partial class MetadataPanel : UserControl
             MapLinkService.TryCreateUri(App.ViewModel.Settings.MapProvider, latitude, longitude, out _);
         InfoLatitudeLink.Content = ViewModel?.GpsLatitude;
         InfoLongitudeLink.Content = ViewModel?.GpsLongitude;
+        GeotagMapLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
         InfoLatitudeLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
         InfoLongitudeLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
         InfoLatitude.Visibility = canOpen ? Visibility.Collapsed : Visibility.Visible;

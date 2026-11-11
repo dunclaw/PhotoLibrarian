@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="GeotagMapLink.Content" xml:space="preserve"><value>Open map</value></data>
+  <data name="GeotagMapLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open geotag coordinates on a map</value></data>
   <data name="MapProviderCombo.Header" xml:space="preserve"><value>Map provider</value></data>
   <data name="MapProviderCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Map provider</value></data>
   <data name="MapProviderPrivacy.Text" xml:space="preserve"><value>Opening coordinates sends them to the selected map provider in your browser.</value></data>
