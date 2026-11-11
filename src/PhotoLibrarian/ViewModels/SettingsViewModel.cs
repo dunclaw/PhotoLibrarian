@@ -18,6 +18,8 @@ public partial class SettingsViewModel : ObservableObject
     private readonly AutoTagModelManager _autoTagModelManager;
     private readonly AutoTagBenchmarkProcessor _benchmarkProcessor;
     private readonly LibraryIndexMaintenanceService _indexMaintenanceService;
+    private readonly MapSettingsStore _mapSettingsStore = new();
+    private MapProvider _mapProvider;
     private Dictionary<string, AutoTagQualityStatus> _qualityStatuses = [];
     private bool _isInitializing;
     private CancellationTokenSource? _modelDownloadCancellation;
@@ -143,6 +145,21 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<string> BenchmarkExamples { get; } = [];
 
+    public MapProvider MapProvider
+    {
+        get => _mapProvider;
+        private set => SetProperty(ref _mapProvider, value);
+    }
+
+    public void SetMapProvider(MapProvider provider)
+    {
+        if (provider == MapProvider)
+            return;
+
+        _mapSettingsStore.Save(provider);
+        MapProvider = provider;
+    }
+
     public event EventHandler<AutoTaggingSettingsChangedEventArgs>?
         AutoTaggingSettingsChanged;
 
@@ -158,6 +175,7 @@ public partial class SettingsViewModel : ObservableObject
         _autoTagModelManager = autoTagModelManager;
         _benchmarkProcessor = benchmarkProcessor;
         _indexMaintenanceService = indexMaintenanceService;
+        MapProvider = _mapSettingsStore.Load();
 
         _isInitializing = true;
         var settings = _autoTaggingSettingsStore.Load();

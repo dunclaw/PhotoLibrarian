@@ -274,6 +274,7 @@ public sealed partial class MetadataPanel : UserControl
         InfoCameraRow.Visibility = string.IsNullOrEmpty(ViewModel.Camera) ? Visibility.Collapsed : Visibility.Visible;
         InfoLatitude.Text = ViewModel.GpsLatitude;
         InfoLongitude.Text = ViewModel.GpsLongitude;
+        UpdateMapLinks();
         InfoPlaceName.Text = ViewModel.PlaceName;
         InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
         InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
@@ -282,6 +283,39 @@ public sealed partial class MetadataPanel : UserControl
             : Visibility.Visible;
         VideoMetadataErrorBar.Message = ViewModel.VideoMetadataError;
         VideoMetadataErrorBar.IsOpen = !string.IsNullOrEmpty(ViewModel.VideoMetadataError);
+    }
+
+    private void UpdateMapLinks()
+    {
+        var canOpen = ViewModel is not null &&
+            ViewModel.TryGetMapCoordinates(out var latitude, out var longitude) &&
+            MapLinkService.TryCreateUri(App.ViewModel.Settings.MapProvider, latitude, longitude, out _);
+        InfoLatitudeLink.Content = ViewModel?.GpsLatitude;
+        InfoLongitudeLink.Content = ViewModel?.GpsLongitude;
+        InfoLatitudeLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
+        InfoLongitudeLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
+        InfoLatitude.Visibility = canOpen ? Visibility.Collapsed : Visibility.Visible;
+        InfoLongitude.Visibility = canOpen ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private async void OnMapCoordinatesClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { HasImage: true } viewModel ||
+            !viewModel.TryGetMapCoordinates(out var latitude, out var longitude) ||
+            !MapLinkService.TryCreateUri(App.ViewModel.Settings.MapProvider, latitude, longitude, out var uri))
+            return;
+
+        try
+        {
+            if (!await Windows.System.Launcher.LaunchUriAsync(uri!))
+                App.ViewModel.StatusText = MapStrings.Get("MapLaunchFailed");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException or
+                                   System.Runtime.InteropServices.COMException)
+        {
+            PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"[MAP] Could not open map: {ex.Message}");
+            App.ViewModel.StatusText = MapStrings.Format("MapLaunchError", ex.Message);
+        }
     }
 
     private void OnCopyFileNameClick(object sender, RoutedEventArgs e) =>

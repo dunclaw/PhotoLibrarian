@@ -92,6 +92,8 @@ public partial class MetadataPanelViewModel : ObservableObject
     private MainViewModel? _main;
     private GeotagMetadataWriterService? _geotagWriter;
     private CancellationTokenSource? _videoMetadataCancellation;
+    private double? _videoLatitude;
+    private double? _videoLongitude;
     private Task _videoMetadataReads = Task.CompletedTask;
     private CancellationTokenSource? _placeNameReadCancellation;
     private Task _placeNameReads = Task.CompletedTask;
@@ -235,6 +237,27 @@ public partial class MetadataPanelViewModel : ObservableObject
     public partial string VideoMetadataError { get; set; } = "";
 
     private const string MixedMarker = "Multiple values";
+
+    internal bool TryGetMapCoordinates(out double? latitude, out double? longitude)
+    {
+        latitude = null;
+        longitude = null;
+        if (_entries.Count == 0)
+            return false;
+
+        var coordinates = _entries.Select(entry => (entry.GpsLatitude, entry.GpsLongitude))
+            .Distinct().ToList();
+        if (coordinates.Count != 1)
+            return false;
+
+        (latitude, longitude) = coordinates[0];
+        if (_entries.Count == 1 && _entries[0].MediaType == Core.Models.MediaType.Video)
+        {
+            latitude ??= _videoLatitude;
+            longitude ??= _videoLongitude;
+        }
+        return latitude.HasValue && longitude.HasValue;
+    }
 
     public string GpsCoordinates
     {
@@ -566,6 +589,8 @@ public partial class MetadataPanelViewModel : ObservableObject
             }
             if (string.IsNullOrWhiteSpace(Camera))
                 Camera = FormatCamera(metadata.CameraMake, metadata.CameraModel);
+            _videoLatitude = metadata.Latitude;
+            _videoLongitude = metadata.Longitude;
             if (!entry.GpsLatitude.HasValue && metadata.Latitude.HasValue)
                 GpsLatitude = metadata.Latitude.Value.ToString("F6", CultureInfo.CurrentCulture);
             if (!entry.GpsLongitude.HasValue && metadata.Longitude.HasValue)
@@ -615,6 +640,8 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     private void ResetVideoMetadata()
     {
+        _videoLatitude = null;
+        _videoLongitude = null;
         VideoTitle = "";
         VideoDuration = "";
         VideoBitrate = "";

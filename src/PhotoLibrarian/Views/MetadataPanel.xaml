@@ -484,11 +484,21 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Latitude:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoLatitude" Style="{StaticResource InfoValueStyle}" />
+                            <HyperlinkButton Grid.Column="1" x:Name="InfoLatitudeLink"
+                                             x:Uid="MapLatitudeLink"
+                                             AutomationProperties.AutomationId="MapLatitudeLink"
+                                             Padding="0" FontSize="13" Visibility="Collapsed"
+                                             Click="OnMapCoordinatesClick" />
                         </Grid>
                         <Grid x:Name="InfoLonRow">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Longitude:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoLongitude" Style="{StaticResource InfoValueStyle}" />
+                            <HyperlinkButton Grid.Column="1" x:Name="InfoLongitudeLink"
+                                             x:Uid="MapLongitudeLink"
+                                             AutomationProperties.AutomationId="MapLongitudeLink"
+                                             Padding="0" FontSize="13" Visibility="Collapsed"
+                                             Click="OnMapCoordinatesClick" />
                         </Grid>
                         <Grid x:Name="InfoPlaceNameRow">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
