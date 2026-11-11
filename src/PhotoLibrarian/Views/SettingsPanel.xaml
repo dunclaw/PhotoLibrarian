@@ -24,6 +24,17 @@
                       VerticalScrollBarVisibility="Auto">
             <StackPanel Padding="24,0,24,16"
                         Spacing="16">
+                <ComboBox x:Name="MapProviderCombo"
+                          x:Uid="MapProviderCombo"
+                          AutomationProperties.AutomationId="MapProviderCombo"
+                          HorizontalAlignment="Stretch"
+                          SelectionChanged="OnMapProviderChanged">
+                    <ComboBoxItem Content="Google Maps" />
+                    <ComboBoxItem Content="Bing Maps" />
+                </ComboBox>
+                <TextBlock x:Uid="MapProviderPrivacy"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
                 <Button x:Uid="MigrationPreviewButton"
                         AutomationProperties.AutomationId="MigrationPreviewButton"
                         Click="OnPreviewSidecarMigration" />

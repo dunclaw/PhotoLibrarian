@@ -53,6 +53,23 @@ public sealed partial class SettingsPanel : UserControl
         System.ComponentModel.PropertyChangedEventArgs e) =>
         DispatcherQueue.TryEnqueue(UpdateDisplay);
 
+    private void OnMapProviderChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingDisplay || ViewModel is null || MapProviderCombo.SelectedIndex is < 0 or > 1)
+            return;
+
+        try
+        {
+            ViewModel.SetMapProvider((MapProvider)MapProviderCombo.SelectedIndex);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"[MAP] Could not save preferences: {ex.Message}");
+            App.ViewModel.StatusText = MapStrings.Format("MapProviderSaveFailed", ex.Message);
+            UpdateDisplay();
+        }
+    }
+
     private void UpdateDisplay()
     {
         if (ViewModel is null)
@@ -64,6 +81,7 @@ public sealed partial class SettingsPanel : UserControl
         try
         {
             var profile = ViewModel.SelectedProfile;
+            MapProviderCombo.SelectedIndex = (int)ViewModel.MapProvider;
             var isProfileEditable =
                 !ViewModel.IsBenchmarkRunning &&
                 !ViewModel.IsModelImportRunning &&
