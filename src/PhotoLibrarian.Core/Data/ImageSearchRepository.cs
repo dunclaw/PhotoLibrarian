@@ -1,6 +1,6 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Models;
-using System.Text.RegularExpressions;
 
 namespace PhotoLibrarian.Core.Data;
 
@@ -109,22 +109,32 @@ public sealed class ImageSearchRepository(CacheDatabase database)
         ArgumentNullException.ThrowIfNull(text);
         if (limit is <= 0) throw new ArgumentOutOfRangeException(nameof(limit));
 
-        // Treat input as literal word prefixes, never as FTS operators or column expressions.
-        var terms = Regex.Matches(text, @"[\p{L}\p{N}\p{M}]+")
-            .Select(match => $"\"{match.Value}\"*");
-        var query = string.Join(" AND ", terms);
-        if (query.Length == 0) return [];
+        var query = ImageSearchQueryParser.Parse(text);
+        if (!query.IsValid ||
+            (query.FullTextQuery.Length == 0 && query.FieldClauses.Count == 0))
+            return [];
 
         using var connection = database.CreateConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT i.* FROM image_search
-            JOIN images i ON i.id = image_search.rowid
-            WHERE image_search MATCH $query
-            ORDER BY rank, i.file_name, i.id
+        var predicates = new List<string>();
+        var joinsSearchIndex = query.FullTextQuery.Length > 0;
+        if (joinsSearchIndex)
+        {
+            predicates.Add("image_search MATCH $query");
+            command.Parameters.AddWithValue("$query", query.FullTextQuery);
+        }
+
+        var parameterIndex = 0;
+        foreach (var clause in query.FieldClauses)
+            AddFieldPredicate(command, predicates, clause, ref parameterIndex);
+
+        command.CommandText = $"""
+            SELECT i.* FROM images i
+            {(joinsSearchIndex ? "JOIN image_search ON image_search.rowid = i.id" : string.Empty)}
+            WHERE {string.Join(" AND ", predicates)}
+            {(joinsSearchIndex ? "ORDER BY rank, i.file_name, i.id" : "ORDER BY i.date_taken DESC, i.file_name, i.id")}
             LIMIT $limit
             """;
-        command.Parameters.AddWithValue("$query", query);
         command.Parameters.AddWithValue("$limit", limit ?? -1);
         var results = new List<ImageEntry>();
         using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -132,4 +142,66 @@ public sealed class ImageSearchRepository(CacheDatabase database)
             results.Add(ImageRepository.ReadImageEntry(reader));
         return results;
     }
+
+    public static string? GetQuerySyntaxError(string text) =>
+        ImageSearchQueryParser.GetSyntaxError(text);
+
+    private static void AddFieldPredicate(
+        SqliteCommand command,
+        List<string> predicates,
+        ImageSearchFieldClause clause,
+        ref int parameterIndex)
+    {
+        switch (clause.Field)
+        {
+            case ImageSearchField.Rating:
+            case ImageSearchField.Iso:
+                var column = clause.Field == ImageSearchField.Rating ? "i.rating" : "i.iso";
+                var numberParameter = $"$field{parameterIndex++}";
+                predicates.Add($"{column} {ToSqlOperator(clause.Comparison)} {numberParameter}");
+                command.Parameters.AddWithValue(numberParameter, clause.Number);
+                break;
+
+            case ImageSearchField.Flag:
+                predicates.Add($"i.is_flagged = $field{parameterIndex}");
+                command.Parameters.AddWithValue($"$field{parameterIndex++}", clause.FlagValue ? 1 : 0);
+                break;
+
+            case ImageSearchField.Date:
+                var startParameter = $"$field{parameterIndex++}";
+                var endParameter = $"$field{parameterIndex++}";
+                command.Parameters.AddWithValue(startParameter, clause.DateStart.ToString("yyyy-MM-dd"));
+                command.Parameters.AddWithValue(endParameter, clause.DateEnd.ToString("yyyy-MM-dd"));
+                switch (clause.Comparison)
+                {
+                    case SearchComparison.GreaterThan:
+                        predicates.Add($"date(i.date_taken) >= {endParameter}");
+                        break;
+                    case SearchComparison.GreaterThanOrEqual:
+                        predicates.Add($"date(i.date_taken) >= {startParameter}");
+                        break;
+                    case SearchComparison.LessThan:
+                        predicates.Add($"date(i.date_taken) < {startParameter}");
+                        break;
+                    case SearchComparison.LessThanOrEqual:
+                        predicates.Add($"date(i.date_taken) < {endParameter}");
+                        break;
+                    default:
+                        predicates.Add($"date(i.date_taken) >= {startParameter} AND date(i.date_taken) < {endParameter}");
+                        break;
+                }
+                break;
+
+        }
+    }
+
+    private static string ToSqlOperator(SearchComparison comparison) =>
+        comparison switch
+        {
+            SearchComparison.GreaterThan => ">",
+            SearchComparison.GreaterThanOrEqual => ">=",
+            SearchComparison.LessThan => "<",
+            SearchComparison.LessThanOrEqual => "<=",
+            _ => "="
+        };
 }
