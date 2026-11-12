@@ -90,6 +90,35 @@
                         <TextBlock Text="Straighten" Style="{StaticResource RibbonCaptionStyle}" />
                     </StackPanel>
                 </Button>
+                <Grid x:Name="QuickEditTools" ColumnSpacing="4" RowSpacing="4" Margin="4,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Uid="ViewerQuickRotateLeft" Tag="RotateLeft" Click="OnQuickEditClick"
+                            AutomationProperties.AutomationId="ViewerQuickRotateLeft" Padding="8,4">
+                        <FontIcon Glyph="&#xE7AD;" FontSize="16">
+                            <FontIcon.RenderTransform>
+                                <ScaleTransform ScaleX="-1" />
+                            </FontIcon.RenderTransform>
+                            <FontIcon.RenderTransformOrigin>0.5,0.5</FontIcon.RenderTransformOrigin>
+                        </FontIcon>
+                    </Button>
+                    <Button x:Uid="ViewerQuickRotateRight" Grid.Row="1" Tag="RotateRight" Click="OnQuickEditClick"
+                            AutomationProperties.AutomationId="ViewerQuickRotateRight" Padding="8,4">
+                        <FontIcon Glyph="&#xE7AD;" FontSize="16" />
+                    </Button>
+                    <Button x:Uid="ViewerQuickAutoBrightness" Grid.Column="1" Tag="AutoBrightness" Click="OnQuickEditClick"
+                            AutomationProperties.AutomationId="ViewerQuickAutoBrightness"
+                            HorizontalAlignment="Stretch" Padding="8,4" />
+                    <Button x:Uid="ViewerQuickAutoColor" Grid.Row="1" Grid.Column="1" Tag="AutoColor" Click="OnQuickEditClick"
+                            AutomationProperties.AutomationId="ViewerQuickAutoColor"
+                            HorizontalAlignment="Stretch" Padding="8,4" />
+                </Grid>
                 <Button x:Name="AdjustButton" Click="OnAdjustClick"
                         Style="{StaticResource RibbonCommandStyle}"
                         AutomationProperties.AutomationId="RibbonAdjust"

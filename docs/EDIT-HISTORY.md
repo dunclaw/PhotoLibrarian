@@ -10,7 +10,8 @@ keyboard behavior; typing is not a photo edit.
 
 One chronological history follows these operations across photos and navigation:
 
-- Viewer effect selections, including None.
+- Viewer effect selections, including None, and quick Auto brightness,
+  Auto color and Rotate left/right recipes.
 - Saved raster adjustments and spot-retouch strokes, Revert to original, and
   RAW **Keep recipe**.
 - In-place rotation, crop, straighten, and red-eye removal.
@@ -95,11 +96,16 @@ guards, refresh compensation, RAW immutability, and sidecar companion ownership.
 `UnifiedEditPersistenceTests` runs real library/cache/portable-metadata edits,
 navigation, pixel cropping, and stale-editor rejection. Editor navigation,
 gesture-history, effect, metadata, and shortcut suites cover the integration.
+`ViewerQuickEditTests` covers automatic tone/color behavior, recipe preservation,
+quarter-turn composition, cross-photo history, no-op redo preservation, and
+unreadable-sidecar safety.
 
 The isolated `PhotoLibrarian.AccessibilityTests --edit-history` suite uses the
 real toolbar and shortcut classifier with synthetic history only. It checks
 accessible labels, browsing/editor visibility, toolbar invocation, busy state,
-both redo shortcuts, and native TextBox undo without opening a personal library.
+both redo shortcuts, native TextBox undo, and quick edit invocation, accessible
+labels, disabled states and ribbon layout at 1280 DIPs without opening a
+personal library.
 
 Run it with `.\tools\Test-PhotoGridAccessibility.ps1 -EditHistory`; add
 `-SkipBuild` after building the host, or `-Preview` to leave the synthetic window

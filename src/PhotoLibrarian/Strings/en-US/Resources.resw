@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="ViewerQuickRotateLeftLabel" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="ViewerQuickRotateRightLabel" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="ViewerQuickAutoBrightnessLabel" xml:space="preserve"><value>Auto brightness</value></data>
+  <data name="ViewerQuickAutoColorLabel" xml:space="preserve"><value>Auto color</value></data>
+  <data name="ViewerQuickRotateLeft.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="ViewerQuickRotateRight.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="ViewerQuickAutoBrightness.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Auto brightness</value></data>
+  <data name="ViewerQuickAutoColor.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Auto color</value></data>
+  <data name="ViewerQuickAutoBrightness.Content" xml:space="preserve"><value>Auto brightness</value></data>
+  <data name="ViewerQuickAutoColor.Content" xml:space="preserve"><value>Auto color</value></data>
+  <data name="ViewerQuickRotateLeft.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate this photo 90 degrees left. Undo is available.</value></data>
+  <data name="ViewerQuickRotateRight.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate this photo 90 degrees right. Undo is available.</value></data>
+  <data name="ViewerQuickAutoBrightness.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace tone settings with conservative automatic exposure and contrast. Undo is available.</value></data>
+  <data name="ViewerQuickAutoColor.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace color settings with conservative automatic white balance and saturation. Undo is available.</value></data>
   <data name="GeotagMapLink.Content" xml:space="preserve"><value>Open map</value></data>
   <data name="GeotagMapLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open geotag coordinates on a map</value></data>
   <data name="MapProviderCombo.Header" xml:space="preserve"><value>Map provider</value></data>

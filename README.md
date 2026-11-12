@@ -47,6 +47,29 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 ---
 
+### Full-photo quick edits
+
+Beside **Straighten**, the full-photo ribbon offers one-click **Auto brightness**,
+**Auto color**, and **Rotate left/right**. Brightness replaces brightness,
+exposure, contrast, highlights and shadows using the existing conservative
+auto-enhance analysis. Color replaces temperature, tint and saturation using
+near-neutral midtone pixels for a restrained white balance correction. Scenes
+without neutral candidates receive only the existing conservative saturation
+estimate; this is not scene-aware or RAW white balance.
+
+Automatic settings come from an EXIF-oriented source sample (up to 1024 pixels
+on its longest side), not from previously adjusted output. Repeated clicks do
+not accumulate corrections. Each action preserves the other adjustment group,
+detail settings, retouch strokes and effects. Rotation composes a 90-degree
+turn with any pending angle without resampling the original.
+
+These controls work on JPEG, PNG, TIFF and BMP stills, not RAW, videos or other
+unsupported formats. They stay in the viewer, save portable pending XMP recipes
+beside the unchanged photo, and refresh the viewer and grid. Keep the XMP with
+the photo when moving it. Each changed recipe is one shared Undo/Redo step;
+no-op auto actions preserve Redo. **Adjust** can fine-tune or bake the recipe
+later. The source and full-resolution render have no new image-size limit.
+
 ### Photo effects
 
 The full-photo view's top toolbar **Effects** button, immediately after **Adjust**,

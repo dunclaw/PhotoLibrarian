@@ -18,12 +18,14 @@ public sealed partial class TopRibbon : UserControl
     private bool _hasPhoto;
     private bool _editorActive;
     private bool _isVideo;
+    private bool _quickEditsAvailable;
     private Button? _historyFocus;
     public event EventHandler? CropClicked;
     public event EventHandler? MakeCopyClicked;
     public event EventHandler? StraightenClicked;
     public event EventHandler? AdjustClicked;
     public event EventHandler? EffectsClicked;
+    internal event EventHandler<ViewerQuickEdit>? QuickEditClicked;
     public event EventHandler? UndoClicked;
     public event EventHandler? RedoClicked;
     public FrameworkElement EffectsAnchor => EffectsButton;
@@ -113,6 +115,7 @@ public sealed partial class TopRibbon : UserControl
         StraightenButton.IsEnabled = !active;
         AdjustButton.IsEnabled = !active;
         EffectsButton.IsEnabled = !active;
+        SetQuickEditAvailability(_quickEditsAvailable);
         RetouchButton.IsEnabled = !active;
         SetHistoryAvailability(_canUndo, _canRedo);
         RedEyeButton.IsEnabled = !active;
@@ -123,6 +126,13 @@ public sealed partial class TopRibbon : UserControl
     }
 
     public void PhotoFuseButtonEnabled(bool enabled) => PhotoFuseButton.IsEnabled = enabled;
+
+    public void SetQuickEditAvailability(bool available)
+    {
+        _quickEditsAvailable = available;
+        foreach (var button in QuickEditTools.Children.OfType<Button>())
+            button.IsEnabled = available && !_photoFuseActive;
+    }
 
     /// <summary>Switch the ribbon into crop sub-mode (replaces standard viewer tools with Apply/Cancel/Aspect).</summary>
     public void EnterCropMode()
@@ -193,6 +203,11 @@ public sealed partial class TopRibbon : UserControl
         StraightenClicked?.Invoke(this, EventArgs.Empty);
     private void OnAdjustClick(object sender, RoutedEventArgs e) => AdjustClicked?.Invoke(this, EventArgs.Empty);
     private void OnEffectsClick(object sender, RoutedEventArgs e) => EffectsClicked?.Invoke(this, EventArgs.Empty);
+    private void OnQuickEditClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string tag } && Enum.TryParse<ViewerQuickEdit>(tag, out var action))
+            QuickEditClicked?.Invoke(this, action);
+    }
     private void OnUndoClick(object sender, RoutedEventArgs e) => UndoClicked?.Invoke(this, EventArgs.Empty);
     private void OnRedoClick(object sender, RoutedEventArgs e) => RedoClicked?.Invoke(this, EventArgs.Empty);
     private void OnRetouchClick(object sender, RoutedEventArgs e) => RetouchClicked?.Invoke(this, EventArgs.Empty);
