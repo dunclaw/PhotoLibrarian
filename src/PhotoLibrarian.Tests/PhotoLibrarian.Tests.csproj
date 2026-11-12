@@ -24,6 +24,19 @@
     <ProjectReference Include="..\..\tools\PhotoLibrarian.ModelBench\PhotoLibrarian.ModelBench.csproj" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <TileCodecProbeDirectory>$(MSBuildProjectDirectory)\obj\TileCodecProbe\$(Platform)\$(Configuration)</TileCodecProbeDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(TileCodecProbeDirectory)\PhotoLibrarian.TileCodecProbe.dll"
+             Link="PhotoLibrarian.TileCodecProbe.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(TileCodecProbeDirectory)\PhotoLibrarian.CodecMemoryProbe.exe"
+             Link="PhotoLibrarian.CodecMemoryProbe.exe" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="BuildTileCodecProbe" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-TileCodecProbe.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(TileCodecProbeDirectory)&quot;" />
+  </Target>
+
   <ItemGroup>
     <None Include="..\PhotoLibrarian\MainWindow.xaml"
           Link="TestAssets\MainWindow.xaml"
