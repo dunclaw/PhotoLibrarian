@@ -13,6 +13,8 @@ the prototype reads source tiles, uploads/draws/readbacks two bounded Win2D
 textures at a time, writes a row-addressable disk surface, then encodes from
 small complete-row bands with native WIC `WritePixels`. Output is not returned
 as a managed full-frame buffer. There is no input megapixel/dimension gate.
+Individual file formats and WIC codecs still have real representational limits;
+the prototype reports their failures rather than imposing an application cap.
 
 **Conditional go for this architecture, not a universal codec-memory guarantee.**
 Sequential staging to disk is the appropriate compressed-input boundary.
@@ -77,10 +79,24 @@ these measurements.
 
 ### Application-owned resources
 
-The actual GPU reported a maximum bitmap dimension of 16,384. A generated
+The initial hardware device reported a maximum bitmap dimension of 16,384. A generated
 16,401 x 131 source rendered through **258** 128-pixel tiles, persisted to disk,
 encoded to PNG, then reopened at the same dimensions and sampled against the
 source. It never created a 16,401-pixel-wide GPU bitmap.
+
+The regression now explicitly exercises both default and forced-software
+devices. Software Win2D reports a much larger maximum bitmap dimension:
+**8,388,608** locally. That is not interchangeable with a hardware texture limit.
+The original boundary test failed in CI because its generated 8,388,625-pixel
+width was rejected by WIC PNG at encoder setup (`0x88982F51`), not because the
+tiled renderer failed. The boundary fixture remains wider than the actual
+device maximum, uses 17 rows to isolate width without excessive scratch I/O,
+and encodes TIFF on both devices, without catching or bypassing codec errors.
+Locally, **16,401 x 17** and **8,388,625 x 17** completed **129** and **65,537**
+tiles respectively, with every rendered tile verified, TIFF output reopened,
+dimensions checked and samples compared. Existing full-resolution PNG cases
+remain separate and unchanged. No device maximum or codec limit is treated as
+an application-wide supported-photo-size limit.
 
 Generated 8,256 x 5,504 (~45 MP) and 12,288 x 8,192 (~101 MP) sources completed
 187 and 384 tiles respectively, were written to scratch, incrementally encoded
@@ -102,7 +118,9 @@ pipeline memory and does not allocate a full-resolution reference image.
 
 Sequential decode/encode uses a managed band of approximately 256 KiB, or one
 complete row if that row is larger. This is a work budget, not an image-width
-limit. Native encoding also has the WIC band bitmap and converted band. Scratch
+limit: the software-width fixture requires a 33,554,500-byte managed row
+(approximately 32 MiB), even though its GPU buffers remain 128 KiB total.
+Native encoding also has the WIC band bitmap and converted band. Scratch
 storage is four bytes per pixel per surface and scales with image area;
 available disk space is a real resource requirement, not an arbitrary size
 gate. P1 does not implement a production scratch-quota/recovery manager.
@@ -179,8 +197,12 @@ its Auto brightness/Auto color and Rotate left/right still update portable
 pending recipes and use shared history. They are **not** pixel-baking commands,
 and must remain distinct from future local-recipe baking guards.
 
-The final combined x64 run passed **26 tests**. Existing repository build
-warnings remain; the feasibility code introduced no new build warnings.
+After the software-device regression fix, the complete x64 Release suite passed
+**1,313 tests**, with zero failures/errors/skips and 10 existing explicit tests
+not run (1,323 total discovered cases). This includes both default and
+forced-software boundary cases, the existing full-resolution PNG cases and
+quick-edit coverage. Existing repository build warnings remain; the feasibility
+code introduced no new build warnings.
 
 The native probe also cross-builds for ARM64 with:
 

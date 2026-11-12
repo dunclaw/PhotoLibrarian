@@ -12,26 +12,33 @@ public sealed class TileCodecFeasibilityTests : IDisposable
     public TileCodecFeasibilityTests() => Directory.CreateDirectory(_directory);
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
-    [Fact]
-    public void RendersBeyondDeviceTextureLimitAndEncodesWithoutManagedFullFrame()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RendersBeyondDeviceTextureLimitAndEncodesWithoutManagedFullFrame(bool forceSoftwareRenderer)
     {
-        using var device = new CanvasDevice();
+        using var device = new CanvasDevice(forceSoftwareRenderer);
         var width = checked(device.MaximumBitmapSizeInPixels + 17);
-        const int height = 131;
+        Console.WriteLine($"Software renderer requested: {forceSoftwareRenderer}; bitmap maximum: {device.MaximumBitmapSizeInPixels}; fixture width: {width}");
+        // Keep this dimension-boundary fixture thin even when software bitmap limits are very large.
+        const int height = 17;
         var source = new PatternSource(width, height);
         var scratchPath = Path.Combine(_directory, "render.bgra");
         using (var scratch = new BgraScratchSurface(scratchPath, width, height))
         {
-            var result = TileCodecFeasibility.CopyThroughGpu(source, scratch, device, 128, CancellationToken.None);
+            var result = TileCodecFeasibility.CopyThroughGpu(source, new VerifyingSink(source, scratch), device,
+                128, TestContext.Current.CancellationToken);
             Assert.Equal(TileJobStatus.Completed, result.Status);
-            Assert.True(result.Tiles > 2);
+            Assert.True(width > device.MaximumBitmapSizeInPixels);
+            Assert.Equal((width + 127L) / 128, result.Tiles);
             Assert.Equal(128L * 128 * 8, result.PeakManagedPixelBytes);
             Assert.True(result.PeakTexturePixelBytes <= 128L * 128 * 8);
             Assert.Equal((long)width * height * 4, scratch.Length);
             AssertSamples(scratch, source);
-            var output = Path.Combine(_directory, "wide.png");
+            // WIC PNG rejects the software device's >8-million-pixel width; TIFF can encode it.
+            var output = Path.Combine(_directory, "wide.tiff");
             Assert.Equal(TileJobStatus.Completed,
-                TileCodecFeasibility.Encode(scratch, output, ProbeImageFormat.Png, CancellationToken.None));
+                TileCodecFeasibility.Encode(scratch, output, ProbeImageFormat.Tiff, TestContext.Current.CancellationToken));
             using var reopened = new WicTileSource(output);
             Assert.Equal(width, reopened.Width);
             Assert.Equal(height, reopened.Height);
