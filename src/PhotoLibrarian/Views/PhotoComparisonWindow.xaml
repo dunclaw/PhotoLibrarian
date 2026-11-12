@@ -1,0 +1,34 @@
+<Window
+    x:Class="PhotoLibrarian.Views.PhotoComparisonWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" KeyDown="OnKeyDown">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <CommandBar DefaultLabelPosition="Right">
+            <AppBarButton x:Name="FitButton" x:Uid="ComparisonFit"
+                          AutomationProperties.AutomationId="ComparisonFit" Click="OnFit" Icon="FullScreen" />
+            <AppBarButton x:Uid="ComparisonActual"
+                          AutomationProperties.AutomationId="ComparisonActual" Click="OnActualSize" Icon="Zoom" />
+            <AppBarButton x:Uid="ComparisonZoomIn"
+                          AutomationProperties.AutomationId="ComparisonZoomIn" Click="OnZoomIn" Icon="ZoomIn" />
+            <AppBarButton x:Uid="ComparisonZoomOut"
+                          AutomationProperties.AutomationId="ComparisonZoomOut" Click="OnZoomOut" Icon="ZoomOut" />
+            <AppBarSeparator />
+            <AppBarButton x:Name="RestoreButton" x:Uid="ComparisonRestore"
+                          AutomationProperties.AutomationId="ComparisonRestore" Click="OnRestore" Icon="Undo" />
+            <AppBarButton x:Uid="ComparisonClose"
+                          AutomationProperties.AutomationId="ComparisonClose" Click="OnClose" Icon="Cancel" />
+        </CommandBar>
+        <StackPanel Grid.Row="1" Margin="12,4" Spacing="4">
+            <TextBlock x:Uid="ComparisonHelp" TextWrapping="Wrap" />
+            <TextBlock x:Name="CountText" Style="{StaticResource CaptionTextBlockStyle}"
+                       AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+        <Grid x:Name="PanesGrid" Grid.Row="2" Margin="12" ColumnSpacing="8" RowSpacing="8"
+              SizeChanged="OnPanesSizeChanged" />
+    </Grid>
+</Window>

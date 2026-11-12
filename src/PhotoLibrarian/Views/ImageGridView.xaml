@@ -41,6 +41,19 @@
                         Padding="8">
                     <FontIcon Glyph="&#xE8B5;" />
                 </Button>
+                <Button x:Uid="GridComparison" AutomationProperties.AutomationId="GridComparison" Padding="8">
+                    <SymbolIcon Symbol="TwoPage" />
+                    <Button.Flyout>
+                        <MenuFlyout Opening="OnComparisonMenuOpening">
+                            <MenuFlyoutItem x:Name="CompareMenuItem" x:Uid="ComparisonCompareMenu"
+                                            AutomationProperties.AutomationId="ComparisonCompareMenu"
+                                            Click="OnCompareClick" IsEnabled="False" />
+                            <MenuFlyoutItem x:Name="SurveyMenuItem" x:Uid="ComparisonSurveyMenu"
+                                            AutomationProperties.AutomationId="ComparisonSurveyMenu"
+                                            Click="OnSurveyClick" IsEnabled="False" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
                 <!-- Slideshow: first in the toolbar so narrow windows never clip it -->
                 <Button x:Name="SlideshowButton"
                         Click="OnSlideshowClick"

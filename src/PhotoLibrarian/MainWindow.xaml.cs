@@ -996,6 +996,7 @@ public sealed partial class MainWindow : Window
         _removableVolumeMonitor = null;
         FolderNavPanel.SaveState();
         _slideshow?.Close();
+        ImageGridPanel.CloseComparison();
         _printSession?.Dispose();
         _printSession = null;
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
