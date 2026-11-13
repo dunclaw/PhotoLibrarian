@@ -75,7 +75,7 @@
                                     QueryIcon="Find"
                                     TextMemberPath="FileName"
                                     DisplayMemberPath="FileName"
-                                    ToolTipService.ToolTip="Search the current left-pane selection and filters"
+                                    ToolTipService.ToolTip="Search current photos. Examples: rating:&gt;3, flag:pick, iso:&gt;800, camera:x2, date:2026-04, keyword:mountains, person:&quot;Jane Doe&quot;"
                                     ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
                                     TextChanged="LibrarySearchBox_TextChanged"
                                     QuerySubmitted="LibrarySearchBox_QuerySubmitted" />

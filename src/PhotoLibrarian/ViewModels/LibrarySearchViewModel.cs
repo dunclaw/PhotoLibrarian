@@ -1,4 +1,6 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
+using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
 
@@ -42,10 +44,22 @@ public partial class LibrarySearchViewModel : ObservableObject
         Suggestions = [];
         if (string.IsNullOrWhiteSpace(text))
         {
+            ErrorMessage = "";
+            IsError = false;
             await SubmitAsync("");
             return;
         }
 
+        var syntaxError = ImageSearchRepository.GetQuerySyntaxError(text);
+        if (syntaxError is not null)
+        {
+            ErrorMessage = syntaxError;
+            IsError = true;
+            return;
+        }
+
+        ErrorMessage = "";
+        IsError = false;
         try
         {
             await Task.Delay(250, token);
@@ -67,9 +81,18 @@ public partial class LibrarySearchViewModel : ObservableObject
     {
         _suggestionsCts?.Cancel();
         Suggestions = [];
+        var syntaxError = ImageSearchRepository.GetQuerySyntaxError(text);
+        if (syntaxError is not null)
+        {
+            ErrorMessage = syntaxError;
+            IsError = true;
+            return;
+        }
+
         await _submitGate.WaitAsync();
         try
         {
+            ErrorMessage = "";
             IsError = false;
             _viewer.CloseCommand.Execute(null);
             await _grid.ApplySearchAsync(text);

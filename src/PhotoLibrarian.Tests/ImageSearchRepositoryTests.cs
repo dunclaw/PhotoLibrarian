@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -60,13 +61,136 @@ public sealed class ImageSearchRepositoryTests : IAsyncLifetime
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("\" : - * ( ) { } / \\")]
-    [InlineData("filename:OR NOT NEAR AND")]
     [InlineData("' OR 1=1; DROP TABLE images; --")]
     public async Task Search_TreatsInputLiterallyWithoutFtsSyntaxErrors(string query)
     {
         var image = await AddImageAsync("photo.jpg");
         Assert.Empty(await _search.SearchAsync(query));
         Assert.Equal(image.Id, Assert.Single(await _images.GetAllAsync()).Id);
+    }
+
+    [Fact]
+    public async Task Search_FieldQueriesCombineWithFreeTextAndMatchLocalMetadata()
+    {
+        var match = await AddImageAsync("alpine.jpg");
+        match.Rating = 4;
+        match.Iso = 1600;
+        match.DateTaken = new DateTime(2026, 4, 18, 12, 0, 0, DateTimeKind.Utc);
+        match.CameraMake = "Fujifilm";
+        match.CameraModel = "X2 Pro";
+        await _images.UpsertImageAsync(match);
+        await _images.UpdateFlagAsync(match.Id, true);
+        await _tags.AddTagAsync(new ImageTag { ImageId = match.Id, Tag = "Nature/Mountains" });
+        var person = await _faces.CreatePersonAsync("Jane Doe");
+        await _faces.AddFaceRegionAsync(new FaceRegion
+        {
+            ImageId = match.Id, PersonId = person, PersonName = "Jane Doe",
+            Width = 0.2, Height = 0.2
+        });
+
+        var lowerRating = await AddImageAsync("other-alpine.jpg");
+        lowerRating.Rating = 3;
+        lowerRating.Iso = 3200;
+        lowerRating.DateTaken = match.DateTaken;
+        lowerRating.CameraMake = match.CameraMake;
+        lowerRating.CameraModel = match.CameraModel;
+        await _images.UpsertImageAsync(lowerRating);
+        await _images.UpdateFlagAsync(lowerRating.Id, true);
+        await _tags.AddTagAsync(new ImageTag { ImageId = lowerRating.Id, Tag = "Nature/Mountains" });
+        await _faces.AddFaceRegionAsync(new FaceRegion
+        {
+            ImageId = lowerRating.Id, PersonId = person, PersonName = "Jane Doe",
+            Width = 0.2, Height = 0.2
+        });
+        var unflagged = await AddImageAsync("unflagged.jpg");
+        var previousMonth = await AddImageAsync("previous-month.jpg");
+        previousMonth.DateTaken = new DateTime(2026, 3, 31, 23, 59, 0, DateTimeKind.Utc);
+        await _images.UpsertImageAsync(previousMonth);
+        var nextMonth = await AddImageAsync("next-month.jpg");
+        nextMonth.DateTaken = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+        await _images.UpsertImageAsync(nextMonth);
+
+        Assert.Equal(2, (await _search.SearchAsync("alpine")).Count);
+        Assert.Single(await _search.SearchAsync("rating:>3"));
+        Assert.Equal(2, (await _search.SearchAsync("flag:pick")).Count);
+        Assert.Equal(2, (await _search.SearchAsync("iso:>800")).Count);
+        Assert.Equal(2, (await _search.SearchAsync("camera:x2")).Count);
+        Assert.Equal(2, (await _search.SearchAsync("date:2026-04")).Count);
+        Assert.Equal(2, (await _search.SearchAsync("keyword:mountain")).Count);
+        Assert.Equal(2, (await _search.SearchAsync("person:\"Jane Doe\"")).Count);
+
+        var query = "alpine rating:>3 flag:pick iso:>800 camera:x2 date:2026-04 " +
+            "keyword:mountain person:\"Jane Doe\"";
+        Assert.Equal(match.Id, Assert.Single(await _search.SearchAsync(query)).Id);
+        Assert.Equal(match.Id, Assert.Single(await _search.SearchAsync("rating:4 iso:1600 date:>=2026-04")).Id);
+        Assert.Equal(new[] { match.Id, lowerRating.Id },
+            (await _search.SearchAsync("date:2026-04")).Select(image => image.Id));
+        Assert.Equal(previousMonth.Id, Assert.Single(await _search.SearchAsync("date:<2026-04")).Id);
+        Assert.Equal(nextMonth.Id, Assert.Single(await _search.SearchAsync("date:>2026-04")).Id);
+        Assert.Equal(new[] { match.Id, lowerRating.Id, previousMonth.Id },
+            (await _search.SearchAsync("date:<=2026-04")).Select(image => image.Id));
+        Assert.Equal(lowerRating.Id,
+            Assert.Single(await _search.SearchAsync("rating:<=3 flag:pick")).Id);
+        Assert.Contains(unflagged.Id,
+            (await _search.SearchAsync("flag:unpick")).Select(image => image.Id));
+    }
+
+    [Theory]
+    [InlineData("rating > 0", 1, 2)]
+    [InlineData("Rating > 1", 2)]
+    [InlineData("ISO > 800", 2)]
+    [InlineData("rating>=1", 1, 2)]
+    [InlineData("rating: >= 1", 1, 2)]
+    [InlineData("rating : > 0", 1, 2)]
+    [InlineData("rating :>0", 1, 2)]
+    [InlineData("rating < 2", 0, 1)]
+    [InlineData("ISO = 800", 0, 1)]
+    [InlineData("date > 2026-04-01", 1, 2)]
+    [InlineData("rating:>0 ISO >800", 2)]
+    [InlineData("holiday Rating > 1", 2)]
+    [InlineData("holiday rating", 0, 1, 2)]
+    public async Task Search_SpacedComparisonsFilterMetadataWithinScope(
+        string query, params int[] expectedIndices)
+    {
+        var scope = new List<ImageEntry>();
+        foreach (var index in new[] { 0, 1, 2 })
+        {
+            var image = await AddImageAsync($"holiday-{index}.jpg");
+            image.Rating = index;
+            image.Iso = index == 2 ? 1600 : 800;
+            image.DateTaken = new DateTime(2026, 4, 1 + index);
+            image.Caption = "rating";
+            await _images.UpsertImageAsync(image);
+            scope.Add(image);
+        }
+        var outside = await AddImageAsync("holiday-outside.jpg");
+        outside.Rating = 5;
+        outside.Iso = 3200;
+        await _images.UpsertImageAsync(outside);
+
+        Assert.Null(ImageSearchRepository.GetQuerySyntaxError(query));
+        Assert.Equal(expectedIndices.Select(index => scope[index].Id),
+            (await _search.FilterAsync(query, scope)).Select(image => image.Id));
+    }
+
+    [Theory]
+    [InlineData("rating:high")]
+    [InlineData("iso:>")]
+    [InlineData("rating >")]
+    [InlineData("ISO > nope")]
+    [InlineData("rating: >")]
+    [InlineData("camera > 800")]
+    [InlineData("unknown > 1")]
+    [InlineData("date:2026-13")]
+    [InlineData("flag:maybe")]
+    [InlineData("person:\"Jane Doe")]
+    [InlineData("unknown:value")]
+    public async Task Search_InvalidFieldSyntaxIsExplainedAndReturnsNoMatches(string query)
+    {
+        await AddImageAsync("photo.jpg");
+
+        Assert.NotNull(ImageSearchRepository.GetQuerySyntaxError(query));
+        Assert.Empty(await _search.SearchAsync(query));
     }
 
     [Fact]
@@ -365,5 +489,23 @@ public sealed class ImageSearchRepositoryTests : IAsyncLifetime
         Assert.Equal(work.Id, Assert.Single(await _search.FilterAsync("work", scope)).Id);
         Assert.Empty(await _search.FilterAsync("holiday", [work]));
         Assert.Equal(holiday.Id, Assert.Single(await _search.FilterAsync("holiday", scope)).Id);
+    }
+
+    [Fact]
+    public async Task Filter_FieldQueriesRemainWithinTheExistingNavigationScope()
+    {
+        var included = await AddImageAsync("included.jpg");
+        included.Rating = 5;
+        await _images.UpsertImageAsync(included);
+        var excludedByField = await AddImageAsync("excluded-by-rating.jpg");
+        excludedByField.Rating = 2;
+        await _images.UpsertImageAsync(excludedByField);
+        var outsideScope = await AddImageAsync("outside.jpg");
+        outsideScope.Rating = 5;
+        await _images.UpsertImageAsync(outsideScope);
+
+        var results = await _search.FilterAsync("rating:>3", [included, excludedByField]);
+
+        Assert.Equal(included.Id, Assert.Single(results).Id);
     }
 }
