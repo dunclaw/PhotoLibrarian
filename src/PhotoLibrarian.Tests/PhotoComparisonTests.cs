@@ -13,16 +13,15 @@ public sealed class PhotoComparisonTests
         var first = Photo("first.jpg");
         var second = Photo("second.nef");
         var third = Photo("third.gif");
-        Assert.False(PhotoComparisonSession.CanOpen([], false));
-        Assert.False(PhotoComparisonSession.CanOpen([first], true));
-        Assert.True(PhotoComparisonSession.CanOpen([first, second], false));
-        Assert.True(PhotoComparisonSession.CanOpen([first, second, third], true));
-        Assert.False(PhotoComparisonSession.CanOpen([first, second, third], false));
+        Assert.False(PhotoComparisonSession.CanOpen([]));
+        Assert.False(PhotoComparisonSession.CanOpen([first]));
+        Assert.True(PhotoComparisonSession.CanOpen([first, second]));
+        Assert.True(PhotoComparisonSession.CanOpen([first, second, third]));
         third.MediaType = MediaType.Video;
-        Assert.False(PhotoComparisonSession.CanOpen([first, second, third], true));
-        Assert.False(PhotoComparisonSession.CanOpen([first, Photo("FIRST.JPG")], false));
+        Assert.False(PhotoComparisonSession.CanOpen([first, second, third]));
+        Assert.False(PhotoComparisonSession.CanOpen([first, Photo("FIRST.JPG")]));
         Assert.True(PhotoComparisonSession.CanOpen(
-            Enumerable.Range(0, 1000).Select(i => Photo($"{i}.jpg")).ToArray(), true));
+            Enumerable.Range(0, 1000).Select(i => Photo($"{i}.jpg")).ToArray()));
     }
 
     [Fact]

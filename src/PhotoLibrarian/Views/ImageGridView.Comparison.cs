@@ -7,13 +7,8 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class ImageGridView
 {
-    private PhotoComparisonWindow? _comparison;
-    private bool _closingComparison;
-    internal void CloseComparison()
-    {
-        _closingComparison = true;
-        _comparison?.Close();
-    }
+    internal event EventHandler<IReadOnlyList<ImageEntry>>? ComparisonRequested;
+    internal void FocusGrid() => PhotoGrid.Focus(FocusState.Programmatic);
 
     private ImageEntry[] GetComparisonSelection()
     {
@@ -22,38 +17,16 @@ public sealed partial class ImageGridView
         return ViewModel?.GetViewerImages().Where(entry => paths.Contains(entry.FilePath)).ToArray() ?? [];
     }
 
-    private void OnComparisonMenuOpening(object sender, object e)
+    private void OnCompareClick(object sender, RoutedEventArgs e) => OpenComparison();
+
+    private void OpenComparison()
     {
         var entries = GetComparisonSelection();
-        CompareMenuItem.IsEnabled = PhotoComparisonSession.CanOpen(entries, survey: false);
-        SurveyMenuItem.IsEnabled = PhotoComparisonSession.CanOpen(entries, survey: true);
-    }
-
-    private void OnCompareClick(object sender, RoutedEventArgs e) => OpenComparison(survey: false);
-    private void OnSurveyClick(object sender, RoutedEventArgs e) => OpenComparison(survey: true);
-
-    private void OpenComparison(bool survey)
-    {
-        var entries = GetComparisonSelection();
-        if (!PhotoComparisonSession.CanOpen(entries, survey))
+        if (!PhotoComparisonSession.CanOpen(entries))
         {
             App.ViewModel.StatusText = ComparisonStrings.Get("ComparisonSelectionHelp");
             return;
         }
-        if (_comparison is not null)
-        {
-            _comparison.Activate();
-            return;
-        }
-        _comparison = new PhotoComparisonWindow(entries, survey);
-        _closingComparison = false;
-        _comparison.Closed += (_, _) =>
-        {
-            _comparison = null;
-            if (_closingComparison) return;
-            App.MainWindow?.Activate();
-            PhotoGrid.Focus(FocusState.Keyboard);
-        };
-        _comparison.Activate();
+        ComparisonRequested?.Invoke(this, entries);
     }
 }

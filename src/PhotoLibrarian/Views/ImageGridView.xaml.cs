@@ -728,13 +728,8 @@ public sealed partial class ImageGridView : UserControl
             AddSyncAction(new MenuFlyoutItem
             {
                 Text = ComparisonStrings.Get("ComparisonCompareMenu/Text"),
-                IsEnabled = PhotoComparisonSession.CanOpen(comparisonEntries, survey: false)
-            }, () => OpenComparison(survey: false), "Compare");
-            AddSyncAction(new MenuFlyoutItem
-            {
-                Text = ComparisonStrings.Get("ComparisonSurveyMenu/Text"),
-                IsEnabled = PhotoComparisonSession.CanOpen(comparisonEntries, survey: true)
-            }, () => OpenComparison(survey: true), "Survey");
+                IsEnabled = PhotoComparisonSession.CanOpen(comparisonEntries)
+            }, OpenComparison, "Compare");
         }
 
         var slideshowItem = new MenuFlyoutItem

@@ -1,13 +1,16 @@
 # Compare and survey
 
-Select photos in the grid, then use **Compare or survey selected photos** in the
-grid header, or right-click the selection. **Compare 2 selected photos** requires
-exactly two still photos; **Survey selected photos** accepts two or more.
+Select two or more still photos in the grid, then use **Compare selected photos**
+in the grid header or the selection's right-click menu. There is one command,
+not separate two-photo and survey modes.
 Mixed photo/video selections are not silently filtered. Candidates follow the
 grid's displayed sort/group order.
 
-The separate, read-only workspace shows two photos side by side or all selected
-photos in an adaptive equal-cell grid. Wheel zoom and drag pan in any loaded
+The read-only workspace fills the existing application window, replacing the
+library panels and toolbar until you return, without opening or resizing a
+second window. Two candidates appear side by side; larger selections
+automatically use an adaptive equal-cell grid. Removing candidates adapts the
+layout too, so the remaining photo fills the available area. Wheel zoom and drag pan in any loaded
 pane affect all panes. **Fit all** fits each photo independently. **100%** shows
 one decoded source pixel per physical display pixel; subsequent zoom uses the
 same source-pixel scale and relative image center for each photo. This is not
@@ -16,9 +19,10 @@ positions will not line up exactly.
 
 Tab to a photo viewport for keyboard control: plus/minus zoom, arrow keys pan,
 Home fits all, and 1 selects 100%. All toolbar commands and per-photo actions
-also support keyboard focus and screen readers. Escape or Close closes the
-workspace and returns to the grid. Opening another comparison while one is
-open focuses the existing workspace; close it to start with a new selection.
+also support keyboard focus and screen readers. Escape or **Back to library**
+returns to the original grid with its selection and layout intact.
+Library editing, printing and slideshow shortcuts do not act on hidden
+library controls while comparison is open.
 
 **Remove** hides only that workspace candidate and releases its displayed
 pixels. It does not delete a file, change grid selection, flag, rating, recipe,
@@ -61,6 +65,7 @@ Run `.\tools\Test-PhotoGridAccessibility.ps1 -Platform x64 -Comparison` for the
 isolated WinUI test host. It uses generated photos beside its build output, not
 the application library/settings. It exercises recipe rendering, two-pane
 layout, DPI-correct 100%, linked keyboard zoom/pan, localized accessible
-controls, removal/restoration, unchanged photo/recipe hashes, serialized survey
+controls, same-window full-area layout, adaptive two/many candidate layout,
+return-to-library focus, removal/restoration, unchanged photo/recipe hashes, serialized survey
 loads, explicit failure/retry, and cancellation on close. It also captures
 light/dark comparison and survey screenshots in that host's output.

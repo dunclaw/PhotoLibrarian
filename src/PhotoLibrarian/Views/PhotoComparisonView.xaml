@@ -1,5 +1,5 @@
-<Window
-    x:Class="PhotoLibrarian.Views.PhotoComparisonWindow"
+<UserControl
+    x:Class="PhotoLibrarian.Views.PhotoComparisonView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" KeyDown="OnKeyDown">
@@ -31,4 +31,4 @@
         <Grid x:Name="PanesGrid" Grid.Row="2" Margin="12" ColumnSpacing="8" RowSpacing="8"
               SizeChanged="OnPanesSizeChanged" />
     </Grid>
-</Window>
+</UserControl>

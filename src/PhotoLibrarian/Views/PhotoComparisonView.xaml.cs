@@ -6,38 +6,49 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Services;
-using Windows.Graphics;
 using Windows.System;
 
 namespace PhotoLibrarian.Views;
 
-public sealed partial class PhotoComparisonWindow : Window
+public sealed partial class PhotoComparisonView : UserControl
 {
-    private readonly PhotoComparisonSession _session;
+    private PhotoComparisonSession _session = new([]);
     private readonly List<PhotoComparisonPane> _panes = [];
     private readonly SemaphoreSlim _loadGate = new(1, 1);
-    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _lifetime;
     private readonly Dictionary<PhotoComparisonPane, CancellationTokenSource> _requests = [];
     private readonly Func<string, CancellationToken, Task<BitmapImage>> _load;
     private ComparisonViewport _view = ComparisonViewport.Fit;
-    private bool _closed;
+    internal bool IsOpen { get; private set; }
+    internal event EventHandler? Closed;
 
-    internal PhotoComparisonWindow(IReadOnlyList<ImageEntry> entries, bool survey,
-        Func<string, CancellationToken, Task<BitmapImage>>? load = null)
+    public PhotoComparisonView() : this(ViewerImageLoader.LoadPhotoAsync) { }
+
+    internal PhotoComparisonView(Func<string, CancellationToken, Task<BitmapImage>> load)
     {
         InitializeComponent();
+        _load = load;
+        Unloaded += (_, _) => Close();
+    }
+
+    internal void Open(IReadOnlyList<ImageEntry> entries)
+    {
+        ReleaseCandidates();
         _session = new PhotoComparisonSession(entries);
-        _load = load ?? ViewerImageLoader.LoadPhotoAsync;
-        Title = ComparisonStrings.Get(survey ? "ComparisonSurveyTitle" : "ComparisonTitle");
-        var dpi = Microsoft.UI.Win32Interop.GetWindowFromWindowId(AppWindow.Id);
-        var scale = GetDpiForWindow(dpi) / 96.0;
-        AppWindow.Resize(new SizeInt32((int)(1280 * scale), (int)(840 * scale)));
-        Closed += OnClosed;
+        _view = ComparisonViewport.Fit;
+        _lifetime = new CancellationTokenSource();
+        IsOpen = true;
         RestoreCandidates();
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
+    internal void FocusWorkspace()
+    {
+        if (FitButton.Focus(FocusState.Programmatic)) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (IsOpen) FitButton.Focus(FocusState.Programmatic);
+        });
+    }
 
     private void RestoreCandidates()
     {
@@ -61,7 +72,7 @@ public sealed partial class PhotoComparisonWindow : Window
 
     private async Task LoadPaneAsync(PhotoComparisonPane pane)
     {
-        if (_closed || _requests.ContainsKey(pane)) return;
+        if (!IsOpen || _lifetime is null || _requests.ContainsKey(pane)) return;
         using var request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _requests.Add(pane, request);
         pane.SetLoading();
@@ -146,13 +157,22 @@ public sealed partial class PhotoComparisonWindow : Window
         e.Handled = true;
     }
 
-    private void OnClosed(object sender, WindowEventArgs args)
+    private void ReleaseCandidates()
     {
-        _closed = true;
-        _lifetime.Cancel();
+        _lifetime?.Cancel();
         foreach (var pane in _panes) ReleasePane(pane);
         _panes.Clear();
         PanesGrid.Children.Clear();
-        _lifetime.Dispose();
+        _lifetime?.Dispose();
+        _lifetime = null;
+    }
+
+    internal void Close()
+    {
+        if (!IsOpen) return;
+        IsOpen = false;
+        ReleaseCandidates();
+        _session = new([]);
+        Closed?.Invoke(this, EventArgs.Empty);
     }
 }

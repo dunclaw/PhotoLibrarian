@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Models;
@@ -20,8 +21,13 @@ public partial class App
 {
     private async Task RunComparisonTestsAsync()
     {
-        _window = new Window { Title = "Isolated comparison test host", Content = new Grid() };
+        var shell = new Grid();
+        var library = new Button { Content = "Synthetic library selection" };
+        shell.Children.Add(library);
+        _window = new Window { Title = "Isolated in-window comparison", Content = shell };
+        _window.AppWindow.Resize(new SizeInt32(1600, 1000));
         _window.Activate();
+        var windowId = _window.AppWindow.Id;
         var folder = Path.Combine(AppContext.BaseDirectory, "comparison-synthetic");
         Directory.CreateDirectory(folder);
         var landscape = Path.Combine(folder, "landscape.png");
@@ -35,9 +41,18 @@ public partial class App
             path => SHA256.HashData(File.ReadAllBytes(path)));
         var first = TestPhoto(landscape);
         var second = TestPhoto(portrait);
-        var comparison = new PhotoComparisonWindow([first, second], survey: false);
-        comparison.Activate();
-        var root = (FrameworkElement)comparison.Content;
+        var comparison = new PhotoComparisonView();
+        shell.Children.Add(comparison);
+        library.Visibility = Visibility.Collapsed;
+        comparison.Closed += (_, _) =>
+        {
+            comparison.Visibility = Visibility.Collapsed;
+            library.Visibility = Visibility.Visible;
+            library.Focus(FocusState.Programmatic);
+        };
+        comparison.Open([first, second]);
+        comparison.FocusWorkspace();
+        var root = (FrameworkElement)comparison;
         var grid = (Grid)root.FindName("PanesGrid");
         await WaitForComparisonAsync(() => grid.Children.OfType<PhotoComparisonPane>()
             .All(pane => ((Image)pane.FindName("Photo")).Source is not null), "compare load");
@@ -49,9 +64,12 @@ public partial class App
             "Compare uses the full-resolution pending rotation recipe, not source thumbnails");
         Check(panes.All(pane => pane.ActualWidth > 200 && pane.ActualHeight > 200),
             "Both comparison photos fill usable pane space");
-        Check(ComparisonStrings.Get("ComparisonCompareMenu/Text") == "Compare 2 selected photos" &&
-            ComparisonStrings.Get("ComparisonSurveyMenu/Text") == "Survey selected photos",
-            "Grid context-menu commands resolve localized resource labels");
+        Check(_window.AppWindow.Id == windowId &&
+            Math.Abs(comparison.ActualWidth - shell.ActualWidth) < 1 &&
+            Math.Abs(comparison.ActualHeight - shell.ActualHeight) < 1,
+            "Comparison fills the existing window without creating or resizing another window");
+        Check(ComparisonStrings.Get("ComparisonCompareMenu/Text") == "Compare selected photos",
+            "One localized comparison command covers every selection size");
         foreach (var pane in panes)
         {
             var viewport = (ScrollViewer)pane.FindName("Viewport");
@@ -84,13 +102,17 @@ public partial class App
         await CaptureSlideshowAsync(root, "comparison-dark.png");
         root.RequestedTheme = ElementTheme.Light;
         var oldWidth = root.ActualWidth;
-        comparison.AppWindow.Resize(new SizeInt32(1000, 700));
+        _window.AppWindow.Resize(new SizeInt32(1300, 900));
         await WaitForComparisonAsync(() => root.ActualWidth < oldWidth, "resize layout");
         await Task.Delay(300);
         await CaptureSlideshowAsync(root, "comparison-light.png");
         InvokeComparison(panes[0], "ComparisonRemove");
         Check(grid.Children.Count == 1 && ((Image)panes[0].FindName("Photo")).Source is null,
             "Remove releases pixels and removes only the workspace candidate");
+        await Task.Delay(150);
+        var remaining = grid.Children.Cast<PhotoComparisonPane>().Single();
+        Check(Math.Abs(remaining.ActualWidth - grid.ActualWidth) < 1,
+            "Removing down to one candidate expands it across the workspace");
         InvokeComparison(root, "ComparisonRestore");
         await WaitForComparisonAsync(() => grid.Children.Count == 2 &&
             grid.Children.OfType<PhotoComparisonPane>().All(pane => ((Image)pane.FindName("Photo")).Source is not null),
@@ -101,7 +123,11 @@ public partial class App
             before.All(pair => pair.Value.SequenceEqual(SHA256.HashData(File.ReadAllBytes(pair.Key)))),
             "Compare, zoom, remove and restore never write photos or recipes");
         if (Environment.GetCommandLineArgs().Contains("--preview")) return;
-        comparison.Close();
+        InvokeComparison(root, "ComparisonClose");
+        Check(!comparison.IsOpen && comparison.Visibility == Visibility.Collapsed &&
+            ReferenceEquals(FocusManager.GetFocusedElement(shell.XamlRoot), library),
+            "Back to library closes only comparison and restores focus in the same window");
+        shell.Children.Remove(comparison);
 
         int active = 0, maximumActive = 0;
         bool fail = true;
@@ -120,14 +146,19 @@ public partial class App
             finally { active--; }
         }
         var unavailable = TestPhoto("unavailable");
-        var survey = new PhotoComparisonWindow([first, second, unavailable], true, LoadForSurvey);
-        survey.Activate();
-        root = (FrameworkElement)survey.Content;
+        var survey = new PhotoComparisonView(LoadForSurvey);
+        shell.Children.Add(survey);
+        library.Visibility = Visibility.Collapsed;
+        survey.Open([first, second, unavailable]);
+        root = survey;
         grid = (Grid)root.FindName("PanesGrid");
         var failed = grid.Children.OfType<PhotoComparisonPane>().Last();
         await WaitForComparisonAsync(() => ((Button)failed.FindName("RetryButton")).Visibility == Visibility.Visible,
             "offline error");
         Check(maximumActive == 1 && grid.Children.Count == 3, "Survey serializes decoding and keeps failed candidates visible");
+        Check(grid.ColumnDefinitions.Count > 1 &&
+            Math.Abs(survey.ActualWidth - shell.ActualWidth) < 1,
+            "The same in-window view automatically lays out three candidates");
         Check(((TextBlock)failed.FindName("StatusText")).Text.Contains("Synthetic offline photo"),
             "Per-photo resource and codec errors are explicit");
         var surveyPanes = grid.Children.Cast<PhotoComparisonPane>().ToArray();
@@ -160,6 +191,11 @@ public partial class App
             InvokeComparison(pane, "ComparisonRemove");
         Check(grid.Children.Count == 0, "Survey can temporarily remove every candidate without deleting a file");
         survey.Close();
+        survey.Open([first, second]);
+        Check(grid.Children.Count == 2 && grid.ColumnDefinitions.Count == 2,
+            "Reopening the same comparison view with two candidates adapts back to side-by-side");
+        survey.Close();
+        shell.Children.Remove(survey);
 
         var started = new TaskCompletionSource();
         var cancelled = new TaskCompletionSource();
@@ -174,12 +210,14 @@ public partial class App
             }
             return new BitmapImage();
         }
-        var closing = new PhotoComparisonWindow([first, second], false, WaitForClose);
-        closing.Activate();
+        var closing = new PhotoComparisonView(WaitForClose);
+        shell.Children.Add(closing);
+        closing.Open([first, second]);
         await started.Task;
         closing.Close();
         await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Check(true, "Closing cancels in-flight loads and queued candidates");
+        shell.Children.Remove(closing);
     }
 
     private static void InvokeComparison(FrameworkElement root, string id)

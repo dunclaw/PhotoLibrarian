@@ -11,8 +11,8 @@ internal sealed class PhotoComparisonSession
     internal IReadOnlyList<ImageEntry> Candidates => _candidates;
     internal int OriginalCount => _original.Length;
 
-    internal static bool CanOpen(IReadOnlyList<ImageEntry> entries, bool survey) =>
-        (survey ? entries.Count >= 2 : entries.Count == 2) &&
+    internal static bool CanOpen(IReadOnlyList<ImageEntry> entries) =>
+        entries.Count >= 2 &&
         entries.All(entry => entry.MediaType == MediaType.Image) &&
         entries.Select(entry => entry.FilePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() == entries.Count;
 
