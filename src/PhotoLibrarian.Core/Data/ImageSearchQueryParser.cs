@@ -22,19 +22,40 @@ public static class ImageSearchQueryParser
 
         var fullTextTerms = new List<string>();
         var fieldClauses = new List<ImageSearchFieldClause>();
-        foreach (var token in tokens)
+        for (var index = 0; index < tokens.Count; index++)
         {
+            var token = tokens[index];
             var colon = FindFieldSeparator(token);
-            if (colon > 0)
+            var comparisonStart = token.IndexOfAny(['>', '<', '=']);
+            string? fieldName = null;
+            var rawValue = string.Empty;
+            if (colon > 0 && IsFieldName(token[..colon]))
             {
-                var name = token[..colon];
-                if (!IsFieldName(name))
-                {
-                    AddFreeTextTerms(token, fullTextTerms);
-                    continue;
-                }
+                fieldName = token[..colon];
+                rawValue = token[(colon + 1)..];
+            }
+            else if (comparisonStart > 0 && IsFieldName(token[..comparisonStart]))
+            {
+                fieldName = token[..comparisonStart];
+                rawValue = token[comparisonStart..];
+            }
+            else if (IsFieldName(token) && index + 1 < tokens.Count &&
+                     (tokens[index + 1].StartsWith(':') || StartsWithComparison(tokens[index + 1])))
+            {
+                fieldName = token;
+                rawValue = tokens[++index];
+                if (rawValue.StartsWith(':'))
+                    rawValue = rawValue[1..];
+            }
 
-                if (!TryParseFieldClause(name, token[(colon + 1)..], fieldClauses, out error))
+            if (fieldName is not null)
+            {
+                if (rawValue.Length == 0 && index + 1 < tokens.Count)
+                    rawValue = tokens[++index];
+                if (IsComparisonOperator(rawValue) && index + 1 < tokens.Count)
+                    rawValue += tokens[++index];
+
+                if (!TryParseFieldClause(fieldName, rawValue, fieldClauses, out error))
                     return ParsedImageSearchQuery.Invalid(error!);
                 continue;
             }
@@ -68,6 +89,12 @@ public static class ImageSearchQueryParser
     private static bool IsFieldName(string name) =>
         name.Length > 0 && name.All(character =>
             char.IsAsciiLetterOrDigit(character) || character == '_');
+
+    private static bool StartsWithComparison(string value) =>
+        value.Length > 0 && value[0] is '>' or '<' or '=';
+
+    private static bool IsComparisonOperator(string value) =>
+        value is ">" or ">=" or "<" or "<=" or "=";
 
     private static bool TryParseFieldClause(
         string name,

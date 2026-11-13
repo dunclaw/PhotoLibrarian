@@ -136,8 +136,51 @@ public sealed class ImageSearchRepositoryTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData("rating > 0", 1, 2)]
+    [InlineData("Rating > 1", 2)]
+    [InlineData("ISO > 800", 2)]
+    [InlineData("rating>=1", 1, 2)]
+    [InlineData("rating: >= 1", 1, 2)]
+    [InlineData("rating : > 0", 1, 2)]
+    [InlineData("rating :>0", 1, 2)]
+    [InlineData("rating < 2", 0, 1)]
+    [InlineData("ISO = 800", 0, 1)]
+    [InlineData("date > 2026-04-01", 1, 2)]
+    [InlineData("rating:>0 ISO >800", 2)]
+    [InlineData("holiday Rating > 1", 2)]
+    [InlineData("holiday rating", 0, 1, 2)]
+    public async Task Search_SpacedComparisonsFilterMetadataWithinScope(
+        string query, params int[] expectedIndices)
+    {
+        var scope = new List<ImageEntry>();
+        foreach (var index in new[] { 0, 1, 2 })
+        {
+            var image = await AddImageAsync($"holiday-{index}.jpg");
+            image.Rating = index;
+            image.Iso = index == 2 ? 1600 : 800;
+            image.DateTaken = new DateTime(2026, 4, 1 + index);
+            image.Caption = "rating";
+            await _images.UpsertImageAsync(image);
+            scope.Add(image);
+        }
+        var outside = await AddImageAsync("holiday-outside.jpg");
+        outside.Rating = 5;
+        outside.Iso = 3200;
+        await _images.UpsertImageAsync(outside);
+
+        Assert.Null(ImageSearchRepository.GetQuerySyntaxError(query));
+        Assert.Equal(expectedIndices.Select(index => scope[index].Id),
+            (await _search.FilterAsync(query, scope)).Select(image => image.Id));
+    }
+
+    [Theory]
     [InlineData("rating:high")]
     [InlineData("iso:>")]
+    [InlineData("rating >")]
+    [InlineData("ISO > nope")]
+    [InlineData("rating: >")]
+    [InlineData("camera > 800")]
+    [InlineData("unknown > 1")]
     [InlineData("date:2026-13")]
     [InlineData("flag:maybe")]
     [InlineData("person:\"Jane Doe")]

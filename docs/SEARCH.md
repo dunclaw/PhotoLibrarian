@@ -4,6 +4,13 @@ Search applies to the photos already included by the left-pane selection and hea
 
 Field queries are local and read the metadata already indexed for each photo:
 
+Numeric and date comparisons also accept natural forms such as `rating > 0`,
+`Rating > 1`, `ISO > 800`, and `date >= 2026-04`. Field names are
+case-insensitive; the colon is optional for comparisons, and spaces around
+the colon and comparison operator are allowed. For example, `rating:>0`,
+`rating > 0`, and `rating: > 0` are equivalent. Missing or invalid comparison
+values show a syntax error rather than being interpreted as ordinary words.
+
 | Field | Example | Matching behavior |
 | --- | --- | --- |
 | `rating` | `rating:>3` | Exact integer when written without an operator; also supports `>`, `>=`, `<`, and `<=`. The app's rating scale is 1-5. |
