@@ -42,6 +42,7 @@ internal static class PhotoFuseUiTests
                 photo => Task.FromResult(faces[photo.Id]));
             var viewer = new ImageViewerOverlay();
             var ribbon = new TopRibbon();
+            ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.Children.Add(ribbon);
