@@ -1,8 +1,10 @@
 # Shared edit history
 
-The main toolbar's **Undo** and **Redo** are available while browsing, viewing a
-photo, and adjusting it. Hover an action to see the next edit and its photo or
-batch size. Use **Ctrl+Z** to undo and **Ctrl+Y** or **Ctrl+Shift+Z** to redo.
+The main toolbar's **Undo** and **Redo** are available while viewing a photo and
+adjusting it. The toolbar is hidden in the grid view, without reserving a row.
+Hover an action to see the next edit and its photo or batch size.
+Use **Ctrl+Z** to undo and **Ctrl+Y** or **Ctrl+Shift+Z** to redo, including while
+browsing the grid.
 Text boxes, rich-text controls, search fields, and dialogs retain their native
 keyboard behavior; typing is not a photo edit.
 
@@ -102,7 +104,8 @@ unreadable-sidecar safety.
 
 The isolated `PhotoLibrarian.AccessibilityTests --edit-history` suite uses the
 real toolbar and shortcut classifier with synthetic history only. It checks
-accessible labels, browsing/editor visibility, toolbar invocation, busy state,
+accessible labels, grid row removal, viewer/editor visibility, history retention
+across navigation, toolbar invocation, busy state,
 both redo shortcuts, native TextBox undo, and quick edit invocation, accessible
 labels, disabled states and ribbon layout at 1280 DIPs without opening a
 personal library.

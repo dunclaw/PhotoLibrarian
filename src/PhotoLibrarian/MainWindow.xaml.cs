@@ -1060,8 +1060,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdateRibbonVisibility()
     {
-        TopRibbon.Visibility = IsComparisonOpen ? Visibility.Collapsed : Visibility.Visible;
         TopRibbon.SetPhotoContext(ViewModel.ImageViewer.IsOpen, ViewModel.ImageEditor.IsOpen);
+        if (IsComparisonOpen) TopRibbon.Visibility = Visibility.Collapsed;
         TopRibbon.SetContextLabel(ViewModel.ImageEditor.IsOpen ? ViewModel.ImageEditor.Title
             : ViewModel.ImageViewer.IsOpen ? ViewModel.ImageViewer.Title : "");
         if (!ViewModel.ImageViewer.IsOpen && ViewerOverlay.IsCropping)

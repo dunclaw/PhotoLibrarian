@@ -267,6 +267,7 @@ public partial class App : Application
     private async Task RunViewerCommandTestsAsync()
     {
         var ribbon = new TopRibbon();
+        ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
         var viewer = new ImageViewerOverlay();
         var layout = new Grid { Style = (Style)Resources["TestSurfaceStyle"] };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

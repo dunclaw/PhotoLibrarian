@@ -60,6 +60,7 @@ internal static class RetouchEditorFixture
         };
         var editor = new ImageEditorView(vm);
         var ribbon = new TopRibbon();
+        ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
         ribbon.RetouchClicked += (_, _) => editor.SetRetouchWorkspace(true);
         ribbon.AdjustClicked += (_, _) => editor.SetRetouchWorkspace(false);
         var layout = new Grid();
