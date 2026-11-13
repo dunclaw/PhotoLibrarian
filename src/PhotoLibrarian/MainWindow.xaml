@@ -123,7 +123,7 @@
             <views:DuplicateReviewView />
         </Border>
 
-        <StackPanel Grid.Row="2" Spacing="4">
+        <StackPanel x:Name="FooterNotifications" Grid.Row="2" Spacing="4">
             <InfoBar x:Name="MetadataFallbackInfoBar"
                      AutomationProperties.AutomationId="MetadataFallbackInfoBar"
                      Severity="Warning"
@@ -145,7 +145,7 @@
         </StackPanel>
 
         <!-- Status bar -->
-        <Grid Grid.Row="3" Padding="12,6"
+        <Grid x:Name="StatusBar" Grid.Row="3" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -194,5 +194,8 @@
                 <FontIcon x:Name="FaceDetectionIcon" Glyph="&#xE769;" FontSize="14" />
             </Button>
         </Grid>
+        <ContentControl x:Name="ComparisonOverlay" Grid.RowSpan="4"
+                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                        Visibility="Collapsed" />
     </Grid>
 </Window>

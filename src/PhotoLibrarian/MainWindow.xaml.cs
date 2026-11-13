@@ -128,7 +128,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool CanPrintPhotos() =>
-        !(_isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+        !(IsComparisonOpen || _isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
           ViewModel.DuplicateReview.IsOpen || ViewModel.ImageEditor.IsOpen ||
           ViewerOverlay.IsCropping || ViewerOverlay.IsStraightening ||
           ViewerOverlay.IsRedEyeRemoving || ViewerOverlay.IsManualFaceTagging);
@@ -271,7 +271,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool CanStartSlideshow() =>
-        !(_isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
+        !(IsComparisonOpen || _isClosing || _photoFuseOpen || ViewModel.Settings.IsOpen || ViewModel.PeopleReview.IsOpen ||
           ViewModel.DuplicateReview.IsOpen ||
           ViewModel.ImageEditor.IsOpen || ViewerOverlay.IsCropping ||
           ViewerOverlay.IsStraightening || ViewerOverlay.IsRedEyeRemoving ||
@@ -462,6 +462,7 @@ public sealed partial class MainWindow : Window
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
         ImageGridPanel.DuplicateReviewRequested += OnDuplicateReviewClick;
         ImageGridPanel.ImportRequested += OnImportRequested;
+        ImageGridPanel.ComparisonRequested += OnComparisonRequested;
         TopRibbon.AdjustClicked += OnRibbonAdjustClicked;
         TopRibbon.EffectsClicked += OnRibbonEffectsClicked;
         TopRibbon.QuickEditClicked += OnRibbonQuickEditClicked;
@@ -750,6 +751,15 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (IsComparisonOpen)
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape)
+            {
+                e.Handled = true;
+                _comparison?.Close();
+            }
+            return;
+        }
         if (ViewModel.EditHistory.IsBusy)
         {
             e.Handled = true;
@@ -996,6 +1006,7 @@ public sealed partial class MainWindow : Window
         _removableVolumeMonitor = null;
         FolderNavPanel.SaveState();
         _slideshow?.Close();
+        _comparison?.Close();
         _printSession?.Dispose();
         _printSession = null;
         ViewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
@@ -1049,7 +1060,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateRibbonVisibility()
     {
-        TopRibbon.Visibility = Visibility.Visible;
+        TopRibbon.Visibility = IsComparisonOpen ? Visibility.Collapsed : Visibility.Visible;
         TopRibbon.SetPhotoContext(ViewModel.ImageViewer.IsOpen, ViewModel.ImageEditor.IsOpen);
         TopRibbon.SetContextLabel(ViewModel.ImageEditor.IsOpen ? ViewModel.ImageEditor.Title
             : ViewModel.ImageViewer.IsOpen ? ViewModel.ImageViewer.Title : "");
@@ -1167,7 +1178,7 @@ public sealed partial class MainWindow : Window
         await MoveEditHistoryAsync(undo: false);
 
     private bool CanUseEditHistory() =>
-        !_isClosing && !_photoFuseOpen && !ViewModel.Settings.IsOpen &&
+        !IsComparisonOpen && !_isClosing && !_photoFuseOpen && !ViewModel.Settings.IsOpen &&
         !ViewModel.PeopleReview.IsOpen && !ViewModel.DuplicateReview.IsOpen &&
         !ViewerOverlay.IsCropping && !ViewerOverlay.IsStraightening &&
         !ViewerOverlay.IsRedEyeRemoving && !ViewerOverlay.IsManualFaceTagging &&

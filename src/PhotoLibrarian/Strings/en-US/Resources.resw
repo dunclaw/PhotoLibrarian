@@ -1,5 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="ComparisonCompareMenu.Text" xml:space="preserve"><value>Compare selected photos</value></data>
+  <data name="GridComparison.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Compare selected photos</value></data>
+  <data name="GridComparison.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Compare selected photos in this window. Select 2 or more still photos; the layout adapts automatically.</value></data>
+  <data name="ComparisonSelectionHelp" xml:space="preserve"><value>Select 2 or more still photos to compare. Videos cannot be included.</value></data>
+  <data name="ComparisonFit.Label" xml:space="preserve"><value>Fit all</value></data>
+  <data name="ComparisonActual.Label" xml:space="preserve"><value>100%</value></data>
+  <data name="ComparisonZoomIn.Label" xml:space="preserve"><value>Zoom in</value></data>
+  <data name="ComparisonZoomOut.Label" xml:space="preserve"><value>Zoom out</value></data>
+  <data name="ComparisonRestore.Label" xml:space="preserve"><value>Restore all</value></data>
+  <data name="ComparisonClose.Label" xml:space="preserve"><value>Back to library</value></data>
+  <data name="ComparisonRemove.Content" xml:space="preserve"><value>Remove</value></data>
+  <data name="ComparisonRemove.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Remove only from this workspace; never deletes the photo or changes selection.</value></data>
+  <data name="ComparisonRemoveName" xml:space="preserve"><value>Remove {0} from workspace</value></data>
+  <data name="ComparisonRetry.Content" xml:space="preserve"><value>Retry loading</value></data>
+  <data name="ComparisonRetryName" xml:space="preserve"><value>Retry loading {0}</value></data>
+  <data name="ComparisonHelp.Text" xml:space="preserve"><value>Wheel to zoom; drag to pan. All photos move together. Remove hides a candidate here only; Restore all brings them back. Escape returns to the library.</value></data>
+  <data name="ComparisonKeyboardHelp" xml:space="preserve"><value>Plus and minus zoom all photos. Arrow keys pan all photos. Home fits all; 1 shows actual pixels. Tab moves between commands and photos; Escape closes.</value></data>
+  <data name="ComparisonCount" xml:space="preserve"><value>{0} of {1} candidates. Library selection, ratings and edits are unchanged.</value></data>
+  <data name="ComparisonLoading" xml:space="preserve"><value>Waiting for full-resolution photo...</value></data>
+  <data name="ComparisonDimensions" xml:space="preserve"><value>{0} x {1} pixels</value></data>
+  <data name="ComparisonLoadFailed" xml:space="preserve"><value>Could not load photo: {0}. Remove candidates to free memory, or retry.</value></data>
   <data name="ViewerQuickRotateLeftLabel" xml:space="preserve"><value>Rotate left</value></data>
   <data name="ViewerQuickRotateRightLabel" xml:space="preserve"><value>Rotate right</value></data>
   <data name="ViewerQuickAutoBrightnessLabel" xml:space="preserve"><value>Auto brightness</value></data>

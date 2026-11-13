@@ -724,6 +724,12 @@ public sealed partial class ImageGridView : UserControl
                 ViewModel.SelectedImage = primary;
                 ViewModel.OpenViewerCommand.Execute(null);
             }, "ViewFile");
+            var comparisonEntries = selected.Select(item => item.Entry).ToArray();
+            AddSyncAction(new MenuFlyoutItem
+            {
+                Text = ComparisonStrings.Get("ComparisonCompareMenu/Text"),
+                IsEnabled = PhotoComparisonSession.CanOpen(comparisonEntries)
+            }, OpenComparison, "Compare");
         }
 
         var slideshowItem = new MenuFlyoutItem

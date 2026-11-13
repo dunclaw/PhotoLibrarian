@@ -6,8 +6,6 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Services;
-using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
 
 namespace PhotoLibrarian.ViewModels;
 
@@ -89,36 +87,8 @@ public partial class ImageViewerViewModel : ObservableObject
         }
     }
 
-    private static async Task<BitmapImage> RenderRecipeAsync(string path, EditParameters recipe)
-    {
-        var rendered = await ViewerEffectService.RenderAsync(path, recipe);
-        return await CreateRecipeBitmapAsync(rendered);
-    }
-
-    private static async Task<BitmapImage> CreateRecipeBitmapAsync(ImageEditRenderer.RenderedPixels rendered)
-    {
-        using var stream = await Task.Run(async () =>
-        {
-            var buffer = new InMemoryRandomAccessStream();
-            try
-            {
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, buffer);
-                encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-                    rendered.Width, rendered.Height, 96, 96, rendered.Pixels);
-                await encoder.FlushAsync();
-                buffer.Seek(0);
-                return buffer;
-            }
-            catch
-            {
-                buffer.Dispose();
-                throw;
-            }
-        });
-        var bitmap = new BitmapImage();
-        await bitmap.SetSourceAsync(stream);
-        return bitmap;
-    }
+    private static Task<BitmapImage> CreateRecipeBitmapAsync(ImageEditRenderer.RenderedPixels rendered) =>
+        ViewerImageLoader.CreateBitmapAsync(rendered);
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
@@ -354,24 +324,7 @@ public partial class ImageViewerViewModel : ObservableObject
 
         try
         {
-            if (ImageEditRenderer.IsSupported(entry.FilePath))
-            {
-                var recipe = ImageEditService.ReadEditParameters(entry.FilePath);
-                if (recipe.HasAdjustments)
-                {
-                    var rendered = await RenderRecipeAsync(entry.FilePath, recipe);
-                    if (loadVersion != _loadVersion) return;
-                    CurrentImage = rendered;
-                    ZoomFactor = 1;
-                    return;
-                }
-            }
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(entry.FilePath);
-            if (loadVersion != _loadVersion) return;
-            using var stream = await file.OpenReadAsync();
-            if (loadVersion != _loadVersion) return;
-            var bmp = new BitmapImage();
-            await bmp.SetSourceAsync(stream);
+            var bmp = await ViewerImageLoader.LoadRasterAsync(entry.FilePath);
             if (loadVersion != _loadVersion) return;
             CurrentImage = bmp;
             ZoomFactor = 1.0;

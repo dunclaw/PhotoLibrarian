@@ -13,6 +13,8 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 ## Highlights
 
+- **Compare selected photos** fills the existing window with synchronized zoom/pan and source-pixel 100% inspection. One command adapts automatically: two photos side by side, or a grid for larger selections. Temporarily remove candidates and restore them without deleting files or changing selection, ratings, recipes or edit history; **Back to library** returns to the original grid. Uses recipe-aware raster loading and local RAW development; see [media, controls and resource limits](docs/COMPARE-AND-SURVEY.md).
+
 - 🚀 **Custom virtualized grid** that handles 18 000+ items per folder smoothly. No `ItemsRepeater` layout cycles, no per-item bindings — just a `Canvas` with a recycled element pool.
 - **Remembered grid layout** restores Group, Sort, and ascending/descending choices after restarting. Preferences stay local in `%LOCALAPPDATA%\PhotoLibrarian\grid-layout.json`; missing or invalid preferences use the existing defaults (no grouping, Date Taken, descending). Filters, search, and photo selection remain session-only.
 - 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **People**, **Tag**, and **Flag** trees; the sections combine as a union filter.

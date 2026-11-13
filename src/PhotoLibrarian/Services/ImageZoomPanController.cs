@@ -36,6 +36,33 @@ internal sealed class ImageZoomPanController
 
     public double ZoomFactor => _zoomFactor;
 
+    internal ComparisonViewport CaptureView() => new(
+        _zoomFactor,
+        _imageWidth > 0 ? (_scrollViewer.ActualWidth / 2 - GetCanvasLeft()) / (_imageWidth * _zoomFactor) : 0.5,
+        _imageHeight > 0 ? (_scrollViewer.ActualHeight / 2 - GetCanvasTop()) / (_imageHeight * _zoomFactor) : 0.5,
+        _scale.IsFit, _scale.IsActualSize);
+
+    internal void ApplyView(ComparisonViewport view)
+    {
+        if (_imageWidth <= 0 || _imageHeight <= 0 ||
+            _scrollViewer.ActualWidth <= 0 || _scrollViewer.ActualHeight <= 0) return;
+        if (view.IsFit)
+        {
+            ApplyBestFit();
+            return;
+        }
+        if (view.IsActualSize) _scale.ActualSize(RasterizationScale);
+        else _scale.ZoomTo(view.Scale);
+        UpdateImageSize();
+        var (left, top) = ComparisonViewport.Position(_imageWidth, _imageHeight,
+            _scrollViewer.ActualWidth, _scrollViewer.ActualHeight,
+            _zoomFactor, view.CenterX, view.CenterY);
+        PositionContent(left, top);
+    }
+
+    internal void PanBy(double x, double y) =>
+        PositionContent(GetCanvasLeft() + x, GetCanvasTop() + y, clampWhenFits: true);
+
     public ImageZoomPanController(ScrollViewer scrollViewer, Canvas scrollContent, Grid imageHost, Image image)
     {
         _scrollViewer = scrollViewer;
