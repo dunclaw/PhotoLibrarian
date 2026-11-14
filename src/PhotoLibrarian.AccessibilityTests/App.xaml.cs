@@ -43,6 +43,13 @@ public partial class App : Application
         string? failure = null;
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--editor-comparison"))
+            {
+                await RunEditorComparisonTestsAsync();
+                if (Environment.GetCommandLineArgs().Contains("--preview")) return;
+                await FinishAsync(null);
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--comparison"))
             {
                 await RunComparisonTestsAsync();
