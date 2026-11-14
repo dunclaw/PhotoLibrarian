@@ -3,6 +3,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Graphics.Imaging;
 using XmpCore;
@@ -12,6 +13,88 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class ToneCurveTests
 {
+    [Fact]
+    public void SplineInterpolatesPointsSmoothlyAndIsNotPiecewiseLinear()
+    {
+        ToneCurvePoint[] points = [new(0, 0), new(.3, .15), new(.7, .8), new(1, 1)];
+        foreach (var point in points)
+            Assert.Equal(point.Y, ToneCurves.Evaluate(points, point.X), 12);
+        Assert.True(Math.Abs(ToneCurves.Evaluate(points, .15) - .075) > .005);
+        const double step = 1e-6;
+        foreach (var point in points[1..^1])
+        {
+            var leftSlope = (point.Y - ToneCurves.Evaluate(points, point.X - step)) / step;
+            var rightSlope = (ToneCurves.Evaluate(points, point.X + step) - point.Y) / step;
+            Assert.InRange(Math.Abs(leftSlope - rightSlope), 0, .0001);
+        }
+    }
+
+    [Fact]
+    public void SplineCannotOvershootOrReverseWithFlatOrUnevenlySpacedPoints()
+    {
+        ToneCurvePoint[][] curves =
+        [
+            [new(0, .1), new(1, .9)],
+            [new(0, 0), new(.01, .8), new(.6, .8), new(1, 1)],
+            [new(0, .2), new(.3, .2), new(.7, .2), new(1, .2)],
+            [new(0, 0), new(.5, .1), new(Math.BitIncrement(.5), .9), new(1, 1)]
+        ];
+        foreach (var points in curves)
+        {
+            var previous = points[0].Y;
+            for (var segment = 1; segment < points.Length; segment++)
+            for (var sample = 0; sample <= 1000; sample++)
+            {
+                var left = points[segment - 1];
+                var right = points[segment];
+                var x = left.X + (right.X - left.X) * sample / 1000;
+                var y = ToneCurves.Evaluate(points, x);
+                Assert.InRange(y, left.Y, right.Y);
+                Assert.True(y >= previous - 1e-14);
+                previous = y;
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(.5, .5)]
+    [InlineData(1, 1)]
+    public void DraggingNearNeighborOrEndpointRemovesOnlyTheInteriorPoint(double x, double y)
+    {
+        var points = new List<ToneCurvePoint>
+        {
+            new(0, 0), new(.25, .3), new(.5, .5), new(1, 1)
+        };
+        var index = x == 1 ? 2 : 1;
+        Assert.True(ImageEditorView.TryMergeCurvePoint(points, index, new(x + .01, y), 200, 200));
+        Assert.Equal(3, points.Count);
+        Assert.Equal(new(0, 0), points[0]);
+        Assert.Equal(new(1, 1), points[^1]);
+        new ToneCurves { Rgb = points }.Validate();
+    }
+
+    [Fact]
+    public void DraggingAwayFromNeighborsOrDraggingAnEndpointDoesNotRemovePoints()
+    {
+        var points = new List<ToneCurvePoint> { new(0, 0), new(.5, .5), new(1, 1) };
+        Assert.False(ImageEditorView.TryMergeCurvePoint(points, 1, new(.5, .5), 200, 200));
+        Assert.False(ImageEditorView.TryMergeCurvePoint(points, 0, new(.5, .5), 200, 200));
+        Assert.False(ImageEditorView.TryMergeCurvePoint(points, 2, new(.5, .5), 200, 200));
+        Assert.Equal(3, points.Count);
+    }
+
+    [Fact]
+    public void DraggingToAnEndpointCanRemoveAPointBeyondOtherInteriorPoints()
+    {
+        var points = new List<ToneCurvePoint>
+        {
+            new(0, 0), new(.25, .3), new(.5, .5), new(.75, .7), new(1, 1)
+        };
+        Assert.True(ImageEditorView.TryMergeCurvePoint(points, 2, new(0, 0), 200, 200));
+        Assert.Equal(new ToneCurvePoint[] { new(0, 0), new(.25, .3), new(.75, .7), new(1, 1) }, points);
+    }
+
     [Fact]
     public void CurvesAreMonotoneAndRoundTripWithoutChangingOldRecipes()
     {
@@ -86,6 +169,17 @@ public sealed class ToneCurveTests
             vm.UndoCommand.Execute(null);
             Assert.True(vm.GetCurrentParameters().ToneCurves.IsIdentity);
             vm.RedoCommand.Execute(null);
+            vm.BeginEdit("Tone curve");
+            var dragged = curves.Clone();
+            dragged.Rgb[1] = new(.98, .98);
+            vm.SetToneCurves(dragged);
+            Assert.True(ImageEditorView.TryMergeCurvePoint(dragged.Rgb, 1, new(1, 1), 200, 200));
+            vm.SetToneCurves(dragged);
+            vm.EndEdit();
+            Assert.Equal(2, vm.UndoHistory.Count);
+            vm.UndoCommand.Execute(null);
+            Assert.Single(vm.UndoHistory);
+            Assert.True(curves.ContentEquals(vm.GetCurrentParameters().ToneCurves));
             Assert.True(await vm.SaveAsync((_, _) => throw new InvalidOperationException("Must not bake")));
             Assert.Equal(original, await File.ReadAllBytesAsync(path));
             Assert.True(curves.ContentEquals(ImageEditService.ReadEditParameters(path).ToneCurves));
@@ -142,6 +236,35 @@ public sealed class ToneCurveTests
             var output = (await decoder.GetPixelDataAsync()).DetachPixelData();
             Assert.True(output[2] + 30 < output[1]);
             Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        }
+        finally { Directory.Delete(folder, recursive: true); }
+    }
+
+    [Fact]
+    public async Task RasterRenderingUsesTheSplineRatherThanStraightSegments()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"curve-spline-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var path = Path.Combine(folder, "photo.png");
+            var pixels = Enumerable.Repeat(new byte[] { 64, 64, 64, 255 }, 64).SelectMany(x => x).ToArray();
+            await RenderQualityFixtures.WriteImageAsync(path, 8, 8, pixels);
+            var recipe = new EditParameters
+            {
+                ToneCurves = new() { Red = [new(0, 0), new(.5, .2), new(1, 1)] }
+            };
+            var rendered = await ImageEditRenderer.RenderToPixelsAsync(path, recipe);
+            var splineRed = 255 * ToneCurves.Evaluate(recipe.ToneCurves.Red, 64 / 255d);
+            var linearRed = 64 * .4;
+            Assert.True(Math.Abs(splineRed - linearRed) > 3);
+            for (var offset = 0; offset < rendered.Pixels.Length; offset += 4)
+            {
+                Assert.InRange(Math.Abs(rendered.Pixels[offset + 2] - splineRed), 0, 1);
+                Assert.Equal(64, rendered.Pixels[offset]);
+                Assert.Equal(64, rendered.Pixels[offset + 1]);
+                Assert.Equal(255, rendered.Pixels[offset + 3]);
+            }
         }
         finally { Directory.Delete(folder, recursive: true); }
     }

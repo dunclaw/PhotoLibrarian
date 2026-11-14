@@ -134,7 +134,8 @@ public sealed partial class ImageEditorView : UserControl
         var isEditingControl = false;
         for (var current = focused; current is not null; current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current))
         {
-            if (current is Slider or TextBox or PasswordBox or AutoSuggestBox or ComboBox or NumberBox or ContentDialog or GridView)
+            if (current == CurveCanvas ||
+                current is Slider or TextBox or PasswordBox or AutoSuggestBox or ComboBox or NumberBox or ContentDialog or GridView)
             {
                 isEditingControl = true;
                 break;

@@ -118,10 +118,15 @@ first and edit that copy. RAW sensor bytes are never changed.
 
 ### Tone curves
 
-The raster Adjust panel offers RGB, red, green and blue point curves. Click or
-drag points on the graph, or use Add point and the point input/output fields.
-Points are constrained to a monotone curve; Reset curve resets the selected
-channel, and the main Reset resets all channels. The graph overlays the editor's
+The raster Adjust panel offers RGB, red, green and blue monotone cubic splines.
+Levels and the adjacent Tone curve section both start collapsed. Expand Tone
+curve and click the graph to add or select a point; drag to adjust it, or release
+it near another point or either endpoint to remove it. Endpoints
+cannot be removed. The curve stays smooth and monotone without overshooting its
+points. Reset in the curve section resets the selected channel, and the main
+Reset resets all channels. With the graph focused, Page Up/Down selects points,
+arrows adjust, Insert adds and Delete removes an interior point.
+The graph overlays the editor's
 approximate live histogram, sampled on large images. Curves operate on display-referred raster RGB after
 levels, before sharpening and effects. The RGB curve is applied before the
 individual channels. Curve edits participate in gesture undo and shared saved

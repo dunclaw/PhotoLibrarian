@@ -7,7 +7,7 @@ public readonly record struct ToneCurvePoint(
     [property: JsonRequired] double X,
     [property: JsonRequired] double Y);
 
-/// <summary>Four monotone, piecewise-linear curves in normalized display-referred RGB.</summary>
+/// <summary>Four monotone cubic Hermite splines in normalized display-referred RGB.</summary>
 public sealed class ToneCurves
 {
     [JsonRequired] public List<ToneCurvePoint> Rgb { get; set; } = Identity();
@@ -66,6 +66,31 @@ public sealed class ToneCurves
         while (index < points.Count - 1 && x > points[index].X) index++;
         var left = points[index - 1];
         var right = points[index];
-        return left.Y + (right.Y - left.Y) * (x - left.X) / (right.X - left.X);
+        var width = right.X - left.X;
+        var t = (x - left.X) / width;
+        var rise = right.Y - left.Y;
+        if (rise == 0) return left.Y;
+
+        var leftTangent = index == 1 ? rise : ScaledTangent(points, index - 1, width);
+        var rightTangent = index == points.Count - 1 ? rise : ScaledTangent(points, index, width);
+        var t2 = t * t;
+        var t3 = t2 * t;
+        var value = left.Y + rise * (3 * t2 - 2 * t3) +
+            leftTangent * (t3 - 2 * t2 + t) + rightTangent * (t3 - t2);
+        return Math.Clamp(value, left.Y, right.Y);
+    }
+
+    private static double ScaledTangent(IReadOnlyList<ToneCurvePoint> points, int index, double width)
+    {
+        var leftRise = points[index].Y - points[index - 1].Y;
+        var rightRise = points[index + 1].Y - points[index].Y;
+        if (leftRise == 0 || rightRise == 0) return 0;
+
+        // The harmonic mean limits each knot slope to twice either neighboring secant,
+        // preserving monotonicity without corners. Scale before dividing to avoid huge slopes
+        // when input coordinates are very close together.
+        var leftWidth = (points[index].X - points[index - 1].X) / width;
+        var rightWidth = (points[index + 1].X - points[index].X) / width;
+        return 2 / (leftWidth / leftRise + rightWidth / rightRise);
     }
 }
