@@ -1,8 +1,10 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices.WindowsRuntime;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using Windows.Foundation;
 using Windows.Graphics.Imaging;
+using XmpCore;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
@@ -56,7 +58,13 @@ public sealed class ImageExportTests : IDisposable
     {
         var source = await CreateImageAsync("portrait.jpg", orientation: 6, metadata: true);
         var original = await File.ReadAllBytesAsync(source, TestContext.Current.CancellationToken);
-        await File.WriteAllTextAsync(source + ".xmp", "private sidecar", TestContext.Current.CancellationToken);
+        var sidecar = XmpMetaFactory.Create();
+        sidecar.SetProperty("http://ns.adobe.com/xap/1.0/", "xmp:CreatorTool", "private sidecar");
+        var sidecarPacket = XmpMetaFactory.SerializeToString(
+            sidecar, new XmpCore.Options.SerializeOptions());
+        await File.WriteAllTextAsync(source + ".xmp", sidecarPacket, TestContext.Current.CancellationToken);
+        var originalSidecar = await File.ReadAllBytesAsync(
+            source + ".xmp", TestContext.Current.CancellationToken);
 
         var result = await ImageExportService.ExportAsync(
             [source], _directory, new() { Size = 32, StripMetadata = stripMetadata },
@@ -89,6 +97,8 @@ public sealed class ImageExportTests : IDisposable
             Assert.NotNull(properties["System.Photo.DateTaken"].Value);
         }
         Assert.Equal(original, await File.ReadAllBytesAsync(source, TestContext.Current.CancellationToken));
+        Assert.Equal(originalSidecar, await File.ReadAllBytesAsync(
+            source + ".xmp", TestContext.Current.CancellationToken));
         Assert.False(File.Exists(output + ".xmp"));
         Assert.False(File.Exists(Path.ChangeExtension(output, ".xmp")));
         AssertNoStagingFiles();

@@ -6,6 +6,7 @@ using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics.Imaging;
+using XmpCore;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
@@ -80,7 +81,13 @@ public sealed class PhotoShareTests : IDisposable
         var selection = new[] { first, second, first.ToUpperInvariant() };
         var originalSelection = selection.ToArray();
         var original = await File.ReadAllBytesAsync(first, TestContext.Current.CancellationToken);
-        await File.WriteAllTextAsync(first + ".xmp", "untouched sidecar", TestContext.Current.CancellationToken);
+        var sidecar = XmpMetaFactory.Create();
+        sidecar.SetProperty("http://ns.adobe.com/xap/1.0/", "xmp:CreatorTool", "untouched sidecar");
+        var sidecarPacket = XmpMetaFactory.SerializeToString(
+            sidecar, new XmpCore.Options.SerializeOptions());
+        await File.WriteAllTextAsync(first + ".xmp", sidecarPacket, TestContext.Current.CancellationToken);
+        var originalSidecar = await File.ReadAllBytesAsync(
+            first + ".xmp", TestContext.Current.CancellationToken);
         string folder;
         using (var prepared = await Service.PrepareAsync(selection, cancellationToken: TestContext.Current.CancellationToken))
         {
@@ -94,7 +101,8 @@ public sealed class PhotoShareTests : IDisposable
             await AssertJpegAsync(prepared.Result.ExportedPaths[1], 40, 20);
             Assert.Equal(originalSelection, selection);
             Assert.Equal(original, await File.ReadAllBytesAsync(first, TestContext.Current.CancellationToken));
-            Assert.Equal("untouched sidecar", await File.ReadAllTextAsync(first + ".xmp", TestContext.Current.CancellationToken));
+            Assert.Equal(originalSidecar, await File.ReadAllBytesAsync(
+                first + ".xmp", TestContext.Current.CancellationToken));
             Assert.Empty(Directory.GetFiles(folder, "*.xmp"));
         }
         Assert.False(Directory.Exists(folder));

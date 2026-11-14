@@ -20,7 +20,8 @@ public static class EditParametersSerializer
         "Temperature", "Tint", "Effect", "Clarity", "Sharpness", "NoiseReduction",
         "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
         "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
-        "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1"
+        "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1",
+        "ToneCurveVersion", "ToneCurvesV1"
     ];
 
     public static bool HasEditProperties(IXmpMeta xmp, bool includeRawParameters = true) =>

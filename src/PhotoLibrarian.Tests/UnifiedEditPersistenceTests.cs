@@ -13,14 +13,14 @@ public sealed class UnifiedEditPersistenceTests
     {
         await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
         var photo = await library.AddPhotoAsync("curve.png");
-        var original = await File.ReadAllBytesAsync(photo.FilePath);
+        var originalPixels = await RenderQualityFixtures.ReadPngPixelsAsync(photo.FilePath);
         var main = library.Main;
         await main.ImageEditor.OpenForEditAsync(photo);
         var curves = new ToneCurves { Blue = [new(0, 0), new(.5, .25), new(1, 1)] };
         main.ImageEditor.SetToneCurves(curves);
         Assert.True(await main.ImageEditor.SaveAsync((_, _) =>
             throw new InvalidOperationException("Curve save must not bake pixels.")), main.StatusText);
-        Assert.Equal(original, await File.ReadAllBytesAsync(photo.FilePath));
+        Assert.Equal(originalPixels, await RenderQualityFixtures.ReadPngPixelsAsync(photo.FilePath));
         Assert.True(curves.ContentEquals(ImageEditService.ReadEditParameters(photo.FilePath).ToneCurves));
         Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.UndoAsync()).Status);
         Assert.True(ImageEditService.ReadEditParameters(photo.FilePath).ToneCurves.IsIdentity);

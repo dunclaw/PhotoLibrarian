@@ -148,15 +148,15 @@ public sealed class ToneCurveTests
     }
 
     [Fact]
-    public async Task CurveGesturesAreUndoableAndSaveAsSidecarWithoutChangingPhoto()
+    public async Task CurveGesturesAreUndoableAndSaveEmbeddedWithoutChangingPixels()
     {
         var folder = Path.Combine(Path.GetTempPath(), $"curve-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(folder);
         try
         {
             var path = Path.Combine(folder, "photo.jpg");
-            byte[] original = [1, 2, 3];
-            await File.WriteAllBytesAsync(path, original);
+            await WicTestImage.CreateAsync(path, 16, 12, jpeg: true);
+            var originalPixels = await ReadPixelsAsync(path);
             var vm = new ImageEditorViewModel(new OriginalBackupService(Path.Combine(folder, "backups")));
             await vm.OpenForEditAsync(new ImageEntry { FilePath = path, FileName = "photo.jpg" });
             vm.BeginEdit("Tone curve");
@@ -181,12 +181,12 @@ public sealed class ToneCurveTests
             Assert.Single(vm.UndoHistory);
             Assert.True(curves.ContentEquals(vm.GetCurrentParameters().ToneCurves));
             Assert.True(await vm.SaveAsync((_, _) => throw new InvalidOperationException("Must not bake")));
-            Assert.Equal(original, await File.ReadAllBytesAsync(path));
+            Assert.Equal(originalPixels, await ReadPixelsAsync(path));
             Assert.True(curves.ContentEquals(ImageEditService.ReadEditParameters(path).ToneCurves));
             vm.ResetAllCommand.Execute(null);
             Assert.True(await vm.SaveAsync((_, _) => throw new InvalidOperationException("Must not bake")));
             Assert.True(ImageEditService.ReadEditParameters(path).ToneCurves.IsIdentity);
-            Assert.Equal(original, await File.ReadAllBytesAsync(path));
+            Assert.Equal(originalPixels, await ReadPixelsAsync(path));
         }
         finally { Directory.Delete(folder, recursive: true); }
     }
@@ -214,7 +214,7 @@ public sealed class ToneCurveTests
             var path = Path.Combine(folder, "photo.png");
             var pixels = Enumerable.Repeat(new byte[] { 128, 128, 128, 255 }, 64).SelectMany(x => x).ToArray();
             await RenderQualityFixtures.WriteImageAsync(path, 8, 8, pixels);
-            var original = await File.ReadAllBytesAsync(path);
+            var originalPixels = await RenderQualityFixtures.ReadPngPixelsAsync(path);
             var recipe = new EditParameters
             {
                 ToneCurves = new() { Red = [new(0, 0), new(.5, .1), new(1, 1)] }
@@ -235,7 +235,7 @@ public sealed class ToneCurveTests
             var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
             var output = (await decoder.GetPixelDataAsync()).DetachPixelData();
             Assert.True(output[2] + 30 < output[1]);
-            Assert.Equal(original, await File.ReadAllBytesAsync(path));
+            Assert.Equal(originalPixels, await RenderQualityFixtures.ReadPngPixelsAsync(path));
         }
         finally { Directory.Delete(folder, recursive: true); }
     }
@@ -267,5 +267,12 @@ public sealed class ToneCurveTests
             }
         }
         finally { Directory.Delete(folder, recursive: true); }
+    }
+
+    private static async Task<byte[]> ReadPixelsAsync(string path)
+    {
+        await using var file = File.OpenRead(path);
+        var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
+        return (await decoder.GetPixelDataAsync()).DetachPixelData();
     }
 }
