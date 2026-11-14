@@ -123,18 +123,6 @@
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            TextWrapping="Wrap" />
 
-                                <ComboBox x:Name="ColorLabelCombo"
-                                          Header="Color label"
-                                          AutomationProperties.AutomationId="FilterColorLabel"
-                                          AutomationProperties.Name="Color label filter"
-                                          SelectedIndex="0">
-                                    <ComboBoxItem Content="Any label" Tag="" />
-                                    <ComboBoxItem Content="Red" Tag="Red" />
-                                    <ComboBoxItem Content="Yellow" Tag="Yellow" />
-                                    <ComboBoxItem Content="Green" Tag="Green" />
-                                    <ComboBoxItem Content="Blue" Tag="Blue" />
-                                </ComboBox>
-
                                 <Grid ColumnSpacing="8" RowSpacing="8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="112" />
@@ -220,6 +208,7 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
                                     <TextBlock Text="Include tags"
@@ -271,10 +260,27 @@
                                     </ComboBox>
 
                                     <TextBlock Grid.Row="4"
+                                               Text="Color label"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <ComboBox x:Name="ColorLabelCombo"
+                                              AutomationProperties.AutomationId="FilterColorLabel"
+                                              AutomationProperties.Name="Color label filter"
+                                              Grid.Row="4"
+                                              Grid.Column="1"
+                                              SelectedIndex="0">
+                                        <ComboBoxItem Content="Any label" Tag="" />
+                                        <ComboBoxItem Content="Red" Tag="Red" />
+                                        <ComboBoxItem Content="Yellow" Tag="Yellow" />
+                                        <ComboBoxItem Content="Green" Tag="Green" />
+                                        <ComboBoxItem Content="Blue" Tag="Blue" />
+                                    </ComboBox>
+
+                                    <TextBlock Grid.Row="5"
                                                Text="Media"
                                                VerticalAlignment="Center"
                                                Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                    <StackPanel Grid.Row="4"
+                                    <StackPanel Grid.Row="5"
                                                 Grid.Column="1"
                                                 Orientation="Horizontal"
                                                 Spacing="8">
@@ -294,14 +300,14 @@
                                                  PlaceholderText="JPG, RAW, MP4" />
                                     </StackPanel>
 
-                                    <TextBlock Grid.Row="5"
+                                    <TextBlock Grid.Row="6"
                                                Text="Missing"
                                                VerticalAlignment="Center"
                                                Style="{StaticResource BodyStrongTextBlockStyle}" />
                                     <ComboBox x:Name="MissingMetadataCombo"
                                               AutomationProperties.AutomationId="FilterMissingMetadata"
                                               AutomationProperties.Name="Missing metadata"
-                                              Grid.Row="5"
+                                              Grid.Row="6"
                                               Grid.Column="1"
                                               SelectedIndex="0">
                                         <ComboBoxItem Content="Any metadata" Tag="None" />

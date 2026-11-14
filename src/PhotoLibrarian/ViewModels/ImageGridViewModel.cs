@@ -76,6 +76,7 @@ public partial class ImageGridViewModel : ObservableObject
     private List<string>? _currentTagFilters;
     private bool _currentFlaggedSelected; // "Flagged" node selected (show flagged working set)
     private bool _currentNotTaggedSelected;
+    private List<string>? _currentColorLabelFilters;
     private string _searchText = "";
     private IReadOnlyList<ImageEntry> _searchScope = [];
     private int _groupingVersion;
@@ -336,6 +337,7 @@ public partial class ImageGridViewModel : ObservableObject
         // If no filters active, show nothing
         if (!hasFolderFilter && !hasDateFilter && !hasPeopleFilter &&
             !hasTagFilter && !hasFlagFilter && !_currentNotTaggedSelected &&
+            (_currentColorLabelFilters is null || _currentColorLabelFilters.Count == 0) &&
             _revealedExportPath is null && _revealedImportedPaths.Count == 0)
         {
             _searchScope = [];
@@ -365,7 +367,7 @@ public partial class ImageGridViewModel : ObservableObject
         DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {allImages.Count}, FolderFilters: {folderFilters?.Count ?? 0}, DateFilters: {hasDateFilter}, TagFilters: {hasTagFilter}");
         DebugLog.WriteLine(
             "  UNION logic: Show images matching ANY filter " +
-            "(folder OR date OR people OR tag OR flag OR not tagged)");
+            "(folder OR date OR people OR tag OR flag OR not tagged OR color label)");
 
         int matchCount = 0;
         int skipCount = 0;
@@ -440,7 +442,7 @@ public partial class ImageGridViewModel : ObservableObject
             personIdsByImageId?.TryGetValue(img.Id, out imagePersonIds);
 
             if (MatchesNavigationAndRefinement(img, matchesAnyFilter,
-                _currentNotTaggedSelected, Refinement, imageTags, imagePersonIds))
+                _currentNotTaggedSelected, Refinement, imageTags, imagePersonIds, _currentColorLabelFilters))
             {
                 searchScope.Add(img);
                 matchCount++;
@@ -1062,10 +1064,13 @@ public partial class ImageGridViewModel : ObservableObject
         bool notTaggedSelected,
         ImageRefinementFilter refinement,
         IReadOnlyCollection<string>? tags,
-        IReadOnlyCollection<long>? personIds = null)
+        IReadOnlyCollection<long>? personIds = null,
+        IReadOnlyCollection<string>? colorLabels = null)
     {
         bool matchesNavigation = matchesOtherNavigation ||
-            (notTaggedSelected && ImageRefinementFilter.IsUntagged(tags));
+            (notTaggedSelected && ImageRefinementFilter.IsUntagged(tags)) ||
+            (image.ColorLabel is not null &&
+             colorLabels?.Contains(image.ColorLabel, StringComparer.OrdinalIgnoreCase) == true);
         return matchesNavigation && refinement.Matches(image, tags, personIds);
     }
 
@@ -1079,7 +1084,8 @@ public partial class ImageGridViewModel : ObservableObject
         bool tagRootSelected,
         List<string>? tags,
         bool flaggedSelected = false,
-        bool notTaggedSelected = false)
+        bool notTaggedSelected = false,
+        List<string>? colorLabels = null)
     {
         _revealedExportPath = null;
         _revealedImportedPaths.Clear();
@@ -1099,6 +1105,7 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagFilters = tags;
         _currentFlaggedSelected = flaggedSelected;
         _currentNotTaggedSelected = notTaggedSelected;
+        _currentColorLabelFilters = colorLabels;
         
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
         await LoadImagesAsync();
@@ -1189,7 +1196,8 @@ public partial class ImageGridViewModel : ObservableObject
                 string.Equals(image.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
             if (item is null)
             {
-                requiresReload |= Refinement.ColorLabel is not null;
+                requiresReload |= Refinement.ColorLabel is not null ||
+                    (_currentColorLabelFilters is not null && _currentColorLabelFilters.Count > 0);
                 continue;
             }
 
@@ -1228,7 +1236,8 @@ public partial class ImageGridViewModel : ObservableObject
 
         return (Refinement.Rating.HasValue || missing.HasFlag(MissingMetadataFilter.Rating)) &&
                    ratingChanged ||
-               Refinement.ColorLabel is not null &&
+               (Refinement.ColorLabel is not null ||
+                (_currentColorLabelFilters is not null && _currentColorLabelFilters.Count > 0)) &&
                    !string.Equals(previous.ColorLabel, current.ColorLabel, StringComparison.OrdinalIgnoreCase) ||
                (_currentFlaggedSelected || Refinement.Flag != FlagFilterMode.Any) &&
                    previous.IsFlagged != current.IsFlagged ||
@@ -1615,6 +1624,7 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagFilters = null;
         _currentFlaggedSelected = false;
         _currentNotTaggedSelected = false;
+        _currentColorLabelFilters = null;
         _searchScope = [];
         Refinement = ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));

@@ -50,6 +50,8 @@ public static class EmbeddedMetadataWriter
     private const string FlagQueryPath = "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:Flagged";
     private const string TagMetadataQueryPath =
         "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:TagMetadata";
+    private const string ColorLabelQueryPath =
+        "/xmp/{wstr=http://ns.adobe.com/xap/1.0/}:Label";
 
     /// <summary>Returns true if the file format supports in-place metadata writing.</summary>
     public static bool IsSupported(string filePath)
@@ -69,7 +71,8 @@ public static class EmbeddedMetadataWriter
         DateTime? dateTaken = null,
         ushort? orientation = null,
         bool? flagged = null,
-        string? photoTagMetadata = null)
+        string? photoTagMetadata = null,
+        string? colorLabel = null)
     {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
@@ -81,7 +84,9 @@ public static class EmbeddedMetadataWriter
             dateTaken,
             orientation,
             flagged,
-            photoTagMetadata);
+            photoTagMetadata,
+            colorLabel,
+            Path.GetExtension(filePath));
         if (props.Count == 0) return;
 
         await WritePropertiesAsync(filePath, props);
@@ -188,7 +193,8 @@ public static class EmbeddedMetadataWriter
 
     private static BitmapPropertySet BuildPropertySet(
         int? rating, string? title, IReadOnlyList<string>? keywords, DateTime? dateTaken,
-        ushort? orientation = null, bool? flagged = null, string? photoTagMetadata = null)
+        ushort? orientation = null, bool? flagged = null, string? photoTagMetadata = null,
+        string? colorLabel = null, string? extension = null)
     {
         var props = new BitmapPropertySet();
 
@@ -248,6 +254,17 @@ public static class EmbeddedMetadataWriter
         {
             props.Add(TagMetadataQueryPath,
                 new BitmapTypedValue(photoTagMetadata, Windows.Foundation.PropertyType.String));
+        }
+
+        if (colorLabel is not null)
+        {
+            var path = extension is not null &&
+                (extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
+                 extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
+                ? "/ifd" + ColorLabelQueryPath
+                : ColorLabelQueryPath;
+            props.Add(path,
+                new BitmapTypedValue(colorLabel, Windows.Foundation.PropertyType.String));
         }
 
         return props;

@@ -231,6 +231,23 @@ public sealed class NotTaggedNavigationTests : IAsyncLifetime
             (string?)element.Attribute(xaml + "Name") == "TagsTree");
     }
 
+    [Fact]
+    public void ColorLabelsTree_IsMultiSelectAndUsesStableKeys()
+    {
+        var document = XDocument.Load(Path.Combine(
+            AppContext.BaseDirectory, "TestAssets", "FolderNavigationPanel.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var tree = Assert.Single(document.Descendants().Where(
+            element => (string?)element.Attribute(xaml + "Name") == "ColorLabelsTree"));
+        Assert.Equal("Multiple", (string?)tree.Attribute("SelectionMode"));
+        Assert.Equal("ColorLabelsTree", (string?)tree.Attribute("AutomationProperties.AutomationId"));
+        var item = new ColorLabelNavigationItem("Red");
+        var state = new NavigationPaneState();
+        state.SetNode("ColorLabelsTree", item.NodeKey, new(false, true));
+        item.Count = 10;
+        Assert.Equal(new NavigationNodeState(false, true), state.GetNode("ColorLabelsTree", item.NodeKey));
+    }
+
     private async Task<ImageEntry> AddImageAsync(string fileName, MediaType mediaType = MediaType.Image)
     {
         var image = new ImageEntry

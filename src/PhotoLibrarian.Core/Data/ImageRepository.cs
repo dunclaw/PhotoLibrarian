@@ -342,6 +342,20 @@ public sealed partial class ImageRepository
         return Convert.ToInt32(result);
     }
 
+    public async Task<Dictionary<string, int>> GetColorLabelCountsAsync(bool watchedOnly = false)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = watchedOnly
+            ? "SELECT color_label, COUNT(*) FROM watched_images WHERE color_label IS NOT NULL GROUP BY color_label COLLATE NOCASE"
+            : "SELECT color_label, COUNT(*) FROM images WHERE color_label IS NOT NULL GROUP BY color_label COLLATE NOCASE";
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            counts[reader.GetString(0)] = reader.GetInt32(1);
+        return counts;
+    }
+
     public async Task UpdateDateTakenAsync(long imageId, DateTime? dateTaken)
     {
         using var conn = _db.CreateConnection();

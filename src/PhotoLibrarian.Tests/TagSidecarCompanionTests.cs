@@ -45,16 +45,14 @@ public sealed class TagSidecarCompanionTests : IDisposable
         var raw = Path.Combine(_directory, "labels.cr3");
         await WicTestImage.CreateAsync(jpeg, 32, 32, jpeg: true);
         await File.WriteAllBytesAsync(raw, [1, 2, 3]);
-        var original = await File.ReadAllBytesAsync(jpeg);
         await MetadataWriterService.WriteColorLabelAsync(raw, "Purple");
         await MetadataWriterService.WriteColorLabelAsync(jpeg, "Red");
 
         var reader = new MetadataReaderService();
         Assert.Equal("Purple", reader.ReadMetadata(raw).ColorLabel);
         Assert.Equal("Red", reader.ReadMetadata(jpeg).ColorLabel);
-        Assert.Equal(original, await File.ReadAllBytesAsync(jpeg));
         Assert.Equal(Path.ChangeExtension(raw, ".xmp"), MetadataSidecarLocator.ResolveReadPath(raw, MetadataSidecarLocator.OwnsColorLabel));
-        Assert.Equal(jpeg + ".xmp", MetadataSidecarLocator.ResolveReadPath(jpeg, MetadataSidecarLocator.OwnsColorLabel));
+        Assert.False(File.Exists(jpeg + ".xmp"));
 
         using var library = await TestLibrary.CreateAsync(Path.Combine(_directory, "labels.db"));
         await library.Indexer.IndexFileAsync(raw);
@@ -68,7 +66,7 @@ public sealed class TagSidecarCompanionTests : IDisposable
     }
 
     [Fact]
-    public async Task ClearingLabelOverridesEmbeddedValueWithoutChangingImage()
+    public async Task ClearingLabelUpdatesEmbeddedValueWithoutCreatingSidecar()
     {
         var jpeg = Path.Combine(_directory, "embedded.jpg");
         await WicTestImage.CreateAsync(jpeg, 32, 32, jpeg: true);
@@ -83,12 +81,51 @@ public sealed class TagSidecarCompanionTests : IDisposable
         var length = payload.Length + 2;
         var segment = new byte[] { 0xFF, 0xE1, (byte)(length >> 8), (byte)length };
         await File.WriteAllBytesAsync(jpeg, image[..2].Concat(segment).Concat(payload).Concat(image[2..]).ToArray());
-        var original = await File.ReadAllBytesAsync(jpeg);
         var reader = new MetadataReaderService();
         Assert.Equal("Purple", reader.ReadMetadata(jpeg).ColorLabel);
         await MetadataWriterService.WriteColorLabelAsync(jpeg, null);
         Assert.True(string.IsNullOrEmpty(reader.ReadMetadata(jpeg).ColorLabel));
+        Assert.False(File.Exists(jpeg + ".xmp"));
+        Assert.False(File.Exists(Path.ChangeExtension(jpeg, ".xmp")));
+    }
+
+    [Fact]
+    public async Task EmbeddedLabelReplacesStaleSidecarLabelsWithoutRemovingOtherMetadata()
+    {
+        var jpeg = Path.Combine(_directory, "old-label.jpg");
+        await WicTestImage.CreateAsync(jpeg, 32, 32, jpeg: true);
+        const string packet = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+              xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmp:Label="Purple" crs:Exposure2012="+0.50"/>
+            </rdf:RDF></x:xmpmeta>
+            """;
+        var legacy = Path.ChangeExtension(jpeg, ".xmp");
+        var qualified = jpeg + ".xmp";
+        await File.WriteAllTextAsync(legacy, packet);
+        await File.WriteAllTextAsync(qualified, packet);
+
+        await MetadataWriterService.WriteColorLabelAsync(jpeg, "Green");
+
+        Assert.Equal("Green", new MetadataReaderService().ReadMetadata(jpeg).ColorLabel);
+        foreach (var path in new[] { legacy, qualified })
+        {
+            var xmp = XmpCore.XmpMetaFactory.ParseFromString(await File.ReadAllTextAsync(path));
+            Assert.False(MetadataSidecarLocator.OwnsColorLabel(xmp));
+            Assert.Equal("+0.50", xmp.GetPropertyString("http://ns.adobe.com/camera-raw-settings/1.0/", "Exposure2012"));
+        }
+    }
+
+    [Fact]
+    public async Task SupportedFormatWriteFailureDoesNotCreateSidecar()
+    {
+        var jpeg = Path.Combine(_directory, "broken.jpg");
+        await CreateMalformedXmpJpegAsync(jpeg);
+        var original = await File.ReadAllBytesAsync(jpeg);
+        await Assert.ThrowsAnyAsync<Exception>(() => MetadataWriterService.WriteColorLabelAsync(jpeg, "Red"));
         Assert.Equal(original, await File.ReadAllBytesAsync(jpeg));
+        Assert.False(File.Exists(jpeg + ".xmp"));
+        Assert.False(File.Exists(Path.ChangeExtension(jpeg, ".xmp")));
     }
 
     [Fact]

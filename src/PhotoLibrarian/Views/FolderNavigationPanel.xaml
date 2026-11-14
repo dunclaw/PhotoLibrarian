@@ -110,6 +110,24 @@
                     </TreeView>
                 </StackPanel>
 
+                <StackPanel>
+                    <TextBlock Text="Color labels" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TreeView x:Name="ColorLabelsTree"
+                              AutomationProperties.AutomationId="ColorLabelsTree"
+                              AutomationProperties.Name="Color labels"
+                              SelectionMode="Multiple"
+                              ItemInvoked="OnFlagsItemInvoked"
+                              SelectionChanged="OnFlagsSelectionChanged">
+                        <TreeView.ItemTemplate>
+                            <DataTemplate x:DataType="TreeViewNode">
+                                <TreeViewItem>
+                                    <TextBlock Text="{Binding Content.Label, Mode=OneWay}" />
+                                </TreeViewItem>
+                            </DataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </StackPanel>
+
             </StackPanel>
         </ScrollViewer>
     </Grid>
