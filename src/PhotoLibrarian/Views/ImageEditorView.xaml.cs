@@ -37,6 +37,7 @@ public sealed partial class ImageEditorView : UserControl
     private Vector2 _lastPanPoint;
     private readonly Dictionary<Slider, (double Neutral, double Threshold)> _sliderSnaps = new();
     private Slider? _draggedSlider;
+    private ColorPicker? _draggedColorPicker;
     private readonly RawPreviewSession _rawPreview = new();
     private CancellationTokenSource? _previewRequest;
     private bool _exportingRaw;
@@ -1003,7 +1004,10 @@ public sealed partial class ImageEditorView : UserControl
             SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, SharpnessSlider,
             NoiseReductionSlider, UnsharpMaskAmountSlider, UnsharpMaskRadiusSlider,
             UnsharpMaskThresholdSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider,
-            RotationSlider, RawExposureSlider, RawWhitePointSlider
+            RotationSlider, RawExposureSlider, RawWhitePointSlider,
+            ColorMixerHueSlider, ColorMixerSaturationSlider, ColorMixerLuminanceSlider,
+            ShadowAmountSlider, MidtoneAmountSlider, HighlightAmountSlider,
+            ColorGradingBlendingSlider, ColorGradingBalanceSlider
         ];
         foreach (var slider in sliders)
         {
@@ -1026,6 +1030,27 @@ public sealed partial class ImageEditorView : UserControl
             slider.AddHandler(PointerCanceledEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
             slider.AddHandler(PointerCaptureLostEvent, new PointerEventHandler((_, _) => EndSliderDrag(slider)), true);
         }
+
+        ColorPicker[] colorPickers = [ShadowColorPicker, MidtoneColorPicker, HighlightColorPicker];
+        foreach (var picker in colorPickers)
+        {
+            picker.AddHandler(PointerPressedEvent, new PointerEventHandler((_, _) =>
+            {
+                _draggedColorPicker = picker;
+                ViewModel?.BeginEdit(picker == ShadowColorPicker ? "Shadow grading" :
+                    picker == MidtoneColorPicker ? "Midtone grading" : "Highlight grading");
+            }), true);
+            picker.AddHandler(PointerReleasedEvent, new PointerEventHandler((_, _) => EndColorPickerDrag(picker)), true);
+            picker.AddHandler(PointerCanceledEvent, new PointerEventHandler((_, _) => EndColorPickerDrag(picker)), true);
+            picker.AddHandler(PointerCaptureLostEvent, new PointerEventHandler((_, _) => EndColorPickerDrag(picker)), true);
+        }
+    }
+
+    private void EndColorPickerDrag(ColorPicker picker)
+    {
+        if (_draggedColorPicker != picker) return;
+        _draggedColorPicker = null;
+        ViewModel?.EndEdit();
     }
 
     private void EndSliderDrag(Slider slider)
@@ -1071,6 +1096,101 @@ public sealed partial class ImageEditorView : UserControl
         ViewModel.Midtones = MidtonesSlider.Value;
         ViewModel.RotationAngle = RotationSlider.Value;
         HistogramCanvas.Invalidate();
+    }
+
+    private void OnColorMixerBandChanged(object sender, SelectionChangedEventArgs e) =>
+        SyncColorAdjustmentsFromViewModel();
+
+    private void OnColorAdjustmentSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_suppressSliderEvents || ViewModel is null) return;
+        var adjustments = ViewModel.GetCurrentParameters().ColorAdjustments;
+        var label = "Color grading";
+        if (ReferenceEquals(sender, ColorMixerHueSlider) || ReferenceEquals(sender, ColorMixerSaturationSlider) ||
+            ReferenceEquals(sender, ColorMixerLuminanceSlider))
+        {
+            if (ColorMixerBand.SelectedIndex is < 0 or >= ColorAdjustments.MixerBandCount) return;
+            var band = adjustments.MixerBands[ColorMixerBand.SelectedIndex];
+            if (ReferenceEquals(sender, ColorMixerHueSlider)) band.HueShiftDegrees = e.NewValue;
+            else if (ReferenceEquals(sender, ColorMixerSaturationSlider)) band.Saturation = e.NewValue;
+            else band.Luminance = e.NewValue;
+            label = "Color mixer";
+        }
+        else if (ReferenceEquals(sender, ShadowAmountSlider)) adjustments.Shadows.Amount = e.NewValue;
+        else if (ReferenceEquals(sender, MidtoneAmountSlider)) adjustments.Midtones.Amount = e.NewValue;
+        else if (ReferenceEquals(sender, HighlightAmountSlider)) adjustments.Highlights.Amount = e.NewValue;
+        else if (ReferenceEquals(sender, ColorGradingBlendingSlider)) adjustments.Blending = e.NewValue;
+        else if (ReferenceEquals(sender, ColorGradingBalanceSlider)) adjustments.Balance = e.NewValue;
+        else return;
+
+        ViewModel.SetColorAdjustments(adjustments, label);
+    }
+
+    private void OnShadowColorChanged(ColorPicker sender, ColorChangedEventArgs args) =>
+        OnColorWheelChanged(sender, args);
+
+    private void OnMidtoneColorChanged(ColorPicker sender, ColorChangedEventArgs args) =>
+        OnColorWheelChanged(sender, args);
+
+    private void OnHighlightColorChanged(ColorPicker sender, ColorChangedEventArgs args) =>
+        OnColorWheelChanged(sender, args);
+
+    private void OnColorWheelChanged(ColorPicker sender, ColorChangedEventArgs args)
+    {
+        if (_suppressSliderEvents || ViewModel is null) return;
+        var adjustments = ViewModel.GetCurrentParameters().ColorAdjustments;
+        var wheel = sender == ShadowColorPicker ? adjustments.Shadows :
+            sender == MidtoneColorPicker ? adjustments.Midtones :
+            sender == HighlightColorPicker ? adjustments.Highlights : null;
+        if (wheel is null) return;
+
+        SetWheelColor(wheel, args.NewColor);
+        ViewModel.SetColorAdjustments(adjustments, sender == ShadowColorPicker ? "Shadow grading" :
+            sender == MidtoneColorPicker ? "Midtone grading" : "Highlight grading");
+    }
+
+    private static void SetWheelColor(ColorGradingWheel wheel, Windows.UI.Color color)
+    {
+        var red = color.R / 255.0;
+        var green = color.G / 255.0;
+        var blue = color.B / 255.0;
+        var maximum = Math.Max(red, Math.Max(green, blue));
+        var minimum = Math.Min(red, Math.Min(green, blue));
+        var delta = maximum - minimum;
+        if (delta > 0)
+        {
+            var hue = maximum == red
+                ? 60 * (((green - blue) / delta) % 6)
+                : maximum == green
+                    ? 60 * ((blue - red) / delta + 2)
+                    : 60 * ((red - green) / delta + 4);
+            if (hue < 0) hue += 360;
+            wheel.HueDegrees = hue > 180 ? hue - 360 : hue;
+            wheel.Amount = maximum == 0 ? 0 : delta / maximum;
+        }
+        else
+            wheel.Amount = 0;
+    }
+
+    private static Windows.UI.Color ToWheelColor(ColorGradingWheel wheel)
+    {
+        var hue = (wheel.HueDegrees + 360) % 360;
+        var chroma = wheel.Amount;
+        var x = chroma * (1 - Math.Abs(hue / 60 % 2 - 1));
+        var (red, green, blue) = hue switch
+        {
+            < 60 => (chroma, x, 0d),
+            < 120 => (x, chroma, 0d),
+            < 180 => (0d, chroma, x),
+            < 240 => (0d, x, chroma),
+            < 300 => (x, 0d, chroma),
+            _ => (chroma, 0d, x)
+        };
+        var match = 1 - chroma;
+        return Windows.UI.Color.FromArgb(255,
+            (byte)Math.Round((red + match) * 255),
+            (byte)Math.Round((green + match) * 255),
+            (byte)Math.Round((blue + match) * 255));
     }
 
     private void OnRawSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -1369,7 +1489,34 @@ public sealed partial class ImageEditorView : UserControl
         WhitePointSlider.Value = ViewModel.WhitePoint;
         MidtonesSlider.Value = ViewModel.Midtones;
         RotationSlider.Value = ViewModel.RotationAngle;
+        SyncColorAdjustmentsFromViewModel();
         HistogramCanvas.Invalidate();
         _suppressSliderEvents = false;
+    }
+
+    private void SyncColorAdjustmentsFromViewModel()
+    {
+        if (ViewModel is null) return;
+        var wasSuppressed = _suppressSliderEvents;
+        _suppressSliderEvents = true;
+        try
+        {
+            var adjustments = ViewModel.GetCurrentParameters().ColorAdjustments;
+            if (ColorMixerBand.SelectedIndex is < 0 or >= ColorAdjustments.MixerBandCount)
+                ColorMixerBand.SelectedIndex = 0;
+            var band = adjustments.MixerBands[ColorMixerBand.SelectedIndex];
+            ColorMixerHueSlider.Value = band.HueShiftDegrees;
+            ColorMixerSaturationSlider.Value = band.Saturation;
+            ColorMixerLuminanceSlider.Value = band.Luminance;
+            ShadowColorPicker.Color = ToWheelColor(adjustments.Shadows);
+            MidtoneColorPicker.Color = ToWheelColor(adjustments.Midtones);
+            HighlightColorPicker.Color = ToWheelColor(adjustments.Highlights);
+            ShadowAmountSlider.Value = adjustments.Shadows.Amount;
+            MidtoneAmountSlider.Value = adjustments.Midtones.Amount;
+            HighlightAmountSlider.Value = adjustments.Highlights.Amount;
+            ColorGradingBlendingSlider.Value = adjustments.Blending;
+            ColorGradingBalanceSlider.Value = adjustments.Balance;
+        }
+        finally { _suppressSliderEvents = wasSuppressed; }
     }
 }

@@ -66,6 +66,33 @@ production camera coverage, or an enabled RAW editor is available.
 | `.cr2`, `.cr3`, `.nef`, `.arw`, `.dng`, `.orf`, `.rw2` | Library scanner recognizes these extensions. Recognition or an OS preview codec does not establish sensor-data editing. | RAW follow-up must report support by camera, compression, and pinned decoder version, not extension alone. Unsupported files must produce a visible reason, never a thumbnail presented as a RAW render. |
 | Video, dual-pixel sensor pairs, exposure brackets | Not inputs to this still-image editing proposal. | Do not route these through a single-RGB-image restoration model. |
 
+## Color mixer and grading (#192)
+
+The editor's eight-band Color mixer and shadow/midtone/highlight grading wheels
+run in perceptual OkLab/OkLCh coordinates. Mixer bands overlap smoothly around
+the hue circle, with centers at approximately 29°, 57°, 110°, 142°, 195°,
+264°, 293°, and 328°;
+each stores a hue shift, chroma/saturation adjustment, and lightness
+adjustment. The three grading wheels add bounded chroma offsets in their tonal
+ranges, with shared Blending and Balance controls. The neutral recipe is the
+default for files predating this feature. Band centers are tuned to the
+corresponding sRGB colors after conversion to OkLCh rather than evenly spaced
+encoded-RGB hue angles.
+
+The GPU shader converts the existing 8-bit sRGB raster pipeline to linear
+sRGB, applies OkLab transforms, and converts back while preserving premultiplied
+alpha. The same `EditEffectGraph` is used by editor preview, raster save,
+comparison/viewer renders, and recipe-aware export. Supported inputs remain
+JPEG, PNG, TIFF, and BMP; this does not add a high-bit-depth or wide-gamut path.
+The portable color recipe is written through the shared edit-metadata policy
+(embedded XMP when supported, otherwise its owned sidecar), and export applies
+the recipe without modifying the source.
+
+RAW preview and derivative export still use the separate scene-linear RAW
+development pipeline. These raster color controls are retained in a RAW
+recipe but are not applied to RAW preview or derivative output; only the
+documented RAW exposure and scene-white-point controls apply there.
+
 ## Model-free detail processing
 
 | Technique | Quality and limitations | Cost and recommendation |

@@ -151,6 +151,8 @@ public static class EditEffectGraph
             };
         }
 
+        current = ColorAdjustmentEffect.Create(current, sourceSize, p.ColorAdjustments);
+
         // 7. Sharpening. Preserve the old effect exactly for existing recipes.
         if (p.SharpeningMode == SharpeningMode.UnsharpMask)
         {
