@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using XmpCore;
 
 namespace PhotoLibrarian.Core.Services;
@@ -109,6 +110,7 @@ public static class MetadataWriterService
                 await EmbeddedMetadataWriter.WriteAsync(imagePath, rating: rating ?? 0);
                 return;
             }
+
             catch (Exception ex)
             {
                 embeddedError = ex;
@@ -127,6 +129,11 @@ public static class MetadataWriterService
         if (embeddedError is not null)
             ReportSidecarFallback(imagePath, "rating", embeddedError, sidecarPath);
     }
+
+    /// <summary>Writes an XMP label to the photo's own sidecar, including an explicit empty value when cleared.</summary>
+    public static Task<string> WriteColorLabelAsync(string imagePath, string? label) =>
+        UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsColorLabel,
+            xmp => xmp.SetProperty(XapNamespace, "xmp:Label", label ?? string.Empty));
 
     /// <summary>Writes caption to the image (in-file: System.Title + System.Comment) or sidecar fallback.</summary>
     public static async Task WriteCaptionAsync(string imagePath, string? caption)

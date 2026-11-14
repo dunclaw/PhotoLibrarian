@@ -48,8 +48,25 @@ public sealed class MetadataReaderService
             entry.IsFlagged = true;
 
         ReadSidecarText(entry);
+        ReadSidecarColorLabel(entry);
         entry.PlaceName ??= "";
         return entry;
+    }
+
+    private static void ReadSidecarColorLabel(ImageEntry entry)
+    {
+        var path = MetadataSidecarLocator.ResolveReadPath(entry.FilePath, MetadataSidecarLocator.OwnsColorLabel);
+        if (path is null) return;
+        try
+        {
+            var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(path));
+            if (MetadataSidecarLocator.OwnsColorLabel(xmp))
+                entry.ColorLabel = xmp.GetPropertyString("http://ns.adobe.com/xap/1.0/", "xmp:Label");
+        }
+        catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
+        {
+            Diagnostics.DebugLog.WriteLine($"Could not read color label from {path}: {exception.Message}");
+        }
     }
 
     private static void ReadSidecarText(ImageEntry entry)
@@ -189,6 +206,8 @@ public sealed class MetadataReaderService
         const string exifNs = "http://ns.adobe.com/exif/1.0/";
         const string xapNs = "http://ns.adobe.com/xap/1.0/";
         const string iptcCoreNs = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+        if (replaceText && xmp.DoesPropertyExist(xapNs, "xmp:Label"))
+            entry.ColorLabel = xmp.GetPropertyString(xapNs, "xmp:Label");
         entry.CameraMake ??= xmp.GetPropertyString(tiffNs, "Make");
         entry.CameraModel ??= xmp.GetPropertyString(tiffNs, "Model");
         entry.PlaceName ??= FormatPlaceName(

@@ -39,6 +39,83 @@ public sealed class TagSidecarCompanionTests : IDisposable
     }
 
     [Fact]
+    public async Task ColorLabelsStayPortableAndSeparateForRawJpegCompanions()
+    {
+        var jpeg = Path.Combine(_directory, "labels.jpg");
+        var raw = Path.Combine(_directory, "labels.cr3");
+        await WicTestImage.CreateAsync(jpeg, 32, 32, jpeg: true);
+        await File.WriteAllBytesAsync(raw, [1, 2, 3]);
+        var original = await File.ReadAllBytesAsync(jpeg);
+        await MetadataWriterService.WriteColorLabelAsync(raw, "Purple");
+        await MetadataWriterService.WriteColorLabelAsync(jpeg, "Red");
+
+        var reader = new MetadataReaderService();
+        Assert.Equal("Purple", reader.ReadMetadata(raw).ColorLabel);
+        Assert.Equal("Red", reader.ReadMetadata(jpeg).ColorLabel);
+        Assert.Equal(original, await File.ReadAllBytesAsync(jpeg));
+        Assert.Equal(Path.ChangeExtension(raw, ".xmp"), MetadataSidecarLocator.ResolveReadPath(raw, MetadataSidecarLocator.OwnsColorLabel));
+        Assert.Equal(jpeg + ".xmp", MetadataSidecarLocator.ResolveReadPath(jpeg, MetadataSidecarLocator.OwnsColorLabel));
+
+        using var library = await TestLibrary.CreateAsync(Path.Combine(_directory, "labels.db"));
+        await library.Indexer.IndexFileAsync(raw);
+        await library.Indexer.IndexFileAsync(jpeg);
+        Assert.Equal("Purple", (await library.Images.GetByPathAsync(raw))!.ColorLabel);
+        Assert.Equal("Red", (await library.Images.GetByPathAsync(jpeg))!.ColorLabel);
+        await MetadataWriterService.WriteColorLabelAsync(jpeg, null);
+        await library.Indexer.IndexFileAsync(jpeg);
+        Assert.True(string.IsNullOrEmpty((await library.Images.GetByPathAsync(jpeg))!.ColorLabel));
+        Assert.Equal("Purple", reader.ReadMetadata(raw).ColorLabel);
+    }
+
+    [Fact]
+    public async Task ClearingLabelOverridesEmbeddedValueWithoutChangingImage()
+    {
+        var jpeg = Path.Combine(_directory, "embedded.jpg");
+        await WicTestImage.CreateAsync(jpeg, 32, 32, jpeg: true);
+        var image = await File.ReadAllBytesAsync(jpeg);
+        const string packet = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Label="Purple"/>
+            </rdf:RDF></x:xmpmeta>
+            """;
+        var payload = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0")
+            .Concat(Encoding.UTF8.GetBytes(packet)).ToArray();
+        var length = payload.Length + 2;
+        var segment = new byte[] { 0xFF, 0xE1, (byte)(length >> 8), (byte)length };
+        await File.WriteAllBytesAsync(jpeg, image[..2].Concat(segment).Concat(payload).Concat(image[2..]).ToArray());
+        var original = await File.ReadAllBytesAsync(jpeg);
+        var reader = new MetadataReaderService();
+        Assert.Equal("Purple", reader.ReadMetadata(jpeg).ColorLabel);
+        await MetadataWriterService.WriteColorLabelAsync(jpeg, null);
+        Assert.True(string.IsNullOrEmpty(reader.ReadMetadata(jpeg).ColorLabel));
+        Assert.Equal(original, await File.ReadAllBytesAsync(jpeg));
+    }
+
+    [Fact]
+    public async Task ExistingCacheBackfillsLabelsOnNextScan()
+    {
+        var photo = Path.Combine(_directory, "existing.cr3");
+        var databasePath = Path.Combine(_directory, "existing.db");
+        await File.WriteAllBytesAsync(photo, [1, 2, 3]);
+        await MetadataWriterService.WriteColorLabelAsync(photo, "Green");
+        using (var library = await TestLibrary.CreateAsync(databasePath))
+            await library.Indexer.IndexFileAsync(photo);
+
+        using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE images DROP COLUMN color_label";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        using var upgraded = await TestLibrary.CreateAsync(databasePath);
+        Assert.False((await upgraded.Images.GetByPathAsync(photo))!.SearchMetadataIndexed);
+        Assert.True(await upgraded.Indexer.IndexFileAsync(photo, verifyContent: false));
+        Assert.Equal("Green", (await upgraded.Images.GetByPathAsync(photo))!.ColorLabel);
+    }
+
+    [Fact]
     public async Task RawJpegPair_MalformedJpegXmp_WarnsOnceAndStaysTaggedAcrossRestarts()
     {
         var jpegPath = Path.Combine(_directory, "R0001.jpg");

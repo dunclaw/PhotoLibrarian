@@ -13,6 +13,29 @@ public sealed class FileEditTransactionTests : IDisposable
     public FileEditTransactionTests() => Directory.CreateDirectory(_root);
 
     [Fact]
+    public async Task ColorLabelBatchUndoAndRedoRestoresSidecars()
+    {
+        var first = CreatePhoto("first.cr3", [1, 2]);
+        var second = CreatePhoto("second.cr3", [3, 4]);
+        await MetadataWriterService.WriteColorLabelAsync(first, "Purple");
+        using var transaction = await PrepareAsync([first, second], async copies =>
+        {
+            foreach (var copy in copies.Values)
+                await MetadataWriterService.WriteColorLabelAsync(copy, "Red");
+        });
+        var reader = new MetadataReaderService();
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(false, RefreshAsync)).Status);
+        Assert.Equal("Red", reader.ReadMetadata(first).ColorLabel);
+        Assert.Equal("Red", reader.ReadMetadata(second).ColorLabel);
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(true, RefreshAsync)).Status);
+        Assert.Equal("Purple", reader.ReadMetadata(first).ColorLabel);
+        Assert.Null(reader.ReadMetadata(second).ColorLabel);
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(false, RefreshAsync)).Status);
+        Assert.Equal("Red", reader.ReadMetadata(second).ColorLabel);
+        Assert.Equal(new byte[] { 1, 2 }, File.ReadAllBytes(first));
+    }
+
+    [Fact]
     public async Task ReplacingMappedPhotoDoesNotTruncateItsOpenViewerSection()
     {
         var photo = CreatePhoto("mapped.jpg", [1, 2, 3, 4]);

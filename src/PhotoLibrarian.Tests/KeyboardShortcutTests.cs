@@ -9,6 +9,21 @@ namespace PhotoLibrarian.Tests;
 public sealed class KeyboardShortcutTests
 {
     [Theory]
+    [InlineData(VirtualKey.Number6, "Red")]
+    [InlineData(VirtualKey.Number7, "Yellow")]
+    [InlineData(VirtualKey.Number8, "Green")]
+    [InlineData(VirtualKey.Number9, "Blue")]
+    [InlineData(VirtualKey.NumberPad6, "Red")]
+    [InlineData(VirtualKey.NumberPad9, "Blue")]
+    public void ColorShortcutsDoNotConsumeModifiedKeys(VirtualKey key, string expected)
+    {
+        Assert.True(MainWindow.TryGetColorLabelShortcut(key, VirtualKeyModifiers.None, out var label));
+        Assert.Equal(expected, label);
+        Assert.False(MainWindow.TryGetColorLabelShortcut(key, VirtualKeyModifiers.Control, out _));
+        Assert.False(MainWindow.TryGetColorLabelShortcut(key, VirtualKeyModifiers.Shift, out _));
+    }
+
+    [Theory]
     [InlineData(VirtualKey.Number0, VirtualKeyModifiers.None, 0)]
     [InlineData(VirtualKey.Number1, VirtualKeyModifiers.None, 1)]
     [InlineData(VirtualKey.Number2, VirtualKeyModifiers.None, 2)]

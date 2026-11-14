@@ -40,6 +40,7 @@ public sealed record ImageRefinementFilter
     public static ImageRefinementFilter Empty { get; } = new();
 
     public int? Rating { get; init; }
+    public string? ColorLabel { get; init; }
     public RatingFilterMode RatingMode { get; init; } = RatingFilterMode.AndHigher;
     public DateTime? DateFrom { get; init; }
     public DateTime? DateTo { get; init; }
@@ -53,6 +54,7 @@ public sealed record ImageRefinementFilter
 
     public bool IsActive =>
         Rating.HasValue ||
+        ColorLabel is not null ||
         DateFrom.HasValue ||
         DateTo.HasValue ||
         IncludedTags.Count > 0 ||
@@ -77,6 +79,10 @@ public sealed record ImageRefinementFilter
     {
         tags ??= Array.Empty<string>();
         personIds ??= Array.Empty<long>();
+
+        if (ColorLabel is not null &&
+            !string.Equals(ColorLabel, image.ColorLabel, StringComparison.OrdinalIgnoreCase))
+            return false;
 
         if (Rating is int rating)
         {

@@ -78,6 +78,7 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.FileName):
             case nameof(MetadataPanelViewModel.SelectionCount):
             case nameof(MetadataPanelViewModel.IsMultiSelect):
+            case nameof(MetadataPanelViewModel.ColorLabelDisplay):
             case nameof(MetadataPanelViewModel.CanEditGeotag):
             case nameof(MetadataPanelViewModel.FilePath):
             case nameof(MetadataPanelViewModel.FolderPath):
@@ -213,6 +214,7 @@ public sealed partial class MetadataPanel : UserControl
         InfoFileName.Text = ViewModel.FileName;
         InfoFolder.Text = !string.IsNullOrEmpty(ViewModel.FolderPath) ? ViewModel.FolderPath : "—";
         InfoFileSize.Text = ViewModel.FileSize;
+        ColorLabelButton.Content = ViewModel.ColorLabelDisplay;
         InfoCamera.Text = !string.IsNullOrEmpty(ViewModel.Camera) ? ViewModel.Camera : "—";
         InfoAuthor.Text = !string.IsNullOrEmpty(ViewModel.Author) ? ViewModel.Author : "Add an author";
         InfoExposure.Text = ViewModel.Exposure;
@@ -558,6 +560,12 @@ public sealed partial class MetadataPanel : UserControl
         if (ViewModel is null || sender is not Button btn || btn.Tag is not string tagStr) return;
         if (int.TryParse(tagStr, out int star))
             ViewModel.SetRatingCommand.Execute(star);
+    }
+
+    private async void OnColorLabelClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null || sender is not MenuFlyoutItem { Tag: string label }) return;
+        await ViewModel.SetColorLabelAsync(label.Length == 0 ? null : label);
     }
 
     // --- Caption ---

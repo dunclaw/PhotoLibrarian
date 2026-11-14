@@ -85,6 +85,7 @@ public sealed class CacheDatabase : IDisposable
                 gps_longitude   REAL,
                 place_name      TEXT,
                 rating          INTEGER,
+                color_label     TEXT,
                 orientation     INTEGER NOT NULL DEFAULT 1,
                 media_type      INTEGER NOT NULL DEFAULT 0,
                 video_duration  REAL,
@@ -273,6 +274,12 @@ public sealed class CacheDatabase : IDisposable
         await AddColumnIfMissingAsync(conn, "images", "place_name", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "search_metadata_indexed", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
+        if (await AddColumnIfMissingAsync(conn, "images", "color_label", "TEXT"))
+        {
+            using var backfill = conn.CreateCommand();
+            backfill.CommandText = "UPDATE images SET search_metadata_indexed = 0";
+            await backfill.ExecuteNonQueryAsync();
+        }
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "auto_tag_scan_version", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "source_identity", "TEXT");

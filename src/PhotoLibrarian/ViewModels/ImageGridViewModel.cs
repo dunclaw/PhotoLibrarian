@@ -38,7 +38,8 @@ public enum SortByOption
     DateTaken,      // Chronological by date taken (newest first by default)
     DateModified,   // By file system modified date
     FileSize,       // By file size (largest first by default)
-    Rating          // By rating (highest first)
+    Rating,         // By rating (highest first)
+    Random
 }
 
 /// <summary>
@@ -84,6 +85,7 @@ public partial class ImageGridViewModel : ObservableObject
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
     private string? _primarySelectedPath;
     private string? _revealedExportPath;
+    private int _randomSeed = Random.Shared.Next();
     
     // Queue management for viewport-aware loading
     private readonly Queue<ImageThumbnailViewModel> _loadQueue = new();
@@ -1133,6 +1135,7 @@ public partial class ImageGridViewModel : ObservableObject
     {
         bool refinementDependsOnChangedMetadata =
             Refinement.Rating.HasValue ||
+            Refinement.ColorLabel is not null ||
             Refinement.DateFrom.HasValue ||
             Refinement.DateTo.HasValue ||
             Refinement.MissingMetadata != MissingMetadataFilter.None;
@@ -1185,7 +1188,10 @@ public partial class ImageGridViewModel : ObservableObject
             var item = Images.FirstOrDefault(image =>
                 string.Equals(image.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
             if (item is null)
+            {
+                requiresReload |= Refinement.ColorLabel is not null;
                 continue;
+            }
 
             var previousEntry = item.Entry;
             requiresReload |= DoesActiveFilterDependOnChangedMetadata(previousEntry, updatedEntry);
@@ -1222,6 +1228,8 @@ public partial class ImageGridViewModel : ObservableObject
 
         return (Refinement.Rating.HasValue || missing.HasFlag(MissingMetadataFilter.Rating)) &&
                    ratingChanged ||
+               Refinement.ColorLabel is not null &&
+                   !string.Equals(previous.ColorLabel, current.ColorLabel, StringComparison.OrdinalIgnoreCase) ||
                (_currentFlaggedSelected || Refinement.Flag != FlagFilterMode.Any) &&
                    previous.IsFlagged != current.IsFlagged ||
                (Refinement.DateFrom.HasValue || Refinement.DateTo.HasValue ||
@@ -1286,6 +1294,7 @@ public partial class ImageGridViewModel : ObservableObject
         var currentGroupBy = GroupBy;
         var currentSortBy = SortBy;
         var currentSortDesc = SortDescending;
+        var randomSeed = _randomSeed;
         var imageCount = Images.Count;
         var imageSnapshot = Images.ToList();
         
@@ -1319,7 +1328,7 @@ public partial class ImageGridViewModel : ObservableObject
                 {
                     // No grouping - single flat group. Still apply sort so dates/ratings reorder
                     // after edits without requiring a full DB reload.
-                    var sortedFlat = ApplySortToGroup(imageSnapshot, currentSortBy, currentSortDesc);
+                    var sortedFlat = SortItems(imageSnapshot, item => item.Entry, currentSortBy, currentSortDesc, randomSeed).ToList();
                     return new List<PhotoGroup>
                     {
                         new PhotoGroup
@@ -1348,7 +1357,7 @@ public partial class ImageGridViewModel : ObservableObject
                 var result = new List<PhotoGroup>();
                 foreach (var group in groupedData)
                 {
-                    var sortedItems = ApplySortToGroup(group.items, currentSortBy, currentSortDesc);
+                    var sortedItems = SortItems(group.items, item => item.Entry, currentSortBy, currentSortDesc, randomSeed).ToList();
                     result.Add(new PhotoGroup
                     {
                         Header = $"{group.header} ({group.items.Count:N0})",
@@ -1499,8 +1508,12 @@ public partial class ImageGridViewModel : ObservableObject
         => SortItems(items, item => item.Entry, sortBy, sortDescending).ToList();
 
     private static IEnumerable<T> SortItems<T>(
-        IEnumerable<T> items, Func<T, ImageEntry> entry, SortByOption sortBy, bool sortDescending)
+        IEnumerable<T> items, Func<T, ImageEntry> entry, SortByOption sortBy, bool sortDescending, int randomSeed = 0)
     {
+        if (sortBy == SortByOption.Random)
+            return items.OrderBy(item => RandomKey(entry(item).FilePath, randomSeed))
+                .ThenBy(item => entry(item).FilePath, StringComparer.OrdinalIgnoreCase);
+
         var sorted = sortBy switch
         {
             SortByOption.FileName => items.OrderBy(item => entry(item).FileName),
@@ -1515,6 +1528,30 @@ public partial class ImageGridViewModel : ObservableObject
             sorted = sorted.Reverse();
             
         return sorted;
+    }
+
+    internal static ulong RandomKey(string path, int seed)
+    {
+        ulong hash = 14695981039346656037UL ^ (uint)seed;
+        foreach (var character in path.ToUpperInvariant())
+        {
+            hash ^= character;
+            hash *= 1099511628211UL;
+        }
+        hash ^= hash >> 30;
+        hash *= 0xbf58476d1ce4e5b9UL;
+        hash ^= hash >> 27;
+        hash *= 0x94d049bb133111ebUL;
+        hash ^= hash >> 31;
+        return hash;
+    }
+
+    public async Task ReshuffleAsync()
+    {
+        int nextSeed;
+        do { nextSeed = Random.Shared.Next(); } while (nextSeed == _randomSeed);
+        _randomSeed = nextSeed;
+        await ApplyGroupingAsync();
     }
 
     [RelayCommand]
@@ -1557,8 +1594,9 @@ public partial class ImageGridViewModel : ObservableObject
         var scope = _searchScope;
         var sortBy = SortBy;
         var descending = SortDescending;
+        var randomSeed = _randomSeed;
         return Task.Run(() => _searchRepo.FilterAsync(text,
-            SortItems(scope, image => image, sortBy, descending).ToList(),
+            SortItems(scope, image => image, sortBy, descending, randomSeed).ToList(),
             8, cancellationToken), cancellationToken);
     }
 

@@ -91,10 +91,14 @@
                     <ComboBoxItem Content="Date Modified" Tag="DateModified" />
                     <ComboBoxItem Content="File Size" Tag="FileSize" />
                     <ComboBoxItem Content="Rating" Tag="Rating" />
+                    <ComboBoxItem Content="Random" Tag="Random" />
                 </ComboBox>
                 <Button x:Name="SortOrderBtn" Click="OnToggleSortOrder" Padding="6" ToolTipService.ToolTip="Toggle sort order">
                     <FontIcon x:Name="SortOrderIcon" Glyph="&#xE014;" FontSize="12" />
                 </Button>
+                <Button x:Name="ReshuffleButton" Content="Reshuffle"
+                        AutomationProperties.AutomationId="GridReshuffle"
+                        Click="OnReshuffle" Visibility="Collapsed" />
             </StackPanel>
 
             <!-- Refinement filters -->
@@ -118,6 +122,18 @@
                                 <TextBlock Text="These filters narrow the union selected in the left pane."
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            TextWrapping="Wrap" />
+
+                                <ComboBox x:Name="ColorLabelCombo"
+                                          Header="Color label"
+                                          AutomationProperties.AutomationId="FilterColorLabel"
+                                          AutomationProperties.Name="Color label filter"
+                                          SelectedIndex="0">
+                                    <ComboBoxItem Content="Any label" Tag="" />
+                                    <ComboBoxItem Content="Red" Tag="Red" />
+                                    <ComboBoxItem Content="Yellow" Tag="Yellow" />
+                                    <ComboBoxItem Content="Green" Tag="Green" />
+                                    <ComboBoxItem Content="Blue" Tag="Blue" />
+                                </ComboBox>
 
                                 <Grid ColumnSpacing="8" RowSpacing="8">
                                     <Grid.ColumnDefinitions>

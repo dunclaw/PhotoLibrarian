@@ -25,11 +25,11 @@ public sealed partial class ImageRepository
             INSERT INTO images (file_path, file_name, file_hash, file_size, width, height,
                                 date_taken, date_modified, camera_make, camera_model, lens_model,
                                 focal_length, aperture, exposure_time, iso, gps_latitude, gps_longitude,
-                                place_name, rating, orientation, media_type, video_duration, is_flagged, caption, title,
+                                place_name, rating, color_label, orientation, media_type, video_duration, is_flagged, caption, title,
                                 search_metadata_indexed, source_identity, metadata_stamp, metadata_hash)
             VALUES ($path, $name, $hash, $size, $w, $h, $taken, $modified,
                     $make, $model, $lens, $focal, $aperture, $exposure, $iso,
-                    $lat, $lon, $place, $rating, $orient, $mediatype, $duration, $flagged, $caption, $title,
+                    $lat, $lon, $place, $rating, $colorLabel, $orient, $mediatype, $duration, $flagged, $caption, $title,
                     1, $sourceIdentity, $metadataStamp, $metadataHash)
             ON CONFLICT(file_path) DO UPDATE SET
                 file_name=excluded.file_name, caption=excluded.caption, title=excluded.title,
@@ -42,6 +42,7 @@ public sealed partial class ImageRepository
                 aperture=excluded.aperture, exposure_time=excluded.exposure_time,
                 iso=excluded.iso, gps_latitude=excluded.gps_latitude,
                 gps_longitude=excluded.gps_longitude, place_name=excluded.place_name, rating=excluded.rating,
+                color_label=excluded.color_label,
                 orientation=excluded.orientation, media_type=excluded.media_type,
                 video_duration=excluded.video_duration,
                 source_identity=excluded.source_identity,
@@ -89,6 +90,7 @@ public sealed partial class ImageRepository
         cmd.Parameters.AddWithValue("$lon", (object?)image.GpsLongitude ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$place", (object?)image.PlaceName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$rating", (object?)image.Rating ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$colorLabel", (object?)image.ColorLabel ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$orient", image.Orientation);
         cmd.Parameters.AddWithValue("$mediatype", (int)image.MediaType);
         cmd.Parameters.AddWithValue("$duration", (object?)image.VideoDuration ?? DBNull.Value);
@@ -513,6 +515,7 @@ public sealed partial class ImageRepository
             GpsLongitude = reader.IsDBNull(reader.GetOrdinal("gps_longitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_longitude")),
             PlaceName = ReadNullableString(reader, "place_name"),
             Rating = reader.IsDBNull(reader.GetOrdinal("rating")) ? null : reader.GetInt32(reader.GetOrdinal("rating")),
+            ColorLabel = ReadNullableString(reader, "color_label"),
             Orientation = reader.GetInt32(reader.GetOrdinal("orientation")),
             MediaType = (MediaType)reader.GetInt32(reader.GetOrdinal("media_type")),
             VideoDuration = reader.IsDBNull(reader.GetOrdinal("video_duration")) ? null : reader.GetDouble(reader.GetOrdinal("video_duration")),
