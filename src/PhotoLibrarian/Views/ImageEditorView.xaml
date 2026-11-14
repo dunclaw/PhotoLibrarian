@@ -65,7 +65,7 @@
                         <FontIcon Glyph="&#xE71E;" FontSize="14" />
                     </Button>
                     <AppBarSeparator />
-                    <Button x:Name="ComparisonButton" Content="Compare" Padding="8,4"
+                    <Button x:Name="ComparisonButton" Content="Compare" Padding="8,4" IsEnabled="False"
                             AutomationProperties.Name="Before and after recipe views"
                             AutomationProperties.AutomationId="EditorComparison"
                             ToolTipService.ToolTip="Before recipes (B), side by side (N), split (M). Press again for After.">
@@ -270,7 +270,7 @@
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
 
-                <Expander Header="Color mixer (OkLCh)"
+                <Expander x:Name="ColorMixerExpander" Header="Color mixer (OkLCh)"
                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           AutomationProperties.AutomationId="EditorColorMixer">
                     <StackPanel Spacing="8">
@@ -314,12 +314,12 @@
                     </StackPanel>
                 </Expander>
 
-                <Expander Header="Color grading"
+                <Expander x:Name="ColorGradingExpander" Header="Color grading"
                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           AutomationProperties.AutomationId="EditorColorGrading">
                     <StackPanel Spacing="8">
                         <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <ColorPicker x:Name="ShadowColorPicker" Height="140" MaxWidth="240"
+                        <ColorPicker x:Name="ShadowColorPicker" Height="300" MaxWidth="240"
                                      ColorSpectrumShape="Ring"
                                      IsMoreButtonVisible="False"
                                      IsColorSliderVisible="False"
@@ -337,7 +337,7 @@
                                 AutomationProperties.Name="Shadow grading amount"
                                 AutomationProperties.AutomationId="EditorShadowAmount" />
                         <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <ColorPicker x:Name="MidtoneColorPicker" Height="140" MaxWidth="240"
+                        <ColorPicker x:Name="MidtoneColorPicker" Height="300" MaxWidth="240"
                                      ColorSpectrumShape="Ring"
                                      IsMoreButtonVisible="False"
                                      IsColorSliderVisible="False"
@@ -355,7 +355,7 @@
                                 AutomationProperties.Name="Midtone grading amount"
                                 AutomationProperties.AutomationId="EditorMidtoneAmount" />
                         <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <ColorPicker x:Name="HighlightColorPicker" Height="140" MaxWidth="240"
+                        <ColorPicker x:Name="HighlightColorPicker" Height="300" MaxWidth="240"
                                      ColorSpectrumShape="Ring"
                                      IsMoreButtonVisible="False"
                                      IsColorSliderVisible="False"
