@@ -8,6 +8,42 @@ browsing the grid.
 Text boxes, rich-text controls, search fields, and dialogs retain their native
 keyboard behavior; typing is not a photo edit.
 
+## Editor before/after views
+
+The editor's **Compare** menu offers **Before recipes** (**B**),
+**Side by side** (**N**), and **Split** (**M**). Press the same key or select
+the active mode again to return to **After**. Unmodified letter shortcuts do
+not run in text/numeric inputs, sliders, curve editing, or dialogs; native
+typing and modified shortcuts are left alone.
+
+Before is the oriented source image loaded when this photo was opened,
+without *any* saved or pending recipe, including curves, effects, rotation,
+or retouch. It is not the saved-recipe baseline used by Undo. Opening source
+pixels remain available through saves in the same editor session.
+Earlier edits already baked into a file **before opening it** are part of
+that source: this feature does not reconstruct historical originals.
+The existing content-keyed original backups have no reliable edited-file
+provenance map; comparison does not scan or guess among them.
+Closing/reopening or navigating to another photo starts a new opening source
+and returns to After.
+
+Side by side uses a shared zoom and pan for both panes; split shows Before
+on the left and After on the right, with an accessible split-position slider.
+Both preserve original geometry rather than rotating Before to match After.
+Retouch painting is disabled while comparing; switch to After to paint.
+These are transient viewing choices: they create no Undo steps, recipe writes,
+photo writes, or preferences. Saved recipes stay in their existing portable
+storage.
+
+RAW development currently disables Compare with an explicit explanation;
+it does not mislabel a developed or embedded RAW preview as an unedited original.
+Comparison reuses the full-resolution Win2D preview and its normal platform
+resource errors, without adding dimension/megapixel limits or full-size
+comparison render targets. Opening pixels share the existing source bitmap
+and pixel buffer until a reload requires separate before/after sources.
+The retained buffer also recreates Before after GPU device loss, rather than
+silently switching it to newly baked pixels.
+
 ## What is included
 
 One chronological history follows these operations across photos and navigation:
@@ -101,6 +137,15 @@ gesture-history, effect, metadata, and shortcut suites cover the integration.
 `ViewerQuickEditTests` covers automatic tone/color behavior, recipe preservation,
 quarter-turn composition, cross-photo history, no-op redo preservation, and
 unreadable-sidecar safety.
+
+`EditorComparisonTests` checks source-pixel fidelity despite saved/pending
+recipes, clipped split endpoints, side-by-side pixels, rotation/zoom/pan,
+shortcuts, RAW/busy gates, and unchanged recipes/history/files.
+`.\tools\Test-PhotoGridAccessibility.ps1 -EditorComparison` runs the real editor
+against temporary synthetic photos and sidecars only, exercising menu modes,
+accessible split position, painting gates, save/reopen, and RAW unavailability.
+Add `-Preview` to inspect the synthetic split view; no live library or personal
+preferences are loaded.
 
 The isolated `PhotoLibrarian.AccessibilityTests --edit-history` suite uses the
 real toolbar and shortcut classifier with synthetic history only. It checks

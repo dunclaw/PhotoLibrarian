@@ -65,6 +65,26 @@
                         <FontIcon Glyph="&#xE71E;" FontSize="14" />
                     </Button>
                     <AppBarSeparator />
+                    <Button x:Name="ComparisonButton" Content="Compare" Padding="8,4"
+                            AutomationProperties.Name="Before and after recipe views"
+                            AutomationProperties.AutomationId="EditorComparison"
+                            ToolTipService.ToolTip="Before recipes (B), side by side (N), split (M). Press again for After.">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <ToggleMenuFlyoutItem x:Name="AfterViewItem" Text="After" Tag="After"
+                                                     IsChecked="True"
+                                                     AutomationProperties.AutomationId="EditorAfterView" />
+                                <ToggleMenuFlyoutItem x:Name="BeforeViewItem" Text="Before recipes (B)" Tag="Before"
+                                                     AutomationProperties.AutomationId="EditorBeforeView" />
+                                <ToggleMenuFlyoutItem x:Name="SideBySideViewItem" Text="Side by side (N)" Tag="SideBySide"
+                                                     AutomationProperties.AutomationId="EditorSideBySideView" />
+                                <ToggleMenuFlyoutItem x:Name="SplitViewItem" Text="Split (M)" Tag="Split"
+                                                     AutomationProperties.AutomationId="EditorSplitView" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Before ignores all recipes, not earlier baked edits." IsEnabled="False" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button x:Name="SaveBtn" Click="OnSave" ToolTipService.ToolTip="Save edits" Padding="8"
                             AutomationProperties.Name="Save edits" AutomationProperties.AutomationId="EditorSave">
                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
@@ -117,6 +137,24 @@
                                    PointerCanceled="OnEditCanvasPointerCanceled"
                                    PointerCaptureLost="OnEditCanvasPointerCaptureLost"
                                    DoubleTapped="OnEditCanvasDoubleTapped" />
+            <Border x:Name="ComparisonLabel" Grid.Row="2" Margin="24" Padding="8,4"
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    IsHitTestVisible="False" Visibility="Collapsed">
+                <TextBlock x:Name="ComparisonLabelText" Text="Before recipes"
+                           AutomationProperties.AutomationId="EditorComparisonLabel"
+                           AutomationProperties.LiveSetting="Polite" />
+            </Border>
+            <Border x:Name="SplitDivider" Grid.Row="2" Margin="16" Width="1"
+                    HorizontalAlignment="Left" IsHitTestVisible="False" Visibility="Collapsed"
+                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Slider x:Name="SplitPositionSlider" Grid.Row="2" Width="200" Margin="24"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Minimum="0" Maximum="100" Value="50" StepFrequency="1"
+                    Visibility="Collapsed" ValueChanged="OnSplitPositionChanged"
+                    AutomationProperties.Name="Before and after split position, percent before"
+                    AutomationProperties.AutomationId="EditorSplitPosition"
+                    ToolTipService.ToolTip="Split position: before on the left, after on the right" />
 
         </Grid>
 
@@ -138,6 +176,8 @@
                 </StackPanel>
 
                 <StackPanel x:Name="RawPreviewPanel" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Before/after comparison is not available for RAW development."
+                               TextWrapping="Wrap" />
                     <TextBlock x:Name="RawPreviewStatus" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="EditorRawPreviewStatus"
                                AutomationProperties.LiveSetting="Polite" />

@@ -33,6 +33,19 @@ public partial class ImageEditorViewModel : ObservableObject
     private int _openVersion;
     internal Func<string, string, string?, Func<string, Task>, Task<bool>>? PersistEditAsync { get; set; }
     private string? _openedIdentity;
+    private EditorComparisonMode _comparisonMode;
+    public EditorComparisonMode ComparisonMode
+    {
+        get => _comparisonMode;
+        private set => SetProperty(ref _comparisonMode, value);
+    }
+    internal int SourceVersion { get; private set; }
+
+    public void ToggleComparison(EditorComparisonMode mode)
+    {
+        if (!IsOpen || IsBusy || IsRawPreview || !Enum.IsDefined(mode)) return;
+        ComparisonMode = ComparisonMode == mode ? EditorComparisonMode.After : mode;
+    }
 
     public ImageEntry? CurrentEntry => _currentEntry;
     public event Action<ImageEntry?>? CurrentEntryChanged;
@@ -293,6 +306,8 @@ public partial class ImageEditorViewModel : ObservableObject
         if (identity != await FileEditTransaction.ReadIdentityAsync(entry.FilePath)) return false;
 
         _currentEntry = entry;
+        SourceVersion++;
+        ComparisonMode = EditorComparisonMode.After;
         _openedIdentity = identity;
         _backupHash = backupHash;
         HasBackup = hasBackup;

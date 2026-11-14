@@ -53,6 +53,7 @@ public sealed partial class ImageEditorView : UserControl
         _suppressSliderEvents = true;
         this.InitializeComponent();
         _suppressSliderEvents = false;
+        RegisterComparisonControls();
         RegisterCenterSnaps();
         RegisterEditGestures();
         this.Loaded += OnLoaded;
@@ -130,12 +131,13 @@ public sealed partial class ImageEditorView : UserControl
             args.Handled = true;
             return;
         }
-        if (args.Key is not (Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)) return;
+        if (args.Handled) return;
         var isEditingControl = false;
         for (var current = focused; current is not null; current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current))
         {
             if (current == CurveCanvas ||
-                current is Slider or TextBox or PasswordBox or AutoSuggestBox or ComboBox or NumberBox or ContentDialog or GridView)
+                current is Slider or TextBox or RichEditBox or PasswordBox or AutoSuggestBox or ComboBox or
+                    NumberBox or ContentDialog or GridView or MenuFlyoutItemBase or MenuFlyoutPresenter)
             {
                 isEditingControl = true;
                 break;
@@ -154,6 +156,16 @@ public sealed partial class ImageEditorView : UserControl
             if ((InputKeyboardSource.GetKeyStateForCurrentThread(modifierKey) &
                 Windows.UI.Core.CoreVirtualKeyStates.Down) != 0)
                 modifiers |= modifier;
+        }
+        if (EditorComparison.TryGetShortcut(args.Key, modifiers, isEditingControl, out var mode))
+        {
+            if (ComparisonButton.IsEnabled)
+            {
+                CancelRetouchGesture();
+                ViewModel?.ToggleComparison(mode);
+                args.Handled = true;
+            }
+            return;
         }
         var direction = GetArrowNavigationDirection(args.Key, modifiers, isEditingControl);
         if (direction == 0) return;
@@ -212,9 +224,9 @@ public sealed partial class ImageEditorView : UserControl
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             ViewModel.ParametersChanged -= OnParametersChanged;
         }
-        _sourceBitmap?.Dispose();
-        _sourceBitmap = null;
-        _sourcePixels = null;
+        ReleaseSourceBitmap();
+        ClearComparisonSource();
+        _loadedPath = null;
         EditCanvas.RemoveFromVisualTree();
     }
 
@@ -236,6 +248,13 @@ public sealed partial class ImageEditorView : UserControl
             if (ViewModel is null) return;
             switch (e.PropertyName)
             {
+                case nameof(ImageEditorViewModel.CurrentEntry):
+                    _ = LoadImageAsync(ViewModel.ImagePath);
+                    break;
+                case nameof(ImageEditorViewModel.ComparisonMode):
+                    CancelRetouchGesture();
+                    UpdateHistoryControls();
+                    break;
                 case nameof(ImageEditorViewModel.IsOpen):
                     Visibility = ViewModel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
                     if (ViewModel.IsOpen) SyncSlidersFromViewModel();
@@ -305,12 +324,15 @@ public sealed partial class ImageEditorView : UserControl
         RetouchToolbar.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
         RetouchRadius.IsEnabled = RetouchToggle.IsEnabled;
         if (_retouchPreviewFailed) SaveBtn.IsEnabled = false;
+        UpdateComparisonControls();
         UpdateBrushCursor();
         if (_brushPosition is not null) EditCanvas.Invalidate();
     }
 
     private void OnCanvasCreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
     {
+        if (args.Reason == CanvasCreateResourcesReason.NewDevice)
+            ReleaseComparisonDevice();
         // The editor is opened while collapsed, so the image path can be set before the canvas
         // has a device. Reload here so the preview appears as soon as resources exist.
         args.TrackAsyncAction(LoadImageAsync(ViewModel?.ImagePath).AsAsyncAction());
@@ -318,9 +340,18 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnCanvasDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
-        if (_sourceBitmap is null || ViewModel is null) return;
+        if (_sourceBitmap is null || ViewModel is null || _loadedSourceVersion != ViewModel.SourceVersion) return;
 
         var p = ViewModel.GetCurrentParameters();
+        if (TryDrawComparisonPreview(args.DrawingSession,
+            new Vector2((float)sender.Size.Width, (float)sender.Size.Height)))
+        {
+            if (ComparisonMode == EditorComparisonMode.After)
+                DrawRetouchStroke(args.DrawingSession,
+                    new Vector2((float)_sourceBitmap.Size.Width, (float)_sourceBitmap.Size.Height));
+            UpdateZoomText();
+            return;
+        }
         if (ViewModel.IsRawPreview) p = new EditParameters();
         // Frame the *output* extent — rotation makes it larger than the source — so the preview
         // shows exactly what a save would write.
@@ -355,7 +386,8 @@ public sealed partial class ImageEditorView : UserControl
     private void OnEditCanvasSizeChanged(object sender, SizeChangedEventArgs e)
     {
         CancelRetouchGesture();
-        _viewport.SetCanvasSize(new Vector2((float)e.NewSize.Width, (float)e.NewSize.Height));
+        _viewport.SetCanvasSize(PreviewSize);
+        UpdateComparisonDivider();
         UpdateBrushCursor();
         UpdateZoomText();
     }
@@ -367,6 +399,8 @@ public sealed partial class ImageEditorView : UserControl
         var delta = point.Properties.MouseWheelDelta;
         if (delta == 0 || _sourceBitmap is null) return;
         var anchor = new Vector2((float)point.Position.X, (float)point.Position.Y);
+        if (ComparisonMode == EditorComparisonMode.SideBySide && anchor.X >= PreviewSize.X)
+            anchor.X -= PreviewSize.X;
         UpdateActualSizeScale();
         if (delta > 0) _viewport.ZoomIn(anchor);
         else _viewport.ZoomOut(anchor);
@@ -494,7 +528,7 @@ public sealed partial class ImageEditorView : UserControl
     private bool TryRetouchPoint(Point position, out RetouchPoint point)
     {
         point = default;
-        if (_sourceBitmap is null || ViewModel is null) return false;
+        if (_sourceBitmap is null || ViewModel is null || ComparisonMode != EditorComparisonMode.After) return false;
         return EditorImageCoordinates.TryGetSourcePoint(new Vector2((float)position.X, (float)position.Y),
             new Vector2((float)_sourceBitmap.Size.Width, (float)_sourceBitmap.Size.Height),
             ViewModel.RotationAngle, _viewport.Scale, _viewport.ContentOrigin, out point);
@@ -721,7 +755,7 @@ public sealed partial class ImageEditorView : UserControl
     private async Task LoadImageAsync(string? path)
     {
         ClearRetouchPreview();
-        RetouchToggle.IsChecked = _retouchWorkspace;
+        RetouchToggle.IsChecked = _retouchWorkspace && ComparisonMode == EditorComparisonMode.After;
         _brushPosition = null;
         RetouchStatus.IsOpen = false;
         _previewRequest?.Cancel();
@@ -730,14 +764,15 @@ public sealed partial class ImageEditorView : UserControl
         var token = request.Token;
         var parameters = ViewModel?.GetCurrentParameters() ?? new EditParameters();
         var isRaw = path is not null && RawToneMappingService.IsRaw(path);
-        var differentPhoto = !string.Equals(_loadedPath, path, StringComparison.OrdinalIgnoreCase);
+        var differentPhoto = !string.Equals(_loadedPath, path, StringComparison.OrdinalIgnoreCase) ||
+            _loadedSourceVersion != ViewModel?.SourceVersion;
         if (differentPhoto || path is null)
         {
             _rawPreview.Invalidate();
-            _sourceBitmap?.Dispose();
-            _sourceBitmap = null;
-            _sourcePixels = null;
+            ReleaseSourceBitmap();
+            ClearComparisonSource();
             _loadedPath = path;
+            _loadedSourceVersion = ViewModel?.SourceVersion ?? -1;
             _draggedSlider = null;
             _viewport.Fit();
             UpdateZoomText();
@@ -771,8 +806,9 @@ public sealed partial class ImageEditorView : UserControl
                 }
                 pixels = bitmap.GetPixelBytes();
             }
-            _sourceBitmap?.Dispose();
+            ReleaseSourceBitmap();
             _sourceBitmap = bitmap;
+            if (!isRaw) KeepComparisonSource(bitmap, pixels);
             _sourcePixels = isRaw ? null : pixels;
             var size = _sourceBitmap.Size;
             var (_, outputWidth, outputHeight) = EditEffectGraph.ComputeOutputExtent(
@@ -789,11 +825,10 @@ public sealed partial class ImageEditorView : UserControl
         catch (Exception ex)
         {
             if (token.IsCancellationRequested) return;
-            _sourceBitmap?.Dispose();
-            _sourceBitmap = null;
-            _sourcePixels = null;
+            ReleaseSourceBitmap();
             RawPreviewStatus.Text = $"Preview failed: {ex.Message}";
-            SetStatus($"Preview failed: {ex.Message}");
+            ShowRetouchError($"Preview failed: {ex.Message}");
+            UpdateHistoryControls();
             EditCanvas.Invalidate();
         }
         finally
@@ -1073,8 +1108,7 @@ public sealed partial class ImageEditorView : UserControl
         if (ViewModel?.RevertToOriginalCommand.CanExecute(null) == true)
         {
             // Let go of the file before it is overwritten by the backup copy.
-            _sourceBitmap?.Dispose();
-            _sourceBitmap = null;
+            ReleaseSourceBitmap();
 
             try
             {
@@ -1141,9 +1175,7 @@ public sealed partial class ImageEditorView : UserControl
         ClearRetouchPreview();
         // Cancel old loads and release our handle before the renderer rewrites the file.
         _previewRequest?.Cancel();
-        _sourceBitmap?.Dispose();
-        _sourceBitmap = null;
-        _sourcePixels = null;
+        ReleaseSourceBitmap();
         return ImageEditRenderer.RenderToFileAsync(path, parameters, EditCanvas.Device);
     }
 
