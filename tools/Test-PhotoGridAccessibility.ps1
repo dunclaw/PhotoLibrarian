@@ -10,10 +10,14 @@ param(
     [switch]$EditHistory,
     [switch]$Comparison,
     [switch]$EditorComparison,
+    [switch]$EditorClipping,
     [string]$MotionPhotoValidationPath
 )
 
 $ErrorActionPreference = 'Stop'
+if ($EditorClipping -and ($EditorComparison -or $Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview)) {
+    throw '-EditorClipping cannot be combined with another suite.'
+}
 if ($EditorComparison -and ($Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview)) {
     throw '-EditorComparison cannot be combined with another suite.'
 }
@@ -63,6 +67,9 @@ try {
         }
         $arguments += @('--args', $testArguments)
     }
+    elseif ($EditorClipping) {
+        $arguments += @('--args', $(if ($Preview) { '--editor-clipping --preview' } else { '--editor-clipping' }))
+    }
     elseif ($EditorComparison) {
         $arguments += @('--args', $(if ($Preview) { '--editor-comparison --preview' } else { '--editor-comparison' }))
     }
@@ -83,7 +90,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
+        $suite = if ($EditorClipping) { 'editor clipping' } elseif ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }

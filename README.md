@@ -128,7 +128,7 @@ points. Reset in the curve section resets the selected channel, and the main
 Reset resets all channels. With the graph focused, Page Up/Down selects points,
 arrows adjust, Insert adds and Delete removes an interior point.
 The graph overlays the editor's
-approximate live histogram, sampled on large images. Curves operate on display-referred raster RGB after
+live histogram of the edited render, sampled on large images. Curves operate on display-referred raster RGB after
 levels, before sharpening and effects. The RGB curve is applied before the
 individual channels. Curve edits participate in gesture undo and shared saved
 edit history. Viewer and grid previews use the saved sidecar; resized and share
@@ -136,6 +136,30 @@ copies render the recipe into the copy. Raster formats supported by the editor
 are JPEG, PNG, TIFF and BMP. Curves are unavailable for RAW development; any
 dormant raster curves in a RAW sidecar are retained but are not rendered by the
 RAW preview or SDR export. Export an SDR derivative first to edit its curve.
+
+### Clipping overlays
+
+Use **Clipping** beside **Compare** to independently show clipped shadows (blue)
+and highlights (red). These are **SDR output** diagnostics: any straight RGB
+channel rounding to 255 marks a highlight; all three rounding to 0 mark a shadow.
+They do not measure sensor saturation or recover lost detail. Transparent pixels
+are ignored and partially transparent pixels keep their alpha.
+
+The image diagnostic evaluates the final edited graph (including retouch, curves,
+color adjustments, effects and rotation) before zoom/pan, on the **After** image
+only. Before remains untouched in all comparison layouts. Supported raster
+editing formats are JPEG, PNG, TIFF and BMP. Supported RAW previews use the
+already-developed SDR result, without applying dormant raster controls again.
+RAW has an SDR histogram but no raster Levels anchors.
+
+The Levels and tone-curve histograms use the same rendered content, rather than a
+tone-only approximation. Histograms and their left blue/right red clipping bars
+are sampled previews (up to 512 pixels on the longest edge); small clipped regions
+can be missed. The Clipping menu also reports sampled clipping in text. This
+sampling budget does not limit image size or the full-resolution image overlay.
+Histogram data is cached until the source, retouch result or adjustments change.
+Toggle choices are temporary view state: they never change recipes, undo/redo,
+metadata, baked saves, resized copies or RAW derivative exports.
 
 ### Noise reduction
 
