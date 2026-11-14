@@ -170,13 +170,18 @@ public sealed class NoiseReductionTests
             var parameters = new EditParameters { NoiseReduction = 0.8, Exposure = 0.1, Sharpness = 0.2 };
             var device = CanvasDevice.GetSharedDevice();
             byte[] expected;
+            var originalHash = await OriginalBackupService.ComputeFileHashAsync(path);
             using (var source = await ImageEditRenderer.LoadOrientedAsync(device, path))
                 expected = Render(device, source, 32, 24, parameters);
-            var backups = new OriginalBackupService(Path.Combine(directory, "originals"));
+            var backupDirectory = Path.Combine(directory, "originals");
+            var backups = new OriginalBackupService(backupDirectory);
             var service = new ImageEditService(backups);
             await service.SaveEditParametersAsync(path, parameters);
-            var backupPath = await backups.GetBackupPathAsync(path);
-            Assert.NotNull(backupPath);
+            var backupPath = Path.Combine(
+                backupDirectory,
+                originalHash[..2],
+                $"{originalHash}.png");
+            Assert.True(File.Exists(backupPath));
             Assert.Equal((32u, 24u), await service.ApplyEditsAsync(path, parameters, ImageEditRenderer.RenderToFileAsync));
             using var saved = await ImageEditRenderer.LoadOrientedAsync(device, path);
             Assert.Equal(expected, saved.GetPixelBytes());

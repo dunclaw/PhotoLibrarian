@@ -153,13 +153,12 @@ public sealed class TagSidecarCompanionTests : IDisposable
     }
 
     [Fact]
-    public async Task RawJpegPair_MalformedJpegXmp_WarnsOnceAndStaysTaggedAcrossRestarts()
+    public async Task RawJpegPair_UsesEmbeddedAndOwnedSidecarMetadataAcrossRestarts()
     {
         var jpegPath = Path.Combine(_directory, "R0001.jpg");
         var rawPath = Path.Combine(_directory, "R0001.cr3");
-        await CreateMalformedXmpJpegAsync(jpegPath);
+        await WicTestImage.CreateAsync(jpegPath, 32, 32, jpeg: true);
         await File.WriteAllBytesAsync(rawPath, [1, 2, 3], TestContext.Current.CancellationToken);
-        var originalJpeg = await File.ReadAllBytesAsync(jpegPath, TestContext.Current.CancellationToken);
         using var library = await TestLibrary.CreateAsync(Path.Combine(_directory, "library.db"));
 
         for (var launch = 0; launch < 3; launch++)
@@ -177,12 +176,8 @@ public sealed class TagSidecarCompanionTests : IDisposable
                 TestContext.Current.CancellationToken));
         }
 
-        var fallback = Assert.Single(_fallbacks);
-        Assert.Equal(jpegPath, fallback.ImagePath);
-        Assert.Equal("tags", fallback.PropertyName);
-        Assert.Equal($"{jpegPath}.xmp", fallback.SidecarPath);
-        Assert.Contains("0x80070057", fallback.Reason);
-        Assert.Equal(originalJpeg, await File.ReadAllBytesAsync(jpegPath, TestContext.Current.CancellationToken));
+        Assert.Empty(_fallbacks);
+        Assert.False(File.Exists($"{jpegPath}.xmp"));
 
         var reader = new MetadataReaderService();
         var jpegImage = (await library.Images.GetByPathAsync(jpegPath))!;
@@ -190,7 +185,8 @@ public sealed class TagSidecarCompanionTests : IDisposable
         Assert.Equal(jpegImage.SourceIdentity, reader.ReadPortableTagMetadata(jpegPath)!.SourceIdentity);
         Assert.Equal(rawImage.SourceIdentity, reader.ReadPortableTagMetadata(rawPath)!.SourceIdentity);
         Assert.Equal(Path.ChangeExtension(rawPath, ".xmp"), MetadataSidecarLocator.ResolveReadPath(rawPath, MetadataSidecarLocator.OwnsTags));
-        Assert.Equal($"{jpegPath}.xmp", MetadataSidecarLocator.ResolveReadPath(jpegPath, MetadataSidecarLocator.OwnsTags));
+        Assert.Null(MetadataSidecarLocator.ResolveReadPath(jpegPath, MetadataSidecarLocator.OwnsTags));
+        Assert.False(File.Exists($"{jpegPath}.xmp"));
     }
 
     [Fact]
@@ -221,39 +217,46 @@ public sealed class TagSidecarCompanionTests : IDisposable
     }
 
     [Fact]
-    public async Task LoneJpegWithLegacySidecar_StillReadsAndUpdatesIt()
+    public async Task LoneJpegWithLegacyTagSidecar_MigratesTagsAndPreservesOtherMetadata()
     {
         var jpegPath = Path.Combine(_directory, "legacy.jpg");
         var legacySidecar = Path.ChangeExtension(jpegPath, ".xmp");
-        await CreateMalformedXmpJpegAsync(jpegPath);
-        await TagWriterService.WriteTagsToSidecarAsync(jpegPath, ["kept"]);
-        File.Move($"{jpegPath}.xmp", legacySidecar);
-        _fallbacks.Clear();
+        await WicTestImage.CreateAsync(jpegPath, 32, 32, jpeg: true);
+        var xmp = XmpCore.XmpMetaFactory.Create();
+        xmp.SetProperty("http://purl.org/dc/elements/1.1/", "dc:subject", null,
+            new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false });
+        xmp.AppendArrayItem("http://purl.org/dc/elements/1.1/", "dc:subject",
+            new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false },
+            "kept", null);
+        xmp.SetProperty("http://ns.adobe.com/camera-raw-settings/1.0/", "crs:Exposure2012", "+0.50");
+        await File.WriteAllTextAsync(legacySidecar,
+            XmpCore.XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()));
 
-        Assert.Equal(["kept"], TagWriterService.ReadTagsFromSidecar(jpegPath));
         await TagWriterService.WriteTagsToSidecarAsync(jpegPath, []);
 
-        Assert.False(File.Exists($"{jpegPath}.xmp"));
+        Assert.Empty(await EmbeddedMetadataWriter.ReadKeywordsAsync(jpegPath));
         Assert.Empty(TagWriterService.ReadTagsFromSidecar(jpegPath));
-        Assert.Equal(legacySidecar, MetadataSidecarLocator.ResolveReadPath(jpegPath, MetadataSidecarLocator.OwnsTags));
-        Assert.Equal(legacySidecar, Assert.Single(_fallbacks).SidecarPath);
+        Assert.Null(MetadataSidecarLocator.ResolveReadPath(jpegPath, MetadataSidecarLocator.OwnsTags));
+        var preserved = XmpCore.XmpMetaFactory.ParseFromString(await File.ReadAllTextAsync(legacySidecar));
+        Assert.Equal("+0.50", preserved.GetPropertyString(
+            "http://ns.adobe.com/camera-raw-settings/1.0/", "crs:Exposure2012"));
+        Assert.False(MetadataSidecarLocator.OwnsTags(preserved));
+        Assert.Empty(_fallbacks);
     }
 
     [Fact]
-    public async Task SidecarWriteFailure_KeepsEditsPendingThenRetrySucceedsWithoutRepeatingWarning()
+    public async Task RawSidecarWriteFailure_KeepsEditsPendingThenRetrySucceeds()
     {
-        var jpegPath = Path.Combine(_directory, "R0003.jpg");
         var rawPath = Path.Combine(_directory, "R0003.cr3");
-        var blockedSidecar = $"{jpegPath}.xmp";
-        await CreateMalformedXmpJpegAsync(jpegPath);
+        var blockedSidecar = Path.ChangeExtension(rawPath, ".xmp");
         await File.WriteAllBytesAsync(rawPath, [7, 8, 9], TestContext.Current.CancellationToken);
-        var originalJpeg = await File.ReadAllBytesAsync(jpegPath, TestContext.Current.CancellationToken);
+        var originalRaw = await File.ReadAllBytesAsync(rawPath, TestContext.Current.CancellationToken);
         using var library = await TestLibrary.CreateAsync(Path.Combine(_directory, "library.db"));
-        await library.Indexer.IndexFileAsync(jpegPath, TestContext.Current.CancellationToken);
-        var jpegImage = (await library.Images.GetByPathAsync(jpegPath))!;
+        await library.Indexer.IndexFileAsync(rawPath, TestContext.Current.CancellationToken);
+        var rawImage = (await library.Images.GetByPathAsync(rawPath))!;
         await library.Tags.AddTagAsync(new ImageTag
         {
-            ImageId = jpegImage.Id,
+            ImageId = rawImage.Id,
             Tag = "family",
             Source = TagSource.Manual,
             Confidence = 1.0f
@@ -266,12 +269,12 @@ public sealed class TagSidecarCompanionTests : IDisposable
 
         Assert.Equal(1, failed.Failed);
         Assert.Empty(_fallbacks);
-        Assert.Equal(originalJpeg, await File.ReadAllBytesAsync(jpegPath, TestContext.Current.CancellationToken));
+        Assert.Equal(originalRaw, await File.ReadAllBytesAsync(rawPath, TestContext.Current.CancellationToken));
         Assert.Single(await library.Tags.GetImagesNeedingAutoTagsAsync(
             AutoTagModelCatalog.MobileNetV2.PipelineVersion,
             TestContext.Current.CancellationToken));
         Assert.Contains(
-            await library.Tags.GetTagsAsync(jpegImage.Id, TestContext.Current.CancellationToken),
+            await library.Tags.GetTagsAsync(rawImage.Id, TestContext.Current.CancellationToken),
             tag => tag.Tag == "family" && tag.Source == TagSource.Manual);
 
         Directory.Delete(blockedSidecar);
@@ -279,32 +282,30 @@ public sealed class TagSidecarCompanionTests : IDisposable
             CreateApprovedSettings(),
             TestContext.Current.CancellationToken);
         Assert.Equal(new BatchTagResult(1, 0, 1), retried);
-        Assert.Single(_fallbacks);
+        Assert.Empty(_fallbacks);
 
-        await library.Indexer.IndexFileAsync(jpegPath, TestContext.Current.CancellationToken, verifyContent: false);
+        await library.Indexer.IndexFileAsync(rawPath, TestContext.Current.CancellationToken, verifyContent: false);
         var restarted = await CreateProcessor(library.Tags).ProcessLibraryAsync(
             CreateApprovedSettings(),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(0, restarted.Processed);
-        Assert.Single(_fallbacks);
-        var portable = new MetadataReaderService().ReadPortableTagMetadata(jpegPath)!;
+        Assert.Empty(_fallbacks);
+        var portable = new MetadataReaderService().ReadPortableTagMetadata(rawPath)!;
         Assert.Contains(portable.Tags, tag => tag.Tag == "family");
         Assert.Contains(portable.Tags, tag => tag.Tag == "Auto/dog");
-        Assert.Equal(originalJpeg, await File.ReadAllBytesAsync(jpegPath, TestContext.Current.CancellationToken));
+        Assert.Equal(originalRaw, await File.ReadAllBytesAsync(rawPath, TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task RawJpegPair_PropertyFallbacksStaySeparateAcrossRestarts()
+    public async Task RawJpegPair_PropertyWritesStaySeparateAcrossRestarts()
     {
         var jpegPath = Path.Combine(_directory, "R0004.jpg");
         var rawPath = Path.Combine(_directory, "R0004.cr3");
         var rawSidecar = Path.ChangeExtension(rawPath, ".xmp");
-        var jpegSidecar = $"{jpegPath}.xmp";
-        await CreateMalformedXmpJpegAsync(jpegPath);
+        await WicTestImage.CreateAsync(jpegPath, 32, 32, jpeg: true);
         await File.WriteAllBytesAsync(rawPath, [1, 4, 9], TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(rawSidecar, UnrelatedRawEditorXmp, TestContext.Current.CancellationToken);
-        var originalJpeg = await File.ReadAllBytesAsync(jpegPath, TestContext.Current.CancellationToken);
         var rawDate = new DateTime(2020, 1, 2, 3, 4, 5);
         var jpegDate = new DateTime(2021, 6, 7, 8, 9, 10);
 
@@ -318,19 +319,14 @@ public sealed class TagSidecarCompanionTests : IDisposable
         await MetadataWriterService.WriteFlagAsync(jpegPath, false);
         await MetadataWriterService.WriteDateTakenAsync(jpegPath, jpegDate);
 
-        Assert.Equal(originalJpeg, await File.ReadAllBytesAsync(jpegPath, TestContext.Current.CancellationToken));
-        Assert.Equal(5, _fallbacks.Count);
-        Assert.All(_fallbacks, fallback =>
-        {
-            Assert.Equal(jpegPath, fallback.ImagePath);
-            Assert.Equal(jpegSidecar, fallback.SidecarPath);
-        });
+        Assert.Equal((32u, 32u), await WicTestImage.ReadSizeAsync(jpegPath));
+        Assert.Empty(_fallbacks);
+        Assert.False(File.Exists(jpegPath + ".xmp"));
 
         var rawXml = await File.ReadAllTextAsync(rawSidecar, TestContext.Current.CancellationToken);
         Assert.Contains("crs:Exposure2012", rawXml);
         Assert.Contains("raw caption", rawXml);
         Assert.DoesNotContain("jpeg caption", rawXml);
-        Assert.DoesNotContain("raw caption", await File.ReadAllTextAsync(jpegSidecar, TestContext.Current.CancellationToken));
 
         using var library = await TestLibrary.CreateAsync(Path.Combine(_directory, "library.db"));
         for (var launch = 0; launch < 2; launch++)
@@ -361,7 +357,7 @@ public sealed class TagSidecarCompanionTests : IDisposable
             Assert.True(rawImage.IsFlagged);
         }
 
-        Assert.Equal(5, _fallbacks.Count);
+        Assert.Empty(_fallbacks);
     }
 
     [Fact]
@@ -392,20 +388,20 @@ public sealed class TagSidecarCompanionTests : IDisposable
     }
 
     [Fact]
-    public async Task LoneJpegWithLegacyRatingSidecar_UpdatesItAndKeepsOtherContents()
+    public async Task LoneJpegWithUnrelatedLegacySidecar_EmbedsRatingAndKeepsOtherContents()
     {
         var jpegPath = Path.Combine(_directory, "legacy-rating.jpg");
         var legacySidecar = Path.ChangeExtension(jpegPath, ".xmp");
-        await CreateMalformedXmpJpegAsync(jpegPath);
+        await WicTestImage.CreateAsync(jpegPath, 32, 32, jpeg: true);
         await File.WriteAllTextAsync(legacySidecar, UnrelatedRawEditorXmp, TestContext.Current.CancellationToken);
         await MetadataWriterService.WriteRatingAsync(jpegPath, 3);
-        Assert.Equal(legacySidecar, Assert.Single(_fallbacks).SidecarPath);
 
         await MetadataWriterService.WriteRatingAsync(jpegPath, 4);
 
         Assert.False(File.Exists($"{jpegPath}.xmp"));
         Assert.Equal(4, new MetadataReaderService().ReadMetadata(jpegPath).Rating);
         Assert.Contains("crs:Exposure2012", await File.ReadAllTextAsync(legacySidecar, TestContext.Current.CancellationToken));
+        Assert.Empty(_fallbacks);
     }
 
     [Fact]

@@ -200,7 +200,8 @@ public sealed class FileEditTransactionTests : IDisposable
     public async Task RawBytesAreImmutableAndCompanionSidecarOwnershipIsPreserved()
     {
         var raw = CreatePhoto("pair.nef", [1, 2]);
-        var jpeg = CreatePhoto("pair.jpg", [3, 4]);
+        var jpeg = Path.Combine(_root, "pair.jpg");
+        await WicTestImage.CreateAsync(jpeg, 32, 24, jpeg: true);
         File.WriteAllText(Path.ChangeExtension(raw, ".xmp"), Packet());
         var originalSidecar = File.ReadAllBytes(Path.ChangeExtension(raw, ".xmp"));
         using var transaction = await PrepareAsync([jpeg], async copies =>
@@ -208,7 +209,8 @@ public sealed class FileEditTransactionTests : IDisposable
             await MetadataWriterService.WriteFlagAsync(copies[jpeg], true);
         });
         Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(false, RefreshAsync)).Status);
-        Assert.True(File.Exists(jpeg + ".xmp"));
+        Assert.False(File.Exists(jpeg + ".xmp"));
+        Assert.True(new MetadataReaderService().ReadMetadata(jpeg).IsFlagged);
         Assert.Equal(originalSidecar, File.ReadAllBytes(Path.ChangeExtension(raw, ".xmp")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => PrepareAsync([raw],
             copies => File.WriteAllBytesAsync(copies[raw], [8])));

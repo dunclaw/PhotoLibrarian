@@ -102,11 +102,23 @@ public sealed class PhotoImportServiceTests
 
         try
         {
-            await File.WriteAllBytesAsync(sourcePath, [1, 2, 3, 4], TestContext.Current.CancellationToken);
-            await TagWriterService.WriteTagsToSidecarAsync(sourcePath, ["camera-tag"]);
-            // Seed the legacy layout that older builds produced: tags in portrait.xmp and
-            // face data in portrait.jpg.xmp.
-            File.Move(sourceFaceSidecar, Path.ChangeExtension(sourcePath, ".xmp"));
+            await WicTestImage.CreateAsync(sourcePath, 16, 12, jpeg: true);
+            var tagMetadata = XmpMetaFactory.Create();
+            tagMetadata.SetProperty(
+                "http://purl.org/dc/elements/1.1/",
+                "dc:subject",
+                null,
+                new PropertyOptions { IsArray = true, IsArrayOrdered = false });
+            tagMetadata.AppendArrayItem(
+                "http://purl.org/dc/elements/1.1/",
+                "dc:subject",
+                new PropertyOptions { IsArray = true, IsArrayOrdered = false },
+                "camera-tag",
+                null);
+            await File.WriteAllTextAsync(
+                Path.ChangeExtension(sourcePath, ".xmp"),
+                XmpMetaFactory.SerializeToString(tagMetadata, new SerializeOptions()),
+                TestContext.Current.CancellationToken);
             var faceMetadata = XmpMetaFactory.Create();
             faceMetadata.SetProperty(
                 "http://purl.org/dc/elements/1.1/",

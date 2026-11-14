@@ -72,10 +72,12 @@ public static class EmbeddedMetadataWriter
         ushort? orientation = null,
         bool? flagged = null,
         string? photoTagMetadata = null,
-        string? colorLabel = null)
+        string? colorLabel = null,
+        string? formatExtension = null)
     {
-        if (!IsSupported(filePath))
-            throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
+        var extension = formatExtension ?? Path.GetExtension(filePath);
+        if (!SupportedExtensions.Contains(extension))
+            throw new NotSupportedException($"Format not supported for in-place metadata write: {extension}");
 
         var props = BuildPropertySet(
             rating,
@@ -86,7 +88,7 @@ public static class EmbeddedMetadataWriter
             flagged,
             photoTagMetadata,
             colorLabel,
-            Path.GetExtension(filePath));
+            extension);
         if (props.Count == 0) return;
 
         await WritePropertiesAsync(filePath, props);
@@ -145,6 +147,16 @@ public static class EmbeddedMetadataWriter
             throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
         if (propertyKeys.Length == 0) return;
 
+        if (propertyKeys.Contains("System.Photo.DateTaken", StringComparer.Ordinal))
+        {
+            var file = await StorageFile.GetFileFromPathAsync(filePath);
+            // The property store removes the embedded value when SavePropertiesAsync receives null.
+            await file.Properties.SavePropertiesAsync(new Dictionary<string, object>
+            {
+                ["System.Photo.DateTaken"] = null!
+            });
+        }
+
         var props = new BitmapPropertySet();
         foreach (var key in propertyKeys)
         {
@@ -163,17 +175,19 @@ public static class EmbeddedMetadataWriter
                     break;
             }
         }
-        if (props.Count == 0) return;
-
-        await WritePropertiesAsync(filePath, props);
+        if (props.Count > 0)
+            await WritePropertiesAsync(filePath, props);
     }
 
     /// <summary>
     /// Reads currently-stored keywords from the image. Used to merge tag adds/removes.
     /// </summary>
-    public static async Task<IReadOnlyList<string>> ReadKeywordsAsync(string filePath)
+    public static async Task<IReadOnlyList<string>> ReadKeywordsAsync(
+        string filePath,
+        string? formatExtension = null)
     {
-        if (!IsSupported(filePath)) return Array.Empty<string>();
+        if (!SupportedExtensions.Contains(formatExtension ?? Path.GetExtension(filePath)))
+            return Array.Empty<string>();
         try
         {
             var file = await StorageFile.GetFileFromPathAsync(filePath);
@@ -183,7 +197,27 @@ public static class EmbeddedMetadataWriter
             if (view.TryGetValue("System.Keywords", out var val) && val?.Value is string[] arr)
                 return arr;
         }
-        catch { }
+        catch (System.Runtime.InteropServices.COMException exception)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read WIC keywords from {filePath}: {exception.Message}");
+        }
+
+        var xmp = FaceMetadataStore.ReadEmbeddedXmp(filePath);
+        if (xmp is not null)
+        {
+            const string dcNamespace = "http://purl.org/dc/elements/1.1/";
+            var count = xmp.CountArrayItems(dcNamespace, "dc:subject");
+            var keywords = new List<string>(count);
+            for (var index = 1; index <= count; index++)
+            {
+                var keyword = xmp.GetArrayItem(dcNamespace, "dc:subject", index)?.Value;
+                if (!string.IsNullOrWhiteSpace(keyword))
+                    keywords.Add(keyword);
+            }
+            return keywords;
+        }
+
         return Array.Empty<string>();
     }
 
@@ -197,6 +231,11 @@ public static class EmbeddedMetadataWriter
         string? colorLabel = null, string? extension = null)
     {
         var props = new BitmapPropertySet();
+        var xmpQueryPrefix = extension is not null &&
+            (extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
+             extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
+            ? "/ifd"
+            : string.Empty;
 
         if (rating.HasValue)
         {
@@ -246,24 +285,19 @@ public static class EmbeddedMetadataWriter
 
         if (flagged.HasValue)
         {
-            props.Add(FlagQueryPath,
+            props.Add(xmpQueryPrefix + FlagQueryPath,
                 new BitmapTypedValue(flagged.Value ? "True" : "False", Windows.Foundation.PropertyType.String));
         }
 
         if (photoTagMetadata is not null)
         {
-            props.Add(TagMetadataQueryPath,
+            props.Add(xmpQueryPrefix + TagMetadataQueryPath,
                 new BitmapTypedValue(photoTagMetadata, Windows.Foundation.PropertyType.String));
         }
 
         if (colorLabel is not null)
         {
-            var path = extension is not null &&
-                (extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
-                 extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
-                ? "/ifd" + ColorLabelQueryPath
-                : ColorLabelQueryPath;
-            props.Add(path,
+            props.Add(xmpQueryPrefix + ColorLabelQueryPath,
                 new BitmapTypedValue(colorLabel, Windows.Foundation.PropertyType.String));
         }
 
@@ -298,6 +332,7 @@ public static class EmbeddedMetadataWriter
     private static bool IsFileLock(Exception exception) =>
         exception.HResult is unchecked((int)0x80070020) // ERROR_SHARING_VIOLATION
             or unchecked((int)0x80070021) // ERROR_LOCK_VIOLATION
+            or unchecked((int)0x800704C8) // ERROR_USER_MAPPED_FILE
             or unchecked((int)0x80030020) // STG_E_SHAREVIOLATION
             or unchecked((int)0x80030021); // STG_E_LOCKVIOLATION
 
@@ -308,19 +343,7 @@ public static class EmbeddedMetadataWriter
         // === Tier 1: in-place (preserves bytes exactly) ===
         try
         {
-            // FileStream preserves sharing-violation HRESULTs; StorageFile can map them to access denied.
-            using (var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
-            using (var stream = fileStream.AsRandomAccessStream())
-            {
-                operation = "creating the decoder";
-                var decoder = await BitmapDecoder.CreateAsync(stream);
-                operation = "creating the in-place encoder";
-                var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
-                operation = "setting metadata properties";
-                await encoder.BitmapProperties.SetPropertiesAsync(props);
-                operation = "flushing the in-place encoder";
-                await encoder.FlushAsync();
-            }
+            await WritePropertiesInPlaceAsync(filePath, props);
             return;
         }
         catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == WINCODEC_ERR_TOOMUCHMETADATA)
@@ -348,6 +371,17 @@ public static class EmbeddedMetadataWriter
         await TranscodeWriteAsync(filePath, props, compatibleJpeg);
     }
 
+    private static async Task WritePropertiesInPlaceAsync(string filePath, BitmapPropertySet props)
+    {
+        // FileStream preserves sharing-violation HRESULTs; StorageFile can map them to access denied.
+        using var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        using var stream = fileStream.AsRandomAccessStream();
+        var decoder = await BitmapDecoder.CreateAsync(stream);
+        var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
+        await encoder.BitmapProperties.SetPropertiesAsync(props);
+        await encoder.FlushAsync();
+    }
+
     private static void LogWriteFailure(
         string tier, string filePath, string operation, BitmapPropertySet properties, Exception exception)
     {
@@ -358,6 +392,21 @@ public static class EmbeddedMetadataWriter
     }
 
     private static async Task TranscodeWriteAsync(
+        string filePath, BitmapPropertySet props, byte[]? compatibleJpeg)
+    {
+        var contents = await TranscodeToBytesAsync(filePath, props, compatibleJpeg);
+
+        // 2) Replace the source only after the decoder and encoder have left their scope.
+        using var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        using var outStream = fileStream.AsRandomAccessStream();
+        outStream.Size = 0;
+        using var input = new MemoryStream(contents, writable: false);
+        using var inputStream = input.AsRandomAccessStream();
+        await RandomAccessStream.CopyAsync(inputStream, outStream);
+        await outStream.FlushAsync();
+    }
+
+    private static async Task<byte[]> TranscodeToBytesAsync(
         string filePath, BitmapPropertySet props, byte[]? compatibleJpeg)
     {
         using var destBuffer = new InMemoryRandomAccessStream();
@@ -388,15 +437,10 @@ public static class EmbeddedMetadataWriter
             throw;
         }
 
-        // 2) Atomically replace the source file with the in-memory result
         destBuffer.Seek(0);
-        using (var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
-        using (var outStream = fileStream.AsRandomAccessStream())
-        {
-            outStream.Size = 0;
-            await RandomAccessStream.CopyAsync(destBuffer.GetInputStreamAt(0), outStream);
-            await outStream.FlushAsync();
-        }
+        using var output = new MemoryStream();
+        await destBuffer.AsStreamForRead().CopyToAsync(output);
+        return output.ToArray();
     }
 
     private static byte[] RemoveJpegXmpByteOrderMarks(byte[] bytes)

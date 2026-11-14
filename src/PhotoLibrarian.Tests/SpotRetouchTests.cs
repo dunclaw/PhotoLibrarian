@@ -610,7 +610,8 @@ public sealed class SpotRetouchTests : IDisposable
             vm.AddRetouchStroke(Stroke(2, Enumerable.Repeat(new RetouchPoint(64, 64), 128).ToArray()));
         Assert.Equal(80, vm.UndoHistory.Count);
         await new ImageEditService(backups).SaveEditParametersAsync(path, vm.GetCurrentParameters());
-        Assert.True(new FileInfo(Path.ChangeExtension(path, ".xmp")).Length > 160_000);
+        Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
+        Assert.True(new FileInfo(path).Length > 160_000);
         Assert.Equal(80, ImageEditService.ReadEditParameters(path).RetouchStrokes.Count);
         vm.UndoSteps(50);
         Assert.Equal(30, vm.GetCurrentParameters().RetouchStrokes.Count);

@@ -31,7 +31,8 @@ public static class TagWriterService
         IReadOnlyCollection<ImageTag>? tagProvenance = null,
         string? autoTagScanVersion = null,
         TagMetadataSidecarSnapshot? expectedSidecarSnapshot = null,
-        string? sourceIdentity = null)
+        string? sourceIdentity = null,
+        string? formatPath = null)
     {
         var distinct = tags
             .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -44,85 +45,115 @@ public static class TagWriterService
                 tagProvenance,
                 autoTagScanVersion,
                 sourceIdentity);
-        Exception? embeddedError = null;
         EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
+        await MetadataWriterService.WriteUsingPolicyAsync(
+            imagePath,
+            MetadataWriteProperty.Tags,
+            () => WriteEmbeddedAsync(
+                imagePath,
+                distinct,
+                portableMetadata,
+                expectedSidecarSnapshot,
+                formatPath),
+            () => WriteSidecarAsync(
+                imagePath,
+                distinct,
+                portableMetadata,
+                expectedSidecarSnapshot),
+            policyPath: formatPath);
+    }
 
-        var reader = new MetadataReaderService();
-        // A portable fallback packet remains authoritative until migrated into
-        // the image; don't leave it stale by switching back to embedded writes.
-        if (EmbeddedMetadataWriter.IsSupported(imagePath) &&
-            reader.ReadPortableTagSidecarMetadata(imagePath) is null)
+    private static async Task WriteEmbeddedAsync(
+        string imagePath,
+        IReadOnlyList<string> tags,
+        string? portableMetadata,
+        TagMetadataSidecarSnapshot? expectedSidecarSnapshot,
+        string? formatPath)
+    {
+        var ownedSidecars = new List<(string Path, IXmpMeta Xmp, TagMetadataSidecarSnapshot Snapshot)>();
+        string? sidecarMetadata = null;
+        foreach (var path in MetadataSidecarLocator.GetOwnedSidecarPaths(imagePath))
         {
-            try
-            {
-                await EmbeddedMetadataWriter.WriteAsync(
-                    imagePath,
-                    keywords: distinct,
-                    photoTagMetadata: portableMetadata);
-                if (portableMetadata is not null &&
-                    !HasMatchingPortableMetadata(reader, imagePath, portableMetadata))
-                    throw new IOException("The photo did not retain the portable tag metadata.");
-                return;
-            }
-            catch (Exception ex)
-            {
-                embeddedError = ex;
-                Diagnostics.DebugLog.WriteLine(
-                    $"[TAGS] Embedded keyword write failed for {imagePath}: {ex.GetType().Name} 0x{ex.HResult:X8} {ex.Message}. Falling back to sidecar.");
-            }
-        }
-
-        // RAW fallback: write XMP sidecar
-        var sidecarPath = await Task.Run(() =>
-        {
-            var sidecarPath = GetTagSidecarTargetPath(imagePath);
-            EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
+            if (!File.Exists(path)) continue;
+            var snapshot = CaptureSidecarSnapshotAt(path);
             IXmpMeta xmp;
             try
             {
-                xmp = File.Exists(sidecarPath)
-                    ? XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath))
-                    : XmpMetaFactory.Create();
+                xmp = XmpMetaFactory.ParseFromString(await File.ReadAllTextAsync(path));
             }
             catch (Exception exception)
             {
-                throw new IOException(
-                    $"The existing XMP sidecar could not be read: {sidecarPath}.",
-                    exception);
+                throw new IOException($"The existing XMP sidecar could not be read: {path}.", exception);
             }
+            if (!MetadataSidecarLocator.OwnsTags(xmp)) continue;
 
-            try { xmp.DeleteProperty(DcNamespace, "dc:subject"); } catch { }
+            var metadataValue = xmp.GetPropertyString(
+                PhotoLibrarianNamespace,
+                EmbeddedMetadataWriter.PhotoTagMetadataPropertyName);
+            if (metadataValue is not null && sidecarMetadata is not null &&
+                !string.Equals(metadataValue, sidecarMetadata, StringComparison.Ordinal))
+                throw new IOException("Conflicting portable tag metadata exists in multiple owned sidecars.");
+            sidecarMetadata ??= metadataValue;
+            ownedSidecars.Add((path, xmp, snapshot));
+        }
 
-            // An explicit (possibly empty) keyword bag records that this sidecar owns the
-            // photo's tags, so clearing every tag cannot resurrect stale embedded keywords.
+        var metadataToWrite = portableMetadata ?? sidecarMetadata;
+        await EmbeddedMetadataWriter.WriteAsync(
+            imagePath,
+            keywords: tags,
+            photoTagMetadata: metadataToWrite,
+            formatExtension: Path.GetExtension(formatPath ?? imagePath));
+
+        var formatExtension = Path.GetExtension(formatPath ?? imagePath);
+        var actualTags = await EmbeddedMetadataWriter.ReadKeywordsAsync(imagePath, formatExtension);
+        if (!actualTags.Order(StringComparer.OrdinalIgnoreCase)
+                .SequenceEqual(tags.Order(StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase))
+            throw new IOException("The embedded keywords could not be verified after writing.");
+        if (metadataToWrite is not null &&
+            !HasMatchingPortableMetadata(imagePath, metadataToWrite))
+            throw new IOException("The photo did not retain the portable tag metadata.");
+
+        EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
+        foreach (var (path, xmp, snapshot) in ownedSidecars)
+        {
+            xmp.DeleteProperty(DcNamespace, "dc:subject");
+            xmp.DeleteProperty(
+                PhotoLibrarianNamespace,
+                EmbeddedMetadataWriter.PhotoTagMetadataPropertyName);
+            WriteOwnedSidecarAtomically(path,
+                XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions()),
+                snapshot);
+        }
+    }
+
+    private static Task WriteSidecarAsync(
+        string imagePath,
+        IReadOnlyList<string> tags,
+        string? portableMetadata,
+        TagMetadataSidecarSnapshot? expectedSidecarSnapshot) =>
+        Task.Run(() =>
+        {
+            var sidecarPath = GetTagSidecarTargetPath(imagePath);
+            EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
+            var xmp = LoadSidecar(sidecarPath);
+            xmp.DeleteProperty(DcNamespace, "dc:subject");
             xmp.SetProperty(DcNamespace, "dc:subject", null,
                 new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false });
-            foreach (var tag in distinct)
+            foreach (var tag in tags)
             {
                 xmp.AppendArrayItem(DcNamespace, "dc:subject",
                     new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false },
                     tag, null);
             }
-
             if (portableMetadata is not null)
             {
-                xmp.SetProperty(
-                    PhotoLibrarianNamespace,
-                    EmbeddedMetadataWriter.PhotoTagMetadataPropertyName,
-                    portableMetadata);
+                xmp.SetProperty(PhotoLibrarianNamespace,
+                    EmbeddedMetadataWriter.PhotoTagMetadataPropertyName, portableMetadata);
             }
 
             var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
-            WriteSidecarAtomically(
-                imagePath,
-                sidecarPath,
-                serialized,
-                expectedSidecarSnapshot);
-            return sidecarPath;
+            WriteSidecarAtomically(imagePath, sidecarPath, serialized, expectedSidecarSnapshot);
         });
-        if (embeddedError is not null)
-            MetadataWriterService.ReportSidecarFallback(imagePath, "tags", embeddedError, sidecarPath);
-    }
 
     /// <summary>
     /// Returns the sidecar that tag writes for this photo update: the sidecar already holding
@@ -183,11 +214,11 @@ public static class TagWriterService
     }
 
     private static bool HasMatchingPortableMetadata(
-        MetadataReaderService reader,
         string imagePath,
         string expectedJson)
     {
-        var actual = reader.ReadPortableTagMetadata(imagePath);
+        var actual = MetadataReaderService.ReadPortableTagMetadata(
+            FaceMetadataStore.ReadEmbeddedXmp(imagePath));
         if (actual is null ||
             !PortableImageTagMetadataSerializer.TryDeserialize(expectedJson, out var expected) ||
             expected is null)
@@ -239,6 +270,42 @@ public static class TagWriterService
         {
             if (File.Exists(temporaryPath))
                 File.Delete(temporaryPath);
+        }
+    }
+
+    private static IXmpMeta LoadSidecar(string sidecarPath)
+    {
+        if (!File.Exists(sidecarPath)) return XmpMetaFactory.Create();
+        try
+        {
+            return XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+        }
+        catch (Exception exception)
+        {
+            throw new IOException($"The existing XMP sidecar could not be read: {sidecarPath}.", exception);
+        }
+    }
+
+    private static void WriteOwnedSidecarAtomically(
+        string sidecarPath,
+        string contents,
+        TagMetadataSidecarSnapshot expected)
+    {
+        if (CaptureSidecarSnapshotAt(sidecarPath) != expected)
+            throw new IOException("The XMP sidecar changed while tags were being migrated.");
+        var directory = Path.GetDirectoryName(sidecarPath)
+            ?? throw new InvalidOperationException("The XMP sidecar path has no parent directory.");
+        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(sidecarPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temporaryPath, contents);
+            if (CaptureSidecarSnapshotAt(sidecarPath) != expected)
+                throw new IOException("The XMP sidecar changed while tags were being migrated.");
+            File.Move(temporaryPath, sidecarPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
         }
     }
 }

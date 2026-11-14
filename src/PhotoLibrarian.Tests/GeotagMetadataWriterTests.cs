@@ -69,9 +69,10 @@ public sealed class GeotagMetadataWriterTests : IDisposable
         var coordinate = new GeoCoordinate(-33.8688, 151.2093);
         await WicTestImage.CreateAsync(imagePath, 32, 24, jpeg);
         await EmbeddedMetadataWriter.WriteAsync(imagePath, title: "Keep this caption");
+        var existingSidecar = CreateSidecarWithExistingMetadata();
         await File.WriteAllTextAsync(
             sidecarPath,
-            "Keep this unrelated sidecar",
+            XmpMetaFactory.SerializeToString(existingSidecar, new XmpCore.Options.SerializeOptions()),
             TestContext.Current.CancellationToken);
 
         var service = new GeotagMetadataWriterService(new OriginalBackupService(backupDirectory));
@@ -87,9 +88,12 @@ public sealed class GeotagMetadataWriterTests : IDisposable
         Assert.InRange(Math.Abs(gps.Value.Longitude - coordinate.Longitude), 0, 0.000001);
         Assert.Equal((32u, 24u), await WicTestImage.ReadSizeAsync(imagePath));
         Assert.Equal("Keep this caption", MetadataWriterService.ReadCaptionFromSidecar(imagePath));
-        Assert.Equal(
-            "Keep this unrelated sidecar",
+        var preservedSidecar = XmpMetaFactory.ParseFromString(
             await File.ReadAllTextAsync(sidecarPath, TestContext.Current.CancellationToken));
+        Assert.Equal("Keep this caption", preservedSidecar.GetLocalizedText(
+            DcNamespace, "dc:description", "", "x-default")?.Value);
+        Assert.Equal("Preserve tag provenance", preservedSidecar.GetPropertyString(
+            EmbeddedMetadataWriter.PhotoLibrarianXmpNamespace, "plib:TagMetadata"));
         Assert.True(Directory.EnumerateFiles(backupDirectory, "*", SearchOption.AllDirectories).Any());
     }
 
@@ -186,7 +190,7 @@ public sealed class GeotagMetadataWriterTests : IDisposable
     }
 
     [Fact]
-    public async Task LockedImage_FallsBackToSidecarWithoutChangingOriginal()
+    public async Task LockedImage_DoesNotFallbackToSidecar()
     {
         var imagePath = Path.Combine(_directory, "locked.jpg");
         var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
@@ -206,8 +210,8 @@ public sealed class GeotagMetadataWriterTests : IDisposable
         {
             using (File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                var location = await service.WriteAsync(imagePath, new GeoCoordinate(10, 20));
-                Assert.Equal(GeotagWriteLocation.XmpSidecar, location);
+                await Assert.ThrowsAnyAsync<Exception>(
+                    () => service.WriteAsync(imagePath, new GeoCoordinate(10, 20)));
             }
         }
         finally
@@ -216,16 +220,12 @@ public sealed class GeotagMetadataWriterTests : IDisposable
         }
 
         Assert.Equal(originalBytes, await File.ReadAllBytesAsync(imagePath, TestContext.Current.CancellationToken));
-        Assert.True(File.Exists(sidecarPath));
-        Assert.NotNull(fallback);
-        Assert.Equal("GPS coordinates", fallback.PropertyName);
-        Assert.Equal(new GeoCoordinate(10, 20), new GeoCoordinate(
-            new MetadataReaderService().ReadMetadata(imagePath).GpsLatitude!.Value,
-            new MetadataReaderService().ReadMetadata(imagePath).GpsLongitude!.Value));
+        Assert.False(File.Exists(sidecarPath));
+        Assert.Null(fallback);
     }
 
     [Fact]
-    public async Task ReadOnlyImage_FallsBackToSidecarWithoutChangingOriginal()
+    public async Task ReadOnlyImage_DoesNotFallbackToSidecar()
     {
         var imagePath = Path.Combine(_directory, "read-only.jpg");
         var sidecarPath = Path.ChangeExtension(imagePath, ".xmp");
@@ -237,12 +237,12 @@ public sealed class GeotagMetadataWriterTests : IDisposable
 
         try
         {
-            var location = await service.WriteAsync(imagePath, new GeoCoordinate(-10, -20));
-            Assert.Equal(GeotagWriteLocation.XmpSidecar, location);
+            await Assert.ThrowsAnyAsync<Exception>(
+                () => service.WriteAsync(imagePath, new GeoCoordinate(-10, -20)));
             Assert.Equal(
                 originalBytes,
                 await File.ReadAllBytesAsync(imagePath, TestContext.Current.CancellationToken));
-            Assert.True(File.Exists(sidecarPath));
+            Assert.False(File.Exists(sidecarPath));
         }
         finally
         {

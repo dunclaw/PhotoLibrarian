@@ -115,32 +115,26 @@ public sealed class PanoramaStitchingTests
     }
 
     [Fact]
-    public async Task SaveAsync_LockedPanorama_ReportsOnlyAnActuallySavedSidecar()
+    public async Task SaveAsync_LockedSupportedPanorama_ReportsWriteFailureWithoutSidecarFallback()
     {
         var folder = Path.Combine(Path.GetTempPath(), $"panorama-sidecar-{Guid.NewGuid():N}");
         Directory.CreateDirectory(folder);
         MetadataWriteFallbackEventArgs? notice = null;
-        var savedWhenReported = false;
         var path = await PanoramaStitchingService.SaveAsync(
             CreateSaveTestPanorama(["first.jpg", "second.jpg"]), folder, TestContext.Current.CancellationToken);
         void OnFallback(object? sender, MetadataWriteFallbackEventArgs e)
         {
             if (e.ImagePath != path) return;
             notice = e;
-            savedWhenReported = File.Exists(e.SidecarPath);
         }
         MetadataWriterService.SidecarFallback += OnFallback;
         try
         {
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                await MetadataWriterService.WriteCaptionAsync(path, "Sidecar caption");
-            Assert.NotNull(notice);
-            Assert.True(savedWhenReported);
-            Assert.Equal(Path.ChangeExtension(path, ".xmp"), notice.SidecarPath);
-            var metadata = XmpCore.XmpMetaFactory.ParseFromString(
-                await File.ReadAllTextAsync(notice.SidecarPath, TestContext.Current.CancellationToken));
-            Assert.Equal("Sidecar caption", metadata.GetLocalizedText(
-                "http://purl.org/dc/elements/1.1/", "description", "", "x-default").Value);
+                await Assert.ThrowsAsync<IOException>(
+                    () => MetadataWriterService.WriteCaptionAsync(path, "Embedded caption"));
+            Assert.Null(notice);
+            Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
         }
         finally
         {
@@ -150,7 +144,7 @@ public sealed class PanoramaStitchingTests
     }
 
     [Fact]
-    public async Task SaveAsync_InvalidXmp_PreservesImageAndReportsTheSavedSidecar()
+    public async Task SaveAsync_InvalidEmbeddedXmp_PreservesImageAndReportsWriteFailure()
     {
         var folder = Path.Combine(Path.GetTempPath(), $"panorama-invalid-xmp-{Guid.NewGuid():N}");
         Directory.CreateDirectory(folder);
@@ -168,13 +162,11 @@ public sealed class PanoramaStitchingTests
         MetadataWriterService.SidecarFallback += OnFallback;
         try
         {
-            await MetadataWriterService.WriteCaptionAsync(path, "Sidecar caption");
-            Assert.NotNull(notice);
+            await Assert.ThrowsAnyAsync<Exception>(
+                () => MetadataWriterService.WriteCaptionAsync(path, "Embedded caption"));
+            Assert.Null(notice);
             Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
-            var metadata = XmpCore.XmpMetaFactory.ParseFromString(
-                await File.ReadAllTextAsync(notice.SidecarPath, TestContext.Current.CancellationToken));
-            Assert.Equal("Sidecar caption", metadata.GetLocalizedText(
-                "http://purl.org/dc/elements/1.1/", "description", "", "x-default").Value);
+            Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
         }
         finally
         {

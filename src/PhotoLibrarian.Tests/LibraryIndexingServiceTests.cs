@@ -51,7 +51,7 @@ public sealed class LibraryIndexingServiceTests
         try
         {
             await WicTestImage.CreateAsync(path, 16, 12);
-            await TagWriterService.WriteTagsToSidecarAsync(path, ["embedded"],
+            await TagWriterService.WriteTagsToSidecarAsync(Path.ChangeExtension(path, ".dng"), ["embedded"],
                 [new ImageTag { Tag = "embedded", Source = TagSource.Manual, Confidence = 1 }],
                 "old-pipeline", sourceIdentity: await RecognitionSourceIdentity.ComputeAsync(path));
             using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));

@@ -1,18 +1,30 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using XmpCore;
+using MetadataExtractor;
+using MetadataExtractor.Formats.Exif;
 
 namespace PhotoLibrarian.Core.Services;
 
+internal enum MetadataWriteProperty
+{
+    Tags,
+    Rating,
+    Flag,
+    Caption,
+    DateTaken,
+    Gps,
+    Faces,
+    ColorLabel,
+    PendingEditRecipe
+}
+
 /// <summary>
-/// Writes editable metadata (rating, caption, date taken) into image files.
-/// 
-/// Strategy: write <b>directly into the image file</b> using WIC (see <see cref="EmbeddedMetadataWriter"/>)
-/// for supported formats (JPEG/TIFF/PNG/HEIC/JPEG-XR). For unsupported formats (RAW: CR2/CR3/NEF/ARW etc.),
-/// fall back to an XMP sidecar — RAW files are designed to be read-only and Lightroom/Photoshop also
-/// resort to sidecars for them.
-/// 
-/// The premise: edits stay with the original file wherever possible, so moving an image to another drive
-/// or computer carries the metadata with it.
+/// Coordinates portable metadata writes for all editable properties. Each property has an explicit
+/// embedded-format capability; unsupported formats use an owned XMP sidecar, while failures on a
+/// supported embedded write are surfaced without changing storage location.
+///
+/// Embedded writes are verified before matching owned sidecar values are removed. This keeps edits
+/// portable with the photo while preserving unrelated XMP and legacy metadata.
 /// </summary>
 public static class MetadataWriterService
 {
@@ -39,6 +51,53 @@ public static class MetadataWriterService
     public const string PhotoLibrarianNamespace = EmbeddedMetadataWriter.PhotoLibrarianXmpNamespace;
     private const string FlagPropertyName = "plib:Flagged";
 
+    internal static bool SupportsEmbeddedWrite(string imagePath, MetadataWriteProperty property)
+    {
+        var extension = Path.GetExtension(imagePath);
+        return property switch
+        {
+            MetadataWriteProperty.Tags or
+            MetadataWriteProperty.Rating or
+            MetadataWriteProperty.Flag or
+            MetadataWriteProperty.Caption or
+            MetadataWriteProperty.DateTaken or
+            MetadataWriteProperty.ColorLabel => EmbeddedMetadataWriter.IsSupported(imagePath),
+            MetadataWriteProperty.Gps => extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".jpe", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".jfif", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase),
+            MetadataWriteProperty.Faces or MetadataWriteProperty.PendingEditRecipe =>
+                extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".jpe", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".jfif", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".png", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+    }
+
+    internal static Task WriteUsingPolicyAsync(
+        string imagePath,
+        MetadataWriteProperty property,
+        Func<Task> writeEmbedded,
+        Func<Task> writeSidecar,
+        string? policyPath = null) =>
+        SupportsEmbeddedWrite(policyPath ?? imagePath, property) ? writeEmbedded() : writeSidecar();
+
+    internal static void WriteUsingPolicy(
+        string imagePath,
+        MetadataWriteProperty property,
+        Action writeEmbedded,
+        Action writeSidecar)
+    {
+        if (SupportsEmbeddedWrite(imagePath, property))
+            writeEmbedded();
+        else
+            writeSidecar();
+    }
+
     static MetadataWriterService()
     {
         try { XmpMetaFactory.SchemaRegistry.RegisterNamespace(PhotoLibrarianNamespace, "plib"); }
@@ -50,30 +109,26 @@ public static class MetadataWriterService
     /// </summary>
     public static async Task WriteFlagAsync(string imagePath, bool flagged)
     {
-        Exception? embeddedError = null;
-        if (EmbeddedMetadataWriter.IsSupported(imagePath))
-        {
-            try
-            {
-                await EmbeddedMetadataWriter.WriteAsync(imagePath, flagged: flagged);
-                return;
-            }
-            catch (Exception ex)
-            {
-                embeddedError = ex;
-                System.Diagnostics.Debug.WriteLine($"[METADATA] In-place flag write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
-            }
-        }
-
-        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsFlag, xmp =>
+        await WriteUsingPolicyAsync(
+            imagePath,
+            MetadataWriteProperty.Flag,
+            () => WriteEmbeddedAndMigrateSidecarsAsync(
+                imagePath,
+                "flag",
+                () => EmbeddedMetadataWriter.WriteAsync(imagePath, flagged: flagged),
+                () => string.Equals(
+                    ReadEmbeddedXmp(imagePath)?.GetPropertyString(PhotoLibrarianNamespace, FlagPropertyName),
+                    flagged ? "True" : "False",
+                    StringComparison.OrdinalIgnoreCase),
+                MetadataSidecarLocator.OwnsFlag,
+                xmp => xmp.DeleteProperty(PhotoLibrarianNamespace, FlagPropertyName)),
+            () => UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsFlag, xmp =>
         {
             if (flagged)
                 xmp.SetProperty(PhotoLibrarianNamespace, FlagPropertyName, "True");
             else
                 try { xmp.DeleteProperty(PhotoLibrarianNamespace, FlagPropertyName); } catch { }
-        });
-        if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "flag", embeddedError, sidecarPath);
+            }));
     }
 
     /// <summary>
@@ -102,96 +157,73 @@ public static class MetadataWriterService
     /// <summary>Writes rating (0=clear, 1-5 stars) to the image (in-file) or sidecar (RAW fallback).</summary>
     public static async Task WriteRatingAsync(string imagePath, int? rating)
     {
-        Exception? embeddedError = null;
-        if (EmbeddedMetadataWriter.IsSupported(imagePath))
-        {
-            try
+        var expected = rating.GetValueOrDefault();
+        await WriteUsingPolicyAsync(
+            imagePath,
+            MetadataWriteProperty.Rating,
+            () => WriteEmbeddedAndMigrateSidecarsAsync(
+                imagePath,
+                "rating",
+                () => EmbeddedMetadataWriter.WriteAsync(imagePath, rating: expected),
+                () => ReadEmbeddedXmp(imagePath)?.GetPropertyInteger(XapNamespace, "xmp:Rating") == expected,
+                MetadataSidecarLocator.OwnsRating,
+                xmp => xmp.DeleteProperty(XapNamespace, "xmp:Rating")),
+            () => UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsRating, xmp =>
             {
-                await EmbeddedMetadataWriter.WriteAsync(imagePath, rating: rating ?? 0);
-                return;
-            }
-
-            catch (Exception ex)
-            {
-                embeddedError = ex;
-                System.Diagnostics.Debug.WriteLine($"[METADATA] In-place rating write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
-            }
-        }
-
-        // Fallback: XMP sidecar (for RAW or in-place write failure)
-        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsRating, xmp =>
-        {
-            if (rating.HasValue && rating.Value > 0)
-                xmp.SetPropertyInteger(XapNamespace, "xmp:Rating", rating.Value);
-            else
-                try { xmp.DeleteProperty(XapNamespace, "xmp:Rating"); } catch { }
-        });
-        if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "rating", embeddedError, sidecarPath);
+                if (rating.HasValue && rating.Value > 0)
+                    xmp.SetPropertyInteger(XapNamespace, "xmp:Rating", rating.Value);
+                else
+                    try { xmp.DeleteProperty(XapNamespace, "xmp:Rating"); } catch { }
+            }));
     }
 
     /// <summary>Writes a standard XMP label in the image, or in a sidecar for unsupported formats.</summary>
     public static async Task WriteColorLabelAsync(string imagePath, string? label)
     {
-        if (!EmbeddedMetadataWriter.IsSupported(imagePath))
-        {
-            await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsColorLabel,
-                xmp => xmp.SetProperty(XapNamespace, "xmp:Label", label ?? string.Empty));
-            return;
-        }
-
-        var sidecars = new List<(string Path, IXmpMeta Xmp)>();
-        foreach (var path in MetadataSidecarLocator.GetOwnedSidecarPaths(imagePath))
-        {
-            var xmp = LoadOrCreateSidecar(path);
-            if (MetadataSidecarLocator.OwnsColorLabel(xmp))
-                sidecars.Add((path, xmp));
-        }
-
-        await EmbeddedMetadataWriter.WriteAsync(imagePath, colorLabel: label ?? string.Empty);
-        var directories = MetadataExtractor.ImageMetadataReader.ReadMetadata(imagePath);
-        var embedded = directories.OfType<MetadataExtractor.Formats.Xmp.XmpDirectory>()
-            .FirstOrDefault()?.XmpMeta;
-        var actual = embedded?.GetPropertyString(XapNamespace, "xmp:Label");
-        if (!string.Equals(actual ?? string.Empty, label ?? string.Empty, StringComparison.Ordinal))
-            throw new IOException("The embedded color label could not be verified after writing.");
-
-        foreach (var (path, xmp) in sidecars)
-        {
-            xmp.DeleteProperty(XapNamespace, "xmp:Label");
-            SaveSidecar(path, xmp);
-        }
+        await WriteUsingPolicyAsync(
+            imagePath,
+            MetadataWriteProperty.ColorLabel,
+            () => WriteEmbeddedAndMigrateSidecarsAsync(
+                imagePath,
+                "color label",
+                () => EmbeddedMetadataWriter.WriteAsync(imagePath, colorLabel: label ?? string.Empty),
+                () => string.Equals(
+                    ReadEmbeddedXmp(imagePath)?.GetPropertyString(XapNamespace, "xmp:Label") ?? string.Empty,
+                    label ?? string.Empty,
+                    StringComparison.Ordinal),
+                MetadataSidecarLocator.OwnsColorLabel,
+                xmp => xmp.DeleteProperty(XapNamespace, "xmp:Label")),
+            async () =>
+            {
+                await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsColorLabel,
+                    xmp => xmp.SetProperty(XapNamespace, "xmp:Label", label ?? string.Empty));
+            });
     }
 
-    /// <summary>Writes caption to the image (in-file: System.Title + System.Comment) or sidecar fallback.</summary>
+    /// <summary>Writes caption into supported image formats, or an owned sidecar when unsupported.</summary>
     public static async Task WriteCaptionAsync(string imagePath, string? caption)
     {
         var safe = caption ?? "";
-        Exception? embeddedError = null;
-
-        if (EmbeddedMetadataWriter.IsSupported(imagePath))
-        {
-            try
+        await WriteUsingPolicyAsync(
+            imagePath,
+            MetadataWriteProperty.Caption,
+        () => WriteEmbeddedAndMigrateSidecarsAsync(
+            imagePath,
+            "caption",
+            () => WriteEmbeddedCaptionAsync(imagePath, safe),
+            () => string.Equals(
+                ReadCaptionFromFile(imagePath) ?? string.Empty,
+                safe,
+                StringComparison.Ordinal),
+            MetadataSidecarLocator.OwnsCaption,
+            xmp => xmp.DeleteProperty(DcNamespace, "dc:description")),
+            () => UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsCaption, xmp =>
             {
-                await EmbeddedMetadataWriter.WriteAsync(imagePath, title: safe);
-                return;
-            }
-            catch (Exception ex)
-            {
-                embeddedError = ex;
-                System.Diagnostics.Debug.WriteLine($"[METADATA] In-place caption write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
-            }
-        }
-
-        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsCaption, xmp =>
-        {
-            if (!string.IsNullOrEmpty(safe))
-                xmp.SetLocalizedText(DcNamespace, "dc:description", "", "x-default", safe);
-            else
-                try { xmp.DeleteProperty(DcNamespace, "dc:description"); } catch { }
-        });
-        if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "caption", embeddedError, sidecarPath);
+                if (!string.IsNullOrEmpty(safe))
+                    xmp.SetLocalizedText(DcNamespace, "dc:description", "", "x-default", safe);
+                else
+                    try { xmp.DeleteProperty(DcNamespace, "dc:description"); } catch { }
+            }));
     }
 
     /// <summary>
@@ -204,7 +236,7 @@ public static class MetadataWriterService
         var fileCaption = ReadCaptionFromFile(imagePath);
         if (!string.IsNullOrWhiteSpace(fileCaption)) return fileCaption;
 
-        // 2. Sidecar fallback (RAW, failed in-place writes, or edits that predate them)
+        // Unsupported formats and older files may still carry the authoritative caption in XMP.
         var sidecarPath = MetadataSidecarLocator.ResolveReadPath(imagePath, MetadataSidecarLocator.OwnsCaption);
         if (sidecarPath is null) return null;
 
@@ -221,6 +253,25 @@ public static class MetadataWriterService
         catch { }
 
         return null;
+    }
+
+    private static Task WriteEmbeddedCaptionAsync(string imagePath, string caption)
+    {
+        if (!Path.GetExtension(imagePath).Equals(".png", StringComparison.OrdinalIgnoreCase))
+            return EmbeddedMetadataWriter.WriteAsync(imagePath, title: caption);
+
+        return Task.Run(() =>
+        {
+            var xmp = ReadEmbeddedXmp(imagePath) ?? XmpMetaFactory.Create();
+            if (string.IsNullOrEmpty(caption))
+                xmp.DeleteProperty(DcNamespace, "dc:description");
+            else
+                xmp.SetLocalizedText(DcNamespace, "dc:description", "", "x-default", caption);
+            var packet = XmpMetaFactory.SerializeToString(
+                xmp, new XmpCore.Options.SerializeOptions()).TrimStart('\uFEFF');
+            if (!FaceMetadataStore.TryWriteEmbedded(imagePath, packet))
+                throw new IOException($"The embedded caption writer rejected {imagePath}.");
+        });
     }
 
     private static string? ReadCaptionFromFile(string imagePath)
@@ -241,54 +292,70 @@ public static class MetadataWriterService
                 if (!string.IsNullOrWhiteSpace(imgDesc)) return imgDesc;
             }
 
+            foreach (var png in dirs.OfType<MetadataExtractor.Formats.Png.PngDirectory>())
+            {
+                if (png.GetObject(MetadataExtractor.Formats.Png.PngDirectory.TagTextualData) is
+                    not IEnumerable<MetadataExtractor.KeyValuePair> text)
+                    continue;
+                foreach (var pair in text)
+                    if ((pair.Key is "Comment" or "Description" or "Title") &&
+                        !string.IsNullOrWhiteSpace(pair.Value.ToString()))
+                        return pair.Value.ToString();
+            }
+
             // Try XMP packet embedded in the file (not the sidecar)
             var xmpDir = dirs.OfType<MetadataExtractor.Formats.Xmp.XmpDirectory>().FirstOrDefault();
-            if (xmpDir?.XmpMeta != null && xmpDir.XmpMeta.DoesPropertyExist(DcNamespace, "dc:description"))
+            if (xmpDir?.XmpMeta is { } xmp)
             {
-                var prop = xmpDir.XmpMeta.GetLocalizedText(DcNamespace, "dc:description", "", "x-default");
-                return prop?.Value;
+                var description = xmp.GetLocalizedText(DcNamespace, "dc:description", "", "x-default")?.Value
+                    ?? xmp.GetLocalizedText(ExifNamespace, "exif:UserComment", "", "x-default")?.Value;
+                if (!string.IsNullOrWhiteSpace(description)) return description;
             }
         }
         catch { }
         return null;
     }
 
-    /// <summary>Writes capture date directly into the image (in-file) or to sidecar (RAW fallback).</summary>
+    /// <summary>Writes capture dates into supported image formats, or an owned sidecar when unsupported.</summary>
     public static async Task WriteDateTakenAsync(string imagePath, DateTime? dateTaken)
     {
-        Exception? embeddedError = null;
-        if (EmbeddedMetadataWriter.IsSupported(imagePath) && dateTaken.HasValue)
-        {
-            try
+        await WriteUsingPolicyAsync(
+            imagePath,
+            MetadataWriteProperty.DateTaken,
+            () => WriteEmbeddedAndMigrateSidecarsAsync(
+                imagePath,
+                "date taken",
+                async () =>
             {
-                await EmbeddedMetadataWriter.WriteAsync(imagePath, dateTaken: dateTaken.Value);
-                return;
-            }
-            catch (Exception ex)
+                if (dateTaken.HasValue)
+                    await EmbeddedMetadataWriter.WriteAsync(imagePath, dateTaken: dateTaken.Value);
+                else
+                    await EmbeddedMetadataWriter.ClearPropertiesAsync(imagePath, "System.Photo.DateTaken");
+            },
+                () => ReadEmbeddedDateTaken(imagePath) == dateTaken,
+                MetadataSidecarLocator.OwnsDateTaken,
+                xmp =>
+                {
+                    xmp.DeleteProperty(XapNamespace, "xmp:CreateDate");
+                    xmp.DeleteProperty(XapNamespace, "xmp:ModifyDate");
+                    xmp.DeleteProperty(ExifNamespace, "exif:DateTimeOriginal");
+                }),
+            () => UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsDateTaken, xmp =>
             {
-                embeddedError = ex;
-                System.Diagnostics.Debug.WriteLine($"[METADATA] In-place date write failed for {imagePath}: {ex.Message}. Falling back to sidecar.");
-            }
-        }
-
-        var sidecarPath = await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsDateTaken, xmp =>
-        {
-            if (dateTaken.HasValue)
-            {
-                var iso = dateTaken.Value.ToString("yyyy-MM-ddTHH:mm:ss");
-                xmp.SetProperty(XapNamespace, "xmp:CreateDate", iso);
-                xmp.SetProperty(XapNamespace, "xmp:ModifyDate", iso);
-                xmp.SetProperty(ExifNamespace, "exif:DateTimeOriginal", iso);
-            }
-            else
-            {
-                try { xmp.DeleteProperty(XapNamespace, "xmp:CreateDate"); } catch { }
-                try { xmp.DeleteProperty(XapNamespace, "xmp:ModifyDate"); } catch { }
-                try { xmp.DeleteProperty(ExifNamespace, "exif:DateTimeOriginal"); } catch { }
-            }
-        });
-        if (embeddedError is not null)
-            ReportSidecarFallback(imagePath, "date taken", embeddedError, sidecarPath);
+                if (dateTaken.HasValue)
+                {
+                    var iso = dateTaken.Value.ToString("yyyy-MM-ddTHH:mm:ss");
+                    xmp.SetProperty(XapNamespace, "xmp:CreateDate", iso);
+                    xmp.SetProperty(XapNamespace, "xmp:ModifyDate", iso);
+                    xmp.SetProperty(ExifNamespace, "exif:DateTimeOriginal", iso);
+                }
+                else
+                {
+                    try { xmp.DeleteProperty(XapNamespace, "xmp:CreateDate"); } catch { }
+                    try { xmp.DeleteProperty(XapNamespace, "xmp:ModifyDate"); } catch { }
+                    try { xmp.DeleteProperty(ExifNamespace, "exif:DateTimeOriginal"); } catch { }
+                }
+            }));
     }
 
     /// <summary>
@@ -328,5 +395,89 @@ public static class MetadataWriterService
     {
         var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
         File.WriteAllText(sidecarPath, serialized);
+    }
+
+    internal static async Task WriteEmbeddedAndMigrateSidecarsAsync(
+        string imagePath,
+        string propertyName,
+        Func<Task> writeEmbedded,
+        Func<bool> verifyEmbedded,
+        Func<IXmpMeta, bool> ownsProperty,
+        Action<IXmpMeta> removeProperty)
+    {
+        var sidecars = await LoadOwnedSidecarsAsync(imagePath, ownsProperty);
+        await writeEmbedded();
+        if (!verifyEmbedded())
+        {
+            var actual = propertyName == "date taken"
+                ? ReadEmbeddedDateTaken(imagePath)?.ToString("O") ?? "<null>"
+                : "the stored value does not match the requested value";
+            throw new IOException($"The embedded {propertyName} could not be verified after writing; found {actual}.");
+        }
+        await SaveSidecarPropertyRemovalsAsync(sidecars, removeProperty);
+    }
+
+    private static async Task<List<(string Path, IXmpMeta Xmp, TagMetadataSidecarSnapshot Snapshot)>>
+        LoadOwnedSidecarsAsync(string imagePath, Func<IXmpMeta, bool> ownsProperty)
+    {
+        var sidecars = new List<(string, IXmpMeta, TagMetadataSidecarSnapshot)>();
+        foreach (var path in MetadataSidecarLocator.GetOwnedSidecarPaths(imagePath))
+        {
+            if (!File.Exists(path)) continue;
+            var xmp = await Task.Run(() => LoadOrCreateSidecar(path));
+            if (ownsProperty(xmp))
+                sidecars.Add((path, xmp, TagWriterService.CaptureSidecarSnapshotAt(path)));
+        }
+        return sidecars;
+    }
+
+    private static async Task SaveSidecarPropertyRemovalsAsync(
+        List<(string Path, IXmpMeta Xmp, TagMetadataSidecarSnapshot Snapshot)> sidecars,
+        Action<IXmpMeta> removeProperty)
+    {
+        foreach (var (path, xmp, snapshot) in sidecars)
+        {
+            removeProperty(xmp);
+            var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
+            await Task.Run(() =>
+            {
+                if (TagWriterService.CaptureSidecarSnapshotAt(path) != snapshot)
+                    throw new IOException($"The XMP sidecar changed while metadata was being migrated: {path}.");
+                var temporary = Path.Combine(
+                    Path.GetDirectoryName(path)!,
+                    $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+                try
+                {
+                    File.WriteAllText(temporary, serialized);
+                    if (TagWriterService.CaptureSidecarSnapshotAt(path) != snapshot)
+                        throw new IOException($"The XMP sidecar changed while metadata was being migrated: {path}.");
+                    File.Move(temporary, path, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                }
+            });
+        }
+    }
+
+    private static IXmpMeta? ReadEmbeddedXmp(string imagePath) =>
+        FaceMetadataStore.ReadEmbeddedXmp(imagePath);
+
+    private static DateTime? ReadEmbeddedDateTaken(string imagePath)
+    {
+        var directories = MetadataExtractor.ImageMetadataReader.ReadMetadata(imagePath);
+        var exif = directories.OfType<ExifSubIfdDirectory>()
+            .FirstOrDefault();
+        if (exif is not null &&
+            exif.TryGetDateTime(ExifDirectoryBase.TagDateTimeOriginal, out var date))
+            return date;
+
+        var xmp = directories.OfType<MetadataExtractor.Formats.Xmp.XmpDirectory>()
+            .FirstOrDefault()?.XmpMeta;
+        var text = xmp?.GetPropertyString(ExifNamespace, "exif:DateTimeOriginal")
+            ?? xmp?.GetPropertyString(XapNamespace, "xmp:CreateDate");
+        return DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var parsed) ? parsed : null;
     }
 }

@@ -27,7 +27,13 @@ public sealed class ImageEditorNavigationTests : IDisposable
     private ImageEntry Entry(string name, MediaType mediaType = MediaType.Image)
     {
         var path = Path.Combine(_directory, name);
-        File.WriteAllBytes(path, [1, 2, 3, 4]);
+        var extension = Path.GetExtension(path);
+        if (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".png", StringComparison.OrdinalIgnoreCase))
+            WicTestImage.CreateAsync(path, 16, 12, jpeg: extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase))
+                .GetAwaiter().GetResult();
+        else
+            File.WriteAllBytes(path, [1, 2, 3, 4]);
         return new ImageEntry { FilePath = path, FileName = name, MediaType = mediaType };
     }
 
@@ -57,6 +63,7 @@ public sealed class ImageEditorNavigationTests : IDisposable
     public async Task RejectedHistoryCommitDoesNotCloseOrNavigateAwayFromPendingEdits(string extension, bool close)
     {
         var first = Entry("first" + extension);
+        var originalPhoto = File.ReadAllBytes(first.FilePath);
         var second = Entry("second.jpg");
         var vm = await OpenAsync(first, first, second);
         vm.PersistEditAsync = (_, _, _, _) => Task.FromResult(false);
@@ -68,7 +75,7 @@ public sealed class ImageEditorNavigationTests : IDisposable
         Assert.Same(first, vm.CurrentEntry);
         Assert.True(vm.HasChanges);
         Assert.Single(vm.UndoHistory);
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(first.FilePath));
+        Assert.Equal(originalPhoto, File.ReadAllBytes(first.FilePath));
     }
 
     [Fact]
@@ -198,7 +205,7 @@ public sealed class ImageEditorNavigationTests : IDisposable
         var second = Entry("second.jpg");
         await new ImageEditService(_backups).SaveEditParametersAsync(second.FilePath,
             new EditParameters { Contrast = 0.4 });
-        var sidecar = File.ReadAllBytes(Path.ChangeExtension(second.FilePath, ".xmp"));
+        var photoWithRecipe = File.ReadAllBytes(second.FilePath);
         var vm = await OpenAsync(first, first, second);
         vm.BeginEdit("Exposure drag");
         vm.Exposure = 0.3;
@@ -209,9 +216,9 @@ public sealed class ImageEditorNavigationTests : IDisposable
         Assert.False(vm.HasChanges);
         Assert.Empty(vm.UndoHistory);
         Assert.Empty(vm.RedoHistory);
-        Assert.Equal(sidecar, File.ReadAllBytes(Path.ChangeExtension(second.FilePath, ".xmp")));
+        Assert.Equal(photoWithRecipe, File.ReadAllBytes(second.FilePath));
         Assert.False(File.Exists(Path.ChangeExtension(first.FilePath, ".xmp")));
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(first.FilePath));
+        Assert.False(File.Exists($"{first.FilePath}.xmp"));
         Assert.True(await vm.NavigateAsync(-1, UnexpectedPrompt, UnexpectedRenderer));
         Assert.Equal(0, vm.Contrast);
         Assert.Empty(vm.UndoHistory);
@@ -222,9 +229,12 @@ public sealed class ImageEditorNavigationTests : IDisposable
     {
         var first = Entry("first.jpg");
         var second = Entry("second.jpg");
+        var originalPhoto = File.ReadAllBytes(first.FilePath);
         await new ImageEditService(_backups).SaveEditParametersAsync(first.FilePath,
             new EditParameters { Exposure = 0.1 });
-        var backupPath = await _backups.GetBackupPathAsync(first.FilePath);
+        var renderedPhoto = Path.Combine(_directory, "rendered.jpg");
+        await WicTestImage.CreateAsync(renderedPhoto, 16, 12, jpeg: true);
+        var renderedBytes = File.ReadAllBytes(renderedPhoto);
         var vm = await OpenAsync(first, first, second);
         vm.Exposure = 0.3;
         var events = new List<string>();
@@ -236,18 +246,18 @@ public sealed class ImageEditorNavigationTests : IDisposable
             Assert.Equal(first.FilePath, path);
             Assert.Equal(0.3, parameters.Exposure);
             Assert.False(vm.CanNavigate);
-            File.WriteAllBytes(path, [5, 6, 7, 8]);
+            File.Copy(renderedPhoto, path, overwrite: true);
             return Task.FromResult((10u, 20u));
         }));
 
         Assert.Equal(new[] { $"saved:{first.FilePath}", $"selected:{second.FilePath}" }, events);
         Assert.False(ImageEditService.ReadEditParameters(first.FilePath).HasAdjustments);
-        Assert.NotNull(backupPath);
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(backupPath));
+        var backups = Directory.GetFiles(
+            Path.Combine(_directory, "backups"), "*.jpg", SearchOption.AllDirectories);
+        Assert.Contains(backups, path => File.ReadAllBytes(path).SequenceEqual(originalPhoto));
         Assert.Empty(vm.UndoHistory);
         Assert.False(vm.HasChanges);
-        Assert.Equal(new byte[] { 5, 6, 7, 8 }, File.ReadAllBytes(first.FilePath));
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(second.FilePath));
+        Assert.Equal(renderedBytes, File.ReadAllBytes(first.FilePath));
     }
 
     [Theory]
@@ -280,17 +290,16 @@ public sealed class ImageEditorNavigationTests : IDisposable
         var first = Entry("first.jpg");
         var vm = await OpenAsync(first, first);
         vm.Contrast = 0.4;
-        Assert.True(await vm.TryCloseAsync(Save, (path, parameters) =>
+        Assert.True(await vm.TryCloseAsync(Save, async (path, parameters) =>
         {
             Assert.Equal(first.FilePath, path);
             Assert.Equal(0.4, parameters.Contrast);
-            File.WriteAllBytes(path, [5, 6]);
-            return Task.FromResult((10u, 20u));
+            await WicTestImage.CreateAsync(path, 16, 12, jpeg: true);
+            return (10u, 20u);
         }));
         Assert.False(vm.IsOpen);
         Assert.Null(vm.CurrentEntry);
         Assert.Empty(vm.UndoHistory);
-        Assert.Equal(new byte[] { 5, 6 }, File.ReadAllBytes(first.FilePath));
     }
 
     [Fact]
@@ -315,6 +324,7 @@ public sealed class ImageEditorNavigationTests : IDisposable
     public async Task RawSave_KeepsPortableRecipeNeverCallsRasterRenderer(bool close)
     {
         var raw = Entry("first.dng");
+        var originalPhoto = File.ReadAllBytes(raw.FilePath);
         var second = Entry("second.jpg");
         await ImageEditService.SaveRawPreviewRecipeAsync(raw.FilePath,
             new EditParameters { Contrast = 0.4, Crop = new CropRect { Left = 0.1, Width = 0.8, Height = 1 } },
@@ -330,7 +340,7 @@ public sealed class ImageEditorNavigationTests : IDisposable
         Assert.Equal(-1.5, recipe.RawExposureEv);
         Assert.Equal(0.4, recipe.Contrast);
         Assert.Equal(0.1, recipe.Crop!.Left);
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(raw.FilePath));
+        Assert.Equal(originalPhoto, File.ReadAllBytes(raw.FilePath));
         Assert.Empty(vm.UndoHistory);
         Assert.False(vm.HasChanges);
         Assert.Equal(close ? null : second, vm.CurrentEntry);
