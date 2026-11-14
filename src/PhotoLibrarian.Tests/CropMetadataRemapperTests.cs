@@ -107,39 +107,43 @@ public sealed class CropMetadataRemapperTests
         try
         {
             var cancellationToken = TestContext.Current.CancellationToken;
+            await WicTestImage.CreateAsync(imagePath, 100, 80, jpeg: true);
+            var metadata = new PhotoFaceMetadata(
+                100,
+                80,
+                [
+                    new PortableFaceMetadata(
+                        1,
+                        0.3,
+                        0.25,
+                        0.4,
+                        0.5,
+                        "Alex",
+                        true,
+                        false,
+                        ["Sam"]),
+                    new PortableFaceMetadata(
+                        2,
+                        0,
+                        0,
+                        0.1,
+                        0.1,
+                        "Outside",
+                        true,
+                        false,
+                        [])
+                ]);
             await new FaceMetadataStore().WriteAsync(
                 imagePath,
-                new PhotoFaceMetadata(
-                    100,
-                    80,
-                    [
-                        new PortableFaceMetadata(
-                            1,
-                            0.3,
-                            0.25,
-                            0.4,
-                            0.5,
-                            "Alex",
-                            true,
-                            false,
-                            ["Sam"]),
-                        new PortableFaceMetadata(
-                            2,
-                            0,
-                            0,
-                            0.1,
-                            0.1,
-                            "Outside",
-                            true,
-                            false,
-                            [])
-                    ]),
+                metadata,
                 cancellationToken);
 
-            await WicTestImage.CreateAsync(imagePath, 100, 80, true);
+            var rawPath = Path.Combine(directory, "portrait.cr3");
+            await File.WriteAllBytesAsync(rawPath, [1, 2, 3], cancellationToken);
+            await new FaceMetadataStore().WriteAsync(rawPath, metadata, cancellationToken);
             var ownedSidecar =
                 FaceMetadataStore.GetSidecarPathForImage(imagePath);
-            File.Move(sidecarPath, ownedSidecar);
+            File.Move(Path.ChangeExtension(rawPath, ".xmp"), ownedSidecar);
             sidecarPath = ownedSidecar;
 
             var result = await CropService.CropImageAsync(

@@ -14,13 +14,7 @@ internal static class RecipeThumbnailService
     {
         if (!ImageEditRenderer.IsSupported(path))
             return await WindowsThumbnailService.GetThumbnailStreamAsync(path, size, token);
-        var recipe = await Task.Run(() =>
-        {
-            var sidecar = Path.ChangeExtension(path, ".xmp");
-            if (!File.Exists(sidecar)) return ImageEditService.ReadEditParameters(path);
-            using var stream = File.OpenRead(sidecar);
-            return EditParametersSerializer.ReadFromXmp(XmpCore.XmpMetaFactory.Parse(stream));
-        }, token);
+        var recipe = await Task.Run(() => ImageEditService.ReadEditParameters(path), token);
         if (!recipe.HasAdjustments)
             return await WindowsThumbnailService.GetThumbnailStreamAsync(path, size, token);
 
@@ -47,7 +41,11 @@ internal static class RecipeThumbnailService
 
     internal static (DateTime Modified, long Length) GetRecipeStamp(string path)
     {
-        var sidecar = new FileInfo(Path.ChangeExtension(path, ".xmp"));
-        return sidecar.Exists ? (sidecar.LastWriteTimeUtc, sidecar.Length) : default;
+        var sidecarPath = MetadataSidecarLocator.ResolveReadPath(
+            path, MetadataSidecarLocator.OwnsPendingEditRecipe);
+        var file = new FileInfo(sidecarPath ?? path);
+        if (sidecarPath is not null || EmbeddedMetadataWriter.IsSupported(path) && file.Exists)
+            return (file.LastWriteTimeUtc, file.Length);
+        return default;
     }
 }

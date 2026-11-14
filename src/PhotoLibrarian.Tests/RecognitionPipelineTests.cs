@@ -94,7 +94,7 @@ public sealed class RecognitionPipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task CachedLibrary_ChangedPixelsInvalidateBothStagesEvenWithOldPortableMetadata()
+    public async Task CachedLibrary_ChangedPixelsWithOldPortableMetadataDoNotRestoreCompletion()
     {
         var path = await CreateLibraryPhotoAsync(".png");
         var detector = new FakeDetector([]);
@@ -103,8 +103,10 @@ public sealed class RecognitionPipelineTests : IDisposable
         var request = CreateRequest();
         await RunCachedLibraryAsync(request, detector, tagger, decoder);
         var portable = new MetadataReaderService().ReadPortableTagMetadata(path)!;
-        await WicTestImage.CreateAsync(path, 16, 12, false, (_, _) => (10, 20, 30));
-        await TagWriterService.WriteTagsToSidecarAsync(path, [], [], portable.AutoTagScanVersion,
+
+        var changedPath = Path.Combine(_directory, "changed-photo.png");
+        await WicTestImage.CreateAsync(changedPath, 16, 12, false, (_, _) => (10, 20, 30));
+        await TagWriterService.WriteTagsToSidecarAsync(changedPath, [], [], portable.AutoTagScanVersion,
             sourceIdentity: portable.SourceIdentity);
         Assert.Equal(1, (await RunCachedLibraryAsync(request, detector, tagger, decoder)).Processed);
         Assert.Equal(2, detector.CalledPaths.Count);
@@ -349,6 +351,11 @@ public sealed class RecognitionPipelineTests : IDisposable
         await CreateIndexer(database, scanner).IndexFolderAsync(_directory);
         var pipeline = CreatePipeline(new FaceRepository(database), new TagRepository(database),
             detector, new FakeEmbedder([]), tagger, decoder, new CountingActivityGate());
+        pipeline.Progress += (_, progress) =>
+        {
+            if (progress.Error is not null)
+                TestContext.Current.TestOutputHelper?.WriteLine(progress.Error);
+        };
         return await pipeline.ProcessLibraryAsync(request, cancellationToken);
     }
 

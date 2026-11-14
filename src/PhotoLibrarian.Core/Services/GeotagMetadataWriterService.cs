@@ -43,11 +43,6 @@ public sealed record GeotagWriteAttempt(
 public sealed class GeotagMetadataWriterService
 {
     private const string ExifNamespace = "http://ns.adobe.com/exif/1.0/";
-    private static readonly HashSet<string> ExifGpsExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".jpg", ".jpeg", ".jpe", ".jfif", ".tif", ".tiff"
-    };
-
     private readonly OriginalBackupService _backupService;
 
     public GeotagMetadataWriterService(OriginalBackupService backupService)
@@ -61,23 +56,35 @@ public sealed class GeotagMetadataWriterService
         if (!File.Exists(imagePath))
             throw new FileNotFoundException("The selected photo no longer exists.", imagePath);
 
-        if (!ExifGpsExtensions.Contains(Path.GetExtension(imagePath)))
-        {
-            await WriteSidecarAsync(imagePath, coordinate);
-            return GeotagWriteLocation.XmpSidecar;
-        }
-
-        try
-        {
-            await WriteEmbeddedExifAsync(imagePath, coordinate);
-            return GeotagWriteLocation.EmbeddedExif;
-        }
-        catch (Exception exception) when (IsEmbeddedWriteFailure(exception))
-        {
-            var sidecarPath = await WriteSidecarAsync(imagePath, coordinate);
-            MetadataWriterService.ReportSidecarFallback(imagePath, "GPS coordinates", exception, sidecarPath);
-            return GeotagWriteLocation.XmpSidecar;
-        }
+        var location = GeotagWriteLocation.XmpSidecar;
+        await MetadataWriterService.WriteUsingPolicyAsync(
+            imagePath,
+            MetadataWriteProperty.Gps,
+            async () =>
+            {
+                await MetadataWriterService.WriteEmbeddedAndMigrateSidecarsAsync(
+                    imagePath,
+                    "GPS coordinates",
+                    () => WriteEmbeddedExifAsync(imagePath, coordinate),
+                    () =>
+                    {
+                        VerifyEmbeddedLocation(imagePath, coordinate);
+                        return true;
+                    },
+                    MetadataSidecarLocator.OwnsGps,
+                    xmp =>
+                    {
+                        xmp.DeleteProperty(ExifNamespace, "exif:GPSLatitude");
+                        xmp.DeleteProperty(ExifNamespace, "exif:GPSLongitude");
+                    });
+                location = GeotagWriteLocation.EmbeddedExif;
+            },
+            async () =>
+            {
+                await WriteSidecarAsync(imagePath, coordinate);
+                location = GeotagWriteLocation.XmpSidecar;
+            });
+        return location;
     }
 
     public async Task<IReadOnlyList<GeotagWriteAttempt>> WriteBatchAsync(
@@ -218,8 +225,4 @@ public sealed class GeotagMetadataWriterService
         return (degrees, minutes, seconds);
     }
 
-    private static bool IsEmbeddedWriteFailure(Exception exception) =>
-        exception is IOException or UnauthorizedAccessException or
-            NotSupportedException or InvalidOperationException or ArgumentException or
-            COMException;
 }

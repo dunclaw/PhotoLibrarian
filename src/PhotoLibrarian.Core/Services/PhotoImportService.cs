@@ -358,6 +358,10 @@ public sealed class PhotoImportService
                     bytesBefore + bytesCopied,
                     totalBytes)));
             File.SetLastWriteTimeUtc(temporaryPath, candidate.SourceLastWriteTimeUtc);
+            var sourceContentIdentity = await RecognitionSourceIdentity.ComputeAsync(
+                temporaryPath,
+                cancellationToken,
+                destinationPath);
 
             foreach (var sourceSidecar in candidate.SourceSidecars)
             {
@@ -400,8 +404,19 @@ public sealed class PhotoImportService
                 await TagWriterService.WriteTagsToSidecarAsync(
                     temporaryPath,
                     mergedTags,
-                    expectedSidecarSnapshot: expectedSidecar);
+                    expectedSidecarSnapshot: expectedSidecar,
+                    formatPath: destinationPath);
             }
+
+            var stagedContentIdentity = await RecognitionSourceIdentity.ComputeAsync(
+                temporaryPath,
+                cancellationToken,
+                destinationPath);
+            if (!string.Equals(
+                    sourceContentIdentity,
+                    stagedContentIdentity,
+                    StringComparison.Ordinal))
+                throw new IOException("The imported photo pixels changed while metadata was being written.");
 
             var tagTemporarySidecarPath = Path.ChangeExtension(temporaryPath, ".xmp");
             if (File.Exists(tagTemporarySidecarPath) &&
@@ -436,8 +451,6 @@ public sealed class PhotoImportService
 
             var destinationInfo = new FileInfo(destinationPath);
             finalMediaHash = await HashFileAsync(destinationPath, CancellationToken.None);
-            if (!string.Equals(sourceHash, finalMediaHash, StringComparison.OrdinalIgnoreCase))
-                throw new IOException("The destination photo changed after the verified copy.");
 
             var destinationSidecars = new List<PhotoImportFileIdentity>();
             foreach (var sidecar in publishedSidecars)

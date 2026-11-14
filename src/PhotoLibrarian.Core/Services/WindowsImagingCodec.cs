@@ -16,7 +16,8 @@ internal static class WindowsImagingCodec
     {
         cancellationToken.ThrowIfCancellationRequested();
         await using var stream = File.OpenRead(path);
-        var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream()).AsTask(cancellationToken);
+        using var randomAccessStream = stream.AsRandomAccessStream();
+        var decoder = await BitmapDecoder.CreateAsync(randomAccessStream).AsTask(cancellationToken);
         var scale = Math.Min(1d, (double)maximumDimension /
             Math.Max(decoder.OrientedPixelWidth, decoder.OrientedPixelHeight));
         var transform = new BitmapTransform

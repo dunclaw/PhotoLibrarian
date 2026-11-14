@@ -65,39 +65,53 @@ public sealed class MetadataWriteFallbackTests : IDisposable
     [InlineData("date taken")]
     [InlineData("flag")]
     [InlineData("tags")]
-    public async Task PersistentLock_SavesSidecarAndReportsFallback(string propertyName)
+    public async Task PersistentLock_DoesNotFallbackForSupportedFormats(string propertyName)
     {
         var path = Path.Combine(_directory, "locked.jpg");
         await WicTestImage.CreateAsync(path, 16, 16, jpeg: true);
         var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
         MetadataWriteFallbackEventArgs? notice = null;
-        var sidecarExistedWhenReported = false;
         void OnFallback(object? sender, MetadataWriteFallbackEventArgs e)
         {
             if (e.ImagePath != path) return;
             notice = e;
-            sidecarExistedWhenReported = File.Exists(e.SidecarPath);
         }
 
         MetadataWriterService.SidecarFallback += OnFallback;
         try
         {
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                await WriteAsync(path, propertyName);
+                await Assert.ThrowsAnyAsync<Exception>(() => WriteAsync(path, propertyName));
 
-            Assert.NotNull(notice);
-            Assert.Equal(propertyName, notice.PropertyName);
-            Assert.True(sidecarExistedWhenReported);
-            Assert.Equal(unchecked((int)0x80070020), notice.Error.HResult);
+            Assert.Null(notice);
             Assert.Equal(original, await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken));
-            var sidecar = XmpMetaFactory.ParseFromString(await File.ReadAllTextAsync(
-                notice.SidecarPath, TestContext.Current.CancellationToken));
-            AssertSidecarValue(sidecar, propertyName);
+            Assert.False(File.Exists(path + ".xmp"));
+            Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
         }
         finally
         {
             MetadataWriterService.SidecarFallback -= OnFallback;
         }
+    }
+
+    [Theory]
+    [InlineData(".jpg")]
+    [InlineData(".png")]
+    [InlineData(".tif")]
+    public async Task DateTaken_CanBeSetAndClearedInSupportedFormats(string extension)
+    {
+        var path = Path.Combine(_directory, $"date{extension}");
+        await WicTestImage.CreateAsync(path, 16, 16, jpeg: extension == ".jpg");
+        var expected = new DateTime(2026, 10, 18, 12, 30, 0);
+
+        await MetadataWriterService.WriteDateTakenAsync(path, expected);
+        Assert.Equal(expected, new MetadataReaderService().ReadMetadata(path).DateTaken);
+
+        await MetadataWriterService.WriteDateTakenAsync(path, null);
+
+        Assert.Null(new MetadataReaderService().ReadMetadata(path).DateTaken);
+        Assert.False(File.Exists(path + ".xmp"));
+        Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
     }
 
     [Theory]
@@ -144,7 +158,7 @@ public sealed class MetadataWriteFallbackTests : IDisposable
         MetadataWriterService.SidecarFallback += OnFallback;
         try
         {
-            await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            await Assert.ThrowsAnyAsync<IOException>(
                 () => MetadataWriterService.WriteCaptionAsync(path, "Caption"));
             Assert.Empty(notices);
         }

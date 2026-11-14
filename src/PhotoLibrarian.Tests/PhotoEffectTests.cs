@@ -28,6 +28,7 @@ public sealed class PhotoEffectTests : IDisposable
         await RenderQualityFixtures.WriteImageAsync(path, 9, 7,
             RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 9, 7));
         var original = await File.ReadAllBytesAsync(path);
+        var originalPixels = await ReadPixelDataAsync(path);
         var service = new ViewerEffectService(new OriginalBackupService(Path.Combine(_directory, "backups")));
         await service.SelectAsync(path, PhotoEffect.BlackAndWhite);
         var first = await DecodeGridThumbnailAsync(path);
@@ -50,7 +51,8 @@ public sealed class PhotoEffectTests : IDisposable
         var neutral = await DecodeGridThumbnailAsync(path);
         Assert.Contains(Enumerable.Range(0, neutral.Length / 4), i =>
             neutral[i * 4] != neutral[i * 4 + 1] || neutral[i * 4] != neutral[i * 4 + 2]);
-        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        Assert.Equal(originalPixels, await ReadPixelDataAsync(path));
+        Assert.NotEqual(original, await File.ReadAllBytesAsync(path));
     }
 
     private static async Task<byte[]> DecodeGridThumbnailAsync(string path)
@@ -64,6 +66,14 @@ public sealed class PhotoEffectTests : IDisposable
         return (await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
             new BitmapTransform(), ExifOrientationMode.RespectExifOrientation,
             ColorManagementMode.DoNotColorManage)).DetachPixelData();
+    }
+
+    private static async Task<byte[]> ReadPixelDataAsync(string path)
+    {
+        using var file = File.OpenRead(path);
+        using var stream = file.AsRandomAccessStream();
+        var decoder = await BitmapDecoder.CreateAsync(stream);
+        return (await decoder.GetPixelDataAsync()).DetachPixelData();
     }
 
     [Fact]
@@ -200,6 +210,7 @@ public sealed class PhotoEffectTests : IDisposable
         await RenderQualityFixtures.WriteImageAsync(path, 7, 5, pixels);
         await RenderQualityFixtures.WriteImageAsync(other, 7, 5, pixels);
         var original = await File.ReadAllBytesAsync(path);
+        var originalPixels = await ReadPixelDataAsync(path);
         var backups = new OriginalBackupService(Path.Combine(_directory, "backups"));
         var edits = new ImageEditService(backups);
         await edits.SaveEditParametersAsync(path, new() { Effect = PhotoEffect.WarmTint, Exposure = .1 });
@@ -233,7 +244,8 @@ public sealed class PhotoEffectTests : IDisposable
         Assert.Equal(.4, ImageEditService.ReadEditParameters(path).Exposure);
         await service.SelectAsync(path, PhotoEffect.None);
         Assert.False(service.CanRedo(path));
-        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        Assert.Equal(originalPixels, await ReadPixelDataAsync(path));
+        Assert.NotEqual(original, await File.ReadAllBytesAsync(path));
     }
 
     [Fact]
@@ -245,24 +257,24 @@ public sealed class PhotoEffectTests : IDisposable
         var service = new ViewerEffectService(new OriginalBackupService(Path.Combine(_directory, "backups")));
         await service.SelectAsync(path, PhotoEffect.Sepia);
         var sidecar = Path.ChangeExtension(path, ".xmp");
-        var good = await File.ReadAllTextAsync(sidecar);
         await File.WriteAllTextAsync(sidecar, "unreadable");
         await Assert.ThrowsAnyAsync<Exception>(() => service.MoveHistoryAsync(path, undo: true));
         Assert.True(service.CanUndo(path));
         Assert.False(service.CanRedo(path));
         Assert.Equal("unreadable", await File.ReadAllTextAsync(sidecar));
-        await File.WriteAllTextAsync(sidecar, good);
+        File.Delete(sidecar);
         await service.MoveHistoryAsync(path, undo: true);
         Assert.Equal(PhotoEffect.None, ImageEditService.ReadEditParameters(path).Effect);
     }
 
     [Fact]
-    public async Task ViewerSelectionPreservesPhotoBytesAndReplacesPortableRecipeInPlace()
+    public async Task ViewerSelectionPreservesPixelsAndReplacesPortableRecipeInPlace()
     {
         var path = Path.Combine(_directory, "viewer.png");
         await RenderQualityFixtures.WriteImageAsync(path, 19, 13,
             RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 19, 13, alpha: true));
         var original = await File.ReadAllBytesAsync(path);
+        var originalPixels = await ReadPixelDataAsync(path);
         var backups = new OriginalBackupService(Path.Combine(_directory, "backups"));
         await new ImageEditService(backups).SaveEditParametersAsync(path,
             new() { Temperature = -.1 });
@@ -276,8 +288,10 @@ public sealed class PhotoEffectTests : IDisposable
             using var device = new CanvasDevice();
             var expected = await ImageEditRenderer.RenderToPixelsAsync(device, path, recipe);
             Assert.Equal(expected.Pixels, rendered.Pixels);
-            Assert.Equal(original, await File.ReadAllBytesAsync(path));
-            Assert.Equal(original, await File.ReadAllBytesAsync((await backups.GetBackupPathAsync(path))!));
+            Assert.Equal(originalPixels, await ReadPixelDataAsync(path));
+            Assert.Contains(
+                Directory.EnumerateFiles(Path.Combine(_directory, "backups"), "*.png", SearchOption.AllDirectories),
+                backup => File.ReadAllBytes(backup).SequenceEqual(original));
         }
         Assert.Equal(PhotoEffect.None, ImageEditService.ReadEditParameters(path).Effect);
     }
@@ -405,7 +419,7 @@ public sealed class PhotoEffectTests : IDisposable
     public async Task SelectionNoneResetUndoRedoOpenAndSaveKeepOneConsistentState()
     {
         var path = Path.Combine(_directory, "recipe.jpg");
-        await File.WriteAllBytesAsync(path, [1, 2, 3, 4]);
+        await WicTestImage.CreateAsync(path, 3, 2, jpeg: true);
         var backups = new OriginalBackupService(Path.Combine(_directory, "backups"));
         var edits = new ImageEditService(backups);
         await edits.SaveEditParametersAsync(path, new EditParameters { Effect = PhotoEffect.Sepia, Exposure = .2 });

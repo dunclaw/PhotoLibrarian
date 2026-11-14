@@ -203,6 +203,8 @@ public sealed class RawDerivativeExportTests : IDisposable
         Assert.Equal("Baked", output.GetPropertyString(SdrDerivativeMetadata.ProvenanceNamespace, "State"));
         Assert.Equal(RawToneMappingService.RecipeVersion,
             output.GetPropertyString(SdrDerivativeMetadata.ProvenanceNamespace, "ToneMapping"));
+        Assert.Equal("A portable title", FaceMetadataStore.ReadEmbeddedXmp(result.FilePath)?
+            .GetLocalizedText(dc, "title", "", "x-default").Value);
         var metadata = new MetadataReaderService().ReadMetadata(result.FilePath);
         Assert.Equal("A portable title", metadata.Title);
         Assert.Equal("A portable caption", metadata.Caption);

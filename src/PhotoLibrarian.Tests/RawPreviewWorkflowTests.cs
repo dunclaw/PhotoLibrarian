@@ -166,7 +166,7 @@ public sealed class RawPreviewWorkflowTests : IDisposable
         await ImageEditService.SaveRawPreviewRecipeAsync(raw,
             new EditParameters { RawExposureEv = -1, RawWhitePoint = 8, Brightness = 0.1 });
         var raster = Path.ChangeExtension(raw, ".jpg");
-        await File.WriteAllBytesAsync(raster, [1, 2, 3]);
+        await WicTestImage.CreateAsync(raster, 16, 12, jpeg: true);
         var edits = new ImageEditService(new OriginalBackupService(Path.Combine(_directory, "backups")));
         await edits.ApplyEditsAsync(raster, new EditParameters { Brightness = 0.1 },
             (_, _) => Task.FromResult((1u, 1u)));

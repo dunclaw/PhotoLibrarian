@@ -102,6 +102,9 @@ public sealed class ViewerQuickEditTests
         await main.ImageGrid.FilterByFolderAsync(library.Photos);
         var firstBytes = File.ReadAllBytes(first.FilePath);
         var secondBytes = File.ReadAllBytes(second.FilePath);
+        var firstHash = await OriginalBackupService.ComputeFileHashAsync(first.FilePath);
+        var firstPixels = (await WindowsImagingCodec.DecodeAsync(first.FilePath)).Pixels;
+        var secondPixels = (await WindowsImagingCodec.DecodeAsync(second.FilePath)).Pixels;
 
         async Task EditAsync(ImageEntry entry, ViewerQuickEdit action)
         {
@@ -110,7 +113,7 @@ public sealed class ViewerQuickEditTests
         }
 
         await EditAsync(first, ViewerQuickEdit.AutoBrightness);
-        var tonePacket = File.ReadAllBytes(Path.ChangeExtension(first.FilePath, ".xmp"));
+        var toneBytes = File.ReadAllBytes(first.FilePath);
         await EditAsync(second, ViewerQuickEdit.AutoColor);
         await EditAsync(first, ViewerQuickEdit.RotateRight);
         Assert.Contains("RotateRight", main.EditHistory.UndoLabel);
@@ -119,12 +122,13 @@ public sealed class ViewerQuickEditTests
         var rendered = await ImageEditRenderer.RenderToPixelsAsync(first.FilePath, recipe);
         Assert.Equal(24u, rendered.Width);
         Assert.Equal(32u, rendered.Height);
-        Assert.Equal(firstBytes, File.ReadAllBytes(first.FilePath));
-        Assert.Equal(secondBytes, File.ReadAllBytes(second.FilePath));
-        Assert.True(await main.BackupService.HasBackupAsync(first.FilePath));
+        Assert.Equal(firstPixels, (await WindowsImagingCodec.DecodeAsync(first.FilePath)).Pixels);
+        Assert.Equal(secondPixels, (await WindowsImagingCodec.DecodeAsync(second.FilePath)).Pixels);
+        var originalBackup = Path.Combine(library.Root, "backups", firstHash[..2], $"{firstHash}.png");
+        Assert.Equal(firstBytes, File.ReadAllBytes(originalBackup));
 
         await main.EditHistory.UndoAsync();
-        Assert.Equal(tonePacket, File.ReadAllBytes(Path.ChangeExtension(first.FilePath, ".xmp")));
+        Assert.Equal(toneBytes, File.ReadAllBytes(first.FilePath));
         // Re-running the same auto action does not write or clear the pending rotation redo.
         await EditAsync(first, ViewerQuickEdit.AutoBrightness);
         Assert.True(main.EditHistory.CanRedo);
@@ -141,7 +145,7 @@ public sealed class ViewerQuickEditTests
         await EditAsync(first, ViewerQuickEdit.RotateLeft);
         Assert.False(main.EditHistory.CanRedo);
         Assert.Equal(-90, ImageEditService.ReadEditParameters(first.FilePath).RotationAngle);
-        Assert.Equal(firstBytes, File.ReadAllBytes(first.FilePath));
+        Assert.Equal(firstPixels, (await WindowsImagingCodec.DecodeAsync(first.FilePath)).Pixels);
     }
 
     [Fact]

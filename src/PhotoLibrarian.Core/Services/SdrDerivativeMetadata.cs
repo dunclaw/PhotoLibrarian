@@ -18,6 +18,10 @@ internal static class SdrDerivativeMetadata
 {
     internal const string ProvenanceNamespace = "https://photolibrarian.app/ns/raw-derivative/1.0/";
     private static readonly byte[] Profile = CreateSrgbProfile();
+    private static readonly byte[] JpegStandardXmpHeader = "http://ns.adobe.com/xap/1.0/\0"u8.ToArray();
+    private static readonly byte[] JpegExtendedXmpHeader =
+        "http://ns.adobe.com/xmp/extension/\0"u8.ToArray();
+    private static readonly byte[] JpegIccHeader = "ICC_PROFILE\0"u8.ToArray();
 
     internal static string CreateXmp(string path, EditParameters parameters, RawSdrImage image)
     {
@@ -99,6 +103,7 @@ internal static class SdrDerivativeMetadata
                 WriteJpegSegment(output, 0xe1, Combine(standardHeader, text));
             else
                 WriteExtendedJpegXmp(output, text, standardHeader, token);
+            await CopyJpegSegmentsAsync(input, output, token);
         }
         else
         {
@@ -117,10 +122,88 @@ internal static class SdrDerivativeMetadata
         token.ThrowIfCancellationRequested();
         if (format == RawDerivativeFormat.Png)
             await CopyPngChunksAsync(input, output, token);
-        else
-            await input.CopyToAsync(output, token);
         await output.FlushAsync(token);
         output.Flush(flushToDisk: true);
+    }
+
+    private static async Task CopyJpegSegmentsAsync(Stream input, Stream output, CancellationToken token)
+    {
+        var lengthBytes = new byte[2];
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            var first = input.ReadByte();
+            if (first < 0)
+                throw new InvalidDataException("JPEG encoder returned a truncated container.");
+            if (first != 0xff)
+                throw new InvalidDataException("JPEG encoder returned an invalid marker sequence.");
+
+            var marker = input.ReadByte();
+            while (marker == 0xff)
+                marker = input.ReadByte();
+            if (marker < 0)
+                throw new InvalidDataException("JPEG encoder returned a truncated marker.");
+
+            if (marker == 0xda)
+            {
+                await output.WriteAsync(new byte[] { 0xff, (byte)marker }, token);
+                await input.ReadExactlyAsync(lengthBytes, token);
+                var scanLength = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes);
+                if (scanLength < 2)
+                    throw new InvalidDataException("JPEG encoder returned an invalid scan header.");
+                await output.WriteAsync(lengthBytes, token);
+                await CopyExactlyAsync(input, output, scanLength - 2, token);
+                await input.CopyToAsync(output, token);
+                return;
+            }
+
+            if (marker == 0xd9)
+            {
+                await output.WriteAsync(new byte[] { 0xff, (byte)marker }, token);
+                return;
+            }
+
+            if (marker is >= 0xd0 and <= 0xd7 or 0x01)
+            {
+                await output.WriteAsync(new byte[] { 0xff, (byte)marker }, token);
+                continue;
+            }
+
+            await input.ReadExactlyAsync(lengthBytes, token);
+            var segmentLength = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes);
+            if (segmentLength < 2)
+                throw new InvalidDataException("JPEG encoder returned an invalid segment length.");
+
+            var data = new byte[segmentLength - 2];
+            await input.ReadExactlyAsync(data, token);
+            var remove = marker == 0xe1 &&
+                    (data.AsSpan().StartsWith(JpegStandardXmpHeader) ||
+                     data.AsSpan().StartsWith(JpegExtendedXmpHeader)) ||
+                marker == 0xe2 && data.AsSpan().StartsWith(JpegIccHeader);
+            if (remove)
+                continue;
+
+            await output.WriteAsync(new byte[] { 0xff, (byte)marker }, token);
+            await output.WriteAsync(lengthBytes, token);
+            await output.WriteAsync(data, token);
+        }
+    }
+
+    private static async Task CopyExactlyAsync(
+        Stream input,
+        Stream output,
+        int byteCount,
+        CancellationToken token)
+    {
+        var buffer = new byte[Math.Min(byteCount, 64 * 1024)];
+        var remaining = byteCount;
+        while (remaining > 0)
+        {
+            var count = Math.Min(remaining, buffer.Length);
+            await input.ReadExactlyAsync(buffer.AsMemory(0, count), token);
+            await output.WriteAsync(buffer.AsMemory(0, count), token);
+            remaining -= count;
+        }
     }
 
     private static async Task CopyPngChunksAsync(Stream input, Stream output, CancellationToken token)

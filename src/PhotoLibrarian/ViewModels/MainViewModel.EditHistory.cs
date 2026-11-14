@@ -53,6 +53,12 @@ public partial class MainViewModel
         {
             resume = await PauseFaceDetectionAsync();
             await EnsureFaceMetadataPersistedAsync();
+            if (expectedIdentity is not null &&
+                await FileEditTransaction.ReadIdentityAsync(originals.Single()) != expectedIdentity)
+            {
+                return new(EditHistoryStatus.Conflict,
+                    "The photo or its metadata changed since the editor opened. Close and reopen it before saving.");
+            }
             before = await CaptureCacheAsync(originals);
             foreach (var path in originals)
                 if (!RawToneMappingService.IsRaw(path))

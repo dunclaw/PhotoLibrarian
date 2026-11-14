@@ -140,6 +140,39 @@ public sealed class EmbeddedMetadataCompatibilityTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task LargeJpegXmp_UsesExtendedPacketsAndPreservesUnrelatedProperties()
+    {
+        const string testNamespace = "https://photolibrarian.test/xmp/1.0/";
+        const string testPrefix = "pltest";
+        XmpMetaFactory.SchemaRegistry.RegisterNamespace(testNamespace, testPrefix);
+
+        var path = Path.Combine(_directory, "extended-xmp.jpg");
+        await WicTestImage.CreateAsync(path, 32, 24, jpeg: true);
+        var metadata = XmpMetaFactory.Create();
+        metadata.SetProperty(testNamespace, $"{testPrefix}:Payload", new string('x', 80_000));
+        var packet = XmpMetaFactory.SerializeToString(
+            metadata, new XmpCore.Options.SerializeOptions()).TrimStart('\uFEFF');
+
+        Assert.True(FaceMetadataStore.TryWriteEmbedded(path, packet));
+        await ImageEditService.WritePendingRecipeAsync(path, new EditParameters { Exposure = 0.4 });
+
+        var updated = FaceMetadataStore.ReadEmbeddedXmp(path);
+        Assert.NotNull(updated);
+        Assert.Equal(new string('x', 80_000),
+            updated.GetPropertyString(testNamespace, $"{testPrefix}:Payload"));
+        Assert.Equal(0.4, ImageEditService.ReadEditParameters(path).Exposure);
+        Assert.False(File.Exists(path + ".xmp"));
+
+        await ImageEditService.ClearPendingEditParametersAsync(path);
+
+        var cleared = FaceMetadataStore.ReadEmbeddedXmp(path);
+        Assert.NotNull(cleared);
+        Assert.Equal(new string('x', 80_000),
+            cleared.GetPropertyString(testNamespace, $"{testPrefix}:Payload"));
+        Assert.False(ImageEditService.ReadEditParameters(path).HasAdjustments);
+    }
+
     private async Task<string> CreateFixtureAsync(bool leadingPreamble)
     {
         var path = Path.Combine(_directory, Guid.NewGuid().ToString("N") + ".jpg");

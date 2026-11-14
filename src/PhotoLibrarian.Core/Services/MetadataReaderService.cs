@@ -36,7 +36,10 @@ public sealed class MetadataReaderService
             ReadExifData(directories, entry);
             ReadRasterData(directories, entry);
             ReadIptcData(directories, entry);
-            ReadXmpData(directories, entry);
+            if (FaceMetadataStore.ReadEmbeddedXmp(filePath) is { } embeddedXmp)
+                ReadXmpData(embeddedXmp, entry, replaceText: true);
+            else
+                ReadXmpData(directories, entry);
         }
         catch (Exception)
         {
@@ -358,7 +361,7 @@ public sealed class MetadataReaderService
         }
     }
 
-    private static PortableImageTagMetadata? ReadPortableTagMetadata(IXmpMeta? xmp)
+    internal static PortableImageTagMetadata? ReadPortableTagMetadata(IXmpMeta? xmp)
     {
         if (xmp is null ||
             !xmp.DoesPropertyExist(

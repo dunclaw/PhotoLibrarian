@@ -13,6 +13,22 @@ public static class EditParametersSerializer
 {
     private const string Ns = EditParameters.XmpNamespace;
     private const string Pre = EditParameters.XmpPrefix;
+    private static readonly string[] EditProperties =
+    [
+        "Brightness", "Contrast", "Exposure", "RawExposureEv", "RawWhitePoint",
+        "RawToneMapping", "RawDevelopment", "Highlights", "Shadows", "Saturation",
+        "Temperature", "Tint", "Effect", "Clarity", "Sharpness", "NoiseReduction",
+        "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
+        "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
+        "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1",
+        "ToneCurveVersion", "ToneCurvesV1"
+    ];
+
+    public static bool HasEditProperties(IXmpMeta xmp, bool includeRawParameters = true) =>
+        EditProperties.Any(property =>
+            (includeRawParameters ||
+             property is not ("RawExposureEv" or "RawWhitePoint" or "RawToneMapping" or "RawDevelopment")) &&
+            xmp.DoesPropertyExist(Ns, $"{Pre}:{property}"));
 
     public static void WriteToXmp(IXmpMeta xmp, EditParameters p)
     {
@@ -80,23 +96,12 @@ public static class EditParametersSerializer
     /// </summary>
     public static void ClearFromXmp(IXmpMeta xmp, bool includeRawParameters = true)
     {
-        foreach (var prop in new[]
+        foreach (var prop in EditProperties)
         {
-            "Brightness", "Contrast", "Exposure", "Highlights", "Shadows",
-            "Saturation", "Temperature", "Tint", "Effect", "Clarity", "Sharpness", "NoiseReduction",
-            "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
-            "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
-            "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1", "ToneCurvesV1", "ToneCurveVersion"
-        })
-        {
+            if (!includeRawParameters &&
+                prop is ("RawExposureEv" or "RawWhitePoint" or "RawToneMapping" or "RawDevelopment"))
+                continue;
             DeleteProp(xmp, prop);
-        }
-        if (includeRawParameters)
-        {
-            DeleteProp(xmp, "RawExposureEv");
-            DeleteProp(xmp, "RawWhitePoint");
-            DeleteProp(xmp, "RawToneMapping");
-            DeleteProp(xmp, "RawDevelopment");
         }
     }
 

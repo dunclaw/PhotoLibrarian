@@ -332,16 +332,11 @@ quality/render-parity gates, and the #119 model-free comparison results.
 
 ## Metadata-handling philosophy
 
-PhotoLibrarian writes metadata in this priority order so your photos remain portable:
+PhotoLibrarian routes photo metadata changes through one storage policy so edits remain portable:
 
-1. **Embedded in the image file** (preferred) — using `Windows.Graphics.Imaging.BitmapEncoder.CreateForInPlacePropertyEncodingAsync`. The image bytes are preserved exactly; only the metadata block changes. Field mappings:
-   - **Rating** → `System.Rating` + `System.SimpleRating` (XMP `xmp:Rating` + EXIF RatingPercent)
-   - **Caption** → `System.Title` + `System.Comment` (XMP `dc:description` + EXIF XPTitle/XPComment + IPTC)
-   - **Tags** → `System.Keywords` (XMP `dc:subject` + EXIF XPKeywords + IPTC Keywords)
-   - **Date taken** → `System.Photo.DateTaken` (EXIF DateTimeOriginal)
-   - **Flag** → XMP `plib:Flagged` in the PhotoLibrarian namespace (`http://ns.photolibrarian.app/1.0/`) — there is no standard EXIF/XMP flag field, so a private namespace is used rather than hijacking `xmp:Label`
-2. **XMP sidecar** (`*.xmp`) — for RAW formats that can't be safely rewritten, or when an embedded write fails. Temporary file locks are retried up to three times (100, 200, then 400 ms delays) before giving up. An unexpected fallback shows a dismissible warning identifying the image and sidecar; keep both files together so the edit stays portable. Expected RAW sidecars do not show a warning.
-3. **SQLite cache** at `%LOCALAPPDATA%\PhotoLibrarian\cache.db` — cache only; never authoritative. Wipe and re-index any time.
+1. **Embedded in the image file** whenever that format can store the requested property. Writes preserve unrelated metadata and verify the embedded value before migrating an owned legacy-sidecar value. Tags use XMP `dc:subject` plus the format's keyword fields; ratings use XMP `xmp:Rating`; captions use standard title/comment fields; capture dates and GPS use their EXIF fields; color labels use XMP `xmp:Label`; flags, face regions, and pending edit recipes use PhotoLibrarian XMP properties.
+2. **XMP sidecar** only when the image format cannot store that property (for example, RAW originals). A failed write to a supported format is reported; it is never redirected to a sidecar. Keep any required sidecar with its photo. RAW/raster companion sidecars remain distinct, and unrelated or ambiguous legacy values are preserved rather than overwritten.
+3. **SQLite cache** at `%LOCALAPPDATA%\PhotoLibrarian\cache.db` is an index only, never the sole portable copy. Wipe and re-index any time.
 
 Move a JPEG to another drive or another machine and every edit goes with it.
 

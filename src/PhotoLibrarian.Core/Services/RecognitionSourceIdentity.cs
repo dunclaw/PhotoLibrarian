@@ -9,9 +9,12 @@ public static class RecognitionSourceIdentity
 {
     public static async Task<string> ComputeAsync(
         string path,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? formatPath = null)
     {
-        if (PhotoPrintImageDecoder.IsSupported(path) || EmbeddedMetadataWriter.IsSupported(path))
+        var metadataFormatPath = formatPath ?? path;
+        if (PhotoPrintImageDecoder.IsSupported(metadataFormatPath) ||
+            EmbeddedMetadataWriter.IsSupported(metadataFormatPath))
         {
             try
             {

@@ -17,7 +17,7 @@ public sealed class ImageEditorHistoryTests : IDisposable
         Directory.CreateDirectory(_directory);
         _backups = new OriginalBackupService(Path.Combine(_directory, "originals"));
         var path = Path.Combine(_directory, "image.jpg");
-        File.WriteAllBytes(path, [1, 2, 3, 4]);
+        WicTestImage.CreateAsync(path, 16, 12, jpeg: true).GetAwaiter().GetResult();
         _entry = new ImageEntry { FilePath = path, FileName = "image.jpg" };
     }
 
@@ -32,11 +32,14 @@ public sealed class ImageEditorHistoryTests : IDisposable
     public async Task MissingBackupDuringPersistedRevertKeepsPendingEdits()
     {
         var vm = await OpenAsync();
+        var savedPhoto = Path.Combine(_directory, "saved.jpg");
+        await WicTestImage.CreateAsync(savedPhoto, 16, 12, jpeg: true);
+        var savedBytes = File.ReadAllBytes(savedPhoto);
         vm.Exposure = 0.4;
-        await vm.SaveAsync(async (path, _) =>
+        await vm.SaveAsync((path, _) =>
         {
-            await File.WriteAllBytesAsync(path, [9, 8, 7]);
-            return (10, 10);
+            File.Copy(savedPhoto, path, overwrite: true);
+            return Task.FromResult((10u, 10u));
         });
         _backups.ClearAllBackups();
         vm.Exposure = 0.6;
@@ -55,7 +58,7 @@ public sealed class ImageEditorHistoryTests : IDisposable
         Assert.Equal(0.6, vm.Exposure);
         Assert.False(vm.HasBackup);
         Assert.Contains("backup is no longer available", failure);
-        Assert.Equal(new byte[] { 9, 8, 7 }, File.ReadAllBytes(_entry.FilePath));
+        Assert.Equal(savedBytes, File.ReadAllBytes(_entry.FilePath));
     }
 
     [Fact]
@@ -181,7 +184,7 @@ public sealed class ImageEditorHistoryTests : IDisposable
         Assert.False(vm.HasChanges);
         vm.Saturation = 0.5;
         var other = Path.Combine(_directory, "other.jpg");
-        File.WriteAllBytes(other, [5, 6, 7]);
+        WicTestImage.CreateAsync(other, 16, 12, jpeg: true).GetAwaiter().GetResult();
         await vm.OpenForEditAsync(new ImageEntry { FilePath = other, FileName = "other.jpg" });
         Assert.Empty(vm.UndoHistory);
         Assert.False(vm.GetCurrentParameters().HasAdjustments);

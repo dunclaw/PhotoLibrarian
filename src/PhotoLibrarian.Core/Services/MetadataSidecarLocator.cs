@@ -9,9 +9,9 @@ namespace PhotoLibrarian.Core.Services;
 /// flag, caption, capture date and GPS).
 /// </summary>
 /// <remarks>
-/// Formats that can embed metadata (JPEG, TIFF, PNG) only fall back to a sidecar when
-/// Windows cannot update the file. When another media file shares the stem, those fallbacks
-/// use the unambiguous <c>filename.ext.xmp</c> name so a camera RAW+JPEG pair such as
+/// A sidecar is selected only when the format/property has no embedded writer. Embedded write
+/// failures are surfaced and never redirected to a sidecar. When another media file shares the stem,
+/// sidecars use the unambiguous <c>filename.ext.xmp</c> name so a camera RAW+JPEG pair such as
 /// <c>IMG_1.CR3</c> and <c>IMG_1.JPG</c> never share one packet: the RAW file owns
 /// <c>IMG_1.xmp</c>, and two photos overwriting each other's metadata there mixed their values
 /// and made every launch re-queue one of them. A lone embeddable photo keeps using its legacy
@@ -55,6 +55,19 @@ public static class MetadataSidecarLocator
         xmp.DoesPropertyExist(ExifNamespace, "exif:GPSLatitude") ||
         xmp.DoesPropertyExist(ExifNamespace, "exif:GPSLongitude");
 
+    public static bool OwnsFaces(IXmpMeta xmp) =>
+        xmp.DoesPropertyExist(CropMetadataRemapper.MwgRs, "mwg-rs:Regions") ||
+        xmp.DoesPropertyExist(MicrosoftPeopleTags.Namespace, MicrosoftPeopleTags.RegionsPath) ||
+        xmp.DoesPropertyExist(
+            MetadataWriterService.PhotoLibrarianNamespace,
+            "plib:FaceReview") ||
+        xmp.DoesPropertyExist(
+            MetadataWriterService.PhotoLibrarianNamespace,
+            "plib:FaceMetadataAuthority");
+
+    public static bool OwnsPendingEditRecipe(IXmpMeta xmp) =>
+        EditParametersSerializer.HasEditProperties(xmp);
+
     /// <summary>
     /// Returns the photo's own qualified sidecar path (<c>filename.ext.xmp</c> for embeddable
     /// formats, <c>filename.xmp</c> otherwise), used for tag and face-region fallbacks.
@@ -80,7 +93,9 @@ public static class MetadataSidecarLocator
             return writePath;
 
         var legacyPath = GetLegacyPathIfOwned(imagePath);
-        return legacyPath;
+        return legacyPath is not null && SidecarOwns(legacyPath, ownsProperty)
+            ? legacyPath
+            : null;
     }
 
     /// <summary>
