@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using XmpCore;
 
 namespace PhotoLibrarian.Core.Services;
@@ -109,6 +110,7 @@ public static class MetadataWriterService
                 await EmbeddedMetadataWriter.WriteAsync(imagePath, rating: rating ?? 0);
                 return;
             }
+
             catch (Exception ex)
             {
                 embeddedError = ex;
@@ -126,6 +128,39 @@ public static class MetadataWriterService
         });
         if (embeddedError is not null)
             ReportSidecarFallback(imagePath, "rating", embeddedError, sidecarPath);
+    }
+
+    /// <summary>Writes a standard XMP label in the image, or in a sidecar for unsupported formats.</summary>
+    public static async Task WriteColorLabelAsync(string imagePath, string? label)
+    {
+        if (!EmbeddedMetadataWriter.IsSupported(imagePath))
+        {
+            await UpdateSidecarAsync(imagePath, MetadataSidecarLocator.OwnsColorLabel,
+                xmp => xmp.SetProperty(XapNamespace, "xmp:Label", label ?? string.Empty));
+            return;
+        }
+
+        var sidecars = new List<(string Path, IXmpMeta Xmp)>();
+        foreach (var path in MetadataSidecarLocator.GetOwnedSidecarPaths(imagePath))
+        {
+            var xmp = LoadOrCreateSidecar(path);
+            if (MetadataSidecarLocator.OwnsColorLabel(xmp))
+                sidecars.Add((path, xmp));
+        }
+
+        await EmbeddedMetadataWriter.WriteAsync(imagePath, colorLabel: label ?? string.Empty);
+        var directories = MetadataExtractor.ImageMetadataReader.ReadMetadata(imagePath);
+        var embedded = directories.OfType<MetadataExtractor.Formats.Xmp.XmpDirectory>()
+            .FirstOrDefault()?.XmpMeta;
+        var actual = embedded?.GetPropertyString(XapNamespace, "xmp:Label");
+        if (!string.Equals(actual ?? string.Empty, label ?? string.Empty, StringComparison.Ordinal))
+            throw new IOException("The embedded color label could not be verified after writing.");
+
+        foreach (var (path, xmp) in sidecars)
+        {
+            xmp.DeleteProperty(XapNamespace, "xmp:Label");
+            SaveSidecar(path, xmp);
+        }
     }
 
     /// <summary>Writes caption to the image (in-file: System.Title + System.Comment) or sidecar fallback.</summary>

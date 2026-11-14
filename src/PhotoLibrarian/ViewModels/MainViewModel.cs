@@ -46,6 +46,7 @@ public partial class MainViewModel : ObservableObject
     public PeopleNavigationViewModel PeopleNav { get; }
     public TagNavigationViewModel TagNav { get; }
     public FlagNavigationViewModel FlagNav { get; }
+    public ColorLabelNavigationViewModel ColorLabelNav { get; }
     public NotTaggedNavigationViewModel NotTaggedNav { get; }
     public ImageGridViewModel ImageGrid { get; }
     public ImageViewerViewModel ImageViewer { get; }
@@ -158,6 +159,7 @@ public partial class MainViewModel : ObservableObject
         PeopleNav = new PeopleNavigationViewModel(faceRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
         FlagNav = new FlagNavigationViewModel(imageRepo);
+        ColorLabelNav = new ColorLabelNavigationViewModel(imageRepo);
         NotTaggedNav = new NotTaggedNavigationViewModel(tagRepo);
         var searchRepo = new ImageSearchRepository(db);
         ImageGrid = new ImageGridViewModel(
@@ -289,6 +291,7 @@ public partial class MainViewModel : ObservableObject
         await _db.InitializeAsync();
         await FolderNav.LoadWatchedFoldersAsync();
         await FlagNav.LoadAsync();
+        await ColorLabelNav.LoadAsync();
         await NotTaggedNav.LoadAsync();
         
         // Don't load images on startup - wait for user to select a folder
@@ -1152,6 +1155,7 @@ public partial class MainViewModel : ObservableObject
     public async Task RefreshFlagNavAsync()
     {
         await FlagNav.LoadAsync();
+        await ColorLabelNav.LoadAsync();
         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
         {
             if (App.MainWindow is MainWindow window)
@@ -1427,6 +1431,7 @@ public partial class MainViewModel : ObservableObject
         await PeopleNav.LoadPeopleAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
+        await ColorLabelNav.LoadAsync();
         await NotTaggedNav.LoadAsync();
 
         // Update UI trees on main thread

@@ -400,6 +400,26 @@
                         </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Color label:" Style="{StaticResource InfoLabelStyle}" />
+                            <Button Grid.Column="1" x:Name="ColorLabelButton"
+                                    AutomationProperties.AutomationId="MetadataColorLabel"
+                                    AutomationProperties.Name="Color label"
+                                    HorizontalAlignment="Left"
+                                    ToolTipService.ToolTip="Press 6, 7, 8, or 9 for Red, Yellow, Green, or Blue. Press again to clear.">
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelRed" Text="Red (6)" Tag="Red" Click="OnColorLabelClick" />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelYellow" Text="Yellow (7)" Tag="Yellow" Click="OnColorLabelClick" />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelGreen" Text="Green (8)" Tag="Green" Click="OnColorLabelClick" />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelBlue" Text="Blue (9)" Tag="Blue" Click="OnColorLabelClick" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelClear" Text="Clear label" Tag="" Click="OnColorLabelClick" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Flag:" Style="{StaticResource InfoLabelStyle}" />
                             <Button Grid.Column="1" x:Name="FlagButton" Click="OnFlagClick"
                                     Style="{StaticResource DateTimePickerFlyoutButtonStyle}"

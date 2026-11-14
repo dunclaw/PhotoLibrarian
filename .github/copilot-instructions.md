@@ -10,6 +10,13 @@ The app is primarily in C# but native C++ dependencies and code are acceptable i
 Do not impose arbitrary image-size or megapixel limits unless explicitly instructed by the user. Support full-resolution photos from modern cameras; use local/tiled processing, cancellation and actual platform/resource error reporting rather than disabling features based on image dimensions. Do not impose arbitrary counts on user edits or strokes.
 Do not use exceptions for normal flow control. Expected validation outcomes, unsupported operations and routine user actions must use explicit result/status values; reserve exceptions for genuinely unexpected conditions or failures.
 
+## Metadata writing
+
+- Route photo metadata writes through one shared metadata-writing path. Extend `MetadataWriterService` or its shared successor for new metadata capabilities; features must not independently choose or implement embedded versus sidecar storage.
+- Store metadata in the photo when its format supports the required write. Use an XMP sidecar only when the format cannot support that metadata write (for example, RAW originals). If writing a supported format fails, report the error instead of falling back to a sidecar.
+- Preserve existing metadata and respect sidecar ownership, including RAW/raster companions. Handle legacy sidecars safely: preserve unrelated properties and do not remove or supersede an authoritative value until its embedded replacement has been verified.
+- Keep writes local, portable, and non-destructive. Use the existing transaction and backup mechanisms where applicable, verify round trips with generated fixtures, and do not rely on the cache database as the sole source of portable metadata.
+
 
 ## C# Style Preferences
 

@@ -37,6 +37,25 @@ public sealed class EmbeddedMetadataCompatibilityTests : IDisposable
 
     public EmbeddedMetadataCompatibilityTests() => Directory.CreateDirectory(_directory);
 
+    [Theory]
+    [InlineData(".jpg")]
+    [InlineData(".png")]
+    [InlineData(".tif")]
+    public async Task LabelSetAndClearAreEmbeddedWithoutChangingPixels(string extension)
+    {
+        var path = Path.Combine(_directory, "label" + extension);
+        await WicTestImage.CreateAsync(path, 32, 24, jpeg: extension == ".jpg");
+        var pixels = await ReadPixelsAsync(path);
+        var reader = new MetadataReaderService();
+        await MetadataWriterService.WriteColorLabelAsync(path, "Blue");
+        Assert.Equal("Blue", reader.ReadMetadata(path).ColorLabel);
+        await MetadataWriterService.WriteColorLabelAsync(path, null);
+        Assert.True(string.IsNullOrEmpty(reader.ReadMetadata(path).ColorLabel));
+        Assert.Equal(pixels, await ReadPixelsAsync(path));
+        Assert.False(File.Exists(path + ".xmp"));
+        Assert.False(File.Exists(Path.ChangeExtension(path, ".xmp")));
+    }
+
     [Fact]
     public async Task LeadingUtf8Preamble_FailsAtInPlaceEncoderCreationBeforeSettingProperties()
     {
@@ -65,6 +84,8 @@ public sealed class EmbeddedMetadataCompatibilityTests : IDisposable
     [InlineData(true, "flag")]
     [InlineData(true, "date")]
     [InlineData(true, "gps")]
+    [InlineData(false, "label")]
+    [InlineData(true, "label")]
     public async Task ValidPacket_WritesEmbeddedWithoutFallbackAndPreservesOtherMetadata(
         bool leadingPreamble, string property)
     {
@@ -138,6 +159,7 @@ public sealed class EmbeddedMetadataCompatibilityTests : IDisposable
         "flag" => MetadataWriterService.WriteFlagAsync(path, true),
         "date" => MetadataWriterService.WriteDateTakenAsync(path, new DateTime(2024, 2, 3, 4, 5, 6)),
         "gps" => EmbeddedMetadataWriter.WriteGeotagAsync(path, new GeoCoordinate(10, -20)),
+        "label" => MetadataWriterService.WriteColorLabelAsync(path, "Red"),
         _ => throw new InvalidOperationException("Unknown test property")
     };
 
@@ -168,6 +190,10 @@ public sealed class EmbeddedMetadataCompatibilityTests : IDisposable
             case "gps":
                 Assert.Equal(10, image.GpsLatitude!.Value, 6);
                 Assert.Equal(-20, image.GpsLongitude!.Value, 6);
+                break;
+            case "label":
+                Assert.Equal("Red", image.ColorLabel);
+                Assert.Equal("Red", metadata.GetPropertyString("http://ns.adobe.com/xap/1.0/", "Label"));
                 break;
         }
         if (property != "rating")

@@ -13,6 +13,59 @@ public sealed class FileEditTransactionTests : IDisposable
     public FileEditTransactionTests() => Directory.CreateDirectory(_root);
 
     [Fact]
+    public async Task ColorLabelBatchUndoAndRedoRestoresSidecars()
+    {
+        var first = CreatePhoto("first.cr3", [1, 2]);
+        var second = CreatePhoto("second.cr3", [3, 4]);
+        await MetadataWriterService.WriteColorLabelAsync(first, "Purple");
+        using var transaction = await PrepareAsync([first, second], async copies =>
+        {
+            foreach (var copy in copies.Values)
+                await MetadataWriterService.WriteColorLabelAsync(copy, "Red");
+        });
+        var reader = new MetadataReaderService();
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(false, RefreshAsync)).Status);
+        Assert.Equal("Red", reader.ReadMetadata(first).ColorLabel);
+        Assert.Equal("Red", reader.ReadMetadata(second).ColorLabel);
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(true, RefreshAsync)).Status);
+        Assert.Equal("Purple", reader.ReadMetadata(first).ColorLabel);
+        Assert.Null(reader.ReadMetadata(second).ColorLabel);
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(false, RefreshAsync)).Status);
+        Assert.Equal("Red", reader.ReadMetadata(second).ColorLabel);
+        Assert.Equal(new byte[] { 1, 2 }, File.ReadAllBytes(first));
+    }
+
+    [Fact]
+    public async Task EmbeddedLabelBatchUndoAndRedoRestoresImageAndExistingSidecar()
+    {
+        var photo = Path.Combine(_root, "photo.jpg");
+        await WicTestImage.CreateAsync(photo, 32, 32, jpeg: true);
+        var sidecar = Path.ChangeExtension(photo, ".xmp");
+        const string packet = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+              xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmp:Label="Purple" crs:Exposure2012="+0.50"/>
+            </rdf:RDF></x:xmpmeta>
+            """;
+        await File.WriteAllTextAsync(sidecar, packet);
+        var original = await File.ReadAllBytesAsync(photo);
+        var originalSidecar = await File.ReadAllBytesAsync(sidecar);
+        using var transaction = await PrepareAsync([photo], async copies =>
+            await MetadataWriterService.WriteColorLabelAsync(copies[photo], "Red"));
+        var reader = new MetadataReaderService();
+
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(false, RefreshAsync)).Status);
+        Assert.Equal("Red", reader.ReadMetadata(photo).ColorLabel);
+        Assert.Contains("Exposure2012", await File.ReadAllTextAsync(sidecar));
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(true, RefreshAsync)).Status);
+        Assert.Equal(original, await File.ReadAllBytesAsync(photo));
+        Assert.Equal(originalSidecar, await File.ReadAllBytesAsync(sidecar));
+        Assert.Equal("Purple", reader.ReadMetadata(photo).ColorLabel);
+        Assert.Equal(EditHistoryStatus.Applied, (await transaction.MoveAsync(false, RefreshAsync)).Status);
+        Assert.Equal("Red", reader.ReadMetadata(photo).ColorLabel);
+    }
+
+    [Fact]
     public async Task ReplacingMappedPhotoDoesNotTruncateItsOpenViewerSection()
     {
         var photo = CreatePhoto("mapped.jpg", [1, 2, 3, 4]);

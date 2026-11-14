@@ -129,6 +129,9 @@ public partial class MetadataPanelViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsRatingMixed { get; set; }
 
+    [ObservableProperty]
+    public partial string ColorLabelDisplay { get; set; } = "";
+
     /// <summary>True when every selected entry is flagged.</summary>
     [ObservableProperty]
     public partial bool IsFlagged { get; set; }
@@ -337,6 +340,8 @@ public partial class MetadataPanelViewModel : ObservableObject
         SelectionCount = _entries.Count;
         IsMultiSelect = _entries.Count > 1;
         CanEditGeotag = _entries.All(entry => entry.MediaType == Core.Models.MediaType.Image);
+        ColorLabelDisplay = CommonStringOrMixed(_entries, entry =>
+            string.IsNullOrWhiteSpace(entry.ColorLabel) ? "None" : entry.ColorLabel);
 
         if (_entries.Count == 1)
         {
@@ -816,6 +821,30 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public Task SetRatingFromShortcutAsync(int rating) =>
         SetRatingCoreAsync(rating, toggleOnRepeat: false);
+
+    public async Task SetColorLabelFromShortcutAsync(string label)
+    {
+        if (_entries.Count == 0 || _main is null) return;
+        var value = GetToggledColorLabel(_entries, label);
+        await SetColorLabelAsync(value);
+    }
+
+    public async Task SetColorLabelAsync(string? value)
+    {
+        if (_entries.Count == 0 || _main is null) return;
+        if (_entries.All(entry => string.Equals(
+            entry.ColorLabel ?? string.Empty, value ?? string.Empty, StringComparison.OrdinalIgnoreCase)))
+            return;
+        await _main.RunPhotoEditAsync("color label", SelectedFilePaths, async copies =>
+        {
+            foreach (var path in copies.Values)
+                await MetadataWriterService.WriteColorLabelAsync(path, value);
+        });
+    }
+
+    internal static string? GetToggledColorLabel(IReadOnlyCollection<ImageEntry> entries, string label) =>
+        entries.All(entry => string.Equals(entry.ColorLabel, label, StringComparison.OrdinalIgnoreCase))
+            ? null : label;
 
     private async Task SetRatingCoreAsync(int rating, bool toggleOnRepeat)
     {

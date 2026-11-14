@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
 using System.Reflection;
@@ -7,6 +8,29 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class SearchGridOrderingTests
 {
+    [Fact]
+    public void RandomOrderKeepsRelativeOrderAcrossMembershipChangesAndChangesWithSeed()
+    {
+        var paths = Enumerable.Range(1, 50).Select(i => $@"C:\Photos\{i}.jpg").ToArray();
+        var method = typeof(ImageGridViewModel).GetMethod(
+            "SortItems", BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(typeof(ImageEntry));
+        string[] Sort(IEnumerable<string> source, int seed)
+        {
+            var entries = source.Select(path => new ImageEntry { FilePath = path, FileName = Path.GetFileName(path) });
+            var result = (IEnumerable<ImageEntry>)method.Invoke(null,
+                [entries, (Func<ImageEntry, ImageEntry>)(entry => entry), SortByOption.Random, false, seed])!;
+            return result.Select(entry => entry.FilePath).ToArray();
+        }
+
+        var original = Sort(paths, 123);
+        var subset = paths.Where(path => !path.EndsWith("5.jpg", StringComparison.Ordinal))
+            .Reverse();
+        Assert.Equal(original.Where(path => !path.EndsWith("5.jpg", StringComparison.Ordinal)), Sort(subset, 123));
+        Assert.NotEqual(original, Sort(paths, 456));
+        Assert.Equal(ImageGridViewModel.RandomKey(paths[0], 123),
+            ImageGridViewModel.RandomKey(paths[0].ToUpperInvariant(), 123));
+    }
+
     [Theory]
     [InlineData(SortByOption.FileName, false)]
     [InlineData(SortByOption.FileName, true)]

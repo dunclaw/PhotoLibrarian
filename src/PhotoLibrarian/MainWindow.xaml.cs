@@ -858,6 +858,14 @@ public sealed partial class MainWindow : Window
             return true;
         }
 
+        if (TryGetColorLabelShortcut(e.Key, modifiers, out var label))
+        {
+            if (!hasSelection) return false;
+            e.Handled = true;
+            await ViewModel.MetadataPanel.SetColorLabelFromShortcutAsync(label);
+            return true;
+        }
+
         if (modifiers == Windows.System.VirtualKeyModifiers.Control)
         {
             switch (e.Key)
@@ -929,6 +937,22 @@ public sealed partial class MainWindow : Window
         return rating >= 0 &&
             (modifiers == Windows.System.VirtualKeyModifiers.None ||
              (modifiers == Windows.System.VirtualKeyModifiers.Control && rating > 0));
+    }
+
+    internal static bool TryGetColorLabelShortcut(
+        Windows.System.VirtualKey key,
+        Windows.System.VirtualKeyModifiers modifiers,
+        out string label)
+    {
+        label = key switch
+        {
+            Windows.System.VirtualKey.Number6 or Windows.System.VirtualKey.NumberPad6 => "Red",
+            Windows.System.VirtualKey.Number7 or Windows.System.VirtualKey.NumberPad7 => "Yellow",
+            Windows.System.VirtualKey.Number8 or Windows.System.VirtualKey.NumberPad8 => "Green",
+            Windows.System.VirtualKey.Number9 or Windows.System.VirtualKey.NumberPad9 => "Blue",
+            _ => ""
+        };
+        return modifiers == Windows.System.VirtualKeyModifiers.None && label.Length > 0;
     }
 
     private DependencyObject? GetFocusedElement() =>

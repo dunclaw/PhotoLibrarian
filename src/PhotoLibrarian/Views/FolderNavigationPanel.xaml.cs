@@ -43,7 +43,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         this.Unloaded += OnUnloaded;
     }
 
-    private TreeView[] NavigationTrees => [LibraryTree, DateTree, PeopleTree, TagsTree, NotTaggedTree, FlagsTree];
+    private TreeView[] NavigationTrees => [LibraryTree, DateTree, PeopleTree, TagsTree, NotTaggedTree, FlagsTree, ColorLabelsTree];
 
     private static string GetNodeKey(TreeViewNode node) => node.Content switch
     {
@@ -54,6 +54,7 @@ public sealed partial class FolderNavigationPanel : UserControl
         TagNodeWrapper { TagNode.IsRoot: true } => "root",
         TagNodeWrapper wrapper => $"tag:{wrapper.TagNode.FullPath}",
         FlagNavigationViewModel => "flagged",
+        ColorLabelNavigationItem item => item.NodeKey,
         NotTaggedNavigationViewModel => NotTaggedNavigationViewModel.NodeKey,
         _ => "root"
     };
@@ -227,12 +228,18 @@ public sealed partial class FolderNavigationPanel : UserControl
     private void RefreshFlagTreeCore()
     {
         var flagNav = App.ViewModel?.FlagNav;
-        if (flagNav is null) return;
+        var colorNav = App.ViewModel?.ColorLabelNav;
+        if (flagNav is null || colorNav is null) return;
 
         // Never rebuild an existing flag node: its label is bound to the live count.
-        if (FlagsTree.RootNodes.Any(n => n.Content is FlagNavigationViewModel)) return;
-
-        RebuildTree(FlagsTree, () => FlagsTree.RootNodes.Add(new TreeViewNode { Content = flagNav }));
+        if (!FlagsTree.RootNodes.Any(n => n.Content is FlagNavigationViewModel))
+            RebuildTree(FlagsTree, () => FlagsTree.RootNodes.Add(new TreeViewNode { Content = flagNav }));
+        if (ColorLabelsTree.RootNodes.Count == 0)
+            RebuildTree(ColorLabelsTree, () =>
+            {
+                foreach (var item in colorNav.Items)
+                    ColorLabelsTree.RootNodes.Add(new TreeViewNode { Content = item });
+            });
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -762,13 +769,18 @@ public sealed partial class FolderNavigationPanel : UserControl
         bool flaggedSelected = FlagsTree.SelectedNodes.Any(n => n.Content is FlagNavigationViewModel);
         bool notTaggedSelected = NotTaggedTree.SelectedNodes.Any(
             n => n.Content is NotTaggedNavigationViewModel);
+        var selectedColors = ColorLabelsTree.SelectedNodes
+            .Select(node => node.Content)
+            .OfType<ColorLabelNavigationItem>()
+            .Select(item => item.Name)
+            .ToList();
 
         // If nothing selected anywhere, clear filters to show empty grid
         if (!photoLibraryRootSelected && !dateRootSelected && !peopleRootSelected &&
             !tagRootSelected && !flaggedSelected && !notTaggedSelected &&
             selectedFolders.Count == 0 && selectedYears.Count == 0 && 
             selectedMonths.Count == 0 && selectedPeople.Count == 0 &&
-            selectedTags.Count == 0)
+            selectedTags.Count == 0 && selectedColors.Count == 0)
         {
             DebugLog.WriteLine("  No selections - clearing filter");
             App.ViewModel.ImageGrid.ClearFilterCommand.Execute(null);
@@ -793,7 +805,8 @@ public sealed partial class FolderNavigationPanel : UserControl
             tagRootSelected,
             selectedTags.Count > 0 ? selectedTags : null,
             flaggedSelected,
-            notTaggedSelected);
+            notTaggedSelected,
+            selectedColors.Count > 0 ? selectedColors : null);
     }
 
     // ============================================================================

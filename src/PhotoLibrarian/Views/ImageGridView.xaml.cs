@@ -240,6 +240,7 @@ public sealed partial class ImageGridView : UserControl
         return new ImageRefinementFilter
         {
             Rating = rating,
+            ColorLabel = GetSelectedTag(ColorLabelCombo) is { Length: > 0 } colorLabel ? colorLabel : null,
             RatingMode = ratingMode,
             DateFrom = dateFrom,
             DateTo = dateTo,
@@ -276,6 +277,7 @@ public sealed partial class ImageGridView : UserControl
             RatingCombo,
             refinement.Rating?.ToString() ?? string.Empty);
         SelectByTag(RatingModeCombo, refinement.RatingMode.ToString());
+        SelectByTag(ColorLabelCombo, refinement.ColorLabel ?? string.Empty);
 
         if (refinement.DateFrom.HasValue || refinement.DateTo.HasValue)
         {
@@ -303,6 +305,7 @@ public sealed partial class ImageGridView : UserControl
     private void ResetRefinementControls()
     {
         RatingCombo.SelectedIndex = 0;
+        ColorLabelCombo.SelectedIndex = 0;
         RatingModeCombo.SelectedIndex = 0;
         DatePresetCombo.SelectedIndex = 0;
         DateFromPicker.Date = null;
@@ -322,6 +325,9 @@ public sealed partial class ImageGridView : UserControl
 
         var refinement = ViewModel.Refinement;
         ActiveFiltersPanel.Children.Clear();
+
+        if (refinement.ColorLabel is { } colorLabel)
+            AddFilterChip("color", $"Color: {colorLabel}");
 
         if (refinement.Rating is int rating)
         {
@@ -420,6 +426,8 @@ public sealed partial class ImageGridView : UserControl
 
         if (key == "rating")
             RatingCombo.SelectedIndex = 0;
+        else if (key == "color")
+            ColorLabelCombo.SelectedIndex = 0;
         else if (key == "date")
             DatePresetCombo.SelectedIndex = 0;
         else if (key == "person")
@@ -518,7 +526,21 @@ public sealed partial class ImageGridView : UserControl
         if (Enum.TryParse<SortByOption>(item.Tag?.ToString(), out var sortBy))
         {
             ViewModel.SortBy = sortBy;
+            UpdateRandomSortControls();
         }
+    }
+
+    private async void OnReshuffle(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not null)
+            await ViewModel.ReshuffleAsync();
+    }
+
+    private void UpdateRandomSortControls()
+    {
+        var random = ViewModel?.SortBy == SortByOption.Random;
+        ReshuffleButton.Visibility = random ? Visibility.Visible : Visibility.Collapsed;
+        SortOrderBtn.IsEnabled = !random;
     }
     
     private void OnToggleSortOrder(object sender, RoutedEventArgs e)
@@ -561,10 +583,12 @@ public sealed partial class ImageGridView : UserControl
             SortByOption.DateModified => 2,
             SortByOption.FileSize => 3,
             SortByOption.Rating => 4,
+            SortByOption.Random => 5,
             _ => 1
         };
         
         SortByCombo.SelectedIndex = index;
+        UpdateRandomSortControls();
     }
     
     private void UpdateSortOrderIcon()

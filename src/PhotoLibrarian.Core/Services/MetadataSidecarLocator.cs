@@ -36,6 +36,8 @@ public static class MetadataSidecarLocator
     /// <summary>Matches sidecars that record a star rating.</summary>
     public static bool OwnsRating(IXmpMeta xmp) => xmp.DoesPropertyExist(XapNamespace, "xmp:Rating");
 
+    public static bool OwnsColorLabel(IXmpMeta xmp) => xmp.DoesPropertyExist(XapNamespace, "xmp:Label");
+
     /// <summary>Matches sidecars that record the PhotoLibrarian flag.</summary>
     public static bool OwnsFlag(IXmpMeta xmp) =>
         xmp.DoesPropertyExist(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged");

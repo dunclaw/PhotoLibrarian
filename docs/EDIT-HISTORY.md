@@ -17,7 +17,7 @@ One chronological history follows these operations across photos and navigation:
 - Saved raster adjustments and spot-retouch strokes, Revert to original, and
   RAW **Keep recipe**.
 - In-place rotation, crop, straighten, and red-eye removal.
-- Ratings, flags, captions, descriptive tag adds/removals, capture dates,
+- Ratings, color labels, flags, captions, descriptive tag adds/removals, capture dates,
   date/time offsets, and GPS changes made through the metadata panel or photo
   commands.
 

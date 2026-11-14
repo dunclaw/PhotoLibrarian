@@ -17,7 +17,8 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 
 - 🚀 **Custom virtualized grid** that handles 18 000+ items per folder smoothly. No `ItemsRepeater` layout cycles, no per-item bindings — just a `Canvas` with a recycled element pool.
 - **Remembered grid layout** restores Group, Sort, and ascending/descending choices after restarting. Preferences stay local in `%LOCALAPPDATA%\PhotoLibrarian\grid-layout.json`; missing or invalid preferences use the existing defaults (no grouping, Date Taken, descending). Filters, search, and photo selection remain session-only.
-- 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **People**, **Tag**, and **Flag** trees; the sections combine as a union filter.
+- **Color labels and random sort**: use the information pane or 6–9 for Red, Yellow, Green, and Blue on the selection. Press the same key again to clear when all selected items already have that label; otherwise it applies to all. Filter by color in **Filter**. Labels use standard `xmp:Label` embedded in supported images, or in an XMP sidecar for formats such as RAW that cannot be updated in place. Move sidecars with their photos; unrecognized labels are displayed and preserved until changed. If an embedded write fails, the edit reports the error instead of creating a sidecar. Random sort keeps the relative order of existing paths across refreshes, filtering, search, and navigation; new paths join that order, renames receive a new position, and **Reshuffle** changes it. The sort choice is remembered, but a fresh random order is generated on each app restart. Grouping still takes precedence.
+- 🗂️ **Windows-style folder tree** with multi-checkbox selection plus parallel **Date**, **People**, **Tag**, **Flag**, and **Color labels** trees; the sections combine as a union filter. Checked color labels are remembered and their counts cover the watched library; the Filter box and search further narrow the union.
 - 🏷️ **Hierarchical tags** (`people/family/kids` indexes `people` + `people/family` + `people/family/kids` so you can filter at any level).
 - **Not tagged** under Browse > Tags shows indexed photos and videos with no tags, using the same definition as Filter > Missing metadata > Untagged. Its live count is library-wide (like other Browse counts), independent of selection, refinement, and search. Checking it adds these items to the navigation union; refinement and search still restrict the union. The check is remembered across restarts and tag-tree refreshes.
 - ⚡ **SQLite metadata index** + Windows native thumbnail cache for instant viewport-aware loads.
@@ -794,6 +795,7 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Previous / next slideshow photo | Left / Up and Right / Down arrow keys |
 | Exit slideshow | Esc or F11 |
 | Rate selected photos (0 clears; 1-5 sets) | 0-5 or Ctrl+1-Ctrl+5 |
+| Set / clear color label (Red / Yellow / Green / Blue) | 6 / 7 / 8 / 9 |
 | Rotate selected photos clockwise / counter-clockwise | Ctrl+R / Ctrl+L |
 | Focus the selected photos' tag entry | Ctrl+T, then type a tag and press Enter |
 | Rename selected photos | F2 |
@@ -852,8 +854,8 @@ pause/resume rendered frames, repeated full-duration Pan and Zoom transitions,
 rapid changes and close cancellation, and saves a Contemporary screenshot in the
 host's `AppX` output folder. It does not test Narrator or physical keyboard input.
 
-Rating, rotation, tagging, rename, delete, and print act on the current grid selection
-(or the current photo when only one is selected). Rating shortcuts are ignored while an
+Rating, color labels, rotation, tagging, rename, delete, and print act on the current grid selection
+(or the current photo when only one is selected). Rating and color-label shortcuts are ignored while an
 input control is focused; text boxes keep their normal typing and undo behavior. Delete
 uses the Windows Recycle Bin confirmation so removed photos remain recoverable.
 

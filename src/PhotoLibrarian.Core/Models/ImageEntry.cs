@@ -43,6 +43,7 @@ public sealed class ImageEntry
     // IPTC/XMP label only; this is not reverse-geocoded.
     public string? PlaceName { get; set; }
     public int? Rating { get; set; }
+    public string? ColorLabel { get; set; }
     public int Orientation { get; set; } = 1;
 
     /// <summary>

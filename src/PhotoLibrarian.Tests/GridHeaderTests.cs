@@ -7,6 +7,26 @@ namespace PhotoLibrarian.Tests;
 public sealed class GridHeaderTests
 {
     [Fact]
+    public void ColorFilterUsesTheSameLabeledGridLayoutAsFlagFilter()
+    {
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var grid = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageGridView.xaml"));
+        var flag = grid.Descendants().Single(element => (string?)element.Attribute(xaml + "Name") == "FlagCombo");
+        var color = grid.Descendants().Single(element => (string?)element.Attribute(xaml + "Name") == "ColorLabelCombo");
+        Assert.Same(flag.Parent, color.Parent);
+        Assert.Equal((string?)flag.Attribute("Grid.Column"), (string?)color.Attribute("Grid.Column"));
+        Assert.Null(color.Attribute("Header"));
+        var label = Assert.Single(color.Parent!.Elements(), element =>
+            element.Name.LocalName == "TextBlock" &&
+            (string?)element.Attribute("Grid.Row") == (string?)color.Attribute("Grid.Row"));
+        var flagLabel = Assert.Single(flag.Parent!.Elements(), element =>
+            element.Name.LocalName == "TextBlock" &&
+            (string?)element.Attribute("Grid.Row") == (string?)flag.Attribute("Grid.Row"));
+        Assert.Equal((string?)flagLabel.Attribute("Style"), (string?)label.Attribute("Style"));
+        Assert.Equal((string?)flagLabel.Attribute("VerticalAlignment"), (string?)label.Attribute("VerticalAlignment"));
+    }
+
+    [Fact]
     public void ReviewActionsUseGridHeaderAndSearchFillsRightPaneHeader()
     {
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";

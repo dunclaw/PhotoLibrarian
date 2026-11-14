@@ -13,6 +13,53 @@ namespace PhotoLibrarian.Tests;
 public sealed class WatchedFolderRemovalTests
 {
     [Fact]
+    public async Task ColorLabelNavigation_UnionsWithFoldersAndRespectsRefinementAndChanges()
+    {
+        await using var library = await Library.CreateAsync();
+        await library.WatchAsync(library.Photos);
+        var sibling = Path.Combine(library.Root, "sibling");
+        await library.WatchAsync(sibling);
+        var red = await library.AddVideoAsync(library.Photos, "red.mp4");
+        var blue = await library.AddVideoAsync(sibling, "blue.mp4");
+        var other = await library.AddVideoAsync(sibling, "other.mp4");
+        red.ColorLabel = "red";
+        blue.ColorLabel = "Blue";
+        red.Rating = 5;
+        blue.Rating = 1;
+        await library.Images.UpsertImageAsync(red);
+        await library.Images.UpsertImageAsync(blue);
+        await library.Main.ColorLabelNav.LoadAsync();
+        Assert.Equal(1, library.Main.ColorLabelNav.Items.Single(item => item.Name == "Red").Count);
+        Assert.Equal(1, library.Main.ColorLabelNav.Items.Single(item => item.Name == "Blue").Count);
+
+        await library.Main.ImageGrid.FilterByMultipleCriteriaAsync(
+            null, false, null, null, false, null, false, null,
+            colorLabels: ["Red", "Blue"]);
+        Assert.Equal(2, library.Main.ImageGrid.Images.Count);
+        await library.Main.ImageGrid.ApplyRefinementAsync(new ImageRefinementFilter { Rating = 4 });
+        Assert.Equal(red.Id, Assert.Single(library.Main.ImageGrid.Images).Entry.Id);
+        await library.Main.ImageGrid.ApplyRefinementAsync(ImageRefinementFilter.Empty);
+        await library.Main.ImageGrid.ApplySearchAsync("blue");
+        Assert.Equal(blue.Id, Assert.Single(library.Main.ImageGrid.Images).Entry.Id);
+        await library.Main.ImageGrid.ApplySearchAsync("");
+        await library.Main.ImageGrid.FilterByMultipleCriteriaAsync(
+            [library.Photos], false, null, null, false, null, false, null,
+            colorLabels: ["Blue"]);
+        Assert.Equal(2, library.Main.ImageGrid.Images.Count);
+
+        other.ColorLabel = "Blue";
+        await library.Images.UpsertImageAsync(other);
+        await library.Main.ImageGrid.RefreshWatchedItemsAsync([other.FilePath]);
+        Assert.Equal(3, library.Main.ImageGrid.Images.Count);
+        blue.ColorLabel = null;
+        await library.Images.UpsertImageAsync(blue);
+        await library.Main.ImageGrid.RefreshWatchedItemsAsync([blue.FilePath]);
+        Assert.Equal(2, library.Main.ImageGrid.Images.Count);
+        await library.Main.ColorLabelNav.LoadAsync();
+        Assert.Equal(1, library.Main.ColorLabelNav.Items.Single(item => item.Name == "Blue").Count);
+    }
+
+    [Fact]
     public async Task BackgroundTagRefresh_DoesNotRebuildFolderGridOrLoseSelection()
     {
         await using var library = await Library.CreateAsync();
