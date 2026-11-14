@@ -84,7 +84,7 @@ public sealed partial class TopRibbon : UserControl
     {
         _hasPhoto = hasPhoto;
         _editorActive = editorActive;
-        Visibility = hasPhoto || editorActive ? Visibility.Visible : Visibility.Collapsed;
+        Visibility = hasPhoto && !editorActive ? Visibility.Visible : Visibility.Collapsed;
         SetVideoMode(_isVideo);
     }
 

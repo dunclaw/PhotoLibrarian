@@ -96,8 +96,13 @@ public partial class App
 
         ribbon.SetPhotoContext(hasPhoto: false, editorActive: true);
         await Task.Delay(100);
-        Check(ribbon.Visibility == Visibility.Visible && undo.ActualWidth > 0 && redo.ActualWidth > 0,
-            "Editor context keeps the shared toolbar without an open viewer");
+        Check(ribbon.Visibility == Visibility.Collapsed && layout.RowDefinitions[0].ActualHeight == 0,
+            "Editor context removes the separate ribbon row");
+        ribbon.SetPhotoContext(hasPhoto: true, editorActive: true);
+        Check(ribbon.Visibility == Visibility.Collapsed,
+            "The ribbon stays hidden when the viewer remains open behind the editor");
+        ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
+        await Task.Delay(100);
         await RunViewerUiCommandAsync("focus", "HistoryText");
         text.Focus(FocusState.Keyboard);
         await PressViewerKeysAsync(0x41);

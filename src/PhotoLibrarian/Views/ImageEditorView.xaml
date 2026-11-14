@@ -105,10 +105,23 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <ToggleButton x:Name="RetouchToggle" Content="Retouch" Click="OnRetouchToggled"
-                              VerticalAlignment="Center"
-                              AutomationProperties.Name="Spot retouch mode"
-                              AutomationProperties.AutomationId="EditorRetouch" />
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <ToggleButton x:Name="RetouchToggle" Content="Retouch" Click="OnRetouchToggled"
+                                  VerticalAlignment="Center"
+                                  AutomationProperties.Name="Spot retouch mode"
+                                  AutomationProperties.AutomationId="EditorRetouch" />
+                    <StackPanel x:Name="RetouchHistoryTools" Orientation="Horizontal" Spacing="4"
+                                Visibility="Collapsed">
+                        <Button x:Name="RetouchUndoBtn" x:Uid="RibbonUndoButton" Click="OnUndoClick" Padding="8"
+                                IsEnabled="False" AutomationProperties.AutomationId="RetouchUndo">
+                            <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                        </Button>
+                        <Button x:Name="RetouchRedoBtn" x:Uid="RibbonRedoButton" Click="OnRedoClick" Padding="8"
+                                IsEnabled="False" AutomationProperties.AutomationId="RetouchRedo">
+                            <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
                 <TextBlock Grid.Column="1" Text="Brush radius" VerticalAlignment="Center" />
                 <Slider x:Name="RetouchRadius" Grid.Column="2" Minimum="2" Maximum="24" Value="8" StepFrequency="1"
                         ValueChanged="OnRetouchRadiusChanged"
@@ -173,6 +186,14 @@
                             AutomationProperties.AutomationId="EditorReset" />
                     <Button x:Name="RevertBtn" Content="Revert" Click="OnRevert" Padding="8,4"
                             Visibility="Collapsed" />
+                    <Button x:Name="UndoBtn" x:Uid="RibbonUndoButton" Click="OnUndoClick" Padding="8"
+                            IsEnabled="False" AutomationProperties.AutomationId="EditorUndo">
+                        <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                    </Button>
+                    <Button x:Name="RedoBtn" x:Uid="RibbonRedoButton" Click="OnRedoClick" Padding="8"
+                            IsEnabled="False" AutomationProperties.AutomationId="EditorRedo">
+                        <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                    </Button>
                 </StackPanel>
 
                 <StackPanel x:Name="RawPreviewPanel" Spacing="12" Visibility="Collapsed">

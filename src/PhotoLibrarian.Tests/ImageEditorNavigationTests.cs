@@ -490,6 +490,33 @@ public sealed class ImageEditorNavigationTests : IDisposable
         }
     }
 
+    [Fact]
+    public void EditorHistoryButtons_UseSharedHistoryRoutingInBothWorkspaces()
+    {
+        var assets = Path.Combine(AppContext.BaseDirectory, "TestAssets");
+        var xaml = XDocument.Load(Path.Combine(assets, "ImageEditorView.xaml"));
+        XNamespace names = "http://schemas.microsoft.com/winfx/2006/xaml";
+        foreach (var (id, handler, parent) in new[]
+        {
+            ("EditorUndo", "OnUndoClick", "AdjustmentsPanel"),
+            ("EditorRedo", "OnRedoClick", "AdjustmentsPanel"),
+            ("RetouchUndo", "OnUndoClick", "RetouchToolbar"),
+            ("RetouchRedo", "OnRedoClick", "RetouchToolbar")
+        })
+        {
+            var button = Assert.Single(xaml.Descendants(), element =>
+                (string?)element.Attribute("AutomationProperties.AutomationId") == id);
+            Assert.Equal(handler, (string?)button.Attribute("Click"));
+            Assert.NotNull(button.Attribute(names + "Uid"));
+            Assert.Contains(button.Ancestors(), element => (string?)element.Attribute(names + "Name") == parent);
+        }
+
+        var window = File.ReadAllText(Path.Combine(assets, "MainWindow.xaml.cs"));
+        Assert.Contains("EditorOverlay.UndoClicked += OnRibbonUndoClicked;", window);
+        Assert.Contains("EditorOverlay.RedoClicked += OnRibbonRedoClicked;", window);
+        Assert.Contains("EditorOverlay.SetHistoryAvailability(canUndo, canRedo, undoLabel, redoLabel);", window);
+    }
+
     [Theory]
     [InlineData(Windows.System.VirtualKey.Left, Windows.System.VirtualKeyModifiers.None, false, -1)]
     [InlineData(Windows.System.VirtualKey.Right, Windows.System.VirtualKeyModifiers.None, false, 1)]

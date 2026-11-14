@@ -61,6 +61,62 @@ public partial class App
             _window.Activate();
             var compare = (Button)editor.FindName("ComparisonButton");
             await WaitForAsync(() => compare.IsEnabled, "Real editor source loaded");
+            var undo = (Button)editor.FindName("UndoBtn");
+            var redoButton = (Button)editor.FindName("RedoBtn");
+            var sharedHistory = new EditHistoryService();
+            var sharedValue = 0;
+            await sharedHistory.ExecuteAsync("rating - earlier photo", () =>
+            {
+                sharedValue = 1;
+                return Task.FromResult(new EditHistoryResult(EditHistoryStatus.Applied));
+            }, undoing =>
+            {
+                sharedValue = undoing ? 0 : 1;
+                return Task.FromResult(new EditHistoryResult(EditHistoryStatus.Applied));
+            });
+            editor.UndoClicked += async (_, _) => await MoveHistoryAsync(undoing: true);
+            editor.RedoClicked += async (_, _) => await MoveHistoryAsync(undoing: false);
+            UpdateEditorHistory();
+            Check(undo.IsEnabled && !redoButton.IsEnabled &&
+                AutomationProperties.GetName(undo) == "Undo rating - earlier photo",
+                "Editor exposes earlier shared history when preview history is empty");
+            vm.Exposure = .4;
+            UpdateEditorHistory();
+            Check(AutomationProperties.GetName(undo) == "Undo Exposure" &&
+                AutomationProperties.GetHelpText(undo).Contains("file moves/deletes"),
+                "Editor undo identifies the pending gesture and accessible history boundary");
+            Invoke(undo);
+            Check(vm.Exposure == .2 && sharedValue == 1 && redoButton.IsEnabled &&
+                AutomationProperties.GetName(redoButton) == "Redo Exposure",
+                "Editor Undo uses preview history before shared history");
+            Invoke(redoButton);
+            Check(vm.Exposure == .4 && sharedValue == 1, "Editor Redo restores the pending adjustment");
+            editor.SetHistoryAvailability(false, false, "Undo", "Redo");
+            Check(!undo.IsEnabled && !redoButton.IsEnabled, "Editor history controls honor busy availability");
+            UpdateEditorHistory();
+            foreach (var retouchMode in new[] { false, true })
+            {
+                editor.SetRetouchWorkspace(retouchMode);
+                await Task.Delay(150);
+                var activeUndo = retouchMode ? (Button)editor.FindName("RetouchUndoBtn") : undo;
+                var activeRedo = retouchMode ? (Button)editor.FindName("RetouchRedoBtn") : redoButton;
+                var undoPosition = activeUndo.TransformToVisual(editor).TransformPoint(new Windows.Foundation.Point());
+                var redoPosition = activeRedo.TransformToVisual(editor).TransformPoint(new Windows.Foundation.Point());
+                Check(activeUndo.ActualHeight <= 48 && activeRedo.ActualHeight <= 48 &&
+                    undoPosition.Y == redoPosition.Y && redoPosition.X + activeRedo.ActualWidth <= editor.ActualWidth &&
+                    ((TextBlock)editor.FindName("TitleText")).ActualWidth > 0,
+                    $"{(retouchMode ? "Retouch" : "Adjust")} integrates compact history without clipping the title");
+                if (retouchMode)
+                {
+                    Invoke(activeUndo);
+                    Check(vm.Exposure == .2 && activeRedo.IsEnabled, "Retouch Undo uses the same preview history");
+                    Invoke(activeRedo);
+                    Check(vm.Exposure == .4, "Retouch Redo restores the same preview history");
+                }
+                await RunViewerUiCommandAsync("screenshot", "--output",
+                    Path.Combine(AppContext.BaseDirectory, retouchMode ? "history-retouch.png" : "history-adjust.png"));
+            }
+            editor.SetRetouchWorkspace(false);
             vm.Exposure = .6;
             vm.Contrast = .2;
             vm.UndoCommand.Execute(null);
@@ -156,6 +212,33 @@ public partial class App
                     .GetPattern(PatternInterface.Toggle)).Toggle();
                 compare.Flyout.Hide();
                 await Task.Delay(100);
+            }
+
+            void Invoke(Button button) =>
+                ((IInvokeProvider)FrameworkElementAutomationPeer.CreatePeerForElement(button)
+                    .GetPattern(PatternInterface.Invoke)).Invoke();
+
+            void UpdateEditorHistory()
+            {
+                var preview = vm.UndoHistory.Count > 0 || vm.RedoHistory.Count > 0;
+                editor.SetHistoryAvailability(
+                    preview ? vm.CanUndo : sharedHistory.CanUndo,
+                    preview ? vm.CanRedo : sharedHistory.CanRedo,
+                    preview && vm.UndoHistory.Count > 0 ? $"Undo {vm.UndoHistory[0]}" : sharedHistory.UndoLabel,
+                    preview && vm.RedoHistory.Count > 0 ? $"Redo {vm.RedoHistory[0]}" : sharedHistory.RedoLabel);
+            }
+
+            async Task MoveHistoryAsync(bool undoing)
+            {
+                vm.EndEdit();
+                if (vm.UndoHistory.Count > 0 || vm.RedoHistory.Count > 0)
+                {
+                    if (undoing && vm.CanUndo) vm.UndoSteps(1);
+                    else if (!undoing && vm.CanRedo) vm.RedoSteps(1);
+                }
+                else if (undoing) await sharedHistory.UndoAsync();
+                else await sharedHistory.RedoAsync();
+                UpdateEditorHistory();
             }
         }
         finally
