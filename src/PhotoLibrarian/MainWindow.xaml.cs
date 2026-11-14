@@ -468,6 +468,8 @@ public sealed partial class MainWindow : Window
         TopRibbon.QuickEditClicked += OnRibbonQuickEditClicked;
         TopRibbon.UndoClicked += OnRibbonUndoClicked;
         TopRibbon.RedoClicked += OnRibbonRedoClicked;
+        EditorOverlay.UndoClicked += OnRibbonUndoClicked;
+        EditorOverlay.RedoClicked += OnRibbonRedoClicked;
         ViewModel.EditHistory.Changed += OnEditHistoryChanged;
         UpdateHistoryControls();
         TopRibbon.RetouchClicked += OnRibbonRetouchClicked;
@@ -1240,8 +1242,9 @@ public sealed partial class MainWindow : Window
         TopRibbon.SetQuickEditAvailability(available && !editor.IsOpen &&
             ViewModel.ImageViewer.CurrentEntry is { MediaType: Core.Models.MediaType.Image } entry &&
             ImageEditRenderer.IsSupported(entry.FilePath));
-        TopRibbon.SetHistoryAvailability(available && (preview ? editor.CanUndo : ViewModel.EditHistory.CanUndo),
-            available && (preview ? editor.CanRedo : ViewModel.EditHistory.CanRedo), ViewModel.EditHistory.IsBusy);
+        var canUndo = available && (preview ? editor.CanUndo : ViewModel.EditHistory.CanUndo);
+        var canRedo = available && (preview ? editor.CanRedo : ViewModel.EditHistory.CanRedo);
+        TopRibbon.SetHistoryAvailability(canUndo, canRedo, ViewModel.EditHistory.IsBusy);
         var undoLabel = ViewModel.EditHistory.UndoLabel;
         var redoLabel = ViewModel.EditHistory.RedoLabel;
         if (preview)
@@ -1250,6 +1253,7 @@ public sealed partial class MainWindow : Window
             redoLabel = editor.RedoHistory.Count > 0 ? $"Redo {editor.RedoHistory[0]}" : "Redo";
         }
         TopRibbon.SetHistoryLabels(undoLabel, redoLabel);
+        EditorOverlay.SetHistoryAvailability(canUndo, canRedo, undoLabel, redoLabel);
     }
 
     private async Task MoveEditHistoryAsync(bool undo)

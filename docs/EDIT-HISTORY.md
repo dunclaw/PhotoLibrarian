@@ -1,7 +1,9 @@
 # Shared edit history
 
-The main toolbar's **Undo** and **Redo** are available while viewing a photo and
-adjusting it. The toolbar is hidden in the grid view, without reserving a row.
+The main toolbar's **Undo** and **Redo** are available while viewing a photo.
+Adjust and Retouch put compact **Undo** and **Redo** buttons alongside their
+existing adjustment and brush controls; there is no separate ribbon row. The
+toolbar is hidden in the grid view, without reserving a row.
 Hover an action to see the next edit and its photo or batch size.
 Use **Ctrl+Z** to undo and **Ctrl+Y** or **Ctrl+Shift+Z** to redo, including while
 browsing the grid.
@@ -59,7 +61,7 @@ One chronological history follows these operations across photos and navigation:
 
 A multi-selection metadata operation is one all-or-nothing history entry.
 Slider/histogram drags and brush strokes are single preview gestures, not a
-step for each pointer movement. The main toolbar operates on pending adjustment
+step for each pointer movement. The history controls operate on pending adjustment
 gestures while that adjustment transaction has undo or redo steps. Save/Keep
 compacts those gestures into one persisted application-history entry; Discard
 drops only the pending transaction. Resolve pending work before stepping back

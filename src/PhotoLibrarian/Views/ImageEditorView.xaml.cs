@@ -3,6 +3,7 @@ using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -48,6 +49,9 @@ public sealed partial class ImageEditorView : UserControl
     private bool _retouchWorkspace;
     private Vector2? _brushPosition;
 
+    public event EventHandler? UndoClicked;
+    public event EventHandler? RedoClicked;
+
     public ImageEditorView()
     {
         _suppressSliderEvents = true;
@@ -73,6 +77,25 @@ public sealed partial class ImageEditorView : UserControl
 
     public ImageEditorView(ImageEditorViewModel viewModel) : this() =>
         _providedViewModel = viewModel;
+
+    public void SetHistoryAvailability(bool canUndo, bool canRedo, string undoLabel, string redoLabel)
+    {
+        foreach (var button in new[] { UndoBtn, RetouchUndoBtn })
+        {
+            button.IsEnabled = canUndo;
+            AutomationProperties.SetName(button, undoLabel);
+            ToolTipService.SetToolTip(button, $"{undoLabel} (Ctrl+Z)\n{AutomationProperties.GetHelpText(button)}");
+        }
+        foreach (var button in new[] { RedoBtn, RetouchRedoBtn })
+        {
+            button.IsEnabled = canRedo;
+            AutomationProperties.SetName(button, redoLabel);
+            ToolTipService.SetToolTip(button, $"{redoLabel} (Ctrl+Y or Ctrl+Shift+Z)\n{AutomationProperties.GetHelpText(button)}");
+        }
+    }
+
+    private void OnUndoClick(object sender, RoutedEventArgs e) => UndoClicked?.Invoke(this, EventArgs.Empty);
+    private void OnRedoClick(object sender, RoutedEventArgs e) => RedoClicked?.Invoke(this, EventArgs.Empty);
 
     public void SetRetouchWorkspace(bool enabled)
     {
@@ -305,6 +328,7 @@ public sealed partial class ImageEditorView : UserControl
         var fullWidthRetouch = _retouchWorkspace && !isRaw;
         AdjustmentsColumn.Width = new GridLength(fullWidthRetouch ? 0 : 300);
         AdjustmentsPanel.Visibility = fullWidthRetouch ? Visibility.Collapsed : Visibility.Visible;
+        RetouchHistoryTools.Visibility = fullWidthRetouch ? Visibility.Visible : Visibility.Collapsed;
         SaveBtn.IsEnabled = ViewModel?.CanSavePixels == true;
         ToolTipService.SetToolTip(SaveBtn, isRaw ? ViewModel!.SaveDisabledReason : "Save edits");
         RawPreviewPanel.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
