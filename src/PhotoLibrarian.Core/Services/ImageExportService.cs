@@ -82,10 +82,17 @@ public static class ImageExportService
     {
         var recipe = ImageEditService.ReadEditParameters(sourcePath);
         ImageExportPixels? rendered = null;
-        if (!recipe.ToneCurves.IsDefault)
+        if (!recipe.ToneCurves.IsDefault || !recipe.ColorAdjustments.IsDefault)
         {
             if (renderRecipe is null)
-                throw new NotSupportedException("This export cannot render tone curve recipes.");
+            {
+                var unsupportedRecipe = recipe.ToneCurves.IsDefault
+                    ? "pending color adjustment"
+                    : recipe.ColorAdjustments.IsDefault
+                        ? "tone curve"
+                        : "tone curve and color adjustment";
+                throw new NotSupportedException($"This export cannot render {unsupportedRecipe} recipes.");
+            }
             rendered = await renderRecipe(sourcePath, recipe, token);
         }
         // Encode to a private staging file, then atomically publish with a non-overwriting move.

@@ -205,7 +205,7 @@
                     <Button x:Name="CancelRawExportBtn" Content="Cancel export" Click="OnCancelRawExport"
                             Visibility="Collapsed" AutomationProperties.Name="Cancel RAW derivative export"
                             AutomationProperties.AutomationId="EditorCancelRawExport" />
-                    <TextBlock Text="Only these RAW controls apply. Existing raster adjustments are retained in the recipe but not applied to RAW."
+                    <TextBlock Text="Only these RAW controls apply. Color mixer, color grading, tone curves, and other raster adjustments are retained in the recipe but not applied to RAW."
                                TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
                 </StackPanel>
 
@@ -269,6 +269,127 @@
                             TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
+
+                <Expander Header="Color mixer (OkLCh)"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorColorMixer">
+                    <StackPanel Spacing="8">
+                        <ComboBox x:Name="ColorMixerBand" SelectedIndex="0"
+                                  SelectionChanged="OnColorMixerBandChanged"
+                                  AutomationProperties.Name="Color mixer hue band"
+                                  AutomationProperties.AutomationId="EditorColorMixerBand">
+                            <ComboBoxItem Content="Red" />
+                            <ComboBoxItem Content="Orange" />
+                            <ComboBoxItem Content="Yellow" />
+                            <ComboBoxItem Content="Green" />
+                            <ComboBoxItem Content="Aqua" />
+                            <ComboBoxItem Content="Blue" />
+                            <ComboBoxItem Content="Purple" />
+                            <ComboBoxItem Content="Magenta" />
+                        </ComboBox>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Hue shift" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorMixerHueSlider" Minimum="-180" Maximum="180"
+                                    StepFrequency="1" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Selected color band's hue shift in degrees"
+                                    AutomationProperties.AutomationId="EditorColorMixerHue" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Saturation" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorMixerSaturationSlider" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Selected color band's saturation adjustment"
+                                    AutomationProperties.AutomationId="EditorColorMixerSaturation" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Luminance" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorMixerLuminanceSlider" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Selected color band's luminance adjustment"
+                                    AutomationProperties.AutomationId="EditorColorMixerLuminance" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="Color grading"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorColorGrading">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ColorPicker x:Name="ShadowColorPicker" Height="140" MaxWidth="240"
+                                     ColorSpectrumShape="Ring"
+                                     IsMoreButtonVisible="False"
+                                     IsColorSliderVisible="False"
+                                     IsColorChannelTextInputVisible="False"
+                                     IsHexInputVisible="False"
+                                     IsAlphaEnabled="False"
+                                     IsAlphaSliderVisible="False"
+                                     IsAlphaTextInputVisible="False"
+                                     ColorChanged="OnShadowColorChanged"
+                                     AutomationProperties.Name="Shadow color grading wheel"
+                                     AutomationProperties.AutomationId="EditorShadowColorWheel" />
+                        <Slider x:Name="ShadowAmountSlider" Minimum="0" Maximum="1"
+                                StepFrequency="0.01" Value="0"
+                                ValueChanged="OnColorAdjustmentSliderChanged"
+                                AutomationProperties.Name="Shadow grading amount"
+                                AutomationProperties.AutomationId="EditorShadowAmount" />
+                        <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ColorPicker x:Name="MidtoneColorPicker" Height="140" MaxWidth="240"
+                                     ColorSpectrumShape="Ring"
+                                     IsMoreButtonVisible="False"
+                                     IsColorSliderVisible="False"
+                                     IsColorChannelTextInputVisible="False"
+                                     IsHexInputVisible="False"
+                                     IsAlphaEnabled="False"
+                                     IsAlphaSliderVisible="False"
+                                     IsAlphaTextInputVisible="False"
+                                     ColorChanged="OnMidtoneColorChanged"
+                                     AutomationProperties.Name="Midtone color grading wheel"
+                                     AutomationProperties.AutomationId="EditorMidtoneColorWheel" />
+                        <Slider x:Name="MidtoneAmountSlider" Minimum="0" Maximum="1"
+                                StepFrequency="0.01" Value="0"
+                                ValueChanged="OnColorAdjustmentSliderChanged"
+                                AutomationProperties.Name="Midtone grading amount"
+                                AutomationProperties.AutomationId="EditorMidtoneAmount" />
+                        <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ColorPicker x:Name="HighlightColorPicker" Height="140" MaxWidth="240"
+                                     ColorSpectrumShape="Ring"
+                                     IsMoreButtonVisible="False"
+                                     IsColorSliderVisible="False"
+                                     IsColorChannelTextInputVisible="False"
+                                     IsHexInputVisible="False"
+                                     IsAlphaEnabled="False"
+                                     IsAlphaSliderVisible="False"
+                                     IsAlphaTextInputVisible="False"
+                                     ColorChanged="OnHighlightColorChanged"
+                                     AutomationProperties.Name="Highlight color grading wheel"
+                                     AutomationProperties.AutomationId="EditorHighlightColorWheel" />
+                        <Slider x:Name="HighlightAmountSlider" Minimum="0" Maximum="1"
+                                StepFrequency="0.01" Value="0"
+                                ValueChanged="OnColorAdjustmentSliderChanged"
+                                AutomationProperties.Name="Highlight grading amount"
+                                AutomationProperties.AutomationId="EditorHighlightAmount" />
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Blending" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorGradingBlendingSlider" Minimum="0" Maximum="1"
+                                    StepFrequency="0.01" Value="0.5"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Color grading range blending"
+                                    AutomationProperties.AutomationId="EditorColorGradingBlending" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Balance" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorGradingBalanceSlider" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Color grading tonal balance"
+                                    AutomationProperties.AutomationId="EditorColorGradingBalance" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 

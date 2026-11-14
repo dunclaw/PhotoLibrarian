@@ -21,7 +21,7 @@ public static class EditParametersSerializer
         "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
         "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
         "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1",
-        "ToneCurveVersion", "ToneCurvesV1"
+        "ToneCurveVersion", "ToneCurvesV1", "ColorAdjustmentsVersion", "ColorAdjustmentsV1"
     ];
 
     public static bool HasEditProperties(IXmpMeta xmp, bool includeRawParameters = true) =>
@@ -67,6 +67,17 @@ public static class EditParametersSerializer
         {
             xmp.SetProperty(Ns, $"{Pre}:ToneCurveVersion", "1");
             xmp.SetProperty(Ns, $"{Pre}:ToneCurvesV1", JsonSerializer.Serialize(p.ToneCurves));
+        }
+        p.ColorAdjustments.Validate();
+        if (p.ColorAdjustments.IsDefault)
+        {
+            DeleteProp(xmp, "ColorAdjustmentsVersion");
+            DeleteProp(xmp, "ColorAdjustmentsV1");
+        }
+        else
+        {
+            xmp.SetProperty(Ns, $"{Pre}:ColorAdjustmentsVersion", "1");
+            xmp.SetProperty(Ns, $"{Pre}:ColorAdjustmentsV1", JsonSerializer.Serialize(p.ColorAdjustments));
         }
         SetDouble(xmp, "RotationAngle", p.RotationAngle);
         SpotRetouchProcessor.Validate(p.RetouchStrokes);
@@ -130,6 +141,7 @@ public static class EditParametersSerializer
             BlackPoint = GetDouble(xmp, "BlackPoint"),
             WhitePoint = GetDouble(xmp, "WhitePoint", 1.0),
             Midtones = GetDouble(xmp, "Midtones", 0.5),
+            ColorAdjustments = ReadColorAdjustments(xmp),
             RotationAngle = GetDouble(xmp, "RotationAngle")
         };
 
@@ -180,6 +192,32 @@ public static class EditParametersSerializer
             SpotRetouchProcessor.Validate(p.RetouchStrokes);
         }
         return p;
+    }
+
+    private static ColorAdjustments ReadColorAdjustments(IXmpMeta xmp)
+    {
+        var hasVersion = xmp.DoesPropertyExist(Ns, $"{Pre}:ColorAdjustmentsVersion");
+        var hasRecipe = xmp.DoesPropertyExist(Ns, $"{Pre}:ColorAdjustmentsV1");
+        if (hasVersion && xmp.GetPropertyString(Ns, $"{Pre}:ColorAdjustmentsVersion") != "1")
+            throw new NotSupportedException("The color adjustment recipe uses an unsupported version.");
+        if (hasVersion != hasRecipe)
+            throw new InvalidDataException("Color adjustment recipe version and data must be present together.");
+        if (!hasRecipe) return new();
+
+        var json = xmp.GetPropertyString(Ns, $"{Pre}:ColorAdjustmentsV1");
+        if (string.IsNullOrWhiteSpace(json))
+            throw new InvalidDataException("Color adjustment recipe is empty.");
+        try
+        {
+            var adjustments = JsonSerializer.Deserialize<ColorAdjustments>(json,
+                new JsonSerializerOptions
+                {
+                    UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
+                }) ?? throw new InvalidDataException("Color adjustment recipe is null.");
+            adjustments.Validate();
+            return adjustments;
+        }
+        catch (JsonException ex) { throw new InvalidDataException("Invalid color adjustment recipe.", ex); }
     }
 
     private static PhotoEffect GetEffect(IXmpMeta xmp)
