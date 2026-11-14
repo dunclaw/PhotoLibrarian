@@ -27,6 +27,7 @@ public partial class ImageEditorViewModel : ObservableObject
     private bool _restoring;
     private CropRect? _crop;
     private List<RetouchStroke> _retouchStrokes = [];
+    private ToneCurves _toneCurves = new();
     private CancellationTokenSource? _rawExport;
     private List<ImageEntry> _images = [];
     private int _openVersion;
@@ -319,11 +320,27 @@ public partial class ImageEditorViewModel : ObservableObject
 
         EndEdit();
         var parameters = GetCurrentParameters();
-        if (!parameters.HasAdjustments) return false;
+        if (!parameters.HasAdjustments && _baseline.ToneCurves.IsDefault) return false;
 
         IsSaving = true;
         try
         {
+            if (!parameters.ToneCurves.IsDefault || !_baseline.ToneCurves.IsDefault)
+            {
+                if (PersistEditAsync is not null)
+                {
+                    var kept = await PersistEditAsync("tone curve recipe", _currentEntry.FilePath, _openedIdentity,
+                        copy => ImageEditService.WritePendingRecipeAsync(copy, parameters));
+                    if (!kept) return false;
+                }
+                else
+                {
+                    await _editService.SaveEditParametersAsync(_currentEntry.FilePath, parameters);
+                }
+                _openedIdentity = await FileEditTransaction.ReadIdentityAsync(_currentEntry.FilePath);
+                ClearHistory();
+                return true;
+            }
             uint width = 0, height = 0;
             if (PersistEditAsync is not null)
             {
@@ -375,6 +392,7 @@ public partial class ImageEditorViewModel : ObservableObject
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
+        ToneCurves = _toneCurves.Clone(),
         RotationAngle = RotationAngle,
         Crop = _crop?.Clone(),
         RetouchStrokes = _retouchStrokes.Select(stroke => stroke.Copy()).ToList()
@@ -390,6 +408,15 @@ public partial class ImageEditorViewModel : ObservableObject
         _retouchStrokes = strokes;
         OnParameterChanged("Spot retouch");
         EndEdit();
+    }
+
+    public void SetToneCurves(ToneCurves curves)
+    {
+        if (!IsOpen || IsBusy || IsRawPreview) return;
+        curves.Validate();
+        if (_toneCurves.ContentEquals(curves)) return;
+        _toneCurves = curves.Clone();
+        OnParameterChanged("Tone curve");
     }
 
     public async Task<bool> KeepRawPreviewRecipeAsync()
@@ -539,7 +566,9 @@ public partial class ImageEditorViewModel : ObservableObject
     {
         var cropChanged = !CropEqual(_crop, p.Crop);
         var retouchChanged = !RetouchStroke.SequenceEqual(_retouchStrokes, p.RetouchStrokes);
+        var curvesChanged = !_toneCurves.ContentEquals(p.ToneCurves);
         _retouchStrokes = p.RetouchStrokes.Select(stroke => stroke.Copy()).ToList();
+        _toneCurves = p.ToneCurves.Clone();
         _crop = p.Crop?.Clone();
         Brightness = p.Brightness;
         Contrast = p.Contrast;
@@ -565,6 +594,7 @@ public partial class ImageEditorViewModel : ObservableObject
         RotationAngle = p.RotationAngle;
         if (cropChanged) OnParameterChanged("Crop");
         if (retouchChanged) OnParameterChanged("Spot retouch");
+        if (curvesChanged) OnParameterChanged("Tone curve");
     }
 
     // Called when any slider value changes to trigger re-render
@@ -695,7 +725,8 @@ public partial class ImageEditorViewModel : ObservableObject
         a.UnsharpMaskThreshold == b.UnsharpMaskThreshold &&
         a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
         a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle &&
-        CropEqual(a.Crop, b.Crop) && RetouchStroke.SequenceEqual(a.RetouchStrokes, b.RetouchStrokes);
+        CropEqual(a.Crop, b.Crop) && a.ToneCurves.ContentEquals(b.ToneCurves) &&
+        RetouchStroke.SequenceEqual(a.RetouchStrokes, b.RetouchStrokes);
 
     private static bool CropEqual(CropRect? a, CropRect? b) =>
         a is null || b is null ? a is null && b is null :

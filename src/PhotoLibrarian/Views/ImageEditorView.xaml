@@ -328,32 +328,69 @@
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Levels section -->
-                <TextBlock Text="Levels" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <canvas:CanvasControl x:Name="HistogramCanvas"
-                                      Height="112"
-                                      Draw="OnHistogramDraw"
-                                      PointerPressed="OnHistogramPointerPressed"
-                                      PointerMoved="OnHistogramPointerMoved"
-                                      PointerReleased="OnHistogramPointerReleased"
-                                      PointerCanceled="OnHistogramPointerCanceled"
-                                      PointerCaptureLost="OnHistogramPointerCanceled" />
+                <Expander Header="Levels" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorLevelsPanel">
+                    <StackPanel Spacing="12">
+                        <canvas:CanvasControl x:Name="HistogramCanvas"
+                                              Height="112"
+                                              Draw="OnHistogramDraw"
+                                              PointerPressed="OnHistogramPointerPressed"
+                                              PointerMoved="OnHistogramPointerMoved"
+                                              PointerReleased="OnHistogramPointerReleased"
+                                              PointerCanceled="OnHistogramPointerCanceled"
+                                              PointerCaptureLost="OnHistogramPointerCanceled" />
 
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Black Point" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="BlackPointSlider" Minimum="0" Maximum="0.5" StepFrequency="0.01"
-                            Value="0" ValueChanged="OnSliderChanged" />
-                </StackPanel>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="White Point" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="WhitePointSlider" Minimum="0.5" Maximum="1" StepFrequency="0.01"
-                            Value="1" ValueChanged="OnSliderChanged" />
-                </StackPanel>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="MidtonesSlider" Minimum="0.1" Maximum="0.9" StepFrequency="0.01"
-                            TickFrequency="0.4" TickPlacement="Inline"
-                            Value="0.5" ValueChanged="OnSliderChanged" />
-                </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Black Point" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="BlackPointSlider" Minimum="0" Maximum="0.5" StepFrequency="0.01"
+                                    Value="0" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="White Point" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="WhitePointSlider" Minimum="0.5" Maximum="1" StepFrequency="0.01"
+                                    Value="1" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="MidtonesSlider" Minimum="0.1" Maximum="0.9" StepFrequency="0.01"
+                                    TickFrequency="0.4" TickPlacement="Inline"
+                                    Value="0.5" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="Tone curve" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorCurvePanel">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="CurveChannel" SelectedIndex="0"
+                                      SelectionChanged="OnCurveChannelChanged"
+                                      AutomationProperties.Name="Curve channel"
+                                      AutomationProperties.AutomationId="EditorCurveChannel">
+                                <ComboBoxItem Content="RGB" />
+                                <ComboBoxItem Content="Red" />
+                                <ComboBoxItem Content="Green" />
+                                <ComboBoxItem Content="Blue" />
+                            </ComboBox>
+                            <Button Grid.Column="1" Content="Reset" Click="OnCurveReset"
+                                    AutomationProperties.Name="Reset selected curve"
+                                    AutomationProperties.AutomationId="EditorCurveReset" />
+                        </Grid>
+                        <canvas:CanvasControl x:Name="CurveCanvas" Height="200" IsTabStop="True"
+                                              AutomationProperties.Name="Tone curve graph"
+                                              AutomationProperties.AutomationId="EditorCurveGraph"
+                                              AutomationProperties.HelpText="Click to add or select a point; release near another point or either end to remove. Page Up or Page Down selects a point; arrows adjust; Delete removes; Insert adds."
+                                              ToolTipService.ToolTip="Click to add or select; release near another point or either end to remove. Curves save in a portable sidecar."
+                                              Draw="OnCurveDraw" PointerPressed="OnCurvePressed"
+                                              PointerMoved="OnCurveMoved" PointerReleased="OnCurveReleased"
+                                              PointerCanceled="OnCurveCanceled" PointerCaptureLost="OnCurveCaptureLost"
+                                              KeyDown="OnCurveKeyDown" />
+                    </StackPanel>
+                </Expander>
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 

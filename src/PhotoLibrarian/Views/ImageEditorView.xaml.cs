@@ -134,7 +134,8 @@ public sealed partial class ImageEditorView : UserControl
         var isEditingControl = false;
         for (var current = focused; current is not null; current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current))
         {
-            if (current is Slider or TextBox or PasswordBox or AutoSuggestBox or ComboBox or NumberBox or ContentDialog or GridView)
+            if (current == CurveCanvas ||
+                current is Slider or TextBox or PasswordBox or AutoSuggestBox or ComboBox or NumberBox or ContentDialog or GridView)
             {
                 isEditingControl = true;
                 break;
@@ -196,6 +197,7 @@ public sealed partial class ImageEditorView : UserControl
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewModel.ParametersChanged += OnParametersChanged;
         SyncSlidersFromViewModel();
+        SyncCurveControls();
         TitleText.Text = ViewModel.Title;
     }
 
@@ -262,6 +264,7 @@ public sealed partial class ImageEditorView : UserControl
     {
         CancelRetouchGesture();
         SyncSlidersFromViewModel();
+        SyncCurveControls();
         if (ViewModel?.IsRawPreview == true)
         {
             _ = LoadImageAsync(ViewModel.ImagePath);
@@ -592,6 +595,7 @@ public sealed partial class ImageEditorView : UserControl
             if (pending is not null) vm.AddRetouchStroke(pending);
             EditCanvas.Invalidate();
             HistogramCanvas.Invalidate();
+            CurveCanvas.Invalidate();
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         catch (Exception ex)
@@ -739,6 +743,7 @@ public sealed partial class ImageEditorView : UserControl
             UpdateZoomText();
             EditCanvas.Invalidate();
             HistogramCanvas.Invalidate();
+            CurveCanvas.Invalidate();
         }
         try
         {
@@ -776,6 +781,7 @@ public sealed partial class ImageEditorView : UserControl
             UpdateZoomText();
             EditCanvas.Invalidate();
             HistogramCanvas.Invalidate();
+            CurveCanvas.Invalidate();
             await RefreshRetouchPreviewAsync();
             UpdateHistoryControls();
         }
@@ -1103,14 +1109,14 @@ public sealed partial class ImageEditorView : UserControl
         }
 
         SaveBtn.IsEnabled = false;
-        SetStatus("Applying adjustments…");
+        SetStatus("Saving adjustments…");
         try
         {
             var saved = await ViewModel.SaveAsync(RenderForSaveAsync);
             if (!saved) return;
             SyncSlidersFromViewModel();
 
-            // Reload from disk so the preview shows the baked pixels.
+            // Reload either the baked pixels or the source behind a saved recipe.
             await LoadImageAsync(ViewModel.ImagePath);
 
         }
