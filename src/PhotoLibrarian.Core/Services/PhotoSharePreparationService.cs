@@ -56,7 +56,8 @@ public sealed class PhotoSharePreparationService
     public async Task<PreparedPhotoShare> PrepareAsync(
         IReadOnlyList<string> sourcePaths,
         IProgress<ImageExportProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, EditParameters, CancellationToken, Task<ImageExportPixels>>? renderRecipe = null)
     {
         ArgumentNullException.ThrowIfNull(sourcePaths);
         if (sourcePaths.Count is < 1 or > MaximumPhotos)
@@ -75,7 +76,7 @@ public sealed class PhotoSharePreparationService
             lease = new FileStream(Path.Combine(folder, ".lease"), FileMode.CreateNew,
                 FileAccess.ReadWrite, FileShare.None);
             var result = await ImageExportService.ExportAsync(paths, folder,
-                new ImageExportOptions { Size = 1600, Quality = 85 }, progress, cancellationToken);
+                new ImageExportOptions { Size = 1600, Quality = 85 }, progress, cancellationToken, renderRecipe);
             var bytes = result.ExportedPaths.Sum(path => new FileInfo(path).Length);
             if (!result.IsCancelled && !cancellationToken.IsCancellationRequested)
                 ValidatePayloadSize(bytes);

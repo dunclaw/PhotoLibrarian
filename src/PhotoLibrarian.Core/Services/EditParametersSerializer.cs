@@ -41,6 +41,17 @@ public static class EditParametersSerializer
         SetDouble(xmp, "BlackPoint", p.BlackPoint);
         SetDouble(xmp, "WhitePoint", p.WhitePoint);
         SetDouble(xmp, "Midtones", p.Midtones);
+        p.ToneCurves.Validate();
+        if (p.ToneCurves.IsDefault)
+        {
+            DeleteProp(xmp, "ToneCurveVersion");
+            DeleteProp(xmp, "ToneCurvesV1");
+        }
+        else
+        {
+            xmp.SetProperty(Ns, $"{Pre}:ToneCurveVersion", "1");
+            xmp.SetProperty(Ns, $"{Pre}:ToneCurvesV1", JsonSerializer.Serialize(p.ToneCurves));
+        }
         SetDouble(xmp, "RotationAngle", p.RotationAngle);
         SpotRetouchProcessor.Validate(p.RetouchStrokes);
         if (p.RetouchStrokes.Count == 0) DeleteProp(xmp, "SpotRetouchV1");
@@ -75,7 +86,7 @@ public static class EditParametersSerializer
             "Saturation", "Temperature", "Tint", "Effect", "Clarity", "Sharpness", "NoiseReduction",
             "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
             "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
-            "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1"
+            "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1", "ToneCurvesV1", "ToneCurveVersion"
         })
         {
             DeleteProp(xmp, prop);
@@ -127,6 +138,27 @@ public static class EditParametersSerializer
                 Width = GetDouble(xmp, "CropWidth", 1.0),
                 Height = GetDouble(xmp, "CropHeight", 1.0)
             };
+        }
+
+        if (xmp.DoesPropertyExist(Ns, $"{Pre}:ToneCurveVersion") &&
+            xmp.GetPropertyString(Ns, $"{Pre}:ToneCurveVersion") != "1")
+            throw new NotSupportedException("The tone curve recipe uses an unsupported version.");
+        if (xmp.DoesPropertyExist(Ns, $"{Pre}:ToneCurveVersion") &&
+            !xmp.DoesPropertyExist(Ns, $"{Pre}:ToneCurvesV1"))
+            throw new InvalidDataException("Tone curve recipe is missing.");
+        if (xmp.DoesPropertyExist(Ns, $"{Pre}:ToneCurvesV1"))
+        {
+            var json = xmp.GetPropertyString(Ns, $"{Pre}:ToneCurvesV1");
+            if (string.IsNullOrWhiteSpace(json))
+                throw new InvalidDataException("Tone curve recipe is empty.");
+            try
+            {
+                p.ToneCurves = JsonSerializer.Deserialize<ToneCurves>(json,
+                    new JsonSerializerOptions { UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow })
+                    ?? throw new InvalidDataException("Tone curve recipe is null.");
+            }
+            catch (JsonException ex) { throw new InvalidDataException("Invalid tone curve recipe.", ex); }
+            p.ToneCurves.Validate();
         }
 
         if (xmp.DoesPropertyExist(Ns, $"{Pre}:SpotRetouchV1"))

@@ -55,7 +55,7 @@ public sealed class ImageEditService
     {
         // Backup original first
         await _backupService.BackupOriginalAsync(filePath);
-        await WritePendingRecipeAsync(filePath, parameters);
+        await SavePendingRecipeAtomicallyAsync(filePath, parameters);
     }
 
     /// <summary>Writes a recipe on a transaction's private copy; the caller owns original backup.</summary>
@@ -74,6 +74,12 @@ public sealed class ImageEditService
         if (!RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("A RAW preview recipe requires a RAW source.");
         RawToneMappingService.ValidateRecipe(parameters);
+        await SavePendingRecipeAtomicallyAsync(filePath, parameters, cancellationToken);
+    }
+
+    private static async Task SavePendingRecipeAtomicallyAsync(string filePath, EditParameters parameters,
+        CancellationToken cancellationToken = default)
+    {
         var snapshot = parameters.Clone();
         await RawRecipeWrites.WaitAsync(cancellationToken);
         try
@@ -140,7 +146,7 @@ public sealed class ImageEditService
     public static EditParameters ReadEditParameters(string filePath)
     {
         IXmpMeta xmp;
-        if (RawToneMappingService.IsRaw(filePath) && File.Exists(GetSidecarPath(filePath)))
+        if (File.Exists(GetSidecarPath(filePath)))
         {
             using var stream = File.OpenRead(GetSidecarPath(filePath));
             xmp = XmpMetaFactory.Parse(stream);

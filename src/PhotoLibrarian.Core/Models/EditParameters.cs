@@ -42,6 +42,7 @@ public sealed class EditParameters
     public double BlackPoint { get; set; }
     public double WhitePoint { get; set; } = 1.0;
     public double Midtones { get; set; } = 0.5;
+    public ToneCurves ToneCurves { get; set; } = new();
 
     // Crop & Rotation
     public double RotationAngle { get; set; }
@@ -55,7 +56,7 @@ public sealed class EditParameters
         Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
         SharpeningMode != PhotoLibrarian.Core.Models.SharpeningMode.Legacy || UnsharpMaskAmount != 0 ||
         UnsharpMaskRadius != 1.0 || UnsharpMaskThreshold != 0.02 ||
-        BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 ||
+        BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 || !ToneCurves.IsDefault ||
         RotationAngle != 0 || Crop is not null || RetouchStrokes.Count != 0;
 
     public EditParameters Clone() => new()
@@ -81,6 +82,7 @@ public sealed class EditParameters
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
+        ToneCurves = ToneCurves.Clone(),
         RotationAngle = RotationAngle,
         Crop = Crop?.Clone(),
         RetouchStrokes = RetouchStrokes.Select(stroke => stroke.Copy()).ToList()
@@ -101,6 +103,7 @@ public sealed class EditParameters
         BlackPoint = 0;
         WhitePoint = 1.0;
         Midtones = 0.5;
+        ToneCurves = new();
         RotationAngle = 0;
         Crop = null;
         RetouchStrokes.Clear();

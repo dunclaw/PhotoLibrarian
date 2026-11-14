@@ -208,6 +208,47 @@
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
+                <TextBlock Text="Tone curve" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <ComboBox x:Name="CurveChannel" Header="Channel" SelectedIndex="0"
+                          SelectionChanged="OnCurveChannelChanged"
+                          AutomationProperties.AutomationId="EditorCurveChannel">
+                    <ComboBoxItem Content="RGB" />
+                    <ComboBoxItem Content="Red" />
+                    <ComboBoxItem Content="Green" />
+                    <ComboBoxItem Content="Blue" />
+                </ComboBox>
+                <TextBlock Text="Click to add a point; drag to adjust. Points cannot cross."
+                           TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                <TextBlock Text="Saving a curve keeps all adjustments in a portable sidecar instead of replacing the photo."
+                           TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                <canvas:CanvasControl x:Name="CurveCanvas" Height="200"
+                                      AutomationProperties.Name="Tone curve graph"
+                                      AutomationProperties.AutomationId="EditorCurveGraph"
+                                      Draw="OnCurveDraw" PointerPressed="OnCurvePressed"
+                                      PointerMoved="OnCurveMoved" PointerReleased="OnCurveReleased"
+                                      PointerCanceled="OnCurveReleased" PointerCaptureLost="OnCurveCaptureLost" />
+                <ComboBox x:Name="CurvePoint" Header="Selected point"
+                          SelectionChanged="OnCurvePointChanged"
+                          AutomationProperties.AutomationId="EditorCurvePoint" />
+                <NumberBox x:Name="CurveInput" Header="Input" Minimum="0" Maximum="1" SmallChange="0.01"
+                           SpinButtonPlacementMode="Inline" ValueChanged="OnCurveValueChanged"
+                           AutomationProperties.AutomationId="EditorCurveInput" />
+                <NumberBox x:Name="CurveOutput" Header="Output" Minimum="0" Maximum="1" SmallChange="0.01"
+                           SpinButtonPlacementMode="Inline" ValueChanged="OnCurveValueChanged"
+                           AutomationProperties.AutomationId="EditorCurveOutput" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Add point" Click="OnCurveAdd"
+                            AutomationProperties.AutomationId="EditorCurveAdd" />
+                    <Button x:Name="CurveRemove" Content="Remove point" Click="OnCurveRemove"
+                            AutomationProperties.AutomationId="EditorCurveRemove" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Reset curve" Click="OnCurveReset"
+                            AutomationProperties.AutomationId="EditorCurveReset" />
+                </StackPanel>
+
+                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
                 <!-- Color section -->
                 <TextBlock Text="Color" Style="{StaticResource BodyStrongTextBlockStyle}" />
 

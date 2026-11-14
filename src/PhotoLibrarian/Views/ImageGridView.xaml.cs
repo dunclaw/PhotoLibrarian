@@ -1201,6 +1201,7 @@ public sealed partial class ImageGridView : UserControl
                 await ShareDialog(ShareStrings.Get("ShareSelectionLimit")).ShowAsync();
                 return;
             }
+
             var paths = snapshot.Select(vm => vm.Entry.FilePath).ToArray();
 
             var confirmation = ShareDialog(ShareStrings.Format("SharePolicy", snapshot.Length));
@@ -1236,7 +1237,7 @@ public sealed partial class ImageGridView : UserControl
             try
             {
                 prepared = await Task.Run(() => new Core.Services.PhotoSharePreparationService()
-                    .PrepareAsync(paths, progress, cancellation.Token));
+                    .PrepareAsync(paths, progress, cancellation.Token, RenderExportRecipeAsync));
             }
             finally
             {
@@ -1309,6 +1310,15 @@ public sealed partial class ImageGridView : UserControl
         }
     }
 
+    private static async Task<Core.Services.ImageExportPixels> RenderExportRecipeAsync(
+        string path, Core.Models.EditParameters parameters, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var pixels = await Services.ViewerEffectService.RenderAsync(path, parameters);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new(pixels.Width, pixels.Height, pixels.Pixels);
+    }
+
     private ContentDialog ShareDialog(string message) => new()
     {
         Title = ShareStrings.Get("ShareTitle"),
@@ -1372,7 +1382,7 @@ public sealed partial class ImageGridView : UserControl
             try
             {
                 result = await Task.Run(() => Core.Services.ImageExportService.ExportAsync(
-                    paths, outputFolder, options, progress, cancellation.Token));
+                    paths, outputFolder, options, progress, cancellation.Token, RenderExportRecipeAsync));
             }
             finally
             {

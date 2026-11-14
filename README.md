@@ -85,8 +85,9 @@ the same effect state. Old recipes without an effect retain their appearance.
 Viewer selection backs up the original and keeps a portable pending XMP recipe,
 without overwriting photo pixels. Reopening the viewer applies that recipe;
 selecting another preset replaces it rather than stacking effects. The separate
-Adjust editor can bake the recipe through its existing save flow, which clears
-pending edits after success.
+Adjust editor normally bakes the recipe through its existing save flow, which clears
+pending edits after success. When a tone curve is present or has just been reset,
+Save instead keeps all current adjustments as a portable XMP sidecar recipe.
 
 The main toolbar's **Undo** and **Redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
 restore effect selections in the same chronological history as other supported
@@ -106,7 +107,7 @@ current adjustments, not sample pictures. Thumbnail decoding and rendering
 run off the UI thread, with a 160-pixel maximum dimension and one render at a
 time. Changing photos or adjustments cancels pending work and rejects stale
 results. These small previews approximate spatial detail filters; the editor's
-main preview and save both evaluate the shared graph at source resolution.
+main preview, baked saves and recipe exports evaluate the shared graph at source resolution.
 Creative color matrices act on the existing encoded raster RGB, preserve alpha,
 and do not add another sRGB transfer.
 
@@ -114,6 +115,21 @@ Effects are explicitly disabled for RAW preview and RAW export; only the RAW
 controls apply there. Dormant raster recipe fields are retained, not applied to
 the RAW development. To use effects on a RAW photo, export an SDR derivative
 first and edit that copy. RAW sensor bytes are never changed.
+
+### Tone curves
+
+The raster Adjust panel offers RGB, red, green and blue point curves. Click or
+drag points on the graph, or use Add point and the point input/output fields.
+Points are constrained to a monotone curve; Reset curve resets the selected
+channel, and the main Reset resets all channels. The graph overlays the editor's
+approximate live histogram, sampled on large images. Curves operate on display-referred raster RGB after
+levels, before sharpening and effects. The RGB curve is applied before the
+individual channels. Curve edits participate in gesture undo and shared saved
+edit history. Viewer and grid previews use the saved sidecar; resized and share
+copies render the recipe into the copy. Raster formats supported by the editor
+are JPEG, PNG, TIFF and BMP. Curves are unavailable for RAW development; any
+dormant raster curves in a RAW sidecar are retained but are not rendered by the
+RAW preview or SDR export. Export an SDR derivative first to edit its curve.
 
 ### Noise reduction
 

@@ -129,6 +129,28 @@ public static class EditEffectGraph
             };
         }
 
+        if (!p.ToneCurves.IsIdentity)
+        {
+            p.ToneCurves.Validate();
+            float[] MakeTable(IReadOnlyList<ToneCurvePoint> channel)
+            {
+                var table = new float[256];
+                for (var i = 0; i < table.Length; i++)
+                {
+                    var rgb = ToneCurves.Evaluate(p.ToneCurves.Rgb, i / 255d);
+                    table[i] = (float)ToneCurves.Evaluate(channel, rgb);
+                }
+                return table;
+            }
+            current = new TableTransferEffect
+            {
+                Source = current,
+                RedTable = MakeTable(p.ToneCurves.Red),
+                GreenTable = MakeTable(p.ToneCurves.Green),
+                BlueTable = MakeTable(p.ToneCurves.Blue)
+            };
+        }
+
         // 7. Sharpening. Preserve the old effect exactly for existing recipes.
         if (p.SharpeningMode == SharpeningMode.UnsharpMask)
         {

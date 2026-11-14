@@ -14,6 +14,7 @@ public sealed record ImageExportResult(
     IReadOnlyList<string> ExportedPaths,
     IReadOnlyList<ImageExportFailure> Failures,
     bool IsCancelled);
+public sealed record ImageExportPixels(uint Width, uint Height, byte[] Pixels);
 
 /// <summary>Exports first-frame JPEG copies without modifying sources or copying sidecars.</summary>
 public static class ImageExportService
@@ -33,7 +34,8 @@ public static class ImageExportService
         string outputFolder,
         ImageExportOptions options,
         IProgress<ImageExportProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, EditParameters, CancellationToken, Task<ImageExportPixels>>? renderRecipe = null)
     {
         ArgumentNullException.ThrowIfNull(sourcePaths);
         ArgumentNullException.ThrowIfNull(options);
@@ -52,14 +54,14 @@ public static class ImageExportService
             var sourcePath = sourcePaths[index];
             try
             {
-                exported.Add(await ExportOneAsync(sourcePath, outputFolder, options, cancellationToken));
+                exported.Add(await ExportOneAsync(sourcePath, outputFolder, options, cancellationToken, renderRecipe));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 return new(exported, failures, true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
-                COMException or ArgumentException or NotSupportedException or InvalidOperationException)
+                COMException or ArgumentException or NotSupportedException or InvalidOperationException or XmpCore.XmpException)
             {
                 System.Diagnostics.Debug.WriteLine($"[EXPORT] {sourcePath}: {ex}");
                 var message = string.IsNullOrWhiteSpace(ex.Message)
@@ -74,8 +76,17 @@ public static class ImageExportService
     }
 
     private static async Task<string> ExportOneAsync(
-        string sourcePath, string outputFolder, ImageExportOptions options, CancellationToken token)
+        string sourcePath, string outputFolder, ImageExportOptions options, CancellationToken token,
+        Func<string, EditParameters, CancellationToken, Task<ImageExportPixels>>? renderRecipe)
     {
+        var recipe = ImageEditService.ReadEditParameters(sourcePath);
+        ImageExportPixels? rendered = null;
+        if (!recipe.ToneCurves.IsDefault)
+        {
+            if (renderRecipe is null)
+                throw new NotSupportedException("This export cannot render tone curve recipes.");
+            rendered = await renderRecipe(sourcePath, recipe, token);
+        }
         // Encode to a private staging file, then atomically publish with a non-overwriting move.
         // Cancellation or an encoder failure must never leave a partial JPEG at its final name.
         var stagingPath = Path.Combine(outputFolder, $".photolibrarian-export-{Guid.NewGuid():N}.tmp");
@@ -87,8 +98,9 @@ public static class ImageExportService
             {
                 stagingCreated = true;
                 var decoder = await BitmapDecoder.CreateAsync(source.AsRandomAccessStream()).AsTask(token);
-                var size = options.GetDimensions(decoder.OrientedPixelWidth, decoder.OrientedPixelHeight);
-                var swapsAxes = decoder.OrientedPixelWidth != decoder.PixelWidth;
+                var size = options.GetDimensions(rendered?.Width ?? decoder.OrientedPixelWidth,
+                    rendered?.Height ?? decoder.OrientedPixelHeight);
+                var swapsAxes = rendered is null && decoder.OrientedPixelWidth != decoder.PixelWidth;
                 // For square images, swapping the axes makes no difference to the target dimensions.
                 var transform = new BitmapTransform
                 {
@@ -96,10 +108,22 @@ public static class ImageExportService
                     ScaledHeight = swapsAxes ? size.Width : size.Height,
                     InterpolationMode = BitmapInterpolationMode.Fant
                 };
-                var data = await decoder.GetPixelDataAsync(
+                using var renderedStream = rendered is not null
+                    ? new Windows.Storage.Streams.InMemoryRandomAccessStream() : null;
+                BitmapDecoder pixelDecoder = decoder;
+                if (rendered is not null)
+                {
+                    var intermediate = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, renderedStream!).AsTask(token);
+                    intermediate.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                        rendered.Width, rendered.Height, 96, 96, rendered.Pixels);
+                    await intermediate.FlushAsync().AsTask(token);
+                    renderedStream!.Seek(0);
+                    pixelDecoder = await BitmapDecoder.CreateAsync(renderedStream).AsTask(token);
+                }
+                var data = await pixelDecoder.GetPixelDataAsync(
                     BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform,
-                    ExifOrientationMode.RespectExifOrientation,
-                    ColorManagementMode.ColorManageToSRgb).AsTask(token);
+                    rendered is null ? ExifOrientationMode.RespectExifOrientation : ExifOrientationMode.IgnoreExifOrientation,
+                    rendered is null ? ColorManagementMode.ColorManageToSRgb : ColorManagementMode.DoNotColorManage).AsTask(token);
                 var pixels = data.DetachPixelData();
                 // JPEG has no alpha channel; flatten transparent pixels onto white.
                 for (var i = 0; i < pixels.Length; i += 4)
