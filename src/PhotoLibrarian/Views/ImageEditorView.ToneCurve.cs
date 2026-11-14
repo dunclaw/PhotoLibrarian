@@ -59,14 +59,15 @@ public sealed partial class ImageEditorView
         var height = (float)sender.Size.Height - 16;
         var foreground = GetResourceColor("TextFillColorSecondaryBrush", Microsoft.UI.Colors.Gray);
         var accent = GetResourceColor("AccentFillColorDefaultBrush", Microsoft.UI.Colors.CornflowerBlue);
-        if (_sourcePixels is not null)
+        if (GetPreviewAnalysis() is { } analysis)
         {
-            var histogram = ImageHistogram.Calculate(_sourcePixels, ViewModel.GetCurrentParameters());
+            var histogram = analysis.Bins;
             for (var i = 0; i < histogram.Length; i++)
             {
                 var x = 8 + (i + 0.5f) * width / histogram.Length;
                 args.DrawingSession.DrawLine(x, 8 + height, x, 8 + height * (1 - histogram[i]), foreground);
             }
+            DrawClippingIndicators(args.DrawingSession, width, height, analysis, 8, 8);
         }
         var points = CurveFor(ViewModel.GetCurrentParameters().ToneCurves, CurveChannel.SelectedIndex);
         Vector2 Position(ToneCurvePoint point) => new(8 + (float)point.X * width, 8 + (float)(1 - point.Y) * height);

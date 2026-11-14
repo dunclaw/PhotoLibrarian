@@ -31,7 +31,8 @@ public sealed partial class ImageEditorView
         if (before is null || after is null || vm is null || vm.IsRawPreview ||
             _loadedSourceVersion != vm.SourceVersion) return false;
         EditorComparisonRenderer.Draw(session, before, after, vm.GetCurrentParameters(),
-            ComparisonMode, _viewport, canvasSize, (float)SplitPositionSlider.Value / 100);
+            ComparisonMode, _viewport, canvasSize, (float)SplitPositionSlider.Value / 100,
+            ShowClippedShadows, ShowClippedHighlights);
         return true;
     }
 
@@ -101,6 +102,8 @@ public sealed partial class ImageEditorView
 
     private void ReleaseSourceBitmap()
     {
+        InvalidatePreviewAnalysis();
+        ClippingButton.IsEnabled = false;
         if (!ReferenceEquals(_sourceBitmap, _beforeBitmap)) _sourceBitmap?.Dispose();
         _sourceBitmap = null;
         _sourcePixels = null;

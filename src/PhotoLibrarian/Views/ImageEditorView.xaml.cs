@@ -58,6 +58,7 @@ public sealed partial class ImageEditorView : UserControl
         this.InitializeComponent();
         _suppressSliderEvents = false;
         RegisterComparisonControls();
+        RegisterClippingControls();
         RegisterCenterSnaps();
         RegisterEditGestures();
         this.Loaded += OnLoaded;
@@ -304,6 +305,7 @@ public sealed partial class ImageEditorView : UserControl
 
     private void OnParametersChanged(object? sender, EventArgs e)
     {
+        InvalidatePreviewAnalysis();
         CancelRetouchGesture();
         SyncSlidersFromViewModel();
         SyncCurveControls();
@@ -349,6 +351,11 @@ public sealed partial class ImageEditorView : UserControl
         RetouchRadius.IsEnabled = RetouchToggle.IsEnabled;
         if (_retouchPreviewFailed) SaveBtn.IsEnabled = false;
         UpdateComparisonControls();
+        ClippingButton.IsEnabled = ClippingFormatSupported && _sourceBitmap is not null &&
+            !isSaving && _previewRequest is null;
+        ToolTipService.SetToolTip(ClippingButton, ClippingFormatSupported
+            ? "View-only SDR clipping on the edited image. Histogram indicators use sampled rendered pixels."
+            : "Clipping is available for JPEG, PNG, TIFF, BMP and supported RAW development previews.");
         UpdateBrushCursor();
         if (_brushPosition is not null) EditCanvas.Invalidate();
     }
@@ -395,7 +402,8 @@ public sealed partial class ImageEditorView : UserControl
         if (ViewModel.IsRawPreview)
         {
             // The SDR transfer has already been applied. Do not run the byte raster effects again.
-            ImageEditRenderPass.DrawRawPreview(args.DrawingSession, _sourceBitmap, transform);
+            ImageEditRenderPass.DrawRawPreview(args.DrawingSession, _sourceBitmap, transform,
+                ShowClippedShadows, ShowClippedHighlights);
             return;
         }
         ImageEditRenderPass.Draw(
@@ -403,7 +411,7 @@ public sealed partial class ImageEditorView : UserControl
             _retouchedBitmap ?? _sourceBitmap,
             p,
             new Vector2((float)imageSize.Width, (float)imageSize.Height),
-            transform);
+            transform, ShowClippedShadows, ShowClippedHighlights);
         DrawRetouchStroke(args.DrawingSession, new Vector2((float)imageSize.Width, (float)imageSize.Height));
     }
 
@@ -645,6 +653,7 @@ public sealed partial class ImageEditorView : UserControl
             }
             _retouchedBitmap?.Dispose();
             _retouchedBitmap = bitmap;
+            InvalidatePreviewAnalysis();
             _sourcePixels = (bitmap ?? source).GetPixelBytes();
             _previewStrokes = strokes;
             _retouchPreviewFailed = false;
@@ -653,6 +662,7 @@ public sealed partial class ImageEditorView : UserControl
             if (pending is not null) vm.AddRetouchStroke(pending);
             EditCanvas.Invalidate();
             HistogramCanvas.Invalidate();
+            RawHistogramCanvas.Invalidate();
             CurveCanvas.Invalidate();
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
@@ -785,6 +795,7 @@ public sealed partial class ImageEditorView : UserControl
         _previewRequest?.Cancel();
         using var request = new CancellationTokenSource();
         _previewRequest = request;
+        UpdateHistoryControls();
         var token = request.Token;
         var parameters = ViewModel?.GetCurrentParameters() ?? new EditParameters();
         var isRaw = path is not null && RawToneMappingService.IsRaw(path);
@@ -857,15 +868,26 @@ public sealed partial class ImageEditorView : UserControl
         }
         finally
         {
-            if (_previewRequest == request) _previewRequest = null;
+            if (_previewRequest == request)
+            {
+                _previewRequest = null;
+                if (IsLoaded)
+                {
+                    UpdateHistoryControls();
+                    HistogramCanvas.Invalidate();
+                    RawHistogramCanvas.Invalidate();
+                    CurveCanvas.Invalidate();
+                }
+            }
         }
     }
 
     private void OnHistogramDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
-        if (_sourcePixels is null || ViewModel is null) return;
+        var analysis = GetPreviewAnalysis();
+        if (analysis is null || ViewModel is null) return;
 
-        var histogram = ImageHistogram.Calculate(_sourcePixels, ViewModel.GetCurrentParameters());
+        var histogram = analysis.Bins;
         var width = sender.Size.Width;
         var height = sender.Size.Height;
         var foreground = GetResourceColor("TextFillColorSecondaryBrush", Microsoft.UI.Colors.Gray);
@@ -878,9 +900,13 @@ public sealed partial class ImageEditorView : UserControl
             args.DrawingSession.DrawLine(x, (float)height, x, top, foreground, 2);
         }
 
-        DrawHistogramAnchor(args.DrawingSession, width, ViewModel.BlackPoint, accent, height);
-        DrawHistogramAnchor(args.DrawingSession, width, ViewModel.Midtones, accent, height);
-        DrawHistogramAnchor(args.DrawingSession, width, ViewModel.WhitePoint, accent, height);
+        if (!ViewModel.IsRawPreview)
+        {
+            DrawHistogramAnchor(args.DrawingSession, width, ViewModel.BlackPoint, accent, height);
+            DrawHistogramAnchor(args.DrawingSession, width, ViewModel.Midtones, accent, height);
+            DrawHistogramAnchor(args.DrawingSession, width, ViewModel.WhitePoint, accent, height);
+        }
+        DrawClippingIndicators(args.DrawingSession, (float)width, (float)height, analysis);
     }
 
     private static void DrawHistogramAnchor(
