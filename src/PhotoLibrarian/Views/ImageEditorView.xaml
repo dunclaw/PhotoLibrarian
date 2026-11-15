@@ -85,6 +85,23 @@
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>
+                    <Button x:Name="ClippingButton" Content="Clipping" Padding="8,4" IsEnabled="False"
+                            AutomationProperties.Name="Clipping overlays"
+                            AutomationProperties.AutomationId="EditorClipping"
+                            ToolTipService.ToolTip="View-only SDR clipping on the edited image. Histogram indicators use sampled rendered pixels.">
+                        <Button.Flyout>
+                            <MenuFlyout Opening="OnClippingOpening">
+                                <MenuFlyoutItem x:Name="ClippingSummaryItem" Text="Sampled output" IsEnabled="False"
+                                                AutomationProperties.AutomationId="EditorClippingSummary" />
+                                <ToggleMenuFlyoutItem x:Name="ClippedShadowsItem" Text="Shadows (blue): all RGB at black"
+                                                     AutomationProperties.AutomationId="EditorClippedShadows" />
+                                <ToggleMenuFlyoutItem x:Name="ClippedHighlightsItem" Text="Highlights (red): any RGB at white"
+                                                     AutomationProperties.AutomationId="EditorClippedHighlights" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="SDR output, not RAW sensor clipping. After image only." IsEnabled="False" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button x:Name="SaveBtn" Click="OnSave" ToolTipService.ToolTip="Save edits" Padding="8"
                             AutomationProperties.Name="Save edits" AutomationProperties.AutomationId="EditorSave">
                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
@@ -105,10 +122,23 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <ToggleButton x:Name="RetouchToggle" Content="Retouch" Click="OnRetouchToggled"
-                              VerticalAlignment="Center"
-                              AutomationProperties.Name="Spot retouch mode"
-                              AutomationProperties.AutomationId="EditorRetouch" />
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <ToggleButton x:Name="RetouchToggle" Content="Retouch" Click="OnRetouchToggled"
+                                  VerticalAlignment="Center"
+                                  AutomationProperties.Name="Spot retouch mode"
+                                  AutomationProperties.AutomationId="EditorRetouch" />
+                    <StackPanel x:Name="RetouchHistoryTools" Orientation="Horizontal" Spacing="4"
+                                Visibility="Collapsed">
+                        <Button x:Name="RetouchUndoBtn" x:Uid="RibbonUndoButton" Click="OnUndoClick" Padding="8"
+                                IsEnabled="False" AutomationProperties.AutomationId="RetouchUndo">
+                            <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                        </Button>
+                        <Button x:Name="RetouchRedoBtn" x:Uid="RibbonRedoButton" Click="OnRedoClick" Padding="8"
+                                IsEnabled="False" AutomationProperties.AutomationId="RetouchRedo">
+                            <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
                 <TextBlock Grid.Column="1" Text="Brush radius" VerticalAlignment="Center" />
                 <Slider x:Name="RetouchRadius" Grid.Column="2" Minimum="2" Maximum="24" Value="8" StepFrequency="1"
                         ValueChanged="OnRetouchRadiusChanged"
@@ -173,6 +203,14 @@
                             AutomationProperties.AutomationId="EditorReset" />
                     <Button x:Name="RevertBtn" Content="Revert" Click="OnRevert" Padding="8,4"
                             Visibility="Collapsed" />
+                    <Button x:Name="UndoBtn" x:Uid="RibbonUndoButton" Click="OnUndoClick" Padding="8"
+                            IsEnabled="False" AutomationProperties.AutomationId="EditorUndo">
+                        <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                    </Button>
+                    <Button x:Name="RedoBtn" x:Uid="RibbonRedoButton" Click="OnRedoClick" Padding="8"
+                            IsEnabled="False" AutomationProperties.AutomationId="EditorRedo">
+                        <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                    </Button>
                 </StackPanel>
 
                 <StackPanel x:Name="RawPreviewPanel" Spacing="12" Visibility="Collapsed">
@@ -181,6 +219,9 @@
                     <TextBlock x:Name="RawPreviewStatus" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="EditorRawPreviewStatus"
                                AutomationProperties.LiveSetting="Polite" />
+                    <canvas:CanvasControl x:Name="RawHistogramCanvas" Height="112" Draw="OnHistogramDraw"
+                                          AutomationProperties.Name="Developed SDR luminance histogram"
+                                          AutomationProperties.AutomationId="EditorRawHistogram" />
                     <TextBlock Text="Exposure (stops)" Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBlock x:Name="RawExposureText" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="RawExposureSlider"
@@ -489,7 +530,7 @@
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Levels section -->
-                <Expander Header="Levels" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Expander x:Name="LevelsPanel" Header="Levels" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           AutomationProperties.AutomationId="EditorLevelsPanel">
                     <StackPanel Spacing="12">
                         <canvas:CanvasControl x:Name="HistogramCanvas"

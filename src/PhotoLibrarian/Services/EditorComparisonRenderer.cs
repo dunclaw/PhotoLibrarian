@@ -14,7 +14,7 @@ internal static class EditorComparisonRenderer
 
     internal static void Draw(CanvasDrawingSession session, CanvasBitmap before, CanvasBitmap after,
         EditParameters parameters, EditorComparisonMode mode, EditorViewport viewport,
-        Vector2 canvasSize, float splitFraction)
+        Vector2 canvasSize, float splitFraction, bool showShadows = false, bool showHighlights = false)
     {
         var afterSize = new Vector2((float)after.Size.Width, (float)after.Size.Height);
         var beforeSize = new Vector2((float)before.Size.Width, (float)before.Size.Height);
@@ -58,7 +58,8 @@ internal static class EditorComparisonRenderer
                     mode == EditorComparisonMode.After ? new Rect(0, 0, canvasSize.X, canvasSize.Y) : afterClip);
                 if (mode == EditorComparisonMode.SideBySide)
                     afterTransform *= Matrix3x2.CreateTranslation(canvasSize.X / 2, 0);
-                ImageEditRenderPass.Draw(session, after, parameters, afterSize, afterTransform);
+                ImageEditRenderPass.Draw(session, after, parameters, afterSize, afterTransform,
+                    showShadows, showHighlights);
             }
         }
         finally { session.Transform = Matrix3x2.Identity; }

@@ -7,10 +7,10 @@ namespace PhotoLibrarian.Services;
 
 internal static class ImageEditRenderPass
 {
-    internal static void DrawRawPreview(CanvasDrawingSession session, CanvasBitmap sdrSource, Matrix3x2 transform)
+    internal static void DrawRawPreview(CanvasDrawingSession session, CanvasBitmap sdrSource, Matrix3x2 transform,
+        bool showShadows = false, bool showHighlights = false)
     {
-        session.Transform = transform;
-        session.DrawImage(sdrSource);
+        DrawDiagnostic(session, sdrSource, transform, showShadows, showHighlights);
     }
 
     internal static void Draw(
@@ -18,17 +18,32 @@ internal static class ImageEditRenderPass
         CanvasBitmap source,
         EditParameters parameters,
         Vector2 sourceSize,
-        Matrix3x2 transform)
+        Matrix3x2 transform,
+        bool showShadows = false, bool showHighlights = false)
     {
         var effect = EditEffectGraph.Build(source, sourceSize, parameters);
         try
         {
-            session.Transform = transform;
-            session.DrawImage(effect);
+            DrawDiagnostic(session, effect, transform, showShadows, showHighlights);
         }
         finally
         {
             if (!ReferenceEquals(effect, source)) (effect as IDisposable)?.Dispose();
+        }
+    }
+
+    private static void DrawDiagnostic(CanvasDrawingSession session, ICanvasImage image, Matrix3x2 transform,
+        bool shadows, bool highlights)
+    {
+        var diagnostic = EditorClippingEffect.Create(image, shadows, highlights);
+        try
+        {
+            session.Transform = transform;
+            session.DrawImage(diagnostic);
+        }
+        finally
+        {
+            if (!ReferenceEquals(diagnostic, image)) (diagnostic as IDisposable)?.Dispose();
         }
     }
 }
