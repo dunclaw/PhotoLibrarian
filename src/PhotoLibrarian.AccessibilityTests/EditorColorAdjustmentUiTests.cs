@@ -108,6 +108,38 @@ public partial class App
         viewModel.RedoCommand.Execute(null);
         Check(viewModel.GetCurrentParameters().ColorAdjustments.ContentEquals(edited),
             "Redo restores mixer and grading controls");
+
+        var monochromeExpander = (Expander)editor.FindName("MonochromeMixExpander");
+        var monochromeBand = (ComboBox)editor.FindName("MonochromeMixBand");
+        var monochromeLuminance = (Slider)editor.FindName("MonochromeMixSlider");
+        Check(AutomationProperties.GetAutomationId(monochromeBand) == "EditorMonochromeMixBand" &&
+            AutomationProperties.GetAutomationId(monochromeLuminance) == "EditorMonochromeMixLuminance" &&
+            AutomationProperties.GetName(monochromeLuminance).Contains("monochrome luminance"),
+            "Monochrome mix controls expose accessible names and IDs");
+        Check(!monochromeExpander.IsEnabled, "Monochrome mix is disabled until Black and white is selected");
+
+        viewModel.SelectEffect(PhotoEffect.BlackAndWhite, "Black and white");
+        await WaitForAsync(() => monochromeExpander.IsEnabled, "Black-and-white mix controls enabled");
+        monochromeBand.SelectedIndex = 5;
+        viewModel.BeginEdit("Black and white mix");
+        SetSliderValue(monochromeLuminance, 0.65);
+        viewModel.EndEdit();
+        var monochromeMix = viewModel.GetCurrentParameters().MonochromeMix;
+        Check(monochromeMix.LuminanceBands[5] == 0.65,
+            "Monochrome slider updates the selected hue band");
+        viewModel.UndoCommand.Execute(null);
+        Check(viewModel.GetCurrentParameters().MonochromeMix.IsDefault,
+            "Undo restores the neutral monochrome mix");
+        viewModel.RedoCommand.Execute(null);
+        Check(viewModel.GetCurrentParameters().MonochromeMix.ContentEquals(monochromeMix),
+            "Redo restores the selected monochrome hue band");
+        viewModel.SelectEffect(PhotoEffect.None, "Color");
+        await WaitForAsync(() => !monochromeExpander.IsEnabled, "Monochrome mix disabled for color effects");
+        viewModel.SelectEffect(PhotoEffect.BlackAndWhite, "Black and white");
+        await WaitForAsync(() => monochromeExpander.IsEnabled, "Monochrome mix re-enabled");
+        Check(viewModel.GetCurrentParameters().MonochromeMix.ContentEquals(monochromeMix),
+            "Switching effects preserves monochrome mix values");
+
         adjustmentsPanel.ChangeView(null, 520, null, true);
         await Task.Delay(150);
         await CaptureColorWindowAsync(window, "color-mixer-ui.png");
@@ -128,11 +160,13 @@ public partial class App
         ((IInvokeProvider)resetPeer.GetPattern(PatternInterface.Invoke)).Invoke();
         await Task.Delay(100);
         Check(viewModel.GetCurrentParameters().ColorAdjustments.IsDefault &&
+            viewModel.GetCurrentParameters().MonochromeMix.IsDefault &&
             hue.Value == 0 && saturation.Value == 0 && luminance.Value == 0 &&
-            blending.Value == 0.5 && balance.Value == 0,
-            "Reset clears color edits and restores neutral control values");
+            blending.Value == 0.5 && balance.Value == 0 && monochromeLuminance.Value == 0,
+            "Reset clears color and monochrome edits and restores neutral control values");
         Check(identity == await FileEditTransaction.ReadIdentityAsync(path) &&
-            ImageEditService.ReadEditParameters(path).ColorAdjustments.IsDefault,
+            ImageEditService.ReadEditParameters(path).ColorAdjustments.IsDefault &&
+            ImageEditService.ReadEditParameters(path).MonochromeMix.IsDefault,
             "Color-control gestures and Reset leave the photo and recipe untouched");
 
         adjustmentsPanel.ChangeView(null, 520, null, true);

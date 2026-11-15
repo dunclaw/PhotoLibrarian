@@ -355,6 +355,38 @@
                     </StackPanel>
                 </Expander>
 
+                <Expander x:Name="MonochromeMixExpander" Header="Black and white mix"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          IsEnabled="False"
+                          AutomationProperties.AutomationId="EditorMonochromeMix">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Hue band" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ComboBox x:Name="MonochromeMixBand" SelectedIndex="0"
+                                  SelectionChanged="OnMonochromeMixBandChanged"
+                                  AutomationProperties.Name="Black and white mix hue band"
+                                  AutomationProperties.AutomationId="EditorMonochromeMixBand">
+                            <ComboBoxItem Content="Red" />
+                            <ComboBoxItem Content="Orange" />
+                            <ComboBoxItem Content="Yellow" />
+                            <ComboBoxItem Content="Green" />
+                            <ComboBoxItem Content="Aqua" />
+                            <ComboBoxItem Content="Blue" />
+                            <ComboBoxItem Content="Purple" />
+                            <ComboBoxItem Content="Magenta" />
+                        </ComboBox>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Luminance" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="MonochromeMixSlider" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" Value="0"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.Name="Selected hue band's monochrome luminance adjustment"
+                                    AutomationProperties.AutomationId="EditorMonochromeMixLuminance" />
+                        </StackPanel>
+                        <TextBlock Text="Adjusts each band's brightness before the image is converted to black and white."
+                                   TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+                </Expander>
+
                 <Expander x:Name="ColorGradingExpander" Header="Color grading"
                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           AutomationProperties.AutomationId="EditorColorGrading">

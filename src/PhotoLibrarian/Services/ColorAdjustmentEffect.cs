@@ -20,10 +20,23 @@ internal static class ColorAdjustmentEffect
         return buffer.ToArray();
     });
 
-    internal static ICanvasImage Create(ICanvasImage source, Vector2 sourceSize, ColorAdjustments adjustments)
+    internal static ICanvasImage Create(
+        ICanvasImage source,
+        Vector2 sourceSize,
+        ColorAdjustments adjustments,
+        MonochromeMix monochromeMix,
+        bool monochrome,
+        bool applyColorMixer,
+        bool applyGrading)
     {
         adjustments.Validate();
-        if (adjustments.IsDefault) return source;
+        monochromeMix.Validate();
+
+        var hasColorMixer = applyColorMixer && adjustments.MixerBands.Any(band => !band.IsDefault);
+        var hasGrading = applyGrading &&
+            (!adjustments.Shadows.IsDefault || !adjustments.Midtones.IsDefault ||
+             !adjustments.Highlights.IsDefault || adjustments.Blending != 0.5 || adjustments.Balance != 0);
+        if (!monochrome && !hasColorMixer && !hasGrading) return source;
 
         var effect = new PixelShaderEffect(Shader.Value)
         {
@@ -37,16 +50,17 @@ internal static class ColorAdjustmentEffect
         {
             var band = adjustments.MixerBands[index];
             effect.Properties[$"Band{index}"] = new Vector4(
-                (float)band.HueShiftDegrees,
-                (float)band.Saturation,
-                (float)band.Luminance,
-                0);
+                applyColorMixer ? (float)band.HueShiftDegrees : 0,
+                applyColorMixer ? (float)band.Saturation : 0,
+                applyColorMixer ? (float)band.Luminance : 0,
+                monochrome ? (float)monochromeMix.LuminanceBands[index] : 0);
         }
-        effect.Properties["ShadowGrade"] = ToGrade(adjustments.Shadows);
-        effect.Properties["MidtoneGrade"] = ToGrade(adjustments.Midtones);
-        effect.Properties["HighlightGrade"] = ToGrade(adjustments.Highlights);
-        effect.Properties["Blending"] = (float)adjustments.Blending;
-        effect.Properties["Balance"] = (float)adjustments.Balance;
+        effect.Properties["ShadowGrade"] = applyGrading ? ToGrade(adjustments.Shadows) : Vector4.Zero;
+        effect.Properties["MidtoneGrade"] = applyGrading ? ToGrade(adjustments.Midtones) : Vector4.Zero;
+        effect.Properties["HighlightGrade"] = applyGrading ? ToGrade(adjustments.Highlights) : Vector4.Zero;
+        effect.Properties["Blending"] = applyGrading ? (float)adjustments.Blending : 0.5f;
+        effect.Properties["Balance"] = applyGrading ? (float)adjustments.Balance : 0;
+        effect.Properties["Monochrome"] = monochrome ? 1f : 0f;
 
         return new CropEffect
         {

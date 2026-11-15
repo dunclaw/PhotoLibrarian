@@ -14,7 +14,8 @@ namespace PhotoLibrarian.Services;
 /// is what gets written to disk.
 ///
 /// Effect chain: Source → Noise Reduction → Exposure → Brightness/Contrast → Saturation →
-/// Temperature/Tint → Highlights/Shadows → Levels → Sharpness → Photo Effect → Rotation → Output
+/// Temperature/Tint → Highlights/Shadows → Levels → Color Mixer → Sharpness →
+/// Monochrome Mix/Grading or Photo Effect → Rotation → Output
 /// </summary>
 public static class EditEffectGraph
 {
@@ -151,7 +152,10 @@ public static class EditEffectGraph
             };
         }
 
-        current = ColorAdjustmentEffect.Create(current, sourceSize, p.ColorAdjustments);
+        var monochrome = p.Effect == PhotoEffect.BlackAndWhite;
+        current = ColorAdjustmentEffect.Create(
+            current, sourceSize, p.ColorAdjustments, p.MonochromeMix, monochrome: false,
+            applyColorMixer: true, applyGrading: !monochrome);
 
         // 7. Sharpening. Preserve the old effect exactly for existing recipes.
         if (p.SharpeningMode == SharpeningMode.UnsharpMask)
@@ -173,7 +177,16 @@ public static class EditEffectGraph
             };
         }
 
-        current = PhotoEffectTransform.Create(current, p.Effect);
+        if (monochrome)
+        {
+            current = ColorAdjustmentEffect.Create(
+                current, sourceSize, p.ColorAdjustments, p.MonochromeMix, monochrome: true,
+                applyColorMixer: false, applyGrading: true);
+        }
+        else
+        {
+            current = PhotoEffectTransform.Create(current, p.Effect);
+        }
 
         // 8. Rotation
         if (p.RotationAngle != 0)

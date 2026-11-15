@@ -293,6 +293,11 @@ public sealed partial class ImageEditorView : UserControl
                     break;
                 case nameof(ImageEditorViewModel.IsRawPreview):
                     UpdateHistoryControls();
+                    UpdateMonochromeMixAvailability();
+                    break;
+                case nameof(ImageEditorViewModel.Effect):
+                case nameof(ImageEditorViewModel.CanEditMonochromeMix):
+                    UpdateMonochromeMixAvailability();
                     break;
                 case nameof(ImageEditorViewModel.Title):
                     TitleText.Text = ViewModel.Title;
@@ -1022,6 +1027,8 @@ public sealed partial class ImageEditorView : UserControl
 
         // A percentage of ±180° would swallow small straightening angles, so rotation snaps within 1°.
         AddCenterSnap(RotationSlider, 0, 1);
+        AddCenterSnap(MonochromeMixSlider, 0,
+            SliderSnap.ThresholdFor(MonochromeMixSlider.Minimum, MonochromeMixSlider.Maximum));
     }
 
     private void AddCenterSnap(Slider slider, double neutral, double threshold)
@@ -1039,6 +1046,7 @@ public sealed partial class ImageEditorView : UserControl
             UnsharpMaskThresholdSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider,
             RotationSlider, RawExposureSlider, RawWhitePointSlider,
             ColorMixerHueSlider, ColorMixerSaturationSlider, ColorMixerLuminanceSlider,
+            MonochromeMixSlider,
             ShadowAmountSlider, MidtoneAmountSlider, HighlightAmountSlider,
             ColorGradingBlendingSlider, ColorGradingBalanceSlider
         ];
@@ -1056,6 +1064,7 @@ public sealed partial class ImageEditorView : UserControl
                     "UnsharpMaskAmount" => "Unsharp-mask amount",
                     "UnsharpMaskRadius" => "Unsharp-mask radius",
                     "UnsharpMaskThreshold" => "Unsharp-mask threshold",
+                    "MonochromeMix" => "Black and white mix",
                     var label => label
                 });
             }), true);
@@ -1136,6 +1145,23 @@ public sealed partial class ImageEditorView : UserControl
         // SelectedIndex in XAML raises this during InitializeComponent, before the band sliders exist.
         if (_suppressSliderEvents) return;
         SyncColorAdjustmentsFromViewModel();
+    }
+
+    private void OnMonochromeMixBandChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSliderEvents) return;
+        SyncMonochromeMixFromViewModel();
+    }
+
+    private void OnMonochromeMixSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_suppressSliderEvents || ViewModel?.CanEditMonochromeMix != true ||
+            MonochromeMixBand.SelectedIndex is < 0 or >= MonochromeMix.BandCount)
+            return;
+
+        var mix = ViewModel.GetCurrentParameters().MonochromeMix;
+        mix.LuminanceBands[MonochromeMixBand.SelectedIndex] = e.NewValue;
+        ViewModel.SetMonochromeMix(mix);
     }
 
     private void OnColorAdjustmentSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -1527,6 +1553,7 @@ public sealed partial class ImageEditorView : UserControl
         MidtonesSlider.Value = ViewModel.Midtones;
         RotationSlider.Value = ViewModel.RotationAngle;
         SyncColorAdjustmentsFromViewModel();
+        SyncMonochromeMixFromViewModel();
         HistogramCanvas.Invalidate();
         _suppressSliderEvents = false;
     }
@@ -1556,4 +1583,23 @@ public sealed partial class ImageEditorView : UserControl
         }
         finally { _suppressSliderEvents = wasSuppressed; }
     }
+
+    private void SyncMonochromeMixFromViewModel()
+    {
+        if (ViewModel is null) return;
+        var wasSuppressed = _suppressSliderEvents;
+        _suppressSliderEvents = true;
+        try
+        {
+            if (MonochromeMixBand.SelectedIndex is < 0 or >= MonochromeMix.BandCount)
+                MonochromeMixBand.SelectedIndex = 0;
+            var mix = ViewModel.GetCurrentParameters().MonochromeMix;
+            MonochromeMixSlider.Value = mix.LuminanceBands[MonochromeMixBand.SelectedIndex];
+            UpdateMonochromeMixAvailability();
+        }
+        finally { _suppressSliderEvents = wasSuppressed; }
+    }
+
+    private void UpdateMonochromeMixAvailability() =>
+        MonochromeMixExpander.IsEnabled = ViewModel?.CanEditMonochromeMix == true;
 }

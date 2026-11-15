@@ -93,6 +93,23 @@ development pipeline. These raster color controls are retained in a RAW
 recipe but are not applied to RAW preview or derivative output; only the
 documented RAW exposure and scene-white-point controls apply there.
 
+## Black-and-white mix (#193)
+
+The existing **Black and White** effect keeps its neutral Rec. 709 grayscale
+output. Its eight-band mix adjusts the OkLab lightness of that grayscale, using
+the same hue centers and smooth 30-degree Gaussian overlap as the color mixer.
+Each band's hue is classified from the color image before monochrome conversion,
+so blue skies and green foliage can be adjusted independently; neutral pixels
+have no hue-band contribution. The existing shadow/midtone/highlight grading is
+applied after conversion and can add sepia-, selenium-, or other tinting without
+a separate toning pipeline.
+
+The complete mix and effect are stored as a versioned edit recipe through the
+shared metadata writer, preserving the original pixels. Supported raster
+formats continue to use embedded XMP when available, with an owned sidecar only
+when the format cannot store the recipe. As with the color mixer, the mix is
+retained but not applied in the separate RAW preview or derivative pipeline.
+
 ## Model-free detail processing
 
 | Technique | Quality and limitations | Cost and recommendation |

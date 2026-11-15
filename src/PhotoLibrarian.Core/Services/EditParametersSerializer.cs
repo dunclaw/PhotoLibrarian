@@ -21,7 +21,8 @@ public static class EditParametersSerializer
         "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
         "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
         "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1",
-        "ToneCurveVersion", "ToneCurvesV1", "ColorAdjustmentsVersion", "ColorAdjustmentsV1"
+        "ToneCurveVersion", "ToneCurvesV1", "ColorAdjustmentsVersion", "ColorAdjustmentsV1",
+        "MonochromeMixVersion", "MonochromeMixV1"
     ];
 
     public static bool HasEditProperties(IXmpMeta xmp, bool includeRawParameters = true) =>
@@ -78,6 +79,17 @@ public static class EditParametersSerializer
         {
             xmp.SetProperty(Ns, $"{Pre}:ColorAdjustmentsVersion", "1");
             xmp.SetProperty(Ns, $"{Pre}:ColorAdjustmentsV1", JsonSerializer.Serialize(p.ColorAdjustments));
+        }
+        p.MonochromeMix.Validate();
+        if (p.MonochromeMix.IsDefault)
+        {
+            DeleteProp(xmp, "MonochromeMixVersion");
+            DeleteProp(xmp, "MonochromeMixV1");
+        }
+        else
+        {
+            xmp.SetProperty(Ns, $"{Pre}:MonochromeMixVersion", "1");
+            xmp.SetProperty(Ns, $"{Pre}:MonochromeMixV1", JsonSerializer.Serialize(p.MonochromeMix));
         }
         SetDouble(xmp, "RotationAngle", p.RotationAngle);
         SpotRetouchProcessor.Validate(p.RetouchStrokes);
@@ -142,6 +154,7 @@ public static class EditParametersSerializer
             WhitePoint = GetDouble(xmp, "WhitePoint", 1.0),
             Midtones = GetDouble(xmp, "Midtones", 0.5),
             ColorAdjustments = ReadColorAdjustments(xmp),
+            MonochromeMix = ReadMonochromeMix(xmp),
             RotationAngle = GetDouble(xmp, "RotationAngle")
         };
 
@@ -218,6 +231,32 @@ public static class EditParametersSerializer
             return adjustments;
         }
         catch (JsonException ex) { throw new InvalidDataException("Invalid color adjustment recipe.", ex); }
+    }
+
+    private static MonochromeMix ReadMonochromeMix(IXmpMeta xmp)
+    {
+        var hasVersion = xmp.DoesPropertyExist(Ns, $"{Pre}:MonochromeMixVersion");
+        var hasRecipe = xmp.DoesPropertyExist(Ns, $"{Pre}:MonochromeMixV1");
+        if (hasVersion && xmp.GetPropertyString(Ns, $"{Pre}:MonochromeMixVersion") != "1")
+            throw new NotSupportedException("The monochrome mix recipe uses an unsupported version.");
+        if (hasVersion != hasRecipe)
+            throw new InvalidDataException("Monochrome mix recipe version and data must be present together.");
+        if (!hasRecipe) return new();
+
+        var json = xmp.GetPropertyString(Ns, $"{Pre}:MonochromeMixV1");
+        if (string.IsNullOrWhiteSpace(json))
+            throw new InvalidDataException("Monochrome mix recipe is empty.");
+        try
+        {
+            var mix = JsonSerializer.Deserialize<MonochromeMix>(json,
+                new JsonSerializerOptions
+                {
+                    UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
+                }) ?? throw new InvalidDataException("Monochrome mix recipe is null.");
+            mix.Validate();
+            return mix;
+        }
+        catch (JsonException ex) { throw new InvalidDataException("Invalid monochrome mix recipe.", ex); }
     }
 
     private static PhotoEffect GetEffect(IXmpMeta xmp)
