@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using PhotoLibrarian.Core.Diagnostics;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
+using System.Globalization;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 
@@ -22,6 +23,7 @@ public sealed partial class VideoEditDialog : ContentDialog
     {
         InitializeComponent();
         _sourcePath = sourcePath;
+        UpdateAdjustmentLabels();
         OutputBox.Text = VideoEditingService.GetAvailableOutputPath(sourcePath);
         StatusText.Text = VideoEditStrings.Get("VideoEditPreparePrompt");
     }
@@ -32,8 +34,10 @@ public sealed partial class VideoEditDialog : ContentDialog
         if (PrepareButton is null) return;
         ReleasePreview();
         DisposeEditing();
+        UpdateAdjustmentLabels();
         IsPrimaryButtonEnabled = false;
-        PrepareButton.IsEnabled = RotationBox.SelectedIndex != 0 || RemoveAudioBox.IsChecked == true;
+        PrepareButton.IsEnabled = RotationBox.SelectedIndex != 0 ||
+            RemoveAudioBox.IsChecked == true || BrightnessSlider.Value != 0 || ContrastSlider.Value != 100;
         StatusText.Text = VideoEditStrings.Get("VideoEditPreparePrompt");
     }
 
@@ -48,7 +52,8 @@ public sealed partial class VideoEditDialog : ContentDialog
         try
         {
             _editing = await VideoEditingService.CreateAsync(_sourcePath,
-                new(RotationBox.SelectedIndex, RemoveAudioBox.IsChecked == true), cancellation.Token);
+                new(RotationBox.SelectedIndex, RemoveAudioBox.IsChecked == true,
+                    (int)BrightnessSlider.Value, (int)ContrastSlider.Value), cancellation.Token);
             await _editing.PreparePreviewAsync(new Progress<double>(value =>
             {
                 if (_workCancellation == cancellation && !cancellation.IsCancellationRequested)
@@ -160,6 +165,14 @@ public sealed partial class VideoEditDialog : ContentDialog
         CloseButtonText = VideoEditStrings.Get(busy ? "VideoEditCancel" : "VideoEditClose");
         ExportProgress.IsIndeterminate = busy && !preparing;
         ExportProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateAdjustmentLabels()
+    {
+        var culture = CultureInfo.CurrentCulture;
+        BrightnessValue.Text = ((int)BrightnessSlider.Value).ToString("+0;-0;0", culture);
+        ContrastValue.Text = ((int)ContrastSlider.Value).ToString("0", culture) +
+            culture.NumberFormat.PercentSymbol;
     }
 
     private void OnClosing(ContentDialog sender, ContentDialogClosingEventArgs args)

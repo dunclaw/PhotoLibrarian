@@ -15,6 +15,34 @@
                                 AutoPlay="False" AutomationProperties.AutomationId="VideoEditPreview" />
             <ContentControl x:Name="OptionsPanel" HorizontalContentAlignment="Stretch">
               <StackPanel Spacing="12">
+                <StackPanel Spacing="4">
+                    <TextBlock x:Uid="VideoEditBrightnessLabel" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Slider x:Name="BrightnessSlider" x:Uid="VideoEditBrightnessSlider"
+                                Minimum="-100" Maximum="100" StepFrequency="1" SmallChange="1"
+                                Value="0" ValueChanged="OnOptionsChanged"
+                                AutomationProperties.AutomationId="VideoEditBrightness" />
+                        <TextBlock x:Name="BrightnessValue" Grid.Column="1" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock x:Uid="VideoEditContrastLabel" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Slider x:Name="ContrastSlider" x:Uid="VideoEditContrastSlider"
+                                Minimum="0" Maximum="200" StepFrequency="1" SmallChange="1"
+                                Value="100" ValueChanged="OnOptionsChanged"
+                                AutomationProperties.AutomationId="VideoEditContrast" />
+                        <TextBlock x:Name="ContrastValue" Grid.Column="1" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
                 <ComboBox x:Name="RotationBox" x:Uid="VideoEditRotation" SelectedIndex="0"
                           SelectionChanged="OnOptionsChanged"
                           AutomationProperties.AutomationId="VideoEditRotation">

@@ -111,7 +111,8 @@ public sealed class VideoWorkflowTests
         var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"))
             .Descendants("data").Select(element => (string)element.Attribute("name")!).ToHashSet();
         foreach (var control in dialog.Descendants().Where(element =>
-                     element.Name.LocalName is "Button" or "ComboBox" or "CheckBox" or "TextBox" or "MediaPlayerElement"))
+                     element.Name.LocalName is "Button" or "ComboBox" or "CheckBox" or "TextBox" or
+                         "MediaPlayerElement" or "Slider"))
         {
             Assert.False(string.IsNullOrWhiteSpace((string?)control.Attribute("AutomationProperties.AutomationId")));
             string uid = (string)control.Attribute(x + "Uid")!;
@@ -119,6 +120,8 @@ public sealed class VideoWorkflowTests
         }
         Assert.Contains("VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
         Assert.Contains("VideoEditRibbon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
+        Assert.Contains("VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
+        Assert.Contains("VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
         var prepare = dialog.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "PrepareButton");
         Assert.Equal("OnPrepare", (string?)prepare.Attribute("Click"));
         Assert.Equal("False", (string?)prepare.Attribute("IsEnabled"));

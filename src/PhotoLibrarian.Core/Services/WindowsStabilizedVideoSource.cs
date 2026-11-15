@@ -16,6 +16,10 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
     private readonly CancellationToken _cancellationToken;
     private readonly VideoFrameStabilizer? _stabilizer;
     private readonly IReadOnlyList<VideoFrameStabilizer.Correction> _corrections;
+    private readonly int _brightness;
+    private readonly int _contrast;
+    private readonly int _width;
+    private readonly int _height;
     private int _frameIndex;
     private bool _disposed;
 
@@ -25,12 +29,16 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
     public WindowsStabilizedVideoSource(
         string sourcePath, MediaEncodingProfile profile, TimeSpan duration,
         VideoFrameStabilizer? stabilizer, IReadOnlyList<VideoFrameStabilizer.Correction> corrections,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, int brightness = 0, int contrast = 100)
     {
         _cancellationToken = cancellationToken;
         _stabilizer = stabilizer;
         _corrections = corrections;
+        _brightness = brightness;
+        _contrast = contrast;
         int width = checked((int)profile.Video.Width), height = checked((int)profile.Video.Height);
+        _width = width;
+        _height = height;
         _reader = new MediaFoundationFrameReader(sourcePath, width, height, includeAudio: profile.Audio is not null);
         try
         {
@@ -86,6 +94,9 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                     _frameIndex++;
                     data = _stabilizer.Render(data, correction, _cancellationToken);
                 }
+                if (isVideo && (_brightness != 0 || _contrast != 100))
+                    VideoToneAdjustment.ApplyBrightnessContrastNv12(
+                        data, _width, _height, _brightness, _contrast);
                 var output = MediaStreamSample.CreateFromBuffer(data.AsBuffer(), TimeSpan.FromTicks(sample.Timestamp));
                 output.Duration = TimeSpan.FromTicks(sample.Duration);
                 args.Request.Sample = output;
