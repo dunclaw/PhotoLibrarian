@@ -1,0 +1,30 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="Dependencies.props" />
+  <PropertyGroup>
+    <NativeRoot>$(MSBuildThisFileDirectory)</NativeRoot>
+    <NativeSources>$(NativeRoot)obj\sources\</NativeSources>
+    <LibRawSource>$(NativeSources)LibRaw-$(LibRawVersion)\</LibRawSource>
+    <ZlibSource>$(NativeSources)zlib-$(ZlibVersion)\</ZlibSource>
+    <OutDir>$(NativeRoot)bin\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(NativeRoot)obj\$(MSBuildProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>$(MSBuildProjectName)</TargetName>
+    <VcpkgEnabled>false</VcpkgEnabled>
+    <VcpkgEnableManifest>false</VcpkgEnableManifest>
+    <!-- Build-only references advertise the deployment minimum, not the selected SDK's version. -->
+    <TargetPlatformMoniker>Windows,Version=$(WindowsTargetPlatformMinVersion)</TargetPlatformMoniker>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <RuntimeLibrary Condition="'$(Configuration)' == 'Debug'">MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)' != 'Debug'">MultiThreaded</RuntimeLibrary>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

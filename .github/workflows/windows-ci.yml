@@ -80,10 +80,11 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Test RAW native build failure detection
-        run: .\tools\Test-RawDecoderBuildContract.ps1
+      - uses: microsoft/setup-msbuild@v2
       - name: Build application and test projects
-        run: dotnet build src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64
+        run: msbuild PhotoLibrarian.slnx /restore /m /p:Configuration=Release /p:Platform=x64
+      - name: Verify native source and toolchain contracts
+        run: .\tools\Test-RawDecoderBuildContract.ps1
       - name: Run xUnit tests
         run: |
           New-Item artifacts\test-results -ItemType Directory -Force | Out-Null

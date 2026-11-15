@@ -1,0 +1,23 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\Configurations.props" />
+  <PropertyGroup Label="Globals"><ProjectGuid>{92EF6045-BF74-4052-B99A-A05F16BA7FD3}</ProjectGuid></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="..\Toolset.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)' == 'Debug'">true</UseDebugLibraries></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\Native.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(LibRawSource);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>PHOTO_LIBRARIAN_RAWDECODER_EXPORTS;LIBRAW_NODLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link><AdditionalDependencies>ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="RawDecoder.cpp" />
+    <ClInclude Include="RawDecoder.h" />
+    <ProjectReference Include="..\LibRaw.vcxproj"><Project>{324CBDE0-FD60-434A-B8C5-29E68EF480DA}</Project></ProjectReference>
+    <ProjectReference Include="..\zlib.vcxproj"><Project>{655E986A-8A9F-4BC2-8A77-B4D3402A2501}</Project></ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

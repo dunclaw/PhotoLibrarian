@@ -61,8 +61,9 @@ unavoidable codec memory honestly. This stage does not authorize later stages.
   ordinary PNG output is non-interlaced.
 
 `native\PhotoLibrarian.TileCodecProbe` uses Windows WIC/COM only, no third-party
-library or runtime download. `tools\Build-TileCodecProbe.ps1` builds it for the
-test project only. Neither its DLL nor its measurement executable is referenced
+library or runtime download. Its DLL and measurement executable have native VC
+projects referenced by the test project only, with ordinary MSBuild dependency
+and configuration tracking. Neither native artifact is referenced
 or packaged by the app. The native source/sink lifetime is synchronous and
 apartment-affine: open, use and dispose on the same thread. These are prototype
 contracts, not yet a production asynchronous/native ownership API.
@@ -189,7 +190,8 @@ for those P2-P8 requirements.
 The existing Windows SDK/Visual C++ build prerequisites are sufficient.
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.TileCodecFeasibilityTests -class PhotoLibrarian.Tests.ViewerQuickEditTests -parallelMode none
+msbuild PhotoLibrarian.slnx /restore /m /p:Configuration=Release /p:Platform=x64
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.TileCodecFeasibilityTests -class PhotoLibrarian.Tests.ViewerQuickEditTests -parallelMode none
 ```
 
 The quick-edit tests cover the integrated #180 baseline. Inspection confirms
@@ -207,7 +209,7 @@ code introduced no new build warnings.
 The native probe also cross-builds for ARM64 with:
 
 ```powershell
-.\tools\Build-TileCodecProbe.ps1 -Architecture ARM64 -OutputDirectory .\src\PhotoLibrarian.Tests\obj\TileCodecProbe\ARM64\Release
+msbuild native\PhotoLibrarian.TileCodecProbe\PhotoLibrarian.CodecMemoryProbe.vcxproj /m /p:Configuration=Release /p:Platform=ARM64
 ```
 
 ARM64 compilation does not establish ARM64 execution or allocation behavior.

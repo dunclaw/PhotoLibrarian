@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\native\Dependencies.props" />
   <PropertyGroup>
     <RootNamespace>PhotoLibrarian.Core</RootNamespace>
     <Platforms>x64;ARM64;x86</Platforms>
@@ -14,11 +15,23 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <RawDecoderBuildDirectory>$(MSBuildProjectDirectory)\obj\RawDecoder\$(Platform)\$(Configuration)</RawDecoderBuildDirectory>
-    <PanoramaBuildDirectory>$(MSBuildProjectDirectory)\obj\Panorama\$(Platform)\$(Configuration)</PanoramaBuildDirectory>
+    <NativePlatform Condition="'$(Platform)' == 'x86'">Win32</NativePlatform>
+    <NativePlatform Condition="'$(NativePlatform)' == ''">$(Platform)</NativePlatform>
+    <RawDecoderBuildDirectory>$(MSBuildProjectDirectory)\..\..\native\obj\sources\notices</RawDecoderBuildDirectory>
+    <PanoramaBuildDirectory>$(MSBuildProjectDirectory)\..\..\native\bin\$(NativePlatform)\$(Configuration)</PanoramaBuildDirectory>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.RawDecoder\PhotoLibrarian.RawDecoder.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+      <GlobalPropertiesToRemove>WindowsPackageType;EnableMsixTooling;PublishDir;RuntimeIdentifier;SelfContained;WindowsAppSDKSelfContained;PublishTrimmed;PublishReadyToRun</GlobalPropertiesToRemove>
+    </ProjectReference>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.Panorama\PhotoLibrarian.Panorama.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+      <GlobalPropertiesToRemove>WindowsPackageType;EnableMsixTooling;PublishDir;RuntimeIdentifier;SelfContained;WindowsAppSDKSelfContained;PublishTrimmed;PublishReadyToRun</GlobalPropertiesToRemove>
+    </ProjectReference>
     <Content Include="$(PanoramaBuildDirectory)\PhotoLibrarian.Panorama.dll"
              Link="PhotoLibrarian.Panorama.dll"
              CopyToOutputDirectory="PreserveNewest"
@@ -27,7 +40,7 @@
              Link="ThirdPartyNotices\Panorama.txt"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="$(RawDecoderBuildDirectory)\PhotoLibrarian.RawDecoder.dll"
+    <Content Include="$(PanoramaBuildDirectory)\PhotoLibrarian.RawDecoder.dll"
              Link="PhotoLibrarian.RawDecoder.dll"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
@@ -59,20 +72,10 @@
              Link="ThirdPartyNotices\zlib-LICENSE.txt"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-0.22.3-source.tar.gz"
-             Link="ThirdPartySources\LibRaw-0.22.3-source.tar.gz"
+    <Content Include="$(MSBuildProjectDirectory)\..\..\native\obj\sources\LibRaw-$(LibRawVersion).tar.gz"
+             Link="ThirdPartySources\LibRaw-$(LibRawVersion)-source.tar.gz"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <Target Name="BuildRawDecoderNative" BeforeTargets="PrepareForBuild"
-          Condition="'$(DesignTimeBuild)' != 'true'">
-    <!-- vcpkg can log recoverable mirror errors. The script checks native exit codes and required artifacts. -->
-    <Exec IgnoreStandardErrorWarningFormat="true"
-          Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-RawDecoder.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(RawDecoderBuildDirectory)&quot;" />
-  </Target>
-  <Target Name="BuildPanoramaNative" BeforeTargets="PrepareForBuild"
-          Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-Panorama.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(PanoramaBuildDirectory)&quot;" />
-  </Target>
 </Project>

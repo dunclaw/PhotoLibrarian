@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(PhotoLibrarianPanorama LANGUAGES C CXX)
 
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_WITH_STATIC_CRT ON CACHE BOOL "" FORCE)
 set(BUILD_LIST "core,imgproc,features2d,calib3d,flann,stitching" CACHE STRING "" FORCE)
@@ -24,21 +24,11 @@ if(NOT DEFINED OPENCV_ARCHIVE OR NOT EXISTS "${OPENCV_ARCHIVE}")
     message(FATAL_ERROR "Supply the pinned OpenCV source archive through OPENCV_ARCHIVE.")
 endif()
 file(SHA512 "${OPENCV_ARCHIVE}" archive_hash)
-if(NOT archive_hash STREQUAL "8ac63ddd61e22cc0eaeafee4f30ae6e1cab05fc4929e2cea29070203b9ca8dfead12cc0fd7c4a87b65c1e20ec6b9ab4865a1b83fad33d114fc0708fdf107c51b")
-    message(FATAL_ERROR "The OpenCV 4.12.0 source archive checksum is incorrect.")
+if(NOT archive_hash STREQUAL OPENCV_SHA512)
+    message(FATAL_ERROR "The pinned OpenCV source archive checksum is incorrect.")
 endif()
-set(source_root "${CMAKE_BINARY_DIR}/_deps/opencv-4.12.0")
+set(source_root "${CMAKE_BINARY_DIR}/_deps/opencv-${OPENCV_VERSION}")
 if(NOT EXISTS "${source_root}/CMakeLists.txt")
     file(ARCHIVE_EXTRACT INPUT "${OPENCV_ARCHIVE}" DESTINATION "${CMAKE_BINARY_DIR}/_deps")
 endif()
 add_subdirectory("${source_root}" "${CMAKE_BINARY_DIR}/opencv" EXCLUDE_FROM_ALL)
-
-add_library(PhotoLibrarian.Panorama SHARED Panorama.cpp)
-target_compile_features(PhotoLibrarian.Panorama PRIVATE cxx_std_17)
-target_compile_definitions(PhotoLibrarian.Panorama PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_include_directories(PhotoLibrarian.Panorama PRIVATE
-    "${source_root}/modules/core/include" "${source_root}/modules/imgproc/include"
-    "${source_root}/modules/features2d/include" "${source_root}/modules/flann/include"
-    "${source_root}/modules/calib3d/include" "${source_root}/modules/stitching/include"
-    "${CMAKE_BINARY_DIR}")
-target_link_libraries(PhotoLibrarian.Panorama PRIVATE opencv_stitching)

@@ -25,17 +25,24 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TileCodecProbeDirectory>$(MSBuildProjectDirectory)\obj\TileCodecProbe\$(Platform)\$(Configuration)</TileCodecProbeDirectory>
+    <NativePlatform Condition="'$(Platform)' == 'x86'">Win32</NativePlatform>
+    <NativePlatform Condition="'$(NativePlatform)' == ''">$(Platform)</NativePlatform>
+    <TileCodecProbeDirectory>$(MSBuildProjectDirectory)\..\..\native\bin\$(NativePlatform)\$(Configuration)</TileCodecProbeDirectory>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.TileCodecProbe\PhotoLibrarian.TileCodecProbe.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.TileCodecProbe\PhotoLibrarian.CodecMemoryProbe.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+    </ProjectReference>
     <Content Include="$(TileCodecProbeDirectory)\PhotoLibrarian.TileCodecProbe.dll"
              Link="PhotoLibrarian.TileCodecProbe.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(TileCodecProbeDirectory)\PhotoLibrarian.CodecMemoryProbe.exe"
              Link="PhotoLibrarian.CodecMemoryProbe.exe" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Target Name="BuildTileCodecProbe" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\tools\Build-TileCodecProbe.ps1&quot; -Architecture &quot;$(Platform)&quot; -OutputDirectory &quot;$(TileCodecProbeDirectory)&quot;" />
-  </Target>
 
   <ItemGroup>
     <None Include="..\PhotoLibrarian\MainWindow.xaml"

@@ -96,7 +96,7 @@ text files with:
 
 ```powershell
 $env:PHOTO_LIBRARIAN_LOCAL_CONTRAST_OUTPUT_DIR = Join-Path $env:TEMP 'PhotoLibrarian-LocalContrast'
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.MultiscaleLocalContrastExperimentTests -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests -parallelMode none
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.MultiscaleLocalContrastExperimentTests -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests -parallelMode none
 ```
 
 The reproducible test compares existing `HighlightsAndShadowsEffect` Clarity
@@ -246,7 +246,7 @@ implementation and further profiling.
 The experiment is repeatable on Windows with:
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.WaveletNoiseReductionExperimentTests -class PhotoLibrarian.Tests.WaveletNoiseReductionPerformanceTests -reporter verbose -showLiveOutput
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.WaveletNoiseReductionExperimentTests -class PhotoLibrarian.Tests.WaveletNoiseReductionPerformanceTests -reporter verbose -showLiveOutput
 ```
 
 Generated fixtures avoid uploading user photos. A future decision requires
@@ -335,14 +335,12 @@ The managed [`RawDevelopmentService`](../src/PhotoLibrarian.Core/Services/RawDev
 calls an app-owned C ABI DLL that statically links LibRaw 0.22.3 and zlib.
 The source archive is pinned by SHA-512
 `a9453f8cff55302926c11c47ba7c8d04d81023bbbcad145551d2c0cc601de7eea8218d00a073e6b9ece845d3420897a2272a34fabf55f5b821183eaa7f66b3ef`;
-the build helper is pinned to commit
-`eb98e4325aef2ce85d2eb031c2ff18640ca616d3` by SHA-512
-`63e68a4d30286ec3aa97168d46b7a1199268099ae27b61abcc92e93ec30e48d364086227983a1d724415e5f4da44d905422f30192453b95f31040e5f8469c3f9`.
-vcpkg is pinned to commit `d186940b2f0c4e8e5b4ff804af57d2a26fbfa091`; its
-2026-09-26 executable is SHA-256-verified as
-`2a4ae1467b9e797964c60c919d057b9e5dc1ec03f4b9632c1150026db25201f2`.
-zlib is 1.3.2. The measured builds used Visual Studio 2026 18.11.1 and MSVC
-14.51.36231. These build-time tools and source downloads require network
+LibRaw and zlib 1.3.2 now compile through native VC/MSBuild projects. The
+source selection matches the former pinned LibRaw-cmake helper
+`eb98e4325aef2ce85d2eb031c2ff18640ca616d3` (all `src\*.cpp` recursively except
+`*_ph.cpp`); zlib retains the archive/checksum from vcpkg baseline
+`d186940b2f0c4e8e5b4ff804af57d2a26fbfa091`. Neither tool is needed to build RAW.
+Pins are centralized in `native\Dependencies.props`. Source downloads require network
 access when not cached, but runtime decoding is local and has no separate
 decoder installation or cloud dependency.
 
@@ -353,8 +351,9 @@ application output and publish files. The app-owned DLL is statically linked;
 LibRaw modifications are not carried as a binary-only patch. OpenMP, LCMS,
 Jasper/RedCine, DNG lossy JPEG, RawSpeed, debug output, X3F support, examples,
 and Raspberry Pi support are disabled; zlib-backed DNG deflate remains
-enabled. The build log reports those compiled features; the LibRaw CMake
-helper and vcpkg are not included in the application.
+enabled. The static CRT is used for both dependencies and the wrapper, with
+matching Debug/Release configurations. See the native project definitions and
+shipped notices for compiled features.
 
 The decoder contract is row-major, three-channel float32 **linear ProPhoto
 RGB**, developed from sensor samples, not embedded previews. Its precise white
@@ -380,11 +379,14 @@ buffer through a safe handle, and reports unsupported/corrupt input as errors
 without thumbnail fallback.
 
 Build the native decoder for x64, ARM64, or the app's existing x86 target with
-`tools\Build-RawDecoder.ps1 -Architecture <x64|ARM64|x86> -OutputDirectory <path>`.
+`msbuild native\PhotoLibrarian.RawDecoder\PhotoLibrarian.RawDecoder.vcxproj /m /p:Configuration=Release /p:Platform=x64`
+from a Visual Studio Developer PowerShell. Use `ARM64` or `Win32` for the other
+native platforms; the solution maps its managed `x86` configuration to `Win32`.
 The managed decoder is covered by:
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawDevelopmentTests
+msbuild PhotoLibrarian.slnx /restore /m /p:Configuration=Release /p:Platform=x64
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawDevelopmentTests
 ```
 
 The synthetic DNG fixtures cover Bayer and X-Trans, active-area crop,
@@ -539,7 +541,7 @@ Reproduce the focused suites (serial execution avoids existing tests disposing
 the shared Win2D device during another graphics test):
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawToneMappingTests -class PhotoLibrarian.Tests.RawPreviewWorkflowTests -class PhotoLibrarian.Tests.RawDevelopmentTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.UnsharpMaskTests -class PhotoLibrarian.Tests.NoiseReductionTests -parallelMode none
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawToneMappingTests -class PhotoLibrarian.Tests.RawPreviewWorkflowTests -class PhotoLibrarian.Tests.RawDevelopmentTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.UnsharpMaskTests -class PhotoLibrarian.Tests.NoiseReductionTests -parallelMode none
 dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -method PhotoLibrarian.Tests.RawToneMappingTests.ReportsFullResolutionLatencyAndSampledPeakWorkingSet -method PhotoLibrarian.Tests.RawToneMappingTests.CompareGlobalWithEdgeAwareLogBaseDetailOnGeneratedAnalysisFixtures -parallelMode none
 ```
 
@@ -699,7 +701,7 @@ passes 124 tests without skips.
 Reproduce in a serial x64 Release process:
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawDerivativeExportTests -class PhotoLibrarian.Tests.RawPreviewWorkflowTests -class PhotoLibrarian.Tests.RawDevelopmentTests -class PhotoLibrarian.Tests.RawToneMappingTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.ImageExportTests -class PhotoLibrarian.Tests.LibraryIndexingServiceTests -class PhotoLibrarian.Tests.ImageSearchRepositoryTests -parallelMode none
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RawDerivativeExportTests -class PhotoLibrarian.Tests.RawPreviewWorkflowTests -class PhotoLibrarian.Tests.RawDevelopmentTests -class PhotoLibrarian.Tests.RawToneMappingTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.ImageExportTests -class PhotoLibrarian.Tests.LibraryIndexingServiceTests -class PhotoLibrarian.Tests.ImageSearchRepositoryTests -parallelMode none
 dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -method PhotoLibrarian.Tests.RawDerivativeExportTests.ReportsSyntheticEndToEndExportCost -parallelMode none
 ```
 
@@ -736,7 +738,7 @@ photos or external assets.
 On Windows, run the generated fixture and source-resolution parity suites with:
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.UnsharpMaskTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.NoiseReductionTests
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.RenderQualityFixtureTests -class PhotoLibrarian.Tests.ImageRenderParityTests -class PhotoLibrarian.Tests.UnsharpMaskTests -class PhotoLibrarian.Tests.ImageEditorHistoryTests -class PhotoLibrarian.Tests.NoiseReductionTests
 ```
 
 `ImageRenderParityTests` requires Win2D and a working Windows graphics device;
@@ -777,7 +779,7 @@ detail recovery.
 On Windows, collect source-resolution timing with:
 
 ```powershell
-dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.UnsharpMaskPerformanceTests
+dotnet run --no-build --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -class PhotoLibrarian.Tests.UnsharpMaskPerformanceTests
 ```
 
 Warm draw-plus-readback medians captured 2026-10-23 on Windows 11 Pro

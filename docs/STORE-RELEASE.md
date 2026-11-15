@@ -81,11 +81,12 @@ and Store package identity alone are not sufficient.
 
 ## Build locally
 
-Requires Windows, .NET 10 SDK, and Windows SDK packaging tools. Running the
+Requires Windows, .NET 10 SDK, Visual Studio MSBuild with Desktop C++ and C++
+CMake tools, ARM64 C++ tools for ARM64 packages, and Windows SDK packaging tools. Running the
 tests also requires the .NET 8 runtime. Hosted CI installs both SDKs.
 
 ```powershell
-dotnet build src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64
+msbuild PhotoLibrarian.slnx /restore /m /p:Configuration=Release /p:Platform=x64
 dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 --no-build
 .\tools\Build-Msix.ps1 -Architecture x64 -Version 1.2.3.0
 .\tools\Build-Msix.ps1 -Architecture ARM64 -Version 1.2.3.0

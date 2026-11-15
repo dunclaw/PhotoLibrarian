@@ -4,6 +4,16 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Folder Name="/native/">
+    <Project Path="native/PhotoLibrarian.NativeSources.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+    <Project Path="native/zlib.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+    <Project Path="native/LibRaw.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+    <Project Path="native/PhotoLibrarian.RawDecoder/PhotoLibrarian.RawDecoder.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+    <Project Path="native/OpenCv.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+    <Project Path="native/PhotoLibrarian.Panorama/PhotoLibrarian.Panorama.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.TileCodecProbe.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.CodecMemoryProbe.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+  </Folder>
   <Folder Name="/Packaging/">
     <File Path="packaging/Package.appxmanifest" />
   </Folder>
