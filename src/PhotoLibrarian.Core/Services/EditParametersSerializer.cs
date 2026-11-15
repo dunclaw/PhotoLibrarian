@@ -23,12 +23,15 @@ public static class EditParametersSerializer
         "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1",
         "ToneCurveVersion", "ToneCurvesV1", "ColorAdjustmentsVersion", "ColorAdjustmentsV1"
     ];
+    private static readonly HashSet<string> SupportedEditProperties =
+        new(EditProperties, StringComparer.Ordinal);
 
     public static bool HasEditProperties(IXmpMeta xmp, bool includeRawParameters = true) =>
         EditProperties.Any(property =>
             (includeRawParameters ||
              property is not ("RawExposureEv" or "RawWhitePoint" or "RawToneMapping" or "RawDevelopment")) &&
-            xmp.DoesPropertyExist(Ns, $"{Pre}:{property}"));
+            xmp.DoesPropertyExist(Ns, $"{Pre}:{property}")) ||
+        EnumerateEditPropertyNames(xmp).Any(property => !SupportedEditProperties.Contains(property));
 
     public static void WriteToXmp(IXmpMeta xmp, EditParameters p)
     {
@@ -118,6 +121,11 @@ public static class EditParametersSerializer
 
     public static EditParameters ReadFromXmp(IXmpMeta xmp)
     {
+        var unsupportedProperty = EnumerateEditPropertyNames(xmp)
+            .FirstOrDefault(property => !SupportedEditProperties.Contains(property));
+        if (unsupportedProperty is not null)
+            throw new NotSupportedException($"Unsupported photo edit recipe property: {unsupportedProperty}");
+
         var p = new EditParameters
         {
             Brightness = GetDouble(xmp, "Brightness"),
@@ -192,6 +200,26 @@ public static class EditParametersSerializer
             SpotRetouchProcessor.Validate(p.RetouchStrokes);
         }
         return p;
+    }
+
+    private static IEnumerable<string> EnumerateEditPropertyNames(IXmpMeta xmp)
+    {
+        foreach (var property in xmp.Properties)
+        {
+            if (!string.Equals(property.Namespace, Ns, StringComparison.Ordinal) ||
+                string.IsNullOrEmpty(property.Path))
+                continue;
+
+            var path = property.Path;
+            var prefixSeparator = path.IndexOf(':');
+            if (prefixSeparator >= 0)
+                path = path[(prefixSeparator + 1)..];
+            var nestedPath = path.IndexOfAny(['/', '[']);
+            if (nestedPath >= 0)
+                path = path[..nestedPath];
+            if (path.Length > 0)
+                yield return path;
+        }
     }
 
     private static ColorAdjustments ReadColorAdjustments(IXmpMeta xmp)

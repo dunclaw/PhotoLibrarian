@@ -93,6 +93,11 @@ public partial class App : Application
                 _window = await RetouchEditorFixture.OpenAsync(this);
                 return;
             }
+            if (Environment.GetCommandLineArgs().Contains("--edit-presets"))
+            {
+                await RunEditPresetsTestsAsync();
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
             {
                 await RunViewerContextMenuTestsAsync();

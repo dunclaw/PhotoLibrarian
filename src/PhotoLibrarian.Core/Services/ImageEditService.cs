@@ -141,6 +141,7 @@ public sealed class ImageEditService
     {
         var sidecars = LoadOwnedRecipeSidecars(filePath);
         var xmp = LoadEmbeddedXmp(filePath) ?? XmpMetaFactory.Create();
+        _ = EditParametersSerializer.ReadFromXmp(xmp);
         EditParametersSerializer.WriteToXmp(xmp, parameters);
         var packet = XmpMetaFactory.SerializeToString(
             xmp, new XmpCore.Options.SerializeOptions()).TrimStart('\uFEFF');
@@ -165,6 +166,7 @@ public sealed class ImageEditService
         bool keepBackup = false)
     {
         var xmp = LoadOrCreateRecipeSidecar(filePath);
+        _ = EditParametersSerializer.ReadFromXmp(xmp);
         EditParametersSerializer.WriteToXmp(xmp, parameters);
         SaveRecipeSidecar(GetRecipeSidecarPath(filePath), xmp, keepBackup);
     }
