@@ -283,6 +283,51 @@ matched-strength quantitative and visual review. This no-go is limited to the
 two tested prototypes and the evidence currently available; it is not a claim
 that model-free denoising cannot improve on the bilateral baseline.
 
+### #119 adaptive local Wiener screen: no-go
+
+A separate test-only CPU reference evaluates a 3×3 adaptive local Wiener
+estimator. For each display-encoded RGB channel it calculates the local mean
+and population variance using clamped borders, then scales the center's
+deviation from the mean by `max(0, 1 - assumedNoiseVariance / variance)`.
+The original alpha is copied; this opaque-fixture experiment is not a
+production implementation and does not establish correct premultiplied-alpha
+handling. There are no added dependencies, model assets, or application changes.
+
+Before running the comparison, the early screen was set to require lower
+flat-region MSE than the input, a bilateral match within 2% of input flat MSE
+(3.308 byte-value squared), and strictly lower clean-reference MSE in **both**
+texture bands. The existing seed-119 fixture and bilateral slider sweep above
+were reused; assumed noise variance was swept from 25 to 250 in steps of 25.
+All ten settings reduced flat noise and matched the baseline within tolerance,
+but **none passed** the texture screen. Representative results:
+
+| Assumed variance | Bilateral strength | Flat MSE (candidate / baseline) | Pattern MSE (candidate / baseline) | Fine MSE (candidate / baseline) |
+| ---: | ---: | ---: | ---: | ---: |
+| 25 | 0.28 | 121.743 / 121.548 | 161.640 / 135.536 | 168.475 / 136.969 |
+| 100 | 0.67 | 44.511 / 43.822 | 155.509 / 65.370 | 165.036 / 62.337 |
+| 150 | 0.81 | 26.868 / 26.730 | 154.305 / 53.457 | 161.002 / 44.772 |
+| 250 | 0.88 | 20.536 / 20.389 | 163.123 / 51.716 | 162.706 / 38.031 |
+
+These are reconstruction errors, not a visual or perceptual evaluation. Local
+variance treats structured texture as signal and therefore retains much of its
+noise; independent channel gains may also change color. No authorized
+representative real-photo crops were available in the repository; no live
+library or photos were accessed. Real low-light color noise, fine natural detail,
+edges, gradients, compression, clean controls, 100% visual crops, halos, smearing,
+invented detail and color shifts remain untested. The prototype was not measured
+at 12/24 MP: cold/warm latency, peak CPU/GPU memory, cancellation, tiling/seams,
+hardware variation and ARM64 all remain unverified. Failing this early screen
+is sufficient to stop this candidate, not to establish those later gates.
+
+Repeat the screen on Windows after building the x64 Release test project:
+
+```powershell
+dotnet run --no-build --no-restore --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 -- -method PhotoLibrarian.Tests.WaveletNoiseReductionExperimentTests.AdaptiveWienerIsComparedWithBilateralAtMatchedFlatNoiseReduction -reporter verbose -showLiveOutput
+```
+
+The advanced filter remains blocked and #119 remains open; this result applies
+only to the specified estimator, settings and synthetic fixture.
+
 ## Optional AI restoration
 
 The upstream projects provide PyTorch implementations/checkpoints, not a

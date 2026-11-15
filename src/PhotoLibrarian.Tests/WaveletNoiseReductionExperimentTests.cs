@@ -105,6 +105,107 @@ public sealed class WaveletNoiseReductionExperimentTests
             nonLocalMeansResults, baselineResults, inputNoiseError, clean, width, height);
     }
 
+    [Fact]
+    public void AdaptiveWienerIsComparedWithBilateralAtMatchedFlatNoiseReduction()
+    {
+        const int width = 96;
+        const int height = 72;
+        var (clean, noisy) = CreateNoisyTexture(width, height);
+        using var device = new CanvasDevice();
+        using var source = CreateBitmap(device, noisy, width, height);
+        var inputNoiseError = FlatError(noisy, clean, width, height);
+        var baselines = new List<(double Strength, byte[] Pixels, double Error)>();
+        var candidates = new List<(double Strength, byte[] Pixels, double Error)>();
+
+        for (var step = 1; step <= 100; step++)
+        {
+            var strength = step / 100.0;
+            var pixels = Render(device, source, width, height,
+                EditEffectGraph.Build(source, new(width, height), new EditParameters
+                {
+                    NoiseReduction = strength
+                }));
+            baselines.Add((strength, pixels, FlatError(pixels, clean, width, height)));
+        }
+
+        // Predetermined screen: match flat MSE within 2% of input MSE, reduce flat
+        // noise, and improve clean-reference MSE in each of the two texture bands.
+        foreach (var assumedVariance in new[] { 25, 50, 75, 100, 125, 150, 175, 200, 225, 250 })
+        {
+            var pixels = ApplyAdaptiveWiener(noisy, width, height, assumedVariance);
+            candidates.Add((assumedVariance, pixels, FlatError(pixels, clean, width, height)));
+        }
+
+        var report = new System.Text.StringBuilder();
+        report.AppendLine($"Input flat-region MSE: {inputNoiseError:F3}");
+        AppendMatchedResults(report, "Adaptive Wiener", candidates, baselines, clean, width, height);
+        TestContext.Current.TestOutputHelper?.WriteLine(report.ToString());
+
+        foreach (var candidate in candidates)
+        {
+            var matched = baselines.MinBy(item => Math.Abs(item.Error - candidate.Error));
+            Assert.True(candidate.Error < inputNoiseError);
+            Assert.InRange(Math.Abs(matched.Error - candidate.Error), 0, inputNoiseError * 0.02);
+            var patternImproved = MeanSquaredError(
+                candidate.Pixels, clean, width, height, width / 3, width * 2 / 3) <
+                MeanSquaredError(matched.Pixels, clean, width, height, width / 3, width * 2 / 3);
+            var fineImproved = MeanSquaredError(
+                candidate.Pixels, clean, width, height, width * 2 / 3, width) <
+                MeanSquaredError(matched.Pixels, clean, width, height, width * 2 / 3, width);
+            TestContext.Current.TestOutputHelper?.WriteLine(
+                $"Adaptive Wiener variance {candidate.Strength:F0}: " +
+                $"early screen {(patternImproved && fineImproved ? "PASS" : "FAIL")}");
+        }
+    }
+
+    [Fact]
+    public void AdaptiveWienerReferenceUsesClampedBordersAndPreservesAlpha()
+    {
+        byte[] source =
+        [
+            0, 0, 0, 255,
+            90, 90, 90, 128,
+            180, 180, 180, 255
+        ];
+        Assert.Equal(source, ApplyAdaptiveWiener(source, 3, 1, 0));
+        Assert.Equal<byte>(
+            [15, 15, 15, 255, 90, 90, 90, 128, 165, 165, 165, 255],
+            ApplyAdaptiveWiener(source, 3, 1, 900));
+    }
+
+    private static byte[] ApplyAdaptiveWiener(byte[] pixels, int width, int height, double noiseVariance)
+    {
+        var output = new byte[pixels.Length];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var target = PixelIndex(x, y, width);
+            for (var channel = 0; channel < 3; channel++)
+            {
+                double sum = 0, sumSquares = 0;
+                for (var dy = -1; dy <= 1; dy++)
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    var sample = pixels[PixelIndex(
+                        Math.Clamp(x + dx, 0, width - 1),
+                        Math.Clamp(y + dy, 0, height - 1), width) + channel];
+                    sum += sample;
+                    sumSquares += sample * sample;
+                }
+
+                var mean = sum / 9;
+                var variance = Math.Max(0, sumSquares / 9 - mean * mean);
+                var gain = variance > noiseVariance ? 1 - noiseVariance / variance : 0;
+                output[target + channel] = (byte)Math.Clamp(
+                    (int)Math.Round(mean + gain * (pixels[target + channel] - mean)), 0, 255);
+            }
+
+            output[target + 3] = pixels[target + 3];
+        }
+
+        return output;
+    }
+
     private static void AppendMatchedResults(
         System.Text.StringBuilder report,
         string candidateName,
