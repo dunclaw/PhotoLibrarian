@@ -355,6 +355,59 @@
                     </StackPanel>
                 </Expander>
 
+                <Expander x:Name="MonochromeMixExpander" x:Uid="EditorMonochromePanel"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorMonochromeMix">
+                    <StackPanel Spacing="8" Margin="0,0,8,0">
+                        <ToggleSwitch x:Name="MonochromeToggle" x:Uid="EditorMonochromeToggle"
+                                      Toggled="OnMonochromeToggled"
+                                      AutomationProperties.AutomationId="EditorMonochromeToggle" />
+                        <ContentControl x:Name="MonochromeMixControls" HorizontalContentAlignment="Stretch" IsEnabled="False">
+                          <StackPanel Spacing="8">
+                            <TextBlock x:Uid="EditorMonochromeDirection"
+                                       TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="MonochromeRedSlider" x:Uid="EditorMonochromeRed" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeRed" />
+                            <Slider x:Name="MonochromeOrangeSlider" x:Uid="EditorMonochromeOrange" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeOrange" />
+                            <Slider x:Name="MonochromeYellowSlider" x:Uid="EditorMonochromeYellow" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeYellow" />
+                            <Slider x:Name="MonochromeGreenSlider" x:Uid="EditorMonochromeGreen" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeGreen" />
+                            <Slider x:Name="MonochromeAquaSlider" x:Uid="EditorMonochromeAqua" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeAqua" />
+                            <Slider x:Name="MonochromeBlueSlider" x:Uid="EditorMonochromeBlue" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeBlue" />
+                            <Slider x:Name="MonochromePurpleSlider" x:Uid="EditorMonochromePurple" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    TickFrequency="1" TickPlacement="Inline"
+                                    AutomationProperties.AutomationId="EditorMonochromePurple" />
+                            <Slider x:Name="MonochromeMagentaSlider" x:Uid="EditorMonochromeMagenta" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeMagenta" />
+                            <Button x:Name="MonochromeReset" x:Uid="EditorMonochromeReset" Click="OnResetMonochromeMix"
+                                    AutomationProperties.AutomationId="EditorMonochromeReset" />
+                          </StackPanel>
+                        </ContentControl>
+                        <TextBlock x:Uid="EditorMonochromeToning"
+                                   TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+                </Expander>
+
                 <Expander x:Name="ColorGradingExpander" Header="Color grading"
                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           AutomationProperties.AutomationId="EditorColorGrading">

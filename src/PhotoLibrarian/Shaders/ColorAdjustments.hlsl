@@ -14,6 +14,7 @@ float4 MidtoneGrade;
 float4 HighlightGrade;
 float Blending;
 float Balance;
+float Monochrome;
 
 static const float Pi = 3.14159265358979323846;
 
@@ -106,9 +107,10 @@ float4 main(float4 position : SV_POSITION, float4 scenePosition : SCENE_POSITION
     float3 encoded = saturate(sample.rgb / sample.a);
     float3 lab = LinearSrgbToOkLab(ToLinearSrgb(encoded));
     float chroma = length(lab.yz);
+    float hue = 0;
     if (chroma > 0.00001)
     {
-        float hue = atan2(lab.z, lab.y) * 180.0 / Pi;
+        hue = atan2(lab.z, lab.y) * 180.0 / Pi;
         if (hue < 0) hue += 360.0;
 
         float hueShift = 0;
@@ -131,6 +133,27 @@ float4 main(float4 position : SV_POSITION, float4 scenePosition : SCENE_POSITION
         lab.x = saturate(lab.x + clamp(luminanceShift, -1.0, 1.0) * 0.15);
         lab.y = cos(hue * Pi / 180.0) * chroma;
         lab.z = sin(hue * Pi / 180.0) * chroma;
+    }
+
+    if (Monochrome > 0.5)
+    {
+        float mixShift = 0;
+        if (chroma > 0.00001)
+        {
+            [unroll]
+            for (int bandIndex = 0; bandIndex < 8; bandIndex++)
+            {
+                float distance = HueDistance(hue, GetHueCenter(bandIndex));
+                float weight = exp(-0.5 * (distance / 30.0) * (distance / 30.0));
+                mixShift += GetBand(bandIndex).w * weight;
+            }
+        }
+
+        float gray = dot(encoded, float3(0.2126, 0.7152, 0.0722));
+        float3 grayLab = LinearSrgbToOkLab(ToLinearSrgb(float3(gray, gray, gray)));
+        grayLab.x = saturate(grayLab.x + clamp(mixShift, -1.0, 1.0) * 0.15);
+        grayLab.yz = 0;
+        lab = grayLab;
     }
 
     float pivot = 0.5 + Balance * 0.25;

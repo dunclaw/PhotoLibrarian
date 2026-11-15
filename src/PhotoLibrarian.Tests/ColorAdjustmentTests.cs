@@ -79,8 +79,58 @@ public sealed class ColorAdjustmentTests : IDisposable
         xmp.SetProperty(EditParameters.XmpNamespace, "pledit:ColorAdjustmentsV1", "{}");
         Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
 
+        var validJson = System.Text.Json.JsonSerializer.Serialize(new ColorAdjustments());
+        var nullBandJson = validJson.Replace(
+            "\"MixerBands\":[{\"HueShiftDegrees\":0,\"Saturation\":0,\"Luminance\":0},",
+            "\"MixerBands\":[null,", StringComparison.Ordinal);
+        Assert.NotEqual(validJson, nullBandJson);
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:ColorAdjustmentsV1", nullBandJson);
+        Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
+
         var invalid = new ColorAdjustments();
         invalid.MixerBands[0].Saturation = double.NaN;
+        Assert.Throws<InvalidDataException>(invalid.Validate);
+    }
+
+    [Fact]
+    public void MonochromeMixRoundTripsAndRejectsUnsupportedOrMalformedRecipes()
+    {
+        var oldRecipe = EditParametersSerializer.ReadFromXmp(XmpMetaFactory.Create());
+        Assert.True(oldRecipe.MonochromeMix.IsDefault);
+
+        var mix = new MonochromeMix();
+        mix.LuminanceBands[3] = 0.75;
+        mix.LuminanceBands[5] = -0.4;
+        var parameters = new EditParameters { Effect = PhotoEffect.BlackAndWhite, MonochromeMix = mix };
+        var xmp = XmpMetaFactory.Create();
+        EditParametersSerializer.WriteToXmp(xmp, parameters);
+
+        var restored = EditParametersSerializer.ReadFromXmp(xmp);
+        Assert.Equal(PhotoEffect.BlackAndWhite, restored.Effect);
+        Assert.True(mix.ContentEquals(restored.MonochromeMix));
+        Assert.True(EditParametersSerializer.HasEditProperties(xmp));
+
+        EditParametersSerializer.ClearFromXmp(xmp);
+        Assert.True(EditParametersSerializer.ReadFromXmp(xmp).MonochromeMix.IsDefault);
+
+        XmpMetaFactory.SchemaRegistry.RegisterNamespace(EditParameters.XmpNamespace, EditParameters.XmpPrefix);
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion", "2");
+        Assert.Throws<NotSupportedException>(() => EditParametersSerializer.ReadFromXmp(xmp));
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion", "1");
+        Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixV1", "{}");
+        Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
+        xmp.DeleteProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion");
+        var validJson = System.Text.Json.JsonSerializer.Serialize(mix);
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixV1", validJson);
+        Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion", "1");
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixV1",
+            validJson[..^1] + ",\"Unexpected\":1}");
+        Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
+
+        var invalid = new MonochromeMix();
+        invalid.LuminanceBands[0] = double.NaN;
         Assert.Throws<InvalidDataException>(invalid.Validate);
     }
 
@@ -181,6 +231,132 @@ public sealed class ColorAdjustmentTests : IDisposable
     }
 
     [Fact]
+    public async Task BlackAndWhiteMixPreservesNeutralRec709AndAdjustsOriginalHueBands()
+    {
+        const uint width = 3;
+        const uint height = 1;
+        var path = Path.Combine(_directory, "monochrome-mix.png");
+        byte[] sourcePixels =
+        [
+            0, 0, 255, 255,
+            0, 255, 0, 255,
+            255, 0, 0, 255
+        ];
+        await RenderQualityFixtures.WriteImageAsync(path, width, height, sourcePixels);
+        using var device = new CanvasDevice();
+        using var source = await ImageEditRenderer.LoadOrientedAsync(device, path);
+
+        var neutralParameters = new EditParameters { Effect = PhotoEffect.BlackAndWhite };
+        var neutral = await ImageEditRenderer.RenderToPixelsAsync(device, path, neutralParameters);
+        Assert.InRange(Math.Abs(neutral.Pixels[0] - 54), 0, 1);
+        Assert.InRange(Math.Abs(neutral.Pixels[4] - 182), 0, 1);
+        Assert.InRange(Math.Abs(neutral.Pixels[8] - 18), 0, 1);
+        Assert.Equal(neutral.Pixels[0], neutral.Pixels[1]);
+        Assert.Equal(neutral.Pixels[1], neutral.Pixels[2]);
+
+        var mix = new MonochromeMix();
+        mix.LuminanceBands[0] = 1;
+        mix.LuminanceBands[3] = 1;
+        var parameters = new EditParameters
+        {
+            Effect = PhotoEffect.BlackAndWhite,
+            MonochromeMix = mix
+        };
+        var adjusted = await ImageEditRenderer.RenderToPixelsAsync(device, path, parameters);
+        Assert.True(adjusted.Pixels[0] > neutral.Pixels[0] + 20,
+            "The red mix band should brighten red source pixels.");
+        Assert.True(adjusted.Pixels[4] > neutral.Pixels[4] + 20,
+            "The green mix band should brighten green source pixels.");
+        Assert.InRange(Math.Abs(adjusted.Pixels[8] - neutral.Pixels[8]), 0, 2);
+        Assert.Equal(adjusted.Pixels[0], adjusted.Pixels[1]);
+        Assert.Equal(adjusted.Pixels[1], adjusted.Pixels[2]);
+
+        byte[] preview;
+        using (var target = new CanvasRenderTarget(device, width, height, 96))
+        {
+            using (var session = target.CreateDrawingSession())
+            {
+                session.Clear(Microsoft.UI.Colors.Transparent);
+                ImageEditRenderPass.Draw(session, source, parameters, new Vector2(width, height), Matrix3x2.Identity);
+            }
+            preview = target.GetPixelBytes();
+        }
+        Assert.Equal(preview, adjusted.Pixels);
+
+        var gradedParameters = parameters.Clone();
+        gradedParameters.ColorAdjustments.Midtones = new() { HueDegrees = 35, Amount = 0.7 };
+        var toned = await ImageEditRenderer.RenderToPixelsAsync(device, path, gradedParameters);
+        Assert.NotEqual(toned.Pixels[0], toned.Pixels[2]);
+    }
+
+    [Fact]
+    public async Task MonochromeMixDarkensOverlappingHuesButNotNeutralPixels()
+    {
+        var path = Path.Combine(_directory, "monochrome-overlap.png");
+        byte[] sourcePixels =
+        [
+            0, 0, 255, 255,
+            0, 128, 255, 255,
+            128, 128, 128, 255
+        ];
+        await RenderQualityFixtures.WriteImageAsync(path, 3, 1, sourcePixels);
+        var parameters = new EditParameters { Effect = PhotoEffect.BlackAndWhite };
+        var neutral = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        parameters.MonochromeMix.LuminanceBands[0] = -1;
+        var darkened = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        Assert.True(darkened.Pixels[0] < neutral.Pixels[0] - 10);
+        Assert.True(darkened.Pixels[4] < neutral.Pixels[4] - 10);
+        Assert.InRange(Math.Abs(darkened.Pixels[8] - neutral.Pixels[8]), 0, 1);
+    }
+
+    [Fact]
+    public async Task SkyAndFoliageMixHasVisibleIndependentBrightnessChanges()
+    {
+        var path = Path.Combine(_directory, "sky-and-foliage.png");
+        byte[] sourcePixels = [220, 130, 60, 255, 45, 135, 50, 255];
+        await RenderQualityFixtures.WriteImageAsync(path, 2, 1, sourcePixels);
+        var parameters = new EditParameters { Effect = PhotoEffect.BlackAndWhite };
+        var neutral = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        parameters.MonochromeMix.LuminanceBands[5] = -1;
+        var darkerSky = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        Assert.True(neutral.Pixels[0] - darkerSky.Pixels[0] >= 20, "Blue must visibly darken blue sky pixels.");
+        Assert.InRange(Math.Abs(neutral.Pixels[4] - darkerSky.Pixels[4]), 0, 3);
+        parameters.MonochromeMix.LuminanceBands[5] = 0;
+        parameters.MonochromeMix.LuminanceBands[3] = 1;
+        var lighterFoliage = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        Assert.True(lighterFoliage.Pixels[4] - neutral.Pixels[4] >= 20, "Green must visibly brighten foliage.");
+        Assert.InRange(Math.Abs(neutral.Pixels[0] - lighterFoliage.Pixels[0]), 0, 3);
+    }
+
+    [Fact]
+    public async Task MonochromeCanBeEnabledAndMixResetInEditorAfterRevert()
+    {
+        var path = Path.Combine(_directory, "monochrome-controls.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 1, 1, [220, 130, 60, 255]);
+        var originalPixels = await RenderQualityFixtures.ReadPngPixelsAsync(path);
+        var viewModel = new ImageEditorViewModel(new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await viewModel.OpenForEditAsync(new ImageEntry { FilePath = path, FileName = Path.GetFileName(path) });
+        viewModel.SetMonochromeEnabled(true);
+        var mix = new MonochromeMix();
+        mix.LuminanceBands[5] = -0.8;
+        viewModel.SetMonochromeMix(mix);
+        viewModel.Exposure = 0.2;
+        viewModel.ResetMonochromeMix();
+        Assert.Equal(PhotoEffect.BlackAndWhite, viewModel.Effect);
+        Assert.True(viewModel.GetCurrentParameters().MonochromeMix.IsDefault);
+        Assert.Equal(0.2, viewModel.Exposure);
+        viewModel.UndoCommand.Execute(null);
+        Assert.Equal(-0.8, viewModel.GetCurrentParameters().MonochromeMix.LuminanceBands[5]);
+        Assert.True(await viewModel.SaveAsync((_, _) => throw new InvalidOperationException("Do not bake B&W.")));
+        await viewModel.RevertToOriginalCommand.ExecuteAsync(null);
+        Assert.Equal(PhotoEffect.None, viewModel.Effect);
+        viewModel.SetMonochromeEnabled(true);
+        Assert.True(viewModel.CanEditMonochromeMix);
+        Assert.Equal(PhotoEffect.BlackAndWhite, viewModel.Effect);
+        Assert.Equal(originalPixels, await RenderQualityFixtures.ReadPngPixelsAsync(path));
+    }
+
+    [Fact]
     public async Task MixerHistoryAndExportPersistRecipeWithoutChangingSourcePixels()
     {
         var path = Path.Combine(_directory, "recipe.png");
@@ -230,6 +406,51 @@ public sealed class ColorAdjustmentTests : IDisposable
         Assert.True(await viewModel.SaveAsync((_, _) =>
             throw new InvalidOperationException("Resetting a recipe must not bake pixels.")));
         Assert.True(ImageEditService.ReadEditParameters(path).ColorAdjustments.IsDefault);
+        Assert.Equal(originalPixels, await RenderQualityFixtures.ReadPngPixelsAsync(path));
+    }
+
+    [Fact]
+    public async Task BlackAndWhiteRecipeSavesWithoutBakingSourcePixels()
+    {
+        var path = Path.Combine(_directory, "monochrome-recipe.png");
+        byte[] pixels = [0, 0, 255, 255, 0, 255, 0, 255];
+        await RenderQualityFixtures.WriteImageAsync(path, 2, 1, pixels);
+        var originalPixels = await RenderQualityFixtures.ReadPngPixelsAsync(path);
+        var viewModel = new ImageEditorViewModel(
+            new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await viewModel.OpenForEditAsync(new ImageEntry { FilePath = path, FileName = Path.GetFileName(path) });
+
+        viewModel.SelectEffect(PhotoEffect.BlackAndWhite, "Black and white");
+        var mix = viewModel.GetCurrentParameters().MonochromeMix;
+        mix.LuminanceBands[3] = 0.6;
+        viewModel.SetMonochromeMix(mix);
+        Assert.True(await viewModel.SaveAsync((_, _) =>
+            throw new InvalidOperationException("Black-and-white recipes must remain non-destructive.")));
+
+        var saved = ImageEditService.ReadEditParameters(path);
+        Assert.Equal(PhotoEffect.BlackAndWhite, saved.Effect);
+        Assert.Equal(0.6, saved.MonochromeMix.LuminanceBands[3]);
+        Assert.Equal(originalPixels, await RenderQualityFixtures.ReadPngPixelsAsync(path));
+
+        var unsupported = await ImageExportService.ExportAsync([path], _directory, new() { Quality = 100 });
+        Assert.Empty(unsupported.ExportedPaths);
+        Assert.Contains("cannot render black-and-white", Assert.Single(unsupported.Failures).Message);
+        var exported = await ImageExportService.ExportAsync([path], _directory, new() { Quality = 100 },
+            renderRecipe: async (sourcePath, recipe, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                var rendered = await ImageEditRenderer.RenderToPixelsAsync(sourcePath, recipe);
+                return new(rendered.Width, rendered.Height, rendered.Pixels);
+            });
+        Assert.Empty(exported.Failures);
+        await using var stream = File.OpenRead(Assert.Single(exported.ExportedPaths));
+        var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
+        var output = (await decoder.GetPixelDataAsync()).DetachPixelData();
+        for (var index = 0; index < output.Length; index += 4)
+        {
+            Assert.InRange(Math.Abs(output[index] - output[index + 1]), 0, 20);
+            Assert.InRange(Math.Abs(output[index + 1] - output[index + 2]), 0, 20);
+        }
         Assert.Equal(originalPixels, await RenderQualityFixtures.ReadPngPixelsAsync(path));
     }
 }

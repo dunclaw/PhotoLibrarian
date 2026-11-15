@@ -17,6 +17,30 @@
   <data name="RecoveryFailedTitle" xml:space="preserve"><value>Recovery could not be applied</value></data>
   <data name="RecoveryRetryDetails" xml:space="preserve"><value>Check the photo and recovery checkpoints, then try again.</value></data>
   <data name="RecoveryContinue" xml:space="preserve"><value>Continue</value></data>
+  <data name="EditorMonochromePanel.Header" xml:space="preserve"><value>Black and white</value></data>
+  <data name="EditorMonochromeToggle.Header" xml:space="preserve"><value>Convert to black and white</value></data>
+  <data name="EditorMonochromeToggle.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Convert to black and white</value></data>
+  <data name="EditorMonochromeToggle.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Adjust areas by their original color, even though the preview is black and white. Try Blue to darken skies or Green to brighten foliage. Colors absent from the original photo will have little effect.</value></data>
+  <data name="EditorMonochromeDirection.Text" xml:space="preserve"><value>Original colors: left = darker, right = brighter</value></data>
+  <data name="EditorMonochromeRed.Header" xml:space="preserve"><value>Red</value></data>
+  <data name="EditorMonochromeRed.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally red areas</value></data>
+  <data name="EditorMonochromeOrange.Header" xml:space="preserve"><value>Orange</value></data>
+  <data name="EditorMonochromeOrange.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally orange areas</value></data>
+  <data name="EditorMonochromeYellow.Header" xml:space="preserve"><value>Yellow</value></data>
+  <data name="EditorMonochromeYellow.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally yellow areas</value></data>
+  <data name="EditorMonochromeGreen.Header" xml:space="preserve"><value>Green (foliage)</value></data>
+  <data name="EditorMonochromeGreen.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally green areas, such as foliage</value></data>
+  <data name="EditorMonochromeAqua.Header" xml:space="preserve"><value>Aqua</value></data>
+  <data name="EditorMonochromeAqua.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally aqua areas</value></data>
+  <data name="EditorMonochromeBlue.Header" xml:space="preserve"><value>Blue (skies)</value></data>
+  <data name="EditorMonochromeBlue.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally blue areas, such as skies</value></data>
+  <data name="EditorMonochromePurple.Header" xml:space="preserve"><value>Purple</value></data>
+  <data name="EditorMonochromePurple.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally purple areas</value></data>
+  <data name="EditorMonochromeMagenta.Header" xml:space="preserve"><value>Magenta</value></data>
+  <data name="EditorMonochromeMagenta.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally magenta areas</value></data>
+  <data name="EditorMonochromeReset.Content" xml:space="preserve"><value>Reset mix</value></data>
+  <data name="EditorMonochromeReset.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reset black and white mix, keeping black and white enabled</value></data>
+  <data name="EditorMonochromeToning.Text" xml:space="preserve"><value>For a sepia or selenium tint, use Color grading below.</value></data>
   <data name="ComparisonCompareMenu.Text" xml:space="preserve"><value>Compare selected photos</value></data>
   <data name="GridComparison.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Compare selected photos</value></data>
   <data name="GridComparison.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Compare selected photos in this window. Select 2 or more still photos; the layout adapts automatically.</value></data>
