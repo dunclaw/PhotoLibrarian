@@ -65,7 +65,12 @@ public sealed class ColorAdjustments
     {
         if (MixerBands is null || MixerBands.Count != MixerBandCount)
             throw new InvalidDataException($"Color mixer recipes must contain exactly {MixerBandCount} hue bands.");
-        foreach (var band in MixerBands) band.Validate();
+        foreach (var band in MixerBands)
+        {
+            if (band is null)
+                throw new InvalidDataException("Color mixer recipes cannot contain a missing hue band.");
+            band.Validate();
+        }
         (Shadows ?? throw new InvalidDataException("Shadow color grading is missing.")).Validate();
         (Midtones ?? throw new InvalidDataException("Midtone color grading is missing.")).Validate();
         (Highlights ?? throw new InvalidDataException("Highlight color grading is missing.")).Validate();

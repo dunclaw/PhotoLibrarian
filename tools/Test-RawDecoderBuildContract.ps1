@@ -54,6 +54,29 @@ try {
     }
     Write-Output 'PASS compiler-version changes cannot reuse the previous generated build tree'
 
+    $featuresDirectory = Join-Path $currentTree.Trim() 'opencv\modules\features2d'
+    if (Test-Path $featuresDirectory) {
+        $trackingPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($name in @('opencv_features2d_AVX2', 'opencv_features2d_AVX512_SKX')) {
+            $projectPath = Join-Path $featuresDirectory "$name.vcxproj"
+            if (-not (Test-Path $projectPath)) { continue }
+            foreach ($configuration in @('Debug', 'Release')) {
+                $state = & $msbuild $projectPath /nologo /p:Platform=x64 "/p:Configuration=$configuration" /getProperty:LastBuildState
+                if ($LASTEXITCODE -ne 0) { throw "Could not evaluate $name tracking state." }
+                $statePath = [IO.Path]::GetFullPath([IO.Path]::Combine($featuresDirectory, $state.Trim()))
+                $expectedPath = Join-Path $currentTree.Trim() "tlog\$name\$configuration\$name.lastbuildstate"
+                if ($statePath -ne [IO.Path]::GetFullPath($expectedPath) -or
+                    -not $trackingPaths.Add($statePath)) {
+                    throw 'OpenCV tracking files must be isolated by project and configuration below the build root.'
+                }
+                if ($statePath.Length -ge 260) {
+                    throw "OpenCV tracking state exceeds the classic Windows path limit: $statePath"
+                }
+            }
+        }
+        Write-Output 'PASS short, project/configuration-isolated OpenCV tracking paths'
+    }
+
     $libRawRoot = Join-Path $repoRoot "native\obj\sources\LibRaw-$($dependencies.LibRawVersion)"
     if (Test-Path $libRawRoot) {
         $manifest = [xml](Get-Content (Join-Path $repoRoot 'native\LibRawSources.props') -Raw)
