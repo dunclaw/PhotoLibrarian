@@ -13,6 +13,14 @@ yet, so the product page intentionally shows a "Coming soon" card.
 
 ## 1. Create Azure hosting and hand off its deployment token
 
+**Hosting setup:** The owner supplied the public hostname
+`https://white-river-0e3c4521e.4.azurestaticapps.net` and confirmed that the
+repository secret `AZURE_STATIC_WEB_APPS_API_TOKEN` was saved. This confirms
+the handoff, not a deployment: the release site has not been deployed by this
+change. After deployment, verify the product page and
+`https://white-river-0e3c4521e.4.azurestaticapps.net/privacy.html` are publicly
+reachable before using the privacy URL in Partner Center.
+
 The repository already has a GitHub Actions workflow,
 `.github\workflows\deploy-release-site.yml`; it deploys `website\` to Azure
 Static Web Apps. The Azure account that hosts model files can create this
@@ -35,8 +43,8 @@ model Blob Storage account or its public model container for this website.
    `AZURE_STATIC_WEB_APPS_API_TOKEN` and paste the token as its value. This
    requires repository permission to manage Actions secrets.
 6. Hand off only the public `azurestaticapps.net` hostname and confirmation
-   that the secret was saved. Never send the token itself. No Azure resource or
-   secret is created by this repository change.
+   that the secret was saved. Never send the token itself. This repository
+   change does not create Azure resources or secrets.
 
 Pull requests run the site checks but do not deploy. Once the PR is merged, a
 push to `master` that changes the website or this guide triggers deployment;
