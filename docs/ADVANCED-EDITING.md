@@ -202,6 +202,49 @@ denoise/deblur, existing tone/color controls, sharpening, then rotation.
 New detail stages need explicit neutral bypasses. Existing edits with no new
 properties must keep today's graph and appearance.
 
+### #194 isolated creative-effect primitives: not activated
+
+The internal `SourceDetailEffect` and `PostCropEffectReference` provide bounded
+implementation and acceptance work while the shared final-output geometry hook
+is being developed. Neither is connected to the editor, render graph, XMP
+serializer, preset composer, or RAW development. No new recipe can be saved
+and silently ignored. These primitives do not complete #194.
+
+The GPU source primitive works in straight gamma-encoded raster RGB and
+re-premultiplies with the original alpha. Dehaze uses a conservative local
+dark-channel average with spatial/range weighting and highlight protection:
+positive values remove a bounded veil, negative values add one. Texture applies
+a signed, gated difference between two luminance smoothing scales. Its band
+response suppresses strong step edges and very low-amplitude one-pixel noise;
+it is not Clarity, sharpening, blur inversion, or recovered sensor detail.
+Amounts are finite and in [-1, 1]; invalid inputs return an explicit error with
+no image. Zero amounts bypass exactly. The simultaneous primitive samples the
+original input for both corrections, with an eight-source-pixel halo and hard
+image boundaries. It does not implement source resampling or a tiled engine.
+
+The CPU post-crop reference uses complete, continuous output dimensions and
+global pixel centers and footprints, not viewport/tile-local coordinates.
+Negative Vignette amount darkens and positive brightens; feather and roundness
+control the centered elliptical falloff. Highlight priority protects bright
+values when darkening. Grain is a seeded two-scale lattice field; size is
+relative to the cropped output's shorter dimension and roughness blends the
+finer scale. Analytically integrating the bilinear field over each pixel box
+keeps proportional resolutions consistent and suppresses subpixel aliasing.
+This reference uses an axis-aligned footprint; a future GPU consumer must
+deliberately handle the shared hook's affine footprint instead of discarding
+its scale/shear. It reports invalid input, unrepresentable lattice coordinates
+and cancellation explicitly. It is not a production CPU export path.
+
+Focused generated-fixture tests cover signed behavior, highlight/alpha safety,
+fine-band versus edge responses, two-dimensional source halos, stable seeds,
+global-coordinate partition invariance, relative grain scale and integrated
+footprints. They also exercise 12 MP and 24 MP source rendering without a
+dimension cutoff. These are not real-photo quality approval, constant-memory
+proof, integrated preview/export parity for the new effects, ARM64 validation,
+or a production-ready procedural shader. The existing raster graph remains
+unchanged. Final geometry integration, all consumers, portable recipe/history
+support, presets, UI and photographic review remain activation gates.
+
 ### #119 model-free denoising comparison: no-go
 
 The advanced denoiser remains blocked. The existing bilateral filter is
