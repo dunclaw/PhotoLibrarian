@@ -65,7 +65,7 @@
                         <FontIcon Glyph="&#xE71E;" FontSize="14" />
                     </Button>
                     <AppBarSeparator />
-                    <Button x:Name="ComparisonButton" Content="Compare" Padding="8,4"
+                    <Button x:Name="ComparisonButton" Content="Compare" Padding="8,4" IsEnabled="False"
                             AutomationProperties.Name="Before and after recipe views"
                             AutomationProperties.AutomationId="EditorComparison"
                             ToolTipService.ToolTip="Before recipes (B), side by side (N), split (M). Press again for After.">
@@ -82,6 +82,23 @@
                                                      AutomationProperties.AutomationId="EditorSplitView" />
                                 <MenuFlyoutSeparator />
                                 <MenuFlyoutItem Text="Before ignores all recipes, not earlier baked edits." IsEnabled="False" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button x:Name="ClippingButton" Content="Clipping" Padding="8,4" IsEnabled="False"
+                            AutomationProperties.Name="Clipping overlays"
+                            AutomationProperties.AutomationId="EditorClipping"
+                            ToolTipService.ToolTip="View-only SDR clipping on the edited image. Histogram indicators use sampled rendered pixels.">
+                        <Button.Flyout>
+                            <MenuFlyout Opening="OnClippingOpening">
+                                <MenuFlyoutItem x:Name="ClippingSummaryItem" Text="Sampled output" IsEnabled="False"
+                                                AutomationProperties.AutomationId="EditorClippingSummary" />
+                                <ToggleMenuFlyoutItem x:Name="ClippedShadowsItem" Text="Shadows (blue): all RGB at black"
+                                                     AutomationProperties.AutomationId="EditorClippedShadows" />
+                                <ToggleMenuFlyoutItem x:Name="ClippedHighlightsItem" Text="Highlights (red): any RGB at white"
+                                                     AutomationProperties.AutomationId="EditorClippedHighlights" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="SDR output, not RAW sensor clipping. After image only." IsEnabled="False" />
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>
@@ -202,6 +219,9 @@
                     <TextBlock x:Name="RawPreviewStatus" TextWrapping="Wrap"
                                AutomationProperties.AutomationId="EditorRawPreviewStatus"
                                AutomationProperties.LiveSetting="Polite" />
+                    <canvas:CanvasControl x:Name="RawHistogramCanvas" Height="112" Draw="OnHistogramDraw"
+                                          AutomationProperties.Name="Developed SDR luminance histogram"
+                                          AutomationProperties.AutomationId="EditorRawHistogram" />
                     <TextBlock Text="Exposure (stops)" Style="{StaticResource CaptionTextBlockStyle}" />
                     <TextBlock x:Name="RawExposureText" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="RawExposureSlider"
@@ -389,7 +409,7 @@
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Levels section -->
-                <Expander Header="Levels" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                <Expander x:Name="LevelsPanel" Header="Levels" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           AutomationProperties.AutomationId="EditorLevelsPanel">
                     <StackPanel Spacing="12">
                         <canvas:CanvasControl x:Name="HistogramCanvas"
