@@ -79,8 +79,40 @@ public sealed class VideoWorkflowTests
         Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnEditVideoClick");
         Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick");
         Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnTrimVideoClick");
+
+        var editTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoEditTools");
+        var editControls = editTools.Descendants()
+            .Where(element => element.Name.LocalName is "Button" or "CheckBox" or "Slider").ToList();
+        var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"))
+            .Descendants("data").Select(element => (string)element.Attribute("name")!).ToHashSet();
+        foreach (var control in editControls)
+        {
+            Assert.False(string.IsNullOrWhiteSpace((string?)control.Attribute("AutomationProperties.AutomationId")));
+            string uid = (string)control.Attribute(x + "Uid")!;
+            Assert.Contains(resources, key => key.StartsWith(uid + ".", StringComparison.Ordinal));
+        }
+        Assert.Contains(editTools.Descendants(), element =>
+            (string?)element.Attribute("Click") == "OnVideoRotateLeftClick");
+        Assert.Contains(editTools.Descendants(), element =>
+            (string?)element.Attribute("Click") == "OnVideoRotateRightClick");
+        Assert.Contains(editTools.Descendants(), element =>
+            (string?)element.Attribute("Click") == "OnVideoResetRotationClick");
+        var options = editTools.Descendants().Single(element =>
+            (string?)element.Attribute(x + "Name") == "VideoEditOptionsPanel");
+        var optionControls = options.Elements(presentation + "StackPanel").Single();
+        Assert.DoesNotContain(optionControls.Descendants(), element =>
+            (string?)element.Attribute(x + "Name") == "CancelVideoEditButton");
+
         var viewer = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
         Assert.DoesNotContain(viewer.Descendants(), element => (string?)element.Attribute("Click") == "OnStabilizeVideo");
+        var overlayCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml.cs"));
+        Assert.Contains("ShowVideoEditPreviewAsync", overlayCode);
+        Assert.Contains("expectedSourcePath", overlayCode);
+        var editWorkflow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.VideoEditing.cs"));
+        Assert.Contains("VideoEditingService.CreateAsync", editWorkflow);
+        Assert.Contains("editing.ExportAsync(destinationPath, token)", editWorkflow);
+        Assert.Contains("VideoEditPreviewOpenFailed", editWorkflow);
+
         var dialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoStabilizationDialog.xaml"));
         var checkBoxes = dialog.Descendants(presentation + "CheckBox")
             .ToDictionary(element => (string?)element.Attribute("AutomationProperties.AutomationId") ?? "");
@@ -103,28 +135,19 @@ public sealed class VideoWorkflowTests
     }
 
     [Fact]
-    public void VideoEditDialogRequiresPreparedPreviewAndLocalizesAccessibleControls()
+    public void VideoEditingUsesInlineToolbarAndHasNoEditDialog()
     {
-        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
-        var dialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoEditDialog.xaml"));
-        Assert.Equal("False", (string?)dialog.Root!.Attribute("IsPrimaryButtonEnabled"));
-        var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"))
-            .Descendants("data").Select(element => (string)element.Attribute("name")!).ToHashSet();
-        foreach (var control in dialog.Descendants().Where(element =>
-                     element.Name.LocalName is "Button" or "ComboBox" or "CheckBox" or "TextBox" or
-                         "MediaPlayerElement" or "Slider"))
-        {
-            Assert.False(string.IsNullOrWhiteSpace((string?)control.Attribute("AutomationProperties.AutomationId")));
-            string uid = (string)control.Attribute(x + "Uid")!;
-            Assert.Contains(resources, key => key.StartsWith(uid + ".", StringComparison.Ordinal));
-        }
-        Assert.Contains("VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
-        Assert.Contains("VideoEditRibbon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
-        Assert.Contains("VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
-        Assert.Contains("VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name", resources);
-        var prepare = dialog.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "PrepareButton");
-        Assert.Equal("OnPrepare", (string?)prepare.Attribute("Click"));
-        Assert.Equal("False", (string?)prepare.Attribute("IsEnabled"));
+        var ribbon = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml"));
+        Assert.Contains(ribbon.Descendants(), element =>
+            (string?)element.Attribute("{http://schemas.microsoft.com/winfx/2006/xaml}Name") == "VideoEditTools");
+
+        var windowCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.xaml.cs"));
+        Assert.Contains("TopRibbon.VideoEditOptionsChanged += OnVideoEditOptionsChanged", windowCode);
+        Assert.Contains("TopRibbon.VideoEditPrepareClicked += OnVideoEditPrepareClicked", windowCode);
+        Assert.Contains("TopRibbon.VideoEditExportClicked += OnVideoEditExportClicked", windowCode);
+        Assert.Contains("TopRibbon.VideoEditCancelClicked += OnVideoEditCancelClicked", windowCode);
+        var workflow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.VideoEditing.cs"));
+        Assert.DoesNotContain("VideoEditDialog", workflow);
     }
 
     [Fact]

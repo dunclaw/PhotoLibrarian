@@ -17,10 +17,13 @@ internal sealed class MediaFoundationFrameReader : IDisposable
     private readonly IMFSourceReader _reader;
     private readonly int _width, _height;
     private int _bufferWidth, _bufferHeight, _stride, _cropX, _cropY;
+    private bool _hasVideoFormat;
     private bool _disposed;
 
     public uint AudioRate { get; }
     public uint AudioChannels { get; }
+    public uint SourceVideoNominalRange { get; private set; }
+    public uint VideoNominalRange { get; private set; }
 
     public MediaFoundationFrameReader(string sourcePath, int width, int height, bool includeAudio)
     {
@@ -33,6 +36,11 @@ internal sealed class MediaFoundationFrameReader : IDisposable
         try
         {
             reader = MFCreateSourceReaderFromURL(sourcePath, null);
+            using (var native = reader.GetNativeMediaType(SourceReaderIndex.FirstVideoStream, 0))
+            {
+                if (native.GetUInt32(MediaTypeAttributeKeys.VideoNominalRange, out uint sourceRange).Success)
+                    SourceVideoNominalRange = sourceRange;
+            }
             reader.SetStreamSelection(SourceReaderIndex.AllStreams, false);
             using (var type = MFCreateMediaType())
             {
@@ -137,6 +145,18 @@ internal sealed class MediaFoundationFrameReader : IDisposable
 
     private void UpdateVideoFormat(IMFMediaType type)
     {
+        uint nominalRange = 0;
+        if (type.GetUInt32(MediaTypeAttributeKeys.VideoNominalRange, out uint negotiatedRange).Success)
+            nominalRange = negotiatedRange;
+        // Source Reader commonly omits this attribute from its NV12 output type. Carry the
+        // source's explicit range through; treat untagged input as standard limited-range video.
+        if (nominalRange == 0)
+            nominalRange = SourceVideoNominalRange != 0 ? SourceVideoNominalRange : 2;
+        if (_hasVideoFormat && nominalRange != VideoNominalRange)
+            throw new NotSupportedException("The decoded video changes its nominal luma range.");
+        VideoNominalRange = nominalRange;
+        _hasVideoFormat = true;
+
         MFGetAttributeSize(type, MediaTypeAttributeKeys.FrameSize, out uint width, out uint height).CheckError();
         _bufferWidth = checked((int)width);
         _bufferHeight = checked((int)height);

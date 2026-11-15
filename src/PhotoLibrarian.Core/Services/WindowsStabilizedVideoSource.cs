@@ -1,5 +1,6 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices.WindowsRuntime;
+using Vortice.MediaFoundation;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
 
@@ -43,6 +44,11 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
         try
         {
             var video = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Nv12, (uint)width, (uint)height);
+            if (_reader.VideoNominalRange != 0)
+            {
+                video.Properties[MediaTypeAttributeKeys.VideoNominalRange] = _reader.VideoNominalRange;
+                profile.Video.Properties[MediaTypeAttributeKeys.VideoNominalRange] = _reader.VideoNominalRange;
+            }
             video.FrameRate.Numerator = profile.Video.FrameRate.Numerator;
             video.FrameRate.Denominator = profile.Video.FrameRate.Denominator;
             video.PixelAspectRatio.Numerator = profile.Video.PixelAspectRatio.Numerator;
@@ -96,7 +102,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                 }
                 if (isVideo && (_brightness != 0 || _contrast != 100))
                     VideoToneAdjustment.ApplyBrightnessContrastNv12(
-                        data, _width, _height, _brightness, _contrast);
+                        data, _width, _height, _reader.VideoNominalRange, _brightness, _contrast);
                 var output = MediaStreamSample.CreateFromBuffer(data.AsBuffer(), TimeSpan.FromTicks(sample.Timestamp));
                 output.Duration = TimeSpan.FromTicks(sample.Duration);
                 args.Request.Sample = output;

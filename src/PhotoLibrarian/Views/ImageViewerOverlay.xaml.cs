@@ -41,6 +41,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     private int _playbackVersion;
     private bool _isStabilizationOpen;
     private bool _isVideoTrimOpen;
+    private bool _isVideoEditing;
     private CancellationTokenSource? _gifCancellation;
     private WriteableBitmap? _gifBitmap;
     public bool IsCropping { get; private set; }
@@ -52,6 +53,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     public event EventHandler? CropCancelRequested;
     public event EventHandler? StraightenApplyRequested;
     public event EventHandler? StraightenCancelRequested;
+    public event EventHandler? VideoEditCancelRequested;
     public event EventHandler<RedEyeBounds>? RedEyeSelectionCompleted;
 
     public CropOverlay CropOverlay => CropOverlayView;
@@ -466,23 +468,34 @@ public sealed partial class ImageViewerOverlay : UserControl
         });
     }
 
-    private async Task PlayVideoAsync(string path, TimeSpan resumePosition = default, bool isRetry = false)
+    private async Task PlayVideoAsync(
+        string path, TimeSpan resumePosition = default, bool isRetry = false,
+        bool isEditPreview = false, bool shouldPlay = true, string? expectedSourcePath = null)
     {
+        if (expectedSourcePath is not null &&
+            (ViewModel?.IsOpen != true ||
+             !string.Equals(ViewModel.VideoPath, expectedSourcePath, StringComparison.OrdinalIgnoreCase)))
+            return;
         StopVideo();
         int version = _playbackVersion;
         try
         {
             if (version != _playbackVersion || ViewModel?.IsOpen != true ||
-                !string.Equals(ViewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase)) return;
+                (!isEditPreview && !string.Equals(ViewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase)) ||
+                (expectedSourcePath is not null &&
+                 !string.Equals(ViewModel.VideoPath, expectedSourcePath, StringComparison.OrdinalIgnoreCase)))
+                return;
 
             var info = new System.IO.FileInfo(path);
             _playback = new PlaybackDiagnostics(path, version, info.Length, info.LastWriteTimeUtc,
-                DateTime.UtcNow, resumePosition, isRetry);
+                DateTime.UtcNow, resumePosition, isRetry, isEditPreview, shouldPlay);
             DebugLog.WriteLine($"Video: opening {path} ({info.Length:N0} bytes, last written " +
                 $"{info.LastWriteTime:HH:mm:ss.fff}){(isRetry ? $", retry resuming at {resumePosition}" : "")}");
 
             var playbackSource = await Task.Run(() => VideoPlaybackSource.Open(path));
-            if (version != _playbackVersion)
+            if (version != _playbackVersion ||
+                (expectedSourcePath is not null &&
+                 !string.Equals(ViewModel?.VideoPath, expectedSourcePath, StringComparison.OrdinalIgnoreCase)))
             {
                 playbackSource.Dispose();
                 return;
@@ -491,6 +504,8 @@ public sealed partial class ImageViewerOverlay : UserControl
             _videoSource = playbackSource;
             VideoPlayer.Source = playbackSource.Source;
             ObserveMediaPlayer(VideoPlayer.MediaPlayer);
+            if (_playback is { } playback)
+                _playback = playback with { ExpectedSourcePath = expectedSourcePath };
         }
         catch (Exception ex)
         {
@@ -502,7 +517,8 @@ public sealed partial class ImageViewerOverlay : UserControl
     /// <summary>What was opened, so a later failure can be logged against the file's state at open time.</summary>
     private sealed record PlaybackDiagnostics(
         string Path, int Version, long Length, DateTime LastWriteUtc, DateTime OpenedUtc,
-        TimeSpan ResumePosition, bool IsRetry)
+        TimeSpan ResumePosition, bool IsRetry, bool IsEditPreview, bool ShouldPlay,
+        string? ExpectedSourcePath = null)
     {
         public int FailureReported;
     }
@@ -535,11 +551,16 @@ public sealed partial class ImageViewerOverlay : UserControl
     private void OnMediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
     {
         var playback = _playback;
+        if (playback is null || playback.Version != _playbackVersion ||
+            !ReferenceEquals(sender.Source, _videoSource?.Source))
+            return;
         var session = sender.PlaybackSession;
         DebugLog.WriteLine($"Video: opened {System.IO.Path.GetFileName(playback?.Path)} " +
             $"{session.NaturalVideoWidth}x{session.NaturalVideoHeight}, duration {session.NaturalDuration}");
         if (playback is { ResumePosition: var resume } && resume > TimeSpan.Zero && resume < session.NaturalDuration)
             session.Position = resume;
+        if (playback is { ShouldPlay: false })
+            sender.Pause();
     }
 
     private void OnPlaybackStateChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
@@ -583,11 +604,52 @@ public sealed partial class ImageViewerOverlay : UserControl
             await Task.Delay(500);
             if (playback.Version != _playbackVersion) return;
             DebugLog.WriteLine($"Video: reopening {playback.Path} after playback failure");
-            await PlayVideoAsync(playback.Path, position, isRetry: true);
+            await PlayVideoAsync(playback.Path, position, isRetry: true,
+                isEditPreview: playback.IsEditPreview, shouldPlay: playback.ShouldPlay,
+                expectedSourcePath: playback.ExpectedSourcePath);
         });
     }
 
     public void PauseVideo() => VideoPlayer.MediaPlayer?.Pause();
+
+    public TimeSpan VideoPosition => VideoPlayer.MediaPlayer?.PlaybackSession.Position ?? TimeSpan.Zero;
+    public bool IsVideoPlaying =>
+        VideoPlayer.MediaPlayer?.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing;
+
+    public void SetVideoEditingMode(bool editing)
+    {
+        _isVideoEditing = editing;
+        var navigationVisibility = editing || IsCropping || IsStraightening ||
+            IsRedEyeRemoving || IsManualFaceTagging ? Visibility.Collapsed : Visibility.Visible;
+        PreviousButton.Visibility = navigationVisibility;
+        NextButton.Visibility = navigationVisibility;
+    }
+
+    public async Task<bool> ShowVideoEditPreviewAsync(string sourcePath, string path)
+    {
+        if (ViewModel is not { IsOpen: true } viewModel ||
+            !string.Equals(viewModel.VideoPath, sourcePath, StringComparison.OrdinalIgnoreCase))
+            return false;
+        await PlayVideoAsync(path, isEditPreview: true, expectedSourcePath: sourcePath);
+        return _playback is { IsEditPreview: true } playback &&
+            string.Equals(playback.Path, path, StringComparison.OrdinalIgnoreCase) &&
+            ReferenceEquals(VideoPlayer.Source, _videoSource?.Source);
+    }
+
+    public void StopVideoEditPreview(string path)
+    {
+        if (_playback is { IsEditPreview: true } playback &&
+            string.Equals(playback.Path, path, StringComparison.OrdinalIgnoreCase))
+            StopVideo();
+    }
+
+    public Task RestoreVideoPlaybackAsync(string path, TimeSpan position, bool shouldPlay)
+    {
+        if (ViewModel is not { IsOpen: true } viewModel ||
+            !string.Equals(viewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase))
+            return Task.CompletedTask;
+        return PlayVideoAsync(path, position, shouldPlay: shouldPlay);
+    }
 
     public async Task StabilizeVideoAsync()
     {
@@ -897,7 +959,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (!ShouldHandleShortcut(e.Key, IsInteractiveControl(e.OriginalSource as DependencyObject),
-            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging))
+            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging || _isVideoEditing))
             return;
         if (HandleViewerKey(e.Key)) e.Handled = true;
     }
@@ -933,7 +995,7 @@ public sealed partial class ImageViewerOverlay : UserControl
             return true;
         }
         if (!ShouldHandleShortcut(key, false,
-            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging))
+            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging || _isVideoEditing))
             return false;
         if (ViewModel is null) return false;
         if (_isPhotoContextMenuOpen) return false;
@@ -973,6 +1035,13 @@ public sealed partial class ImageViewerOverlay : UserControl
         {
             if (key == Windows.System.VirtualKey.Escape)
                 ExitManualFaceTagging();
+            return true;
+        }
+
+        if (_isVideoEditing)
+        {
+            if (key == Windows.System.VirtualKey.Escape)
+                VideoEditCancelRequested?.Invoke(this, EventArgs.Empty);
             return true;
         }
 

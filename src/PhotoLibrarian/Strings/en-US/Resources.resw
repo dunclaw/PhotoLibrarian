@@ -496,26 +496,25 @@ Backup: {3}
   <data name="FuseExitBeforeNavigate" xml:space="preserve"><value>Click Photo Fuse again to save and exit before opening another photo.</value></data>
   <data name="FuseFailed" xml:space="preserve"><value>Photo Fuse failed: {0}</value></data>
   <data name="FuseIndexFailed" xml:space="preserve"><value>Photo Fuse copy saved at {0}, but could not be added to the library: {1}</value></data>
-  <data name="VideoEditDialog.Title" xml:space="preserve"><value>Edit video brightness, contrast, rotation, and audio</value></data>
-  <data name="VideoEditDialog.PrimaryButtonText" xml:space="preserve"><value>Export edited copy</value></data>
-  <data name="VideoEditDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
-  <data name="VideoEditRotation.Header" xml:space="preserve"><value>Rotate from current orientation</value></data>
-  <data name="VideoEditRotationNone.Content" xml:space="preserve"><value>No rotation</value></data>
-  <data name="VideoEditRotation90.Content" xml:space="preserve"><value>90 degrees clockwise</value></data>
-  <data name="VideoEditRotation180.Content" xml:space="preserve"><value>180 degrees</value></data>
-  <data name="VideoEditRotation270.Content" xml:space="preserve"><value>90 degrees counterclockwise</value></data>
+  <data name="VideoEditRotationLabel.Text" xml:space="preserve"><value>Rotation</value></data>
+  <data name="VideoEditRotateLeft.Content" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees counterclockwise</value></data>
+  <data name="VideoEditResetRotation.Content" xml:space="preserve"><value>0°</value></data>
+  <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
+  <data name="VideoEditRotateRight.Content" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees clockwise</value></data>
   <data name="VideoEditRemoveAudio.Content" xml:space="preserve"><value>Remove audio track</value></data>
-  <data name="VideoEditOutput.Header" xml:space="preserve"><value>New MP4 file</value></data>
-  <data name="VideoEditChooseFolder.Content" xml:space="preserve"><value>Choose output folder...</value></data>
-  <data name="VideoEditNotice.Text" xml:space="preserve"><value>Prepare creates a temporary H.264/AAC MP4 of the whole clip locally, then you can play it before saving that exact copy. Brightness and contrast adjust luma only; they do not change hue or saturation. Rotation uses standard MP4 orientation metadata; players must honor it. The source and its sidecars are never changed. Tags, ratings and descriptions travel in a new XMP sidecar; face regions, HDR fidelity, subtitles, extra tracks and camera-specific metadata are not preserved. No slow motion, interpolation, face tracking, or music mixing is applied.</value></data>
   <data name="VideoEditBrightnessLabel.Text" xml:space="preserve"><value>Brightness (-100 to 100)</value></data>
   <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video brightness</value></data>
   <data name="VideoEditContrastLabel.Text" xml:space="preserve"><value>Contrast (0-200%)</value></data>
   <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video contrast</value></data>
   <data name="VideoEditPrepare.Content" xml:space="preserve"><value>Prepare preview</value></data>
+  <data name="VideoEditExport.Content" xml:space="preserve"><value>Export copy</value></data>
+  <data name="VideoEditExit.Content" xml:space="preserve"><value>Exit editing</value></data>
   <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Adjust brightness, contrast, rotation, or audio, then prepare the preview before saving.</value></data>
   <data name="VideoEditCleanupFailed" xml:space="preserve"><value>Could not remove temporary preview at {0}: {1}</value></data>
   <data name="VideoEditProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preparing or saving edited video</value></data>
+  <data name="VideoEditStatus.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video edit status</value></data>
   <data name="VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edited video preview</value></data>
   <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edit video brightness, contrast, rotation, or audio</value></data>
   <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Adjust video brightness and contrast, rotation, and audio before exporting a new copy</value></data>
@@ -523,13 +522,14 @@ Backup: {3}
   <data name="VideoEditPreparing" xml:space="preserve"><value>Preparing the edited copy for preview...</value></data>
   <data name="VideoEditPreviewReady" xml:space="preserve"><value>Play the edited copy to review it, then export to save it. Changing an edit requires preparing a new preview.</value></data>
   <data name="VideoEditPreviewFailed" xml:space="preserve"><value>Windows could not preview this video: {0}</value></data>
+  <data name="VideoEditPreviewOpenFailed" xml:space="preserve"><value>Windows could not open the prepared preview.</value></data>
+  <data name="VideoEditPreviewRequired" xml:space="preserve"><value>Prepare and review the edited preview before exporting.</value></data>
   <data name="VideoEditExporting" xml:space="preserve"><value>Exporting edited video...</value></data>
+  <data name="VideoEditExportFailed" xml:space="preserve"><value>Could not save edited video: {0}</value></data>
   <data name="VideoEditCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
-  <data name="VideoEditCanceling" xml:space="preserve"><value>Canceling export...</value></data>
+  <data name="VideoEditCanceling" xml:space="preserve"><value>Canceling video edit...</value></data>
   <data name="VideoEditCancel" xml:space="preserve"><value>Cancel</value></data>
-  <data name="VideoEditClose" xml:space="preserve"><value>Close</value></data>
   <data name="VideoEditRevealFailed" xml:space="preserve"><value>Copy saved at {0}, but could not be opened in the library: {1}</value></data>
-  <data name="VideoEditOpenFailed" xml:space="preserve"><value>Could not open video editing: {0}</value></data>
   <data name="VideoEditOpened" xml:space="preserve"><value>Opened edited copy: {0}</value></data>
   <data name="ViewerPhotoSurface.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve">
     <value>Use Left and Right to browse photos. Tab moves to viewer controls and the ribbon.</value>
