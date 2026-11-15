@@ -64,6 +64,13 @@ a { color: inherit; }
   text-decoration: none;
 }
 
+.header-nav,
+.footer-nav {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
 .header-link:hover,
 .footer-link:hover { color: var(--green); }
 
@@ -417,11 +424,48 @@ h3 { margin-bottom: 8px; font-size: 14px; font-weight: 700; letter-spacing: -0.0
 .footer-brand .brand-mark { width: 27px; height: 27px; font-size: 14px; }
 .site-footer > p { margin: 0; color: var(--muted); font-size: 10px; }
 
+.policy-main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 62px 24px 96px;
+}
+
+.policy-heading { margin: 0 0 32px; }
+.policy-heading .eyebrow { margin-bottom: 12px; }
+.policy-heading h1 { margin-bottom: 12px; font-size: clamp(42px, 5vw, 58px); }
+.policy-heading > p:last-child { margin-bottom: 0; color: var(--muted); font-size: 12px; }
+
+.policy-content {
+  padding: clamp(24px, 5vw, 48px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--white);
+}
+
+.policy-content > p,
+.policy-content li {
+  color: #53635c;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.policy-content h2 {
+  margin: 30px 0 10px;
+  font-size: 19px;
+  letter-spacing: -0.035em;
+}
+
+.policy-content h2:first-of-type { margin-top: 30px; }
+.policy-content ul { padding-left: 22px; }
+.policy-content li + li { margin-top: 9px; }
+.policy-content a { color: var(--green); text-underline-offset: 3px; }
+
 :focus-visible { outline: 3px solid #db875e; outline-offset: 3px; }
 
 @media (max-width: 760px) {
   .site-header,
   .site-footer { padding-right: 22px; padding-left: 22px; }
+  .header-nav { gap: 14px; }
   .hero { grid-template-columns: 1fr; gap: 35px; padding: 47px 24px 54px; }
   .hero-copy { max-width: 600px; }
   .photo-art { min-height: 315px; }
@@ -435,9 +479,12 @@ h3 { margin-bottom: 8px; font-size: 14px; font-weight: 700; letter-spacing: -0.0
   .get-section { grid-template-columns: 1fr; gap: 28px; padding: 55px 24px; }
   .steps-list { grid-template-columns: 1fr; gap: 22px; }
   .site-footer { flex-wrap: wrap; gap: 12px; }
+  .footer-nav { gap: 14px; }
 }
 
 @media (max-width: 460px) {
+  .site-header { flex-wrap: wrap; }
+  .header-nav { margin-left: auto; }
   .header-link { font-size: 11px; }
   h1 { font-size: 44px; }
   .photo-art { min-height: 275px; }
