@@ -1,9 +1,14 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="Configurations.props" />
-  <PropertyGroup Label="Globals"><ProjectGuid>{1130DD95-4670-4B48-91CF-CAD9E56F8290}</ProjectGuid></PropertyGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{F7D7FD57-60B6-BBF5-377C-665F8D3F6D4D}</ProjectGuid>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="Toolset.props" />
-  <PropertyGroup Label="Configuration"><ConfigurationType>Utility</ConfigurationType><DisableFastUpToDateCheck>true</DisableFastUpToDateCheck></PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="Native.props" />
   <Import Project="OpenCv.props" />
@@ -12,15 +17,10 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(NativeRoot)..\tools\Prepare-OpenCv.ps1&quot; -Architecture &quot;$(Platform)&quot; -BuildDirectory &quot;$(OpenCvBuildDirectory.TrimEnd('\'))&quot; -VisualStudioDirectory &quot;$(VSInstallDir.TrimEnd('\'))&quot; -VisualStudioVersion &quot;$(VisualStudioVersion)&quot; -PlatformToolset &quot;$(PlatformToolset)&quot; -VCToolsVersion &quot;$(VCToolsVersion)&quot;" />
   </Target>
   <Target Name="BuildOpenCv" BeforeTargets="Build" DependsOnTargets="ConfigureOpenCv" Condition="'$(DesignTimeBuild)' != 'true'">
-    <MSBuild Projects="$(OpenCvProject)" Targets="Build"
-             Properties="Configuration=$(Configuration);Platform=$(Platform);BuildProjectReferences=true"
-             RemoveProperties="BuildingInsideVisualStudio;BuildingSolutionFile;SolutionDir;SolutionPath"
-             BuildInParallel="true" />
+    <MSBuild Projects="$(OpenCvProject)" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform);BuildProjectReferences=true" RemoveProperties="BuildingInsideVisualStudio;BuildingSolutionFile;SolutionDir;SolutionPath" BuildInParallel="true" />
     <Copy SourceFiles="$(OpenCvBuildDirectory)ThirdPartyNotices.Panorama.txt" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="CleanOpenCv" BeforeTargets="Clean" Condition="Exists('$(OpenCvProject)')">
-    <MSBuild Projects="$(OpenCvProject)" Targets="Clean"
-             Properties="Configuration=$(Configuration);Platform=$(Platform);BuildProjectReferences=true"
-             RemoveProperties="BuildingInsideVisualStudio;BuildingSolutionFile;SolutionDir;SolutionPath" />
+    <MSBuild Projects="$(OpenCvProject)" Targets="Clean" Properties="Configuration=$(Configuration);Platform=$(Platform);BuildProjectReferences=true" RemoveProperties="BuildingInsideVisualStudio;BuildingSolutionFile;SolutionDir;SolutionPath" />
   </Target>
 </Project>
