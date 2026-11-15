@@ -360,54 +360,60 @@
                           AutomationProperties.AutomationId="EditorColorGrading">
                     <StackPanel Spacing="8">
                         <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <ColorPicker x:Name="ShadowColorPicker" Height="300" MaxWidth="240"
-                                     ColorSpectrumShape="Ring"
-                                     IsMoreButtonVisible="False"
-                                     IsColorSliderVisible="False"
-                                     IsColorChannelTextInputVisible="False"
-                                     IsHexInputVisible="False"
-                                     IsAlphaEnabled="False"
-                                     IsAlphaSliderVisible="False"
-                                     IsAlphaTextInputVisible="False"
-                                     ColorChanged="OnShadowColorChanged"
-                                     AutomationProperties.Name="Shadow color grading wheel"
-                                     AutomationProperties.AutomationId="EditorShadowColorWheel" />
+                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Stretch">
+                            <ColorPicker x:Name="ShadowColorPicker"
+                                         ColorSpectrumShape="Ring"
+                                         IsMoreButtonVisible="False"
+                                         IsColorSliderVisible="False"
+                                         IsColorChannelTextInputVisible="False"
+                                         IsHexInputVisible="False"
+                                         IsAlphaEnabled="False"
+                                         IsAlphaSliderVisible="False"
+                                         IsAlphaTextInputVisible="False"
+                                         ColorChanged="OnShadowColorChanged"
+                                         AutomationProperties.Name="Shadow color grading wheel"
+                                         AutomationProperties.AutomationId="EditorShadowColorWheel" />
+                        </Viewbox>
                         <Slider x:Name="ShadowAmountSlider" Minimum="0" Maximum="1"
                                 StepFrequency="0.01" Value="0"
                                 ValueChanged="OnColorAdjustmentSliderChanged"
                                 AutomationProperties.Name="Shadow grading amount"
                                 AutomationProperties.AutomationId="EditorShadowAmount" />
                         <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <ColorPicker x:Name="MidtoneColorPicker" Height="300" MaxWidth="240"
-                                     ColorSpectrumShape="Ring"
-                                     IsMoreButtonVisible="False"
-                                     IsColorSliderVisible="False"
-                                     IsColorChannelTextInputVisible="False"
-                                     IsHexInputVisible="False"
-                                     IsAlphaEnabled="False"
-                                     IsAlphaSliderVisible="False"
-                                     IsAlphaTextInputVisible="False"
-                                     ColorChanged="OnMidtoneColorChanged"
-                                     AutomationProperties.Name="Midtone color grading wheel"
-                                     AutomationProperties.AutomationId="EditorMidtoneColorWheel" />
+                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Stretch">
+                            <ColorPicker x:Name="MidtoneColorPicker"
+                                         ColorSpectrumShape="Ring"
+                                         IsMoreButtonVisible="False"
+                                         IsColorSliderVisible="False"
+                                         IsColorChannelTextInputVisible="False"
+                                         IsHexInputVisible="False"
+                                         IsAlphaEnabled="False"
+                                         IsAlphaSliderVisible="False"
+                                         IsAlphaTextInputVisible="False"
+                                         ColorChanged="OnMidtoneColorChanged"
+                                         AutomationProperties.Name="Midtone color grading wheel"
+                                         AutomationProperties.AutomationId="EditorMidtoneColorWheel" />
+                        </Viewbox>
                         <Slider x:Name="MidtoneAmountSlider" Minimum="0" Maximum="1"
                                 StepFrequency="0.01" Value="0"
                                 ValueChanged="OnColorAdjustmentSliderChanged"
                                 AutomationProperties.Name="Midtone grading amount"
                                 AutomationProperties.AutomationId="EditorMidtoneAmount" />
                         <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <ColorPicker x:Name="HighlightColorPicker" Height="300" MaxWidth="240"
-                                     ColorSpectrumShape="Ring"
-                                     IsMoreButtonVisible="False"
-                                     IsColorSliderVisible="False"
-                                     IsColorChannelTextInputVisible="False"
-                                     IsHexInputVisible="False"
-                                     IsAlphaEnabled="False"
-                                     IsAlphaSliderVisible="False"
-                                     IsAlphaTextInputVisible="False"
-                                     ColorChanged="OnHighlightColorChanged"
-                                     AutomationProperties.Name="Highlight color grading wheel"
-                                     AutomationProperties.AutomationId="EditorHighlightColorWheel" />
+                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Stretch">
+                            <ColorPicker x:Name="HighlightColorPicker"
+                                         ColorSpectrumShape="Ring"
+                                         IsMoreButtonVisible="False"
+                                         IsColorSliderVisible="False"
+                                         IsColorChannelTextInputVisible="False"
+                                         IsHexInputVisible="False"
+                                         IsAlphaEnabled="False"
+                                         IsAlphaSliderVisible="False"
+                                         IsAlphaTextInputVisible="False"
+                                         ColorChanged="OnHighlightColorChanged"
+                                         AutomationProperties.Name="Highlight color grading wheel"
+                                         AutomationProperties.AutomationId="EditorHighlightColorWheel" />
+                        </Viewbox>
                         <Slider x:Name="HighlightAmountSlider" Minimum="0" Maximum="1"
                                 StepFrequency="0.01" Value="0"
                                 ValueChanged="OnColorAdjustmentSliderChanged"

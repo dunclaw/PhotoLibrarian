@@ -59,6 +59,23 @@ public partial class App
             AutomationProperties.GetAutomationId(balance) == "EditorColorGradingBalance",
             "Grading wheel, blending, and balance expose accessible IDs");
 
+        var adjustmentsPanel = (ScrollViewer)editor.FindName("AdjustmentsPanel");
+        var adjustmentsColumn = (ColumnDefinition)editor.FindName("AdjustmentsColumn");
+        ColorPicker[] wheels =
+        [
+            shadowWheel,
+            (ColorPicker)editor.FindName("MidtoneColorPicker"),
+            (ColorPicker)editor.FindName("HighlightColorPicker")
+        ];
+        Check(WheelsFitPanel(), "Grading wheels fit the default adjustments panel width");
+        var defaultWheelWidth = RenderedBounds(shadowWheel).Width;
+        adjustmentsColumn.Width = new GridLength(240);
+        editor.UpdateLayout();
+        Check(WheelsFitPanel() && RenderedBounds(shadowWheel).Width < defaultWheelWidth,
+            "Grading wheels scale down with a narrower adjustments panel");
+        adjustmentsColumn.Width = new GridLength(300);
+        editor.UpdateLayout();
+
         band.SelectedIndex = 3;
         Check(band.SelectedIndex == 3, "Color mixer selects its green hue band");
         viewModel.BeginEdit("Color controls");
@@ -91,7 +108,6 @@ public partial class App
         viewModel.RedoCommand.Execute(null);
         Check(viewModel.GetCurrentParameters().ColorAdjustments.ContentEquals(edited),
             "Redo restores mixer and grading controls");
-        var adjustmentsPanel = (ScrollViewer)editor.FindName("AdjustmentsPanel");
         adjustmentsPanel.ChangeView(null, 520, null, true);
         await Task.Delay(150);
         await CaptureColorWindowAsync(window, "color-mixer-ui.png");
@@ -128,6 +144,39 @@ public partial class App
         {
             if (!success) throw new InvalidOperationException(name);
             _passed.Add(name);
+        }
+
+        Windows.Foundation.Rect RenderedBounds(FrameworkElement element) =>
+            element.TransformToVisual(adjustmentsPanel).TransformBounds(
+                new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+
+        bool WheelsFitPanel()
+        {
+            foreach (var wheel in wheels)
+            {
+                var bounds = RenderedBounds(wheel);
+                if (bounds.Width <= 0 || !FitsPanel(bounds) || !DescendantsFitPanel(wheel))
+                    return false;
+            }
+            return true;
+        }
+
+        bool FitsPanel(Windows.Foundation.Rect bounds) =>
+            bounds.Left >= -0.5 && bounds.Right <= adjustmentsPanel.ViewportWidth + 0.5;
+
+        // The spectrum ring and preview swatch can overflow a clipped ColorPicker, so check its parts too.
+        bool DescendantsFitPanel(DependencyObject parent)
+        {
+            var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (var index = 0; index < count; index++)
+            {
+                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, index);
+                if (child is FrameworkElement { Visibility: Visibility.Visible, ActualWidth: > 0 } element &&
+                    !FitsPanel(RenderedBounds(element)))
+                    return false;
+                if (!DescendantsFitPanel(child)) return false;
+            }
+            return true;
         }
 
         static void SetSliderValue(Slider slider, double value)
