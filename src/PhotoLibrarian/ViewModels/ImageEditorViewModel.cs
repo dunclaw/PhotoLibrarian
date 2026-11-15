@@ -210,6 +210,20 @@ public partial class ImageEditorViewModel : ObservableObject
         EndEdit();
     }
 
+    public void SetMonochromeEnabled(bool enabled)
+    {
+        if (!enabled && Effect != PhotoEffect.BlackAndWhite) return;
+        SelectEffect(enabled ? PhotoEffect.BlackAndWhite : PhotoEffect.None, "Black and white");
+    }
+
+    public void ResetMonochromeMix()
+    {
+        if (!CanEditMonochromeMix) return;
+        BeginEdit("Reset black and white mix");
+        SetMonochromeMix(new MonochromeMix());
+        EndEdit();
+    }
+
     // Detail
     [ObservableProperty]
     public partial double Clarity { get; set; }

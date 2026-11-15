@@ -95,6 +95,14 @@ documented RAW exposure and scene-white-point controls apply there.
 
 ## Black-and-white mix (#193)
 
+In **Adjust**, expand **Black and white** and turn on **Convert to black and white**.
+No trip back to the viewer's Effects gallery is needed, including after Revert or
+Reset all. The eight sliders affect areas that had those colors in the original:
+move **Blue (skies)** left to darken a blue sky or **Green (foliage)** right to
+brighten green leaves. A color absent from the original photo has little effect.
+**Reset mix** clears these sliders without removing black-and-white conversion
+or other adjustments; Reset all and Revert still reset the whole edit.
+
 The existing **Black and White** effect keeps its neutral Rec. 709 grayscale
 output. Its eight-band mix adjusts the OkLab lightness of that grayscale, using
 the same hue centers and smooth 30-degree Gaussian overlap as the color mixer.

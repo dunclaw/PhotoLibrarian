@@ -310,6 +310,53 @@ public sealed class ColorAdjustmentTests : IDisposable
     }
 
     [Fact]
+    public async Task SkyAndFoliageMixHasVisibleIndependentBrightnessChanges()
+    {
+        var path = Path.Combine(_directory, "sky-and-foliage.png");
+        byte[] sourcePixels = [220, 130, 60, 255, 45, 135, 50, 255];
+        await RenderQualityFixtures.WriteImageAsync(path, 2, 1, sourcePixels);
+        var parameters = new EditParameters { Effect = PhotoEffect.BlackAndWhite };
+        var neutral = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        parameters.MonochromeMix.LuminanceBands[5] = -1;
+        var darkerSky = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        Assert.True(neutral.Pixels[0] - darkerSky.Pixels[0] >= 20, "Blue must visibly darken blue sky pixels.");
+        Assert.InRange(Math.Abs(neutral.Pixels[4] - darkerSky.Pixels[4]), 0, 3);
+        parameters.MonochromeMix.LuminanceBands[5] = 0;
+        parameters.MonochromeMix.LuminanceBands[3] = 1;
+        var lighterFoliage = await ImageEditRenderer.RenderToPixelsAsync(path, parameters);
+        Assert.True(lighterFoliage.Pixels[4] - neutral.Pixels[4] >= 20, "Green must visibly brighten foliage.");
+        Assert.InRange(Math.Abs(neutral.Pixels[0] - lighterFoliage.Pixels[0]), 0, 3);
+    }
+
+    [Fact]
+    public async Task MonochromeCanBeEnabledAndMixResetInEditorAfterRevert()
+    {
+        var path = Path.Combine(_directory, "monochrome-controls.png");
+        await RenderQualityFixtures.WriteImageAsync(path, 1, 1, [220, 130, 60, 255]);
+        var originalPixels = await RenderQualityFixtures.ReadPngPixelsAsync(path);
+        var viewModel = new ImageEditorViewModel(new OriginalBackupService(Path.Combine(_directory, "backups")));
+        await viewModel.OpenForEditAsync(new ImageEntry { FilePath = path, FileName = Path.GetFileName(path) });
+        viewModel.SetMonochromeEnabled(true);
+        var mix = new MonochromeMix();
+        mix.LuminanceBands[5] = -0.8;
+        viewModel.SetMonochromeMix(mix);
+        viewModel.Exposure = 0.2;
+        viewModel.ResetMonochromeMix();
+        Assert.Equal(PhotoEffect.BlackAndWhite, viewModel.Effect);
+        Assert.True(viewModel.GetCurrentParameters().MonochromeMix.IsDefault);
+        Assert.Equal(0.2, viewModel.Exposure);
+        viewModel.UndoCommand.Execute(null);
+        Assert.Equal(-0.8, viewModel.GetCurrentParameters().MonochromeMix.LuminanceBands[5]);
+        Assert.True(await viewModel.SaveAsync((_, _) => throw new InvalidOperationException("Do not bake B&W.")));
+        await viewModel.RevertToOriginalCommand.ExecuteAsync(null);
+        Assert.Equal(PhotoEffect.None, viewModel.Effect);
+        viewModel.SetMonochromeEnabled(true);
+        Assert.True(viewModel.CanEditMonochromeMix);
+        Assert.Equal(PhotoEffect.BlackAndWhite, viewModel.Effect);
+        Assert.Equal(originalPixels, await RenderQualityFixtures.ReadPngPixelsAsync(path));
+    }
+
+    [Fact]
     public async Task MixerHistoryAndExportPersistRecipeWithoutChangingSourcePixels()
     {
         var path = Path.Combine(_directory, "recipe.png");

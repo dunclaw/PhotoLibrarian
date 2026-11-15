@@ -110,17 +110,27 @@ public partial class App
             "Redo restores mixer and grading controls");
 
         var monochromeExpander = (Expander)editor.FindName("MonochromeMixExpander");
-        var monochromeBand = (ComboBox)editor.FindName("MonochromeMixBand");
-        var monochromeLuminance = (Slider)editor.FindName("MonochromeMixSlider");
-        Check(AutomationProperties.GetAutomationId(monochromeBand) == "EditorMonochromeMixBand" &&
-            AutomationProperties.GetAutomationId(monochromeLuminance) == "EditorMonochromeMixLuminance" &&
-            AutomationProperties.GetName(monochromeLuminance).Contains("monochrome luminance"),
-            "Monochrome mix controls expose accessible names and IDs");
-        Check(!monochromeExpander.IsEnabled, "Monochrome mix is disabled until Black and white is selected");
-
-        viewModel.SelectEffect(PhotoEffect.BlackAndWhite, "Black and white");
-        await WaitForAsync(() => monochromeExpander.IsEnabled, "Black-and-white mix controls enabled");
-        monochromeBand.SelectedIndex = 5;
+        var monochromeControls = (ContentControl)editor.FindName("MonochromeMixControls");
+        var monochromeToggle = (ToggleSwitch)editor.FindName("MonochromeToggle");
+        var monochromeLuminance = (Slider)editor.FindName("MonochromeBlueSlider");
+        var monochromeReset = (Button)editor.FindName("MonochromeReset");
+        var colorNames = new[] { "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta" };
+        Check(colorNames.All(color =>
+        {
+            var slider = (Slider)editor.FindName($"Monochrome{color}Slider");
+            return AutomationProperties.GetAutomationId(slider) == $"EditorMonochrome{color}" &&
+                AutomationProperties.GetName(slider).Contains("originally");
+        }), "All eight original-color sliders expose accessible names and IDs");
+        Check(monochromeExpander.IsEnabled && monochromeToggle.IsEnabled && !monochromeControls.IsEnabled,
+            "Black-and-white panel can be opened and enabled directly from Adjust");
+        monochromeExpander.IsExpanded = true;
+        var togglePeer = FrameworkElementAutomationPeer.CreatePeerForElement(monochromeToggle);
+        ((IToggleProvider)togglePeer.GetPattern(PatternInterface.Toggle)).Toggle();
+        await WaitForAsync(() => monochromeControls.IsEnabled, "Adjust toggle enables black-and-white controls");
+        Check(viewModel.Effect == PhotoEffect.BlackAndWhite, "Adjust toggle selects black-and-white recipe");
+        monochromeToggle.Focus(FocusState.Programmatic);
+        await ShowAdjustmentAsync(monochromeToggle, 48);
+        await CaptureColorWindowAsync(window, "monochrome-adjust-ui.png");
         viewModel.BeginEdit("Black and white mix");
         SetSliderValue(monochromeLuminance, 0.65);
         viewModel.EndEdit();
@@ -133,12 +143,36 @@ public partial class App
         viewModel.RedoCommand.Execute(null);
         Check(viewModel.GetCurrentParameters().MonochromeMix.ContentEquals(monochromeMix),
             "Redo restores the selected monochrome hue band");
+        var monochromeResetPeer = FrameworkElementAutomationPeer.CreatePeerForElement(monochromeReset);
+        ((IInvokeProvider)monochromeResetPeer.GetPattern(PatternInterface.Invoke)).Invoke();
+        Check(viewModel.GetCurrentParameters().MonochromeMix.IsDefault &&
+            viewModel.Effect == PhotoEffect.BlackAndWhite && monochromeToggle.IsOn &&
+            viewModel.GetCurrentParameters().ColorAdjustments.ContentEquals(edited),
+            "Reset mix keeps black and white and unrelated color grading");
+        viewModel.UndoCommand.Execute(null);
+        Check(viewModel.GetCurrentParameters().MonochromeMix.ContentEquals(monochromeMix),
+            "Reset mix is undoable");
         viewModel.SelectEffect(PhotoEffect.None, "Color");
-        await WaitForAsync(() => !monochromeExpander.IsEnabled, "Monochrome mix disabled for color effects");
-        viewModel.SelectEffect(PhotoEffect.BlackAndWhite, "Black and white");
-        await WaitForAsync(() => monochromeExpander.IsEnabled, "Monochrome mix re-enabled");
+        await WaitForAsync(() => !monochromeControls.IsEnabled && !monochromeToggle.IsOn,
+            "Monochrome toggle follows effect changes");
+        ((IToggleProvider)togglePeer.GetPattern(PatternInterface.Toggle)).Toggle();
+        await WaitForAsync(() => monochromeControls.IsEnabled, "Monochrome mix re-enabled from Adjust");
         Check(viewModel.GetCurrentParameters().MonochromeMix.ContentEquals(monochromeMix),
             "Switching effects preserves monochrome mix values");
+        foreach (var (color, index) in colorNames.Select((color, index) => (color, index)))
+        {
+            var slider = (Slider)editor.FindName($"Monochrome{color}Slider");
+            SetSliderValue(slider, 0.1 * (index + 1));
+            Check(viewModel.GetCurrentParameters().MonochromeMix.LuminanceBands[index] == slider.Value,
+                $"{color} slider updates its own original-color band");
+        }
+        ((Expander)editor.FindName("ColorMixerExpander")).IsExpanded = false;
+        ((Expander)editor.FindName("ColorGradingExpander")).IsExpanded = false;
+        await ShowAdjustmentAsync(monochromeReset, 400);
+        await CaptureColorWindowAsync(window, "monochrome-mix-ui.png");
+        ((Expander)editor.FindName("ColorMixerExpander")).IsExpanded = true;
+        ((Expander)editor.FindName("ColorGradingExpander")).IsExpanded = true;
+        monochromeExpander.IsExpanded = false;
 
         adjustmentsPanel.ChangeView(null, 520, null, true);
         await Task.Delay(150);
@@ -168,6 +202,11 @@ public partial class App
             ImageEditService.ReadEditParameters(path).ColorAdjustments.IsDefault &&
             ImageEditService.ReadEditParameters(path).MonochromeMix.IsDefault,
             "Color-control gestures and Reset leave the photo and recipe untouched");
+        Check(!monochromeToggle.IsOn && monochromeToggle.IsEnabled, "Reset all leaves B&W activation available");
+        ((IToggleProvider)togglePeer.GetPattern(PatternInterface.Toggle)).Toggle();
+        Check(viewModel.Effect == PhotoEffect.BlackAndWhite && monochromeControls.IsEnabled,
+            "Black and white can be re-enabled after Reset without leaving Adjust");
+        viewModel.ResetAllCommand.Execute(null);
 
         adjustmentsPanel.ChangeView(null, 520, null, true);
         await Task.Delay(150);
@@ -231,6 +270,14 @@ public partial class App
         {
             for (var attempt = 0; attempt < 100 && !ready(); attempt++) await Task.Delay(100);
             Check(ready(), name);
+        }
+
+        async Task ShowAdjustmentAsync(FrameworkElement element, double topMargin)
+        {
+            editor.UpdateLayout();
+            var offset = RenderedBounds(element).Top + adjustmentsPanel.VerticalOffset - topMargin;
+            adjustmentsPanel.ChangeView(null, Math.Max(0, offset), null, true);
+            await Task.Delay(250);
         }
     }
 }
