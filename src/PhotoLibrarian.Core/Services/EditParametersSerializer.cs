@@ -119,12 +119,15 @@ public static class EditParametersSerializer
         }
     }
 
-    public static EditParameters ReadFromXmp(IXmpMeta xmp)
+    public static EditParameters ReadFromXmp(IXmpMeta xmp, bool rejectUnsupportedProperties = false)
     {
-        var unsupportedProperty = EnumerateEditPropertyNames(xmp)
-            .FirstOrDefault(property => !SupportedEditProperties.Contains(property));
-        if (unsupportedProperty is not null)
-            throw new NotSupportedException($"Unsupported photo edit recipe property: {unsupportedProperty}");
+        if (rejectUnsupportedProperties)
+        {
+            var unsupportedProperty = EnumerateEditPropertyNames(xmp)
+                .FirstOrDefault(property => !SupportedEditProperties.Contains(property));
+            if (unsupportedProperty is not null)
+                throw new NotSupportedException($"Unsupported photo edit recipe property: {unsupportedProperty}");
+        }
 
         var p = new EditParameters
         {
