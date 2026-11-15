@@ -100,6 +100,8 @@ No trip back to the viewer's Effects gallery is needed, including after Revert o
 Reset all. The eight sliders affect areas that had those colors in the original:
 move **Blue (skies)** left to darken a blue sky or **Green (foliage)** right to
 brighten green leaves. A color absent from the original photo has little effect.
+The conversion toggle's tooltip provides these examples without taking up space
+in the adjustment panel.
 **Reset mix** clears these sliders without removing black-and-white conversion
 or other adjustments; Reset all and Revert still reset the whole edit.
 

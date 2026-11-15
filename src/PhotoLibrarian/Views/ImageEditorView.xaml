@@ -362,8 +362,6 @@
                         <ToggleSwitch x:Name="MonochromeToggle" x:Uid="EditorMonochromeToggle"
                                       Toggled="OnMonochromeToggled"
                                       AutomationProperties.AutomationId="EditorMonochromeToggle" />
-                        <TextBlock x:Uid="EditorMonochromeHelp"
-                                   TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
                         <ContentControl x:Name="MonochromeMixControls" HorizontalContentAlignment="Stretch" IsEnabled="False">
                           <StackPanel Spacing="8">
                             <TextBlock x:Uid="EditorMonochromeDirection"

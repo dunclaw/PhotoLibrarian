@@ -3,7 +3,7 @@
   <data name="EditorMonochromePanel.Header" xml:space="preserve"><value>Black and white</value></data>
   <data name="EditorMonochromeToggle.Header" xml:space="preserve"><value>Convert to black and white</value></data>
   <data name="EditorMonochromeToggle.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Convert to black and white</value></data>
-  <data name="EditorMonochromeHelp.Text" xml:space="preserve"><value>Adjust areas by their original color, even though the preview is black and white. Try Blue to darken skies or Green to brighten foliage. Colors absent from the original photo will have little effect.</value></data>
+  <data name="EditorMonochromeToggle.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Adjust areas by their original color, even though the preview is black and white. Try Blue to darken skies or Green to brighten foliage. Colors absent from the original photo will have little effect.</value></data>
   <data name="EditorMonochromeDirection.Text" xml:space="preserve"><value>Original colors: left = darker, right = brighter</value></data>
   <data name="EditorMonochromeRed.Header" xml:space="preserve"><value>Red</value></data>
   <data name="EditorMonochromeRed.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally red areas</value></data>
