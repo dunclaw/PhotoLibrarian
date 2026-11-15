@@ -28,6 +28,7 @@ public partial class ImageEditorViewModel : ObservableObject
     private CropRect? _crop;
     private List<RetouchStroke> _retouchStrokes = [];
     private ToneCurves _toneCurves = new();
+    private ColorAdjustments _colorAdjustments = new();
     private CancellationTokenSource? _rawExport;
     private List<ImageEntry> _images = [];
     private int _openVersion;
@@ -335,16 +336,18 @@ public partial class ImageEditorViewModel : ObservableObject
 
         EndEdit();
         var parameters = GetCurrentParameters();
-        if (!parameters.HasAdjustments && _baseline.ToneCurves.IsDefault) return false;
+        if (!parameters.HasAdjustments && _baseline.ToneCurves.IsDefault &&
+            _baseline.ColorAdjustments.IsDefault) return false;
 
         IsSaving = true;
         try
         {
-            if (!parameters.ToneCurves.IsDefault || !_baseline.ToneCurves.IsDefault)
+            if (!parameters.ToneCurves.IsDefault || !_baseline.ToneCurves.IsDefault ||
+                !parameters.ColorAdjustments.IsDefault || !_baseline.ColorAdjustments.IsDefault)
             {
                 if (PersistEditAsync is not null)
                 {
-                    var kept = await PersistEditAsync("tone curve recipe", _currentEntry.FilePath, _openedIdentity,
+                    var kept = await PersistEditAsync("color recipe", _currentEntry.FilePath, _openedIdentity,
                         copy => ImageEditService.WritePendingRecipeAsync(copy, parameters));
                     if (!kept) return false;
                 }
@@ -408,6 +411,7 @@ public partial class ImageEditorViewModel : ObservableObject
         WhitePoint = WhitePoint,
         Midtones = Midtones,
         ToneCurves = _toneCurves.Clone(),
+        ColorAdjustments = _colorAdjustments.Clone(),
         RotationAngle = RotationAngle,
         Crop = _crop?.Clone(),
         RetouchStrokes = _retouchStrokes.Select(stroke => stroke.Copy()).ToList()
@@ -432,6 +436,16 @@ public partial class ImageEditorViewModel : ObservableObject
         if (_toneCurves.ContentEquals(curves)) return;
         _toneCurves = curves.Clone();
         OnParameterChanged("Tone curve");
+    }
+
+    public void SetColorAdjustments(ColorAdjustments adjustments, string label = "Color adjustments")
+    {
+        ArgumentNullException.ThrowIfNull(adjustments);
+        if (!IsOpen || IsBusy || IsRawPreview) return;
+        adjustments.Validate();
+        if (_colorAdjustments.ContentEquals(adjustments)) return;
+        _colorAdjustments = adjustments.Clone();
+        OnParameterChanged(label);
     }
 
     public async Task<bool> KeepRawPreviewRecipeAsync()
@@ -582,8 +596,10 @@ public partial class ImageEditorViewModel : ObservableObject
         var cropChanged = !CropEqual(_crop, p.Crop);
         var retouchChanged = !RetouchStroke.SequenceEqual(_retouchStrokes, p.RetouchStrokes);
         var curvesChanged = !_toneCurves.ContentEquals(p.ToneCurves);
+        var colorAdjustmentsChanged = !_colorAdjustments.ContentEquals(p.ColorAdjustments);
         _retouchStrokes = p.RetouchStrokes.Select(stroke => stroke.Copy()).ToList();
         _toneCurves = p.ToneCurves.Clone();
+        _colorAdjustments = p.ColorAdjustments.Clone();
         _crop = p.Crop?.Clone();
         Brightness = p.Brightness;
         Contrast = p.Contrast;
@@ -610,6 +626,7 @@ public partial class ImageEditorViewModel : ObservableObject
         if (cropChanged) OnParameterChanged("Crop");
         if (retouchChanged) OnParameterChanged("Spot retouch");
         if (curvesChanged) OnParameterChanged("Tone curve");
+        if (colorAdjustmentsChanged) OnParameterChanged("Color adjustments");
     }
 
     // Called when any slider value changes to trigger re-render
@@ -741,6 +758,7 @@ public partial class ImageEditorViewModel : ObservableObject
         a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
         a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle &&
         CropEqual(a.Crop, b.Crop) && a.ToneCurves.ContentEquals(b.ToneCurves) &&
+        a.ColorAdjustments.ContentEquals(b.ColorAdjustments) &&
         RetouchStroke.SequenceEqual(a.RetouchStrokes, b.RetouchStrokes);
 
     private static bool CropEqual(CropRect? a, CropRect? b) =>
