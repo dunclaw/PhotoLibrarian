@@ -18,6 +18,13 @@ Do not use exceptions for normal flow control. Expected validation outcomes, uns
 - Keep writes local, portable, and non-destructive. Use the existing transaction and backup mechanisms where applicable, verify round trips with generated fixtures, and do not rely on the cache database as the sole source of portable metadata.
 
 
+## Build, toolchains and packages
+
+- Prefer standard Visual Studio VC/MSBuild projects, project references and native build items. Avoid CMake and custom build scripts where standard constructs suffice; any unavoidable upstream generator or acquisition tooling must be narrowly scoped and documented, not hide application compilation.
+- Never check in machine-specific or version-specific compiler executable paths. Select toolchains through supported Visual Studio/MSBuild mechanisms so toolset upgrades do not depend on old compiler locations or stale caches.
+- Use package-manager-native acquisition and centralized manifests/version management where available. Keep intentional dependency pins reproducible and updateable in one place; do not duplicate package versions or add ad hoc bootstrap scripts when standard package management suffices.
+- Preserve architecture/configuration integration, incremental and clean/rebuild behavior, static-linkage choices, and required third-party licenses/source notices when changing native dependencies.
+
 ## C# Style Preferences
 
 - All C# code files must begin with `// Copyright (c) Duncan Lawler. All Rights Reserved.`

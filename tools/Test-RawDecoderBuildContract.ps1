@@ -3,166 +3,70 @@ param()
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) "RawDecoderContract-$([Guid]::NewGuid().ToString('N'))"
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) "NativeContract-$([Guid]::NewGuid().ToString('N'))"
 New-Item $temporaryRoot -ItemType Directory | Out-Null
 try {
-    $tokens = $null
-    $parseErrors = $null
-    $scriptAst = [Management.Automation.Language.Parser]::ParseFile(
-        (Join-Path $PSScriptRoot 'Build-RawDecoder.ps1'), [ref]$tokens, [ref]$parseErrors)
-    if ($parseErrors.Count -ne 0) { throw 'Could not parse Build-RawDecoder.ps1.' }
-    $statements = @($scriptAst.EndBlock.Statements)
-
-    function Get-ContractStatements([string]$Prefix, [int]$Count) {
-        for ($index = 0; $index -lt $statements.Count; $index++) {
-            if ($statements[$index].Extent.Text.StartsWith($Prefix)) {
-                return ($statements[$index..($index + $Count - 1)] |
-                    ForEach-Object { $_.Extent.Text }) -join "`r`n"
-            }
-        }
-        throw "Native build contract statement not found: $Prefix"
-    }
-
-    # Execute the production batch generation, invocation and exit guard, not a duplicate.
-    $batchContract = Get-ContractStatements '$buildCommand =' 4
-    $gitContract = Get-ContractStatements '$checkedOutCommit =' 3
-    $discoveryContract = Get-ContractStatements '$vsInstall =' 3
-    $artifactContract = Get-ContractStatements 'if (-not (Test-Path $nativeDll))' 1
-    $fixtureSource = Join-Path $temporaryRoot 'NativeFixture.cs'
-    $fixtureExe = Join-Path $temporaryRoot 'NativeFixture.exe'
-    Set-Content $fixtureSource @'
-// Copyright (c) Duncan Lawler. All Rights Reserved.
-using System;
-using System.IO;
-internal static class NativeFixture
-{
-    private static int Main(string[] args)
-    {
-        string stage = args.Length > 0 && args[0] == "--build" ? "build" : "configure";
-        File.AppendAllText(Environment.GetEnvironmentVariable("RAW_TEST_TRACE"), stage + "\r\n");
-        Console.WriteLine("error : recoverable mirror failure; fallback succeeded");
-        Console.Error.WriteLine("error : recoverable stderr diagnostic");
-        return Environment.GetEnvironmentVariable("RAW_TEST_STAGE") == stage
-            ? int.Parse(Environment.GetEnvironmentVariable("RAW_TEST_EXIT_CODE")) : 0;
-    }
-}
-'@ -Encoding Ascii
-    $compilerScript = Join-Path $temporaryRoot 'CompileFixture.ps1'
-    Set-Content $compilerScript @'
-param($Source, $Output)
-$ErrorActionPreference = 'Stop'
-Add-Type -Path $Source -OutputAssembly $Output -OutputType ConsoleApplication
-'@ -Encoding Ascii
-    # Windows PowerShell produces a standalone .NET Framework console fixture.
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $compilerScript $fixtureSource $fixtureExe
-    if ($LASTEXITCODE -ne 0) { throw 'Could not compile the native exit-code fixture.' }
-
-    $setupScript = Join-Path $temporaryRoot 'SetupFixture.bat'
-    Set-Content $setupScript @'
-@echo off
-echo setup>>"%RAW_TEST_TRACE%"
-if "%RAW_TEST_STAGE%"=="setup" exit /b %RAW_TEST_EXIT_CODE%
-exit /b 0
-'@ -Encoding Ascii
-    $probeScript = Join-Path $temporaryRoot 'Probe.ps1'
-    $probeHeader = @'
-param($Root)
-$ErrorActionPreference = 'Stop'
-Set-StrictMode -Version Latest
-$cmake = Join-Path $Root 'NativeFixture.exe'
-$vsDevCmd = Join-Path $Root 'SetupFixture.bat'
-$targetArch = 'amd64'
-$buildRoot = $Root
-$commandFile = Join-Path $Root 'build-raw-decoder.cmd'
-$quotedConfigureArguments = @()
-if ($env:RAW_TEST_STAGE -eq 'script') { throw 'Unexpected script failure fixture.' }
-if ($env:RAW_TEST_STAGE -eq 'exit') { exit 23 }
-if ($env:RAW_TEST_STAGE -eq 'git') {
-    function git { $global:LASTEXITCODE = 7; return 'expected-commit' }
-    $vcpkgRoot = $Root
-    $vcpkgCommit = 'expected-commit'
-'@
-    $probeDiscovery = @'
-}
-if ($env:RAW_TEST_STAGE -eq 'discovery') {
-    function Invoke-DiscoveryFixture { $global:LASTEXITCODE = 7; return 'existing-toolset' }
-    $vswhere = 'Invoke-DiscoveryFixture'
-'@
-    $probeFooter = @'
-}
-'@
-    $probeArtifact = @'
-if ($env:RAW_TEST_STAGE -eq 'artifact') {
-    $nativeDll = Join-Path $Root 'missing.dll'
-'@
-    Set-Content $probeScript (
-        $probeHeader + "`r`n" + $gitContract + "`r`n" +
-        $probeDiscovery + "`r`n" + $discoveryContract + "`r`n" + $probeFooter +
-        $batchContract + "`r`n" + $probeArtifact + "`r`n" + $artifactContract +
-        "`r`n}`r`nWrite-Output 'Native contract completed.'") -Encoding Ascii
-
-    [xml]$coreProject = Get-Content (Join-Path $repoRoot 'src\PhotoLibrarian.Core\PhotoLibrarian.Core.csproj') -Raw
-    $productionExec = $coreProject.SelectSingleNode('/Project/Target[@Name="BuildRawDecoderNative"]/Exec')
-    if ($null -eq $productionExec) { throw 'RAW native build Exec was not found.' }
-    $projectPath = Join-Path $temporaryRoot 'Contract.proj'
-    $tracePath = Join-Path $temporaryRoot 'trace.txt'
-    $cases = @(
-        @{ Stage = 'success'; Code = 0; Trace = 'setup,configure,build'; Succeeds = $true },
-        @{ Stage = 'setup'; Code = 7; Trace = 'setup'; Succeeds = $false },
-        @{ Stage = 'setup'; Code = -7; Trace = 'setup'; Succeeds = $false },
-        @{ Stage = 'configure'; Code = 7; Trace = 'setup,configure'; Succeeds = $false },
-        @{ Stage = 'configure'; Code = -7; Trace = 'setup,configure'; Succeeds = $false },
-        @{ Stage = 'build'; Code = 7; Trace = 'setup,configure,build'; Succeeds = $false },
-        @{ Stage = 'build'; Code = -7; Trace = 'setup,configure,build'; Succeeds = $false },
-        @{ Stage = 'script'; Code = 0; Trace = ''; Succeeds = $false },
-        @{ Stage = 'exit'; Code = 23; Trace = ''; Succeeds = $false },
-        @{ Stage = 'git'; Code = 0; Trace = ''; Succeeds = $false },
-        @{ Stage = 'discovery'; Code = 0; Trace = ''; Succeeds = $false },
-        @{ Stage = 'artifact'; Code = 0; Trace = 'setup,configure,build'; Succeeds = $false }
-    )
+    $dependencies = ([xml](Get-Content (Join-Path $repoRoot 'native\Dependencies.props') -Raw)).Project.PropertyGroup
+    $archive = Join-Path $temporaryRoot "LibRaw-$($dependencies.LibRawVersion).tar.gz"
+    [IO.File]::WriteAllText($archive, 'corrupt cached source archive')
     foreach ($hostName in @('powershell.exe', 'pwsh.exe')) {
-        $hostPath = (Get-Command $hostName -ErrorAction Stop).Source
-        foreach ($case in $cases) {
-            Set-Content $tracePath '' -Encoding Ascii
-            $env:RAW_TEST_TRACE = $tracePath
-            $env:RAW_TEST_STAGE = $case.Stage
-            $env:RAW_TEST_EXIT_CODE = [string]$case.Code
-            [xml]$project = '<Project><Target Name="Probe" /></Project>'
-            $exec = $project.ImportNode($productionExec, $true)
-            $exec.SetAttribute('Command', "`"$hostPath`" -NoProfile -ExecutionPolicy Bypass -File `"$probeScript`" -Root `"$temporaryRoot`"")
-            $null = $project.Project.Target.AppendChild($exec)
-            $project.Save($projectPath)
-            $output = & dotnet msbuild $projectPath -target:Probe -nologo -verbosity:minimal 2>&1
-            $exitCode = $LASTEXITCODE
-            $trace = ((Get-Content $tracePath) | Where-Object { $_ }) -join ','
-            if (($exitCode -eq 0) -ne $case.Succeeds -or $trace -ne $case.Trace) {
-                throw "$hostName $($case.Stage)/$($case.Code): exit=$exitCode, trace=$trace`n$($output -join "`n")"
-            }
-            if ($case.Succeeds -and
-                (($output -join "`n") -notmatch 'recoverable mirror failure' -or
-                 ($output -join "`n") -notmatch 'recoverable stderr diagnostic' -or
-                 ($output -join "`n") -notmatch 'Native contract completed')) {
-                throw 'Successful native output was not preserved.'
-            }
-            Write-Output "PASS $hostName $($case.Stage)/$($case.Code)"
+        $output = & $hostName -NoProfile -ExecutionPolicy Bypass -File `
+            (Join-Path $PSScriptRoot 'Prepare-RawSources.ps1') -SourceDirectory $temporaryRoot 2>&1
+        if ($LASTEXITCODE -eq 0 -or ($output -join "`n") -notmatch 'checksum mismatch') {
+            throw "Source corruption was not rejected by $hostName.`n$($output -join "`n")"
         }
-        # Control: the original Exec behavior must reproduce the false MSB3077 failure.
-        $env:RAW_TEST_STAGE = 'success'
-        $exec.RemoveAttribute('IgnoreStandardErrorWarningFormat')
-        $project.Save($projectPath)
-        $output = & dotnet msbuild $projectPath -target:Probe -nologo -verbosity:minimal 2>&1
-        if ($LASTEXITCODE -eq 0 -or ($output -join "`n") -notmatch 'MSB3077') {
-            throw "Original Exec behavior did not reproduce MSB3077.`n$($output -join "`n")"
+        if (Test-Path (Join-Path $temporaryRoot "LibRaw-$($dependencies.LibRawVersion)")) {
+            throw 'A failed checksum must not publish extracted sources.'
         }
-        Write-Output "PASS $hostName original Exec reproduces MSB3077"
+        Write-Output "PASS $hostName rejects corrupt cached source before extraction"
+    }
+    foreach ($projectName in @('PhotoLibrarian.Core', 'PhotoLibrarian.Tests')) {
+        $project = [xml](Get-Content (Join-Path $repoRoot "src\$projectName\$projectName.csproj") -Raw)
+        $nativeReferences = @($project.SelectNodes('/Project/ItemGroup/ProjectReference') |
+            Where-Object { $_.Include -like '*.vcxproj' })
+        if ($nativeReferences.Count -ne 2 -or
+            @($nativeReferences | Where-Object { $_.ReferenceOutputAssembly -ne 'false' }).Count -ne 0) {
+            throw "$projectName must use two build-only native project references."
+        }
+        if ($project.OuterXml -match 'Build-RawDecoder|Build-TileCodecProbe|Build-Panorama') {
+            throw "$projectName still invokes hidden native compilation."
+        }
+    }
+    $nativeProjects = Get-ChildItem (Join-Path $repoRoot 'native') -Recurse -Filter '*.vcxproj' |
+        Where-Object { $_.FullName -notmatch '\\obj\\' }
+    foreach ($project in $nativeProjects) {
+        if ([IO.File]::ReadAllText($project.FullName) -match '(?i)[a-z]:\\.*(?:cl|clang-cl)\.exe') {
+            throw "Checked-in compiler path in $($project.Name)."
+        }
+    }
+    Write-Output 'PASS managed references and native compiler-path contract'
+
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    $msbuild = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'MSBuild\Current\Bin\MSBuild.exe'
+    if ($LASTEXITCODE -ne 0 -or -not $msbuild) { throw 'Visual Studio C++ MSBuild is required for the native build contract.' }
+    $openCvProject = Join-Path $repoRoot 'native\OpenCv.vcxproj'
+    $currentTree = & $msbuild $openCvProject /nologo /p:Platform=x64 /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0) { throw 'Could not evaluate the active OpenCV build tree.' }
+    $changedTree = & $msbuild $openCvProject /nologo /p:Platform=x64 /p:VCToolsVersion=0.0.0 /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0 -or $changedTree -eq $currentTree) {
+        throw 'A compiler version change must select a different OpenCV build tree.'
+    }
+    Write-Output 'PASS compiler-version changes cannot reuse the previous generated build tree'
+
+    $libRawRoot = Join-Path $repoRoot "native\obj\sources\LibRaw-$($dependencies.LibRawVersion)"
+    if (Test-Path $libRawRoot) {
+        $manifest = [xml](Get-Content (Join-Path $repoRoot 'native\LibRawSources.props') -Raw)
+        $expected = @($manifest.Project.ItemGroup.ClCompile |
+            ForEach-Object { $_.Include.Replace('$(LibRawSource)', '') })
+        $actual = @(Get-ChildItem (Join-Path $libRawRoot 'src') -Recurse -Filter '*.cpp' |
+            Where-Object { $_.Name -notlike '*_ph.cpp' } |
+            ForEach-Object { $_.FullName.Substring($libRawRoot.Length + 1) })
+        if (Compare-Object $expected $actual) { throw 'The native LibRaw manifest differs from the pinned upstream raw_r source set.' }
+        Write-Output "PASS exact upstream LibRaw source set ($($actual.Count) files)"
     }
 }
 finally {
-    Remove-Item Env:\RAW_TEST_TRACE, Env:\RAW_TEST_STAGE, Env:\RAW_TEST_EXIT_CODE -ErrorAction SilentlyContinue
     Remove-Item $temporaryRoot -Recurse -Force
 }
-
-# The final control intentionally failed; do not leak its exit code to the CI shell.
 exit 0

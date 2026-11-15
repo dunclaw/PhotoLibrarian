@@ -1,0 +1,9 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <OpenCvToolchainKey>$([MSBuild]::StableStringHash('$(VSInstallDir)|$(VisualStudioVersion)|$(PlatformToolset)|$(VCToolsVersion)'))</OpenCvToolchainKey>
+    <OpenCvBuildDirectory>$(NativeRoot)obj\OpenCv\$(Platform)\$(OpenCvToolchainKey)\</OpenCvBuildDirectory>
+    <OpenCvSource>$(OpenCvBuildDirectory)_deps\opencv-$(OpenCvVersion)\</OpenCvSource>
+    <OpenCvProject>$(OpenCvBuildDirectory)opencv\modules\stitching\opencv_stitching.vcxproj</OpenCvProject>
+    <OpenCvDebugSuffix Condition="'$(Configuration)' == 'Debug'">d</OpenCvDebugSuffix>
+  </PropertyGroup>
+</Project>
