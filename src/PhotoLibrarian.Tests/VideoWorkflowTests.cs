@@ -11,6 +11,16 @@ namespace PhotoLibrarian.Tests;
 public sealed class VideoWorkflowTests
 {
     [Fact]
+    public void VideoToolbarRuntimeLabelsResolveFromCompiledResources()
+    {
+        var strings = typeof(MainViewModel).Assembly.GetType("PhotoLibrarian.Services.VideoEditStrings")!;
+        var get = strings.GetMethod("Get", BindingFlags.Static | BindingFlags.NonPublic)!;
+        Assert.Equal("Reset edits", (string)get.Invoke(null, ["VideoEditReset"])!);
+        string rotation = (string)get.Invoke(null, ["VideoEditRotationStatus"])!;
+        Assert.Equal("Reset rotation; currently 90 degrees", string.Format(rotation, 90));
+    }
+
+    [Fact]
     public void ExportedVideoOpensImmediatelyAndRemainsNavigableWithoutIndexing()
     {
         var original = new ImageEntry { FilePath = @"D:\original.mp4", FileName = "original.mp4", MediaType = MediaType.Video };
@@ -76,7 +86,8 @@ public sealed class VideoWorkflowTests
         var buttons = videoTools.Descendants().Where(element => element.Name.LocalName == "Button").ToList();
         var stabilize = Assert.Single(buttons.Where(button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick"));
         Assert.Equal("OnStabilizeVideoClick", (string?)stabilize.Attribute("Click"));
-        Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnEditVideoClick");
+        Assert.DoesNotContain(ribbon.Descendants(), element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "RibbonEditVideo");
         Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick");
         Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnTrimVideoClick");
 
@@ -148,6 +159,12 @@ public sealed class VideoWorkflowTests
         Assert.Contains("TopRibbon.VideoEditCancelClicked += OnVideoEditCancelClicked", windowCode);
         var workflow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.VideoEditing.cs"));
         Assert.DoesNotContain("VideoEditDialog", workflow);
+        Assert.Contains("UpdateVideoToolbarAsync", windowCode);
+        var ribbonCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml.cs"));
+        Assert.Contains("if (isVideo && _hasPhoto && !_editorActive && !_videoEditActive)", ribbonCode);
+        Assert.DoesNotContain("EditVideoClicked", ribbonCode);
+        Assert.DoesNotContain("VideoEditExit.Content", ribbonCode);
+        Assert.DoesNotContain("VideoEditResetRotation.[using:", ribbonCode);
     }
 
     [Fact]

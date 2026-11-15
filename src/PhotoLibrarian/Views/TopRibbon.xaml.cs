@@ -44,7 +44,6 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
     public event EventHandler? StabilizeVideoClicked;
     public event EventHandler? PhotoFuseClicked;
-    public event EventHandler? EditVideoClicked;
     public event EventHandler? VideoEditOptionsChanged;
     public event EventHandler? VideoEditPrepareClicked;
     public event EventHandler? VideoEditExportClicked;
@@ -113,10 +112,17 @@ public sealed partial class TopRibbon : UserControl
     public void SetVideoMode(bool isVideo)
     {
         _isVideo = isVideo;
+        if (isVideo && _hasPhoto && !_editorActive && !_videoEditActive)
+        {
+            EnterVideoEditMode();
+            return;
+        }
+        if (!isVideo)
+            _videoEditActive = false;
         ViewerTools.Visibility = _hasPhoto && !_editorActive && !isVideo ? Visibility.Visible : Visibility.Collapsed;
-        VideoTools.Visibility = _hasPhoto && !_editorActive && isVideo && !_videoEditActive
+        VideoTools.Visibility = _hasPhoto && !_editorActive && isVideo
             ? Visibility.Visible : Visibility.Collapsed;
-        VideoEditTools.Visibility = _hasPhoto && !_editorActive && isVideo && _videoEditActive
+        VideoEditTools.Visibility = _hasPhoto && !_editorActive && isVideo
             ? Visibility.Visible : Visibility.Collapsed;
         CropTools.Visibility = Visibility.Collapsed;
         StraightenTools.Visibility = Visibility.Collapsed;
@@ -136,7 +142,6 @@ public sealed partial class TopRibbon : UserControl
         SetVideoMode(_isVideo);
         SetVideoEditState(false, preparing: false, hasPreview: false, progress: 0,
             status: VideoEditStrings.Get("VideoEditPreparePrompt"));
-        BrightnessSlider.Focus(FocusState.Programmatic);
     }
 
     public void ExitVideoEditMode()
@@ -157,6 +162,7 @@ public sealed partial class TopRibbon : UserControl
         if (!_videoEditActive) return;
         _videoEditBusy = busy;
         _videoEditPreviewReady = hasPreview;
+        SetVideoDerivativeCommandsEnabled(!busy && !HasVideoEditChanges());
         BrightnessSlider.IsEnabled = !busy;
         ContrastSlider.IsEnabled = !busy;
         RotateVideoLeftButton.IsEnabled = !busy;
@@ -166,7 +172,7 @@ public sealed partial class TopRibbon : UserControl
         PrepareVideoEditButton.IsEnabled = !busy && HasVideoEditChanges();
         ExportVideoEditButton.IsEnabled = !busy && hasPreview;
         CancelVideoEditButton.IsEnabled = true;
-        string exitLabel = VideoEditStrings.Get("VideoEditExit.Content");
+        string exitLabel = VideoEditStrings.Get("VideoEditReset");
         CancelVideoEditButton.Content = busy ? VideoEditStrings.Get("VideoEditCancel") : exitLabel;
         AutomationProperties.SetName(CancelVideoEditButton, CancelVideoEditButton.Content?.ToString() ?? "");
         VideoEditProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
@@ -223,7 +229,7 @@ public sealed partial class TopRibbon : UserControl
         ResetRotationButton.Content = rotationDegrees.ToString(culture) + "°";
         AutomationProperties.SetName(ResetRotationButton,
             VideoEditStrings.Format(
-                "VideoEditResetRotation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name",
+                "VideoEditRotationStatus",
                 rotationDegrees));
     }
 
@@ -236,7 +242,14 @@ public sealed partial class TopRibbon : UserControl
         PrepareVideoEditButton.IsEnabled = !_videoEditBusy && HasVideoEditChanges();
         VideoEditErrorBar.IsOpen = false;
         VideoEditStatusText.Text = VideoEditStrings.Get("VideoEditPreparePrompt");
+        SetVideoDerivativeCommandsEnabled(!HasVideoEditChanges());
         VideoEditOptionsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SetVideoDerivativeCommandsEnabled(bool enabled)
+    {
+        foreach (var button in VideoTools.Children.OfType<Button>())
+            button.IsEnabled = enabled;
     }
 
     public void SetPhotoFuseMode(bool active)
@@ -386,8 +399,6 @@ public sealed partial class TopRibbon : UserControl
     };
     private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
         StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);
-    private void OnEditVideoClick(object sender, RoutedEventArgs e) =>
-        EditVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnVideoEditPrepareClick(object sender, RoutedEventArgs e) =>
         VideoEditPrepareClicked?.Invoke(this, EventArgs.Empty);
     private void OnVideoEditExportClick(object sender, RoutedEventArgs e) =>

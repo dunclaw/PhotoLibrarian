@@ -16,8 +16,9 @@ public sealed partial class MainWindow
     private TimeSpan _videoEditSourcePosition;
     private bool _videoEditSourceWasPlaying;
     private bool _videoEditExitInProgress;
+    private string? _videoToolbarSourcePath;
 
-    private void OnEditVideo(object? sender, EventArgs args)
+    private void BeginVideoEditing()
     {
         if (_videoEditSourcePath is not null ||
             App.ViewModel?.ImageViewer.CurrentEntry is not { MediaType: MediaType.Video } entry)
@@ -27,12 +28,12 @@ public sealed partial class MainWindow
         _videoEditSourceWasPlaying = ViewerOverlay.IsVideoPlaying;
         ViewerOverlay.PauseVideo();
         ViewerOverlay.SetVideoEditingMode(true);
-        TopRibbon.EnterVideoEditMode();
     }
 
     private async void OnVideoEditOptionsChanged(object? sender, EventArgs args)
     {
-        if (_videoEditCancellation is not null) return;
+        if (_videoEditCancellation is not null || _videoEditExitInProgress) return;
+        BeginVideoEditing();
         bool restoreSource = _videoEditing?.PreviewPath is not null;
         string? cleanupError = await ReleaseVideoEditPreviewAsync(restoreSource);
         if (cleanupError is not null)
@@ -57,6 +58,8 @@ public sealed partial class MainWindow
         }
 
         await ExitVideoEditAsync(restoreSource: true);
+        if (_videoEditSourcePath is null)
+            TopRibbon.EnterVideoEditMode();
     }
 
     private async Task StartVideoEditOperationAsync(Func<CancellationToken, Task> operation)
@@ -270,5 +273,19 @@ public sealed partial class MainWindow
         _videoEditSourcePath = null;
         ViewerOverlay.SetVideoEditingMode(false);
         TopRibbon.ExitVideoEditMode();
+    }
+
+    private async Task UpdateVideoToolbarAsync()
+    {
+        string? sourcePath = !_isClosing && ViewModel.ImageViewer.IsOpen &&
+            ViewModel.ImageViewer.CurrentEntry is { MediaType: MediaType.Video } entry
+            ? entry.FilePath : null;
+        if (string.Equals(_videoToolbarSourcePath, sourcePath, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _videoToolbarSourcePath = sourcePath;
+        await ExitVideoEditAsync(restoreSource: false);
+        if (sourcePath is not null && IsCurrentVideoEditSource(sourcePath))
+            TopRibbon.EnterVideoEditMode();
     }
 }

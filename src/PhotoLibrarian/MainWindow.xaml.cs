@@ -451,7 +451,6 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.PhotoFuseExitRequested += OnPhotoFuseClick;
         ViewerOverlay.PhotoFuseDiscardRequested += async (_, _) => await FinishPhotoFuseAsync(discard: true);
         ViewerOverlay.VideoEditCancelRequested += OnVideoEditCancelClicked;
-        TopRibbon.EditVideoClicked += OnEditVideo;
         TopRibbon.VideoEditOptionsChanged += OnVideoEditOptionsChanged;
         TopRibbon.VideoEditPrepareClicked += OnVideoEditPrepareClicked;
         TopRibbon.VideoEditExportClicked += OnVideoEditExportClicked;
@@ -700,9 +699,8 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName is nameof(ImageViewerViewModel.CurrentEntry) or nameof(ImageViewerViewModel.IsOpen))
             DispatcherQueue.TryEnqueue(async () =>
             {
-                if (!_isClosing && _videoEditSourcePath is { } sourcePath &&
-                    !IsCurrentVideoEditSource(sourcePath))
-                    await ExitVideoEditAsync(restoreSource: false);
+                if (!_isClosing)
+                    await UpdateVideoToolbarAsync();
             });
 
         if (e.PropertyName is nameof(ImageViewerViewModel.IsApplyingEffect) or nameof(ImageViewerViewModel.CurrentEntry))

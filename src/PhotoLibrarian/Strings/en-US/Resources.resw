@@ -510,15 +510,14 @@ Backup: {3}
   <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video contrast</value></data>
   <data name="VideoEditPrepare.Content" xml:space="preserve"><value>Prepare preview</value></data>
   <data name="VideoEditExport.Content" xml:space="preserve"><value>Export copy</value></data>
-  <data name="VideoEditExit.Content" xml:space="preserve"><value>Exit editing</value></data>
+  <data name="VideoEditExit.Content" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditReset" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditRotationStatus" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
   <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Adjust brightness, contrast, rotation, or audio, then prepare the preview before saving.</value></data>
   <data name="VideoEditCleanupFailed" xml:space="preserve"><value>Could not remove temporary preview at {0}: {1}</value></data>
   <data name="VideoEditProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preparing or saving edited video</value></data>
   <data name="VideoEditStatus.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video edit status</value></data>
   <data name="VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edited video preview</value></data>
-  <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edit video brightness, contrast, rotation, or audio</value></data>
-  <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Adjust video brightness and contrast, rotation, and audio before exporting a new copy</value></data>
-  <data name="VideoEditRibbonCaption.Text" xml:space="preserve"><value>Edit Video</value></data>
   <data name="VideoEditPreparing" xml:space="preserve"><value>Preparing the edited copy for preview...</value></data>
   <data name="VideoEditPreviewReady" xml:space="preserve"><value>Play the edited copy to review it, then export to save it. Changing an edit requires preparing a new preview.</value></data>
   <data name="VideoEditPreviewFailed" xml:space="preserve"><value>Windows could not preview this video: {0}</value></data>
