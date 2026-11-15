@@ -204,7 +204,7 @@ properties must keep today's graph and appearance.
 
 ### #194 isolated creative-effect primitives: not activated
 
-The internal `SourceDetailEffect` and `PostCropEffectReference` provide bounded
+The internal `SourceDetailEffect`, `PostCropEffect` and `PostCropEffectReference` provide bounded
 implementation and acceptance work while the shared final-output geometry hook
 is being developed. Neither is connected to the editor, render graph, XMP
 serializer, preset composer, or RAW development. No new recipe can be saved
@@ -222,7 +222,7 @@ no image. Zero amounts bypass exactly. The simultaneous primitive samples the
 original input for both corrections, with an eight-source-pixel halo and hard
 image boundaries. It does not implement source resampling or a tiled engine.
 
-The CPU post-crop reference uses complete, continuous output dimensions and
+The GPU post-crop primitive and its CPU reference use complete, continuous output dimensions and
 global pixel centers and footprints, not viewport/tile-local coordinates.
 Negative Vignette amount darkens and positive brightens; feather and roundness
 control the centered elliptical falloff. Highlight priority protects bright
@@ -230,10 +230,15 @@ values when darkening. Grain is a seeded two-scale lattice field; size is
 relative to the cropped output's shorter dimension and roughness blends the
 finer scale. Analytically integrating the bilinear field over each pixel box
 keeps proportional resolutions consistent and suppresses subpixel aliasing.
-This reference uses an axis-aligned footprint; a future GPU consumer must
-deliberately handle the shared hook's affine footprint instead of discarding
-its scale/shear. It reports invalid input, unrepresentable lattice coordinates
-and cancellation explicitly. It is not a production CPU export path.
+Both currently use an axis-aligned footprint and an explicit global origin
+and local-pixel-to-output scale. The GPU primitive's scene coordinates are
+independent of later presentation translation/zoom. A geometry-hook adapter
+must deliberately handle its affine footprint instead of discarding
+scale/shear; it is not yet implemented. The reference reports invalid input,
+unrepresentable lattice coordinates and cancellation explicitly; the GPU
+factory reports invalid input and unrepresentable integer/float sampling
+precision with no effect image. These are actual arithmetic checks, not
+dimension cutoffs. The CPU reference is not a production export path.
 
 Focused generated-fixture tests cover signed behavior, highlight/alpha safety,
 fine-band versus edge responses, two-dimensional source halos, stable seeds,
@@ -241,7 +246,12 @@ global-coordinate partition invariance, relative grain scale and integrated
 footprints. They also exercise 12 MP and 24 MP source rendering without a
 dimension cutoff. These are not real-photo quality approval, constant-memory
 proof, integrated preview/export parity for the new effects, ARM64 validation,
-or a production-ready procedural shader. The existing raster graph remains
+or activation of the procedural shader in production consumers. GPU/CPU
+comparisons allow at most one RGB byte of shader precision difference and
+require exact alpha. Additional tests cover full 32-bit seeds, translated and
+zoomed presentation, identical global-coordinate output tiles, reduced-output
+footprints, the minimum Grain size on a small odd image and a 24 MP post-output
+render. The existing raster graph remains
 unchanged. Final geometry integration, all consumers, portable recipe/history
 support, presets, UI and photographic review remain activation gates.
 
