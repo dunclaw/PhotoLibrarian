@@ -49,8 +49,18 @@ public sealed partial class ImageEditorView : UserControl
     private bool _retouchWorkspace;
     private Vector2? _brushPosition;
 
-    public ImageEditorView()
+    public ImageEditorView() : this(null)
     {
+    }
+
+    /// <summary>
+    /// Creates an editor bound to an explicit view model. The model is assigned before
+    /// XAML initialization so initial control events see the same state as the app's
+    /// shared editor view model.
+    /// </summary>
+    public ImageEditorView(ImageEditorViewModel? viewModel)
+    {
+        _providedViewModel = viewModel;
         _suppressSliderEvents = true;
         this.InitializeComponent();
         _suppressSliderEvents = false;
@@ -71,9 +81,6 @@ public sealed partial class ImageEditorView : UserControl
         cancelRetouch.Invoked += OnCancelRetouchInvoked;
         KeyboardAccelerators.Add(cancelRetouch);
     }
-
-    public ImageEditorView(ImageEditorViewModel viewModel) : this() =>
-        _providedViewModel = viewModel;
 
     public void SetRetouchWorkspace(bool enabled)
     {
@@ -1074,8 +1081,12 @@ public sealed partial class ImageEditorView : UserControl
         HistogramCanvas.Invalidate();
     }
 
-    private void OnColorMixerBandChanged(object sender, SelectionChangedEventArgs e) =>
+    private void OnColorMixerBandChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // SelectedIndex in XAML raises this during InitializeComponent, before the band sliders exist.
+        if (_suppressSliderEvents) return;
         SyncColorAdjustmentsFromViewModel();
+    }
 
     private void OnColorAdjustmentSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
