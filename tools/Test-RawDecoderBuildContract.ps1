@@ -73,6 +73,42 @@ try {
     $ownerRoot = Join-Path $temporaryRoot 'owner-check'
     & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repoRoot
     & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repoRoot
+
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $lockKey = [BitConverter]::ToString($hasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($ownerRoot).TrimEnd('\').ToLowerInvariant()))).Replace('-', '')
+    }
+    finally { $hasher.Dispose() }
+    $lockName = "Global\PhotoLibrarian-OpenCvWorkspace-$lockKey"
+    $testLock = [Threading.Mutex]::new($false, $lockName)
+    try {
+        $abandonCommand = "`$mutex = [Threading.Mutex]::OpenExisting('$lockName'); `$mutex.WaitOne() | Out-Null; [Environment]::Exit(0)"
+        $abandonEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($abandonCommand))
+        $probeCommand = "`$mutex = [Threading.Mutex]::OpenExisting('$lockName'); if (-not `$mutex.WaitOne(3000)) { exit 1 }; `$mutex.ReleaseMutex(); `$mutex.Dispose()"
+        $probeEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probeCommand))
+        foreach ($repository in @($repoRoot, $temporaryRoot)) {
+            $process = Start-Process powershell.exe -Wait -PassThru -NoNewWindow -ArgumentList @('-NoProfile', '-EncodedCommand', $abandonEncoded)
+            if ($process.ExitCode -ne 0) { throw 'Could not create an abandoned OpenCV workspace lock.' }
+
+            $collisionRejected = $false
+            try {
+                & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repository
+            }
+            catch {
+                if ($repository -eq $repoRoot -or $_.Exception.Message -notmatch 'cache path collision') { throw }
+                $collisionRejected = $true
+            }
+            if ($repository -ne $repoRoot -and -not $collisionRejected) {
+                throw 'An abandoned lock must not bypass the OpenCV workspace owner check.'
+            }
+            $process = Start-Process powershell.exe -Wait -PassThru -NoNewWindow -ArgumentList @('-NoProfile', '-EncodedCommand', $probeEncoded)
+            if ($process.ExitCode -ne 0) { throw 'The recovered OpenCV workspace lock was not released.' }
+        }
+    }
+    finally { $testLock.Dispose() }
+    Write-Output 'PASS abandoned OpenCV workspace lock is recovered and released'
+
     $ownerError = Join-Path $temporaryRoot 'owner-error.txt'
     $process = Start-Process powershell.exe -Wait -PassThru -NoNewWindow -RedirectStandardError $ownerError -ArgumentList @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ownerScript`"",

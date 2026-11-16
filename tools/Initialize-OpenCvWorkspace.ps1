@@ -18,7 +18,12 @@ finally { $hasher.Dispose() }
 $lock = [Threading.Mutex]::new($false, "Global\PhotoLibrarian-OpenCvWorkspace-$lockKey")
 $lockHeld = $false
 try {
-    $lockHeld = $lock.WaitOne()
+    try {
+        $lockHeld = $lock.WaitOne()
+    }
+    catch [Threading.AbandonedMutexException] {
+        $lockHeld = $true
+    }
     New-Item $workspace -ItemType Directory -Force | Out-Null
     $ownerPath = Join-Path $workspace 'workspace.txt'
     if (Test-Path $ownerPath) {
