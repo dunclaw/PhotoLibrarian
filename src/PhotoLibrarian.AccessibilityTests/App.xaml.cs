@@ -98,7 +98,11 @@ public partial class App : Application
                 await RunEditPresetsTestsAsync();
                 return;
             }
-            if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
+            if (Environment.GetCommandLineArgs().Contains("--viewer-focus"))
+            {
+                await RunViewerFocusTestsAsync();
+            }
+            else if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
             {
                 await RunViewerContextMenuTestsAsync();
             }
