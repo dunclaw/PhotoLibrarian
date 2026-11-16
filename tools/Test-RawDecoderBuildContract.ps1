@@ -54,6 +54,31 @@ try {
     }
     Write-Output 'PASS compiler-version changes cannot reuse the previous generated build tree'
 
+    $longNativeRoot = Join-Path $temporaryRoot (('long-worktree-name-' * 8) + '\native\')
+    $otherNativeRoot = Join-Path $temporaryRoot (('long-worktree-name-' * 8) + '-other\native\')
+    $cacheBase = Join-Path $temporaryRoot 'cv'
+    $longTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$longNativeRoot" "/p:OpenCvCacheBase=$cacheBase" /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0) { throw 'Could not evaluate the long-worktree OpenCV build tree.' }
+    $otherTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$otherNativeRoot" "/p:OpenCvCacheBase=$cacheBase" /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0 -or $longTree -eq $otherTree) {
+        throw 'Different worktrees must select different OpenCV build trees.'
+    }
+    $statePath = Join-Path $longTree.Trim() 'tlog\opencv_features2d_AVX512_SKX\Release\opencv_features2d_AVX512_SKX.lastbuildstate'
+    if ($statePath.Length -ge 260) { throw "OpenCV tracking path is too long: $statePath" }
+
+    $ownerScript = Join-Path $PSScriptRoot 'Initialize-OpenCvWorkspace.ps1'
+    $ownerRoot = Join-Path $temporaryRoot 'owner-check'
+    & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repoRoot
+    & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repoRoot
+    $ownerError = Join-Path $temporaryRoot 'owner-error.txt'
+    $process = Start-Process powershell.exe -Wait -PassThru -NoNewWindow -RedirectStandardError $ownerError -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ownerScript`"",
+        '-WorkspaceRoot', "`"$ownerRoot`"", '-RepositoryRoot', "`"$temporaryRoot`"")
+    if ($process.ExitCode -eq 0 -or (Get-Content $ownerError -Raw) -notmatch 'cache path collision') {
+        throw 'An OpenCV cache already owned by another worktree must be rejected.'
+    }
+    Write-Output 'PASS long worktree paths use isolated, collision-checked OpenCV build trees'
+
     $featuresDirectory = Join-Path $currentTree.Trim() 'opencv\modules\features2d'
     if (Test-Path $featuresDirectory) {
         $trackingPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
