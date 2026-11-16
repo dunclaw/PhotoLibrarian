@@ -245,6 +245,21 @@
                         Click="OnMotionPhotoClick">
                     <FontIcon x:Name="MotionPhotoIcon" Glyph="&#xE768;" FontSize="14" />
                 </Button>
+                <ComboBox x:Name="VideoPlaybackSpeed"
+                          x:Uid="ViewerPlaybackSpeed"
+                          AutomationProperties.AutomationId="ViewerPlaybackSpeed"
+                          SelectedIndex="2"
+                          SelectionChanged="OnVideoPlaybackSpeedChanged"
+                          Visibility="Collapsed"
+                          MinWidth="96"
+                          VerticalAlignment="Center">
+                    <ComboBoxItem x:Uid="ViewerPlaybackSpeedHalf" />
+                    <ComboBoxItem x:Uid="ViewerPlaybackSpeedThreeQuarter" />
+                    <ComboBoxItem x:Uid="ViewerPlaybackSpeedNormal" />
+                    <ComboBoxItem x:Uid="ViewerPlaybackSpeedFiveQuarter" />
+                    <ComboBoxItem x:Uid="ViewerPlaybackSpeedOneAndHalf" />
+                    <ComboBoxItem x:Uid="ViewerPlaybackSpeedDouble" />
+                </ComboBox>
                 <Button x:Name="ZoomOutButton"
                         AutomationProperties.AutomationId="ViewerZoomOut"
                         AutomationProperties.Name="Zoom out"
