@@ -88,6 +88,18 @@ public partial class App
             InvokeDialogButton(error, "Close");
             Check(await errorTask == ContentDialogResult.None,
                 "Closing an error summary returns the native dismissed result");
+
+            var exception = new InvalidOperationException("Synthetic operation failure");
+            errorTask = service.ErrorAsync(owner, "People couldn't be loaded", exception, "Close");
+            await UntilAsync(() => FindDialogInRoot(owner.XamlRoot) is not null);
+            error = FindDialogInRoot(owner.XamlRoot)!;
+            Check(error.Title?.ToString() == "People couldn't be loaded" &&
+                error.Content is string message && message == exception.Message &&
+                error.CloseButtonText == "Close",
+                "Exception error presentation preserves its title, message, and close label");
+            InvokeDialogButton(error, "Close");
+            Check(await errorTask == ContentDialogResult.None,
+                "Closing an exception error summary returns the native dismissed result");
         }
         finally
         {

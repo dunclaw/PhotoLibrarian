@@ -37,4 +37,10 @@ public interface IDialogService
         string title,
         object content,
         string closeButtonText);
+
+    Task<ContentDialogResult> ErrorAsync(
+        FrameworkElement owner,
+        string title,
+        Exception exception,
+        string closeButtonText);
 }

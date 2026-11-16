@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -5,6 +7,7 @@ using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Controls;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using System.ComponentModel;
 using System.Linq;
@@ -818,14 +821,7 @@ public sealed partial class PeopleReviewView : UserControl
 
     private async Task ShowErrorAsync(string title, Exception exception)
     {
-        var dialog = new ContentDialog
-        {
-            Title = title,
-            Content = exception.Message,
-            CloseButtonText = "Close",
-            XamlRoot = XamlRoot
-        };
-        await dialog.ShowAsync();
+        await DialogService.Instance.ErrorAsync(this, title, exception, "Close");
     }
 
     private async Task ShowContextPreviewAsync(

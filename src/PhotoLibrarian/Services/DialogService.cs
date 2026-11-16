@@ -33,6 +33,13 @@ public sealed class DialogService : IDialogService
         string closeButtonText) =>
         ShowAsync(owner, title, content, "", closeButtonText, ContentDialogButton.Close);
 
+    public Task<ContentDialogResult> ErrorAsync(
+        FrameworkElement owner,
+        string title,
+        Exception exception,
+        string closeButtonText) =>
+        ErrorAsync(owner, title, exception.Message, closeButtonText);
+
     private static async Task<ContentDialogResult> ShowAsync(
         FrameworkElement owner,
         string title,
