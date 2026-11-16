@@ -73,4 +73,29 @@ public sealed class OverlayNavigationStateTests
             (string?)element.Attribute(x + "Name") == "ComparisonOverlay");
         Assert.Equal("4", (string?)comparison.Attribute("Grid.RowSpan"));
     }
+
+    [Fact]
+    public void OverlayFocusTargets_ArePresentAndUsedByTheHost()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var assets = Path.Combine(AppContext.BaseDirectory, "TestAssets");
+        var mainWindow = XDocument.Load(Path.Combine(assets, "MainWindow.xaml"));
+        var settings = XDocument.Load(Path.Combine(assets, "SettingsPanel.xaml"));
+        var people = XDocument.Load(Path.Combine(assets, "PeopleReviewView.xaml"));
+        var duplicates = XDocument.Load(Path.Combine(assets, "DuplicateReviewView.xaml"));
+        var hostCode = File.ReadAllText(Path.Combine(assets, "MainWindow.xaml.cs"));
+
+        AssertNamedElement(settings, x, "MapProviderCombo");
+        AssertNamedElement(people, x, "ModeSelector");
+        AssertNamedElement(duplicates, x, "ScanButton");
+        AssertNamedElement(mainWindow, x, "PeopleReviewPanel");
+        AssertNamedElement(mainWindow, x, "DuplicateReviewPanel");
+        Assert.Contains("SettingsPanel.FocusInitialControl()", hostCode);
+        Assert.Contains("PeopleReviewPanel.FocusInitialControl()", hostCode);
+        Assert.Contains("DuplicateReviewPanel.FocusInitialControl()", hostCode);
+    }
+
+    private static void AssertNamedElement(XDocument document, XNamespace x, string name) =>
+        Assert.Contains(document.Descendants(), element =>
+            (string?)element.Attribute(x + "Name") == name);
 }

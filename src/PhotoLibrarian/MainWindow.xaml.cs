@@ -1192,6 +1192,15 @@ public sealed partial class MainWindow : Window
                 ViewerOverlay.StopFocusGuard();
                 EditorOverlay.FocusEditor();
                 break;
+            case OverlaySurface.Settings:
+                SettingsPanel.FocusInitialControl();
+                break;
+            case OverlaySurface.PeopleReview:
+                PeopleReviewPanel.FocusInitialControl();
+                break;
+            case OverlaySurface.DuplicateReview:
+                DuplicateReviewPanel.FocusInitialControl();
+                break;
             case OverlaySurface.Comparison:
                 _comparison?.FocusWorkspace();
                 break;

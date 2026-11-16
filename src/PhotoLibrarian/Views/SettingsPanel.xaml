@@ -402,7 +402,8 @@
                 Padding="24,12"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                 BorderThickness="0,1,0,0">
-            <Button AutomationProperties.AutomationId="CloseSettingsButton"
+            <Button x:Name="CloseSettingsButton"
+                    AutomationProperties.AutomationId="CloseSettingsButton"
                     HorizontalAlignment="Right"
                     Content="Close"
                     Click="OnClose" />
