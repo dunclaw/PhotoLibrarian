@@ -45,6 +45,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\PhotoLibrarian\App.xaml"
+          Link="TestAssets\App.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\MainWindow.xaml"
           Link="TestAssets\MainWindow.xaml"
           CopyToOutputDirectory="PreserveNewest" />
@@ -101,6 +104,12 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml"
           Link="TestAssets\TopRibbon.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\PhotoComparisonView.xaml"
+          Link="TestAssets\PhotoComparisonView.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\PeopleReviewView.xaml"
+          Link="TestAssets\PeopleReviewView.xaml"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml.cs"
           Link="TestAssets\TopRibbon.xaml.cs"
