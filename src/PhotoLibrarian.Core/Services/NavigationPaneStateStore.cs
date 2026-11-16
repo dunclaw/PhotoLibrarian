@@ -43,10 +43,7 @@ public sealed class NavigationPaneStateStore
 
     public NavigationPaneStateStore(string? path = null)
     {
-        _path = path ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PhotoLibrarian",
-            "navigation-pane.json");
+        _path = path ?? AppDataPaths.SettingsFile("navigation-pane.json");
     }
 
     public NavigationPaneState Load()
@@ -76,18 +73,6 @@ public sealed class NavigationPaneStateStore
 
     public void Save(NavigationPaneState state)
     {
-        var directory = Path.GetDirectoryName(_path);
-        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-
-        var temporaryPath = _path + ".tmp";
-        try
-        {
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(state));
-            File.Move(temporaryPath, _path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-        }
+        AppSettingsFile.WriteAllText(_path, JsonSerializer.Serialize(state));
     }
 }

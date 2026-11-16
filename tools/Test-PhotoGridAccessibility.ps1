@@ -1,6 +1,8 @@
 param(
     [ValidateSet('x64', 'ARM64')]
     [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' }),
+    [ValidateSet('Debug', 'Release')]
+    [string]$Configuration = 'Debug',
     [switch]$SkipBuild,
     [switch]$Preview,
     [switch]$ViewerPreview,
@@ -41,10 +43,10 @@ $project = Join-Path $PSScriptRoot '..\src\PhotoLibrarian.AccessibilityTests\Pho
 Get-Command dotnet, winapp -ErrorAction Stop | Out-Null
 
 if (-not $SkipBuild) {
-    & dotnet build $project "-p:Platform=$Platform" -v:q
+    & dotnet build $project "-p:Platform=$Platform" "-p:Configuration=$Configuration" -v:q
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host build failed.' }
 }
-$output = (& dotnet msbuild $project "-p:Platform=$Platform" -getProperty:TargetDir).Trim()
+$output = (& dotnet msbuild $project "-p:Platform=$Platform" "-p:Configuration=$Configuration" -getProperty:TargetDir).Trim()
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $output)) {
     throw 'Could not locate accessibility test host output.'
 }

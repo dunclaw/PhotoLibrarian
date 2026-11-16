@@ -38,29 +38,28 @@
                         x:Uid="GridImportButton"
                         AutomationProperties.AutomationId="GridImportButton"
                         Click="OnImportClick"
-                        Padding="8">
-                    <FontIcon Glyph="&#xE8B5;" />
+                        Style="{StaticResource ToolbarIconButtonStyle}">
+                    <FontIcon Glyph="&#xE8B5;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button x:Uid="GridComparison" AutomationProperties.AutomationId="GridComparison"
-                        Click="OnCompareClick" Padding="8">
+                        Click="OnCompareClick" Style="{StaticResource ToolbarIconButtonStyle}">
                     <SymbolIcon Symbol="TwoPage" />
                 </Button>
                 <!-- Slideshow: first in the toolbar so narrow windows never clip it -->
                 <Button x:Name="SlideshowButton"
                         Click="OnSlideshowClick"
-                        Padding="6"
-                        Margin="0,0,8,0"
+                Style="{StaticResource ToolbarIconButtonStyle}"
                         AutomationProperties.AutomationId="GridSlideshowButton"
                         AutomationProperties.Name="Slideshow"
                         ToolTipService.ToolTip="Slideshow (F11): plays selected photos, or all photos starting at the selected one">
-                    <FontIcon Glyph="&#xE786;" FontSize="16" />
+                    <FontIcon Glyph="&#xE786;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button x:Name="ShareButton"
                         x:Uid="GridShareButton"
                         AutomationProperties.AutomationId="GridShareButton"
-                        Click="OnShareClick"
-                        Padding="8">
-                    <FontIcon Glyph="&#xE72D;" />
+                Click="OnShareClick"
+                Style="{StaticResource ToolbarIconButtonStyle}">
+                    <FontIcon Glyph="&#xE72D;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <TextBlock Text="Group:" VerticalAlignment="Center" Margin="4,0" />
                 <ComboBox x:Name="GroupByCombo" 
@@ -93,8 +92,9 @@
                     <ComboBoxItem Content="Rating" Tag="Rating" />
                     <ComboBoxItem Content="Random" Tag="Random" />
                 </ComboBox>
-                <Button x:Name="SortOrderBtn" Click="OnToggleSortOrder" Padding="6" ToolTipService.ToolTip="Toggle sort order">
-                    <FontIcon x:Name="SortOrderIcon" Glyph="&#xE014;" FontSize="12" />
+                <Button x:Name="SortOrderBtn" Click="OnToggleSortOrder"
+                        Style="{StaticResource ToolbarIconButtonStyle}" ToolTipService.ToolTip="Toggle sort order">
+                    <FontIcon x:Name="SortOrderIcon" Glyph="&#xE014;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button x:Name="ReshuffleButton" Content="Reshuffle"
                         AutomationProperties.AutomationId="GridReshuffle"
@@ -337,13 +337,15 @@
 
             <!-- Thumbnail size slider -->
             <StackPanel Grid.Column="4" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="4">
-                <Button Click="OnDecreaseSize" Padding="6" ToolTipService.ToolTip="Smaller thumbnails">
-                    <FontIcon Glyph="&#xE71F;" FontSize="12" />
+                <Button Click="OnDecreaseSize" Style="{StaticResource ToolbarIconButtonStyle}"
+                        ToolTipService.ToolTip="Smaller thumbnails">
+                    <FontIcon Glyph="&#xE71F;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Slider x:Name="SizeSlider" Width="80" Minimum="100" Maximum="400" Value="180"
                         VerticalAlignment="Center" ValueChanged="OnSizeSliderChanged" />
-                <Button Click="OnIncreaseSize" Padding="6" ToolTipService.ToolTip="Larger thumbnails">
-                    <FontIcon Glyph="&#xE8A3;" FontSize="12" />
+                <Button Click="OnIncreaseSize" Style="{StaticResource ToolbarIconButtonStyle}"
+                        ToolTipService.ToolTip="Larger thumbnails">
+                    <FontIcon Glyph="&#xE8A3;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
             </StackPanel>
             <Button x:Name="PeopleReviewButton"

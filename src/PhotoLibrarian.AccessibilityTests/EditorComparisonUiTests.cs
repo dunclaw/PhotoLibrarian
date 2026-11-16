@@ -191,6 +191,7 @@ public partial class App
             await WaitForAsync(() => !compare.IsEnabled, "RAW comparison is disabled");
             Check(ToolTipService.GetToolTip(compare).ToString()!.Contains("not available for RAW"),
                 "RAW limitation has an explicit tooltip");
+            await RunColorAdjustmentControlTestsAsync(vm, editor, directory, _window);
 
             if (Environment.GetCommandLineArgs().Contains("--preview"))
             {

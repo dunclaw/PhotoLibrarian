@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f4ed">
+  <meta name="description" content="Privacy information for PhotoLibrarian and the PhotoLibrarian website.">
+  <title>Privacy policy — PhotoLibrarian</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="PhotoLibrarian home">
+      <span class="brand-mark" aria-hidden="true">P</span>
+      <span>PhotoLibrarian</span>
+    </a>
+    <nav class="header-nav" aria-label="Main navigation">
+      <a class="header-link" href="index.html">Product</a>
+      <a class="header-link" href="https://github.com/dunclaw/PhotoLibrarian">Project on GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main class="policy-main">
+    <div class="policy-heading">
+      <p class="eyebrow">Your privacy matters</p>
+      <h1>Privacy <span>policy.</span></h1>
+      <p>Last updated November 15, 2026</p>
+    </div>
+
+    <article class="policy-content">
+      <p>This policy describes how PhotoLibrarian, a Windows photo library application, and the PhotoLibrarian release website handle information. PhotoLibrarian is designed to process your library on your own computer, not on a PhotoLibrarian cloud service.</p>
+
+      <h2>Photos and library information stay on your device</h2>
+      <p>The app reads and processes the photos, videos, and metadata in folders you choose. It does not upload your photo or video content, filenames, library database, tags, or face data to PhotoLibrarian servers. Editing, indexing, search, and model inference run locally.</p>
+      <p>The app keeps its settings, index, thumbnails, and face regions or recognition data in local app data on your Windows account. When supported, face-region or people metadata you choose to save may also be written into a photo or its sidecar. These files remain under your control.</p>
+
+      <h2>Optional model downloads</h2>
+      <p>If you use face scanning or choose a downloadable automatic-tagging model, the app may download model files from PhotoLibrarian's Azure Blob Storage or GitHub-hosted static files. Those services receive the ordinary connection information needed to serve a download, such as your IP address and request headers. The app does not send your photos, filenames, tags, face data, or other library contents with model requests. Downloaded models are run locally.</p>
+
+      <h2>Actions you choose can share information with other services</h2>
+      <ul>
+        <li><strong>Maps:</strong> If you open a map link, the selected provider receives the coordinates included in that link and ordinary browser/network information. No map link is opened until you choose to open it. See <a href="https://policies.google.com/privacy">Google's privacy policy</a> and <a href="https://www.microsoft.com/en-us/privacy/privacystatement">Microsoft's privacy statement</a> for Bing Maps.</li>
+        <li><strong>Sharing:</strong> If you use Windows sharing or the email-sharing option, the app prepares local photo copies and opens the Windows share interface or your email app. Information is transferred to a recipient or service only according to your choices there. Review that service's privacy policy before sending.</li>
+        <li><strong>Store and Windows:</strong> Microsoft handles app listing, purchase, download, installation, and operating-system services under <a href="https://privacy.microsoft.com/privacystatement">Microsoft's privacy statement</a>. The app itself does not receive your Microsoft account credentials.</li>
+      </ul>
+
+      <h2>Website, cookies, and analytics</h2>
+      <p>The release website does not use advertising, analytics scripts, or tracking cookies. It does not collect usage events. The site is hosted using Azure Static Web Apps; Azure processes ordinary web requests to deliver the pages, which may include network and diagnostic information under the hosting configuration and Microsoft's terms.</p>
+      <p>The website and model-download links use GitHub and Azure. Their services receive ordinary connection information when your browser or app requests content; see <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a> and <a href="https://privacy.microsoft.com/privacystatement">Microsoft's privacy statement</a>. Following a link to GitHub or the Microsoft Store takes you to that provider and its privacy policy.</p>
+
+      <h2>Data retention and your choices</h2>
+      <p>Your photos and edited metadata remain in the folders you manage. The app's local index, settings, and downloaded models remain on your device until you remove them or the relevant app data is removed. You can stop using model-based features and remove their downloaded model files from the app's local data. Removing the app's cache does not remove your original photos or metadata stored with them.</p>
+
+      <h2>Children</h2>
+      <p>PhotoLibrarian is a general-purpose photo library application and is not designed to collect personal information from children. It has no user accounts or online profile service.</p>
+
+      <h2>Changes and contact</h2>
+      <p>This policy may be updated when the app or its services change. The current version and its update date will be published on this page. For privacy questions, contact the project maintainer through the <a href="https://github.com/dunclaw">GitHub profile</a>. Do not include private or sensitive information in a public repository issue.</p>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <a class="brand footer-brand" href="index.html"><span class="brand-mark" aria-hidden="true">P</span><span>PhotoLibrarian</span></a>
+    <p>Made for your photos. Kept on your computer.</p>
+    <nav class="footer-nav" aria-label="Footer navigation">
+      <a class="footer-link" href="index.html">Product page</a>
+      <a class="footer-link" href="https://github.com/dunclaw/PhotoLibrarian">Project on GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </footer>
+</body>
+</html>

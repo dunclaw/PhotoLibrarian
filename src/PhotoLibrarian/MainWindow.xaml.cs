@@ -450,13 +450,16 @@ public sealed partial class MainWindow : Window
         TopRibbon.PhotoFuseClicked += OnPhotoFuseClick;
         ViewerOverlay.PhotoFuseExitRequested += OnPhotoFuseClick;
         ViewerOverlay.PhotoFuseDiscardRequested += async (_, _) => await FinishPhotoFuseAsync(discard: true);
-        TopRibbon.EditVideoClicked += OnEditVideo;
+        ViewerOverlay.VideoEditCancelRequested += OnVideoEditCancelClicked;
+        TopRibbon.VideoEditOptionsChanged += OnVideoEditOptionsChanged;
+        TopRibbon.VideoEditPrepareClicked += OnVideoEditPrepareClicked;
+        TopRibbon.VideoEditExportClicked += OnVideoEditExportClicked;
+        TopRibbon.VideoEditCancelClicked += OnVideoEditCancelClicked;
+        TopRibbon.VideoEditStatusChanged += (_, status) => ViewModel.StatusText = status;
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.SlideshowThemeChanged += (_, theme) => _slideshowTheme = theme;
-        TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
-        TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
@@ -692,6 +695,13 @@ public sealed partial class MainWindow : Window
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isClosing) return;
+        if (e.PropertyName is nameof(ImageViewerViewModel.CurrentEntry) or nameof(ImageViewerViewModel.IsOpen))
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                if (!_isClosing)
+                    await UpdateVideoToolbarAsync();
+            });
+
         if (e.PropertyName is nameof(ImageViewerViewModel.IsApplyingEffect) or nameof(ImageViewerViewModel.CurrentEntry))
             UpdateHistoryControls();
 
@@ -753,6 +763,12 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (_videoEditSourcePath is not null && e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            OnVideoEditCancelClicked(null, EventArgs.Empty);
+            return;
+        }
         if (IsComparisonOpen)
         {
             if (e.Key == Windows.System.VirtualKey.Escape)
@@ -1028,6 +1044,7 @@ public sealed partial class MainWindow : Window
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
         _isClosing = true;
+        await ExitVideoEditAsync(restoreSource: false);
         _removableVolumeMonitor?.Dispose();
         _removableVolumeMonitor = null;
         FolderNavPanel.SaveState();

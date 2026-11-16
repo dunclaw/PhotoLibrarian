@@ -8,6 +8,7 @@ using Windows.Media.Editing;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
 using Windows.Storage;
+using Vortice.MediaFoundation;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
@@ -18,6 +19,7 @@ public sealed class VideoEditingTests : IDisposable
     private string Source => Path.Combine(_directory, "source.mp4");
     private string Output => Path.Combine(_directory, "edited.mp4");
     private static readonly Guid RotationKey = new("C380465D-2271-428C-9B83-ECEA3B4A85C1");
+    private static readonly Guid VideoNominalRangeKey = MediaTypeAttributeKeys.VideoNominalRange;
     private CancellationToken Token => TestContext.Current.CancellationToken;
 
     public VideoEditingTests() => Directory.CreateDirectory(_directory);
@@ -105,10 +107,184 @@ public sealed class VideoEditingTests : IDisposable
     }
 
     [Fact]
+    public async Task BrightnessContrastPreviewAndExportMatchAndPreserveSourceMetadata()
+    {
+        await CreateFixtureAsync(0, withAudio: true);
+        using (var reader = new MediaFoundationFrameReader(Source, 192, 128, includeAudio: false))
+            Assert.Equal(2u, reader.VideoNominalRange);
+        byte[] sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(Source, Token));
+        string sourceSidecar = Path.ChangeExtension(Source, ".xmp");
+        const string metadata = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:subject><rdf:Bag><rdf:li>fixture-tag</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>";
+        await File.WriteAllTextAsync(sourceSidecar, metadata, Token);
+        int[] sourceLuma = ReadQuadrantLuma(Source);
+        var edits = new[]
+        {
+            new VideoEditOptions(),
+            new VideoEditOptions(1, Brightness: 30),
+            new VideoEditOptions(2, Brightness: -30),
+            new VideoEditOptions(RemoveAudio: true, Contrast: 50),
+            new VideoEditOptions(3, RemoveAudio: true, Contrast: 150)
+        };
+        int[]? neutralLuma = null;
+        int[]? lowContrastLuma = null;
+        int[]? highContrastLuma = null;
+
+        for (int index = 0; index < edits.Length; index++)
+        {
+            VideoEditOptions options = edits[index];
+            string output = Path.Combine(_directory, $"adjusted-{index}.mp4");
+            using var editing = await VideoEditingService.CreateAsync(Source, options, Token);
+            await editing.PreparePreviewAsync(token: Token);
+            int[] previewLuma = ReadQuadrantLuma(editing.PreviewPath!);
+            byte[] previewHash = SHA256.HashData(await File.ReadAllBytesAsync(editing.PreviewPath!, Token));
+            await editing.ExportAsync(output, Token);
+
+            Assert.Equal(previewLuma, ReadQuadrantLuma(output));
+            Assert.Equal(previewHash, SHA256.HashData(await File.ReadAllBytesAsync(output, Token)));
+            AssertDecodedTimingAndAudio(output, withAudio: !options.RemoveAudio);
+            Assert.Contains("fixture-tag", await File.ReadAllTextAsync(Path.ChangeExtension(output, ".xmp"), Token));
+
+            switch (index)
+            {
+                case 0:
+                    neutralLuma = previewLuma;
+                    Assert.Equal(sourceLuma.Length, neutralLuma.Length);
+                    for (int quadrant = 0; quadrant < sourceLuma.Length; quadrant++)
+                        Assert.InRange(Math.Abs(sourceLuma[quadrant] - neutralLuma[quadrant]), 0, 10);
+                    break;
+                case 1:
+                    Assert.True(AverageLuma(previewLuma) > AverageLuma(neutralLuma!));
+                    break;
+                case 2:
+                    Assert.True(AverageLuma(previewLuma) < AverageLuma(neutralLuma!));
+                    break;
+                case 3:
+                    lowContrastLuma = previewLuma;
+                    break;
+                case 4:
+                    highContrastLuma = previewLuma;
+                    break;
+            }
+        }
+
+        Assert.True(LumaSpread(lowContrastLuma!) < LumaSpread(neutralLuma!));
+        Assert.True(LumaSpread(highContrastLuma!) > LumaSpread(lowContrastLuma!));
+        Assert.Equal(sourceHash, SHA256.HashData(await File.ReadAllBytesAsync(Source, Token)));
+        Assert.Equal(metadata, await File.ReadAllTextAsync(sourceSidecar, Token));
+        AssertNoTemporaryFiles();
+    }
+
+    [Fact]
+    public async Task CombinedToneRotationStabilizationAndTrimUseTheExactPreparedFile()
+    {
+        await CreateFixtureAsync(90, withAudio: true);
+        byte[] sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(Source, Token));
+        using var editing = await VideoEditingService.CreateAsync(Source,
+            new(ClockwiseQuarterTurns: 1, Brightness: 20, Contrast: 120,
+                Stabilization: StabilizationOptions.Default,
+                TrimStart: TimeSpan.FromSeconds(0.5), TrimEnd: TimeSpan.FromSeconds(1.5)), Token);
+        await editing.PreparePreviewAsync(token: Token);
+        byte[] previewHash = SHA256.HashData(await File.ReadAllBytesAsync(editing.PreviewPath!, Token));
+        await editing.ExportAsync(Output, Token);
+        Assert.Equal(previewHash, SHA256.HashData(await File.ReadAllBytesAsync(Output, Token)));
+        var properties = await (await StorageFile.GetFileFromPathAsync(Output)).Properties.GetVideoPropertiesAsync();
+        Assert.Equal(180u, (uint)properties.Orientation);
+        Assert.InRange(properties.Duration.TotalSeconds, 0.95, 1.05);
+        using var reader = new MediaFoundationFrameReader(Output, 192, 128, includeAudio: true);
+        int frames = 0;
+        long first = -1;
+        long lastEnd = 0;
+        while (reader.Read(video: true, Token) is { } frame)
+        {
+            if (frames++ == 0) first = frame.Timestamp;
+            lastEnd = frame.Timestamp + frame.Duration;
+        }
+        Assert.Equal(24, frames);
+        Assert.InRange(first, 0, TimeSpan.TicksPerSecond / 24);
+        Assert.InRange(lastEnd, TimeSpan.FromSeconds(0.95).Ticks, TimeSpan.FromSeconds(1.05).Ticks);
+        long firstAudio = -1;
+        long lastAudioEnd = 0;
+        while (reader.Read(video: false, Token) is { } audio)
+        {
+            if (firstAudio < 0) firstAudio = audio.Timestamp;
+            lastAudioEnd = audio.Timestamp + audio.Duration;
+        }
+        Assert.InRange(firstAudio, 0, TimeSpan.FromMilliseconds(30).Ticks);
+        Assert.InRange(lastAudioEnd, TimeSpan.FromSeconds(0.95).Ticks, TimeSpan.FromSeconds(1.05).Ticks);
+        Assert.Equal(sourceHash, SHA256.HashData(await File.ReadAllBytesAsync(Source, Token)));
+    }
+
+    [Fact]
+    public async Task FullRangeSourceRangeIsPreservedForAdjustment()
+    {
+        await CreateFixtureAsync(0, withAudio: false, videoNominalRange: 1);
+        using (var reader = new MediaFoundationFrameReader(Source, 192, 128, includeAudio: false))
+        {
+            Assert.Equal(1u, reader.SourceVideoNominalRange);
+            Assert.Equal(1u, reader.VideoNominalRange);
+        }
+        Assert.True(ReadQuadrantLuma(Source)[3] > 245);
+
+        byte[] sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(Source, Token));
+        using var editing = await VideoEditingService.CreateAsync(Source, new(Brightness: 20), Token);
+        await editing.PreparePreviewAsync(token: Token);
+        using (var reader = new MediaFoundationFrameReader(editing.PreviewPath!, 192, 128, includeAudio: false))
+        {
+            Assert.Equal(1u, reader.SourceVideoNominalRange);
+            Assert.Equal(1u, reader.VideoNominalRange);
+        }
+        byte[] previewHash = SHA256.HashData(await File.ReadAllBytesAsync(editing.PreviewPath!, Token));
+        await editing.ExportAsync(Output, Token);
+        Assert.Equal(previewHash, SHA256.HashData(await File.ReadAllBytesAsync(Output, Token)));
+        Assert.Equal(sourceHash, SHA256.HashData(await File.ReadAllBytesAsync(Source, Token)));
+    }
+
+    [Fact]
+    public void Nv12ToneAdjustmentLeavesNeutralFramesUnchangedAndPreservesChroma()
+    {
+        byte[] source = [16, 64, 128, 235, 80, 180];
+        byte[] neutral = (byte[])source.Clone();
+        VideoToneAdjustment.ApplyBrightnessContrastNv12(neutral, 2, 2, 2, 0, 100);
+        Assert.Equal(source, neutral);
+
+        byte[] brighter = (byte[])source.Clone();
+        VideoToneAdjustment.ApplyBrightnessContrastNv12(brighter, 2, 2, 2, 20, 100);
+        Assert.True(brighter[1] > source[1]);
+        Assert.Equal(source.AsSpan(4).ToArray(), brighter.AsSpan(4).ToArray());
+
+        byte[] darker = (byte[])source.Clone();
+        VideoToneAdjustment.ApplyBrightnessContrastNv12(darker, 2, 2, 2, -20, 100);
+        Assert.True(darker[1] < source[1]);
+        Assert.Equal(source.AsSpan(4).ToArray(), darker.AsSpan(4).ToArray());
+
+        byte[] lowerContrast = (byte[])source.Clone();
+        VideoToneAdjustment.ApplyBrightnessContrastNv12(lowerContrast, 2, 2, 2, 0, 50);
+        Assert.True(lowerContrast[0] > source[0]);
+        Assert.True(lowerContrast[3] < source[3]);
+        Assert.Equal(source.AsSpan(4).ToArray(), lowerContrast.AsSpan(4).ToArray());
+
+        byte[] fullRange = [0, 64, 128, 255, 80, 180];
+        VideoToneAdjustment.ApplyBrightnessContrastNv12(fullRange, 2, 2, 1, 0, 50);
+        Assert.True(fullRange[0] > 0);
+        Assert.True(fullRange[3] < 255);
+        Assert.Equal(new byte[] { 80, 180 }, fullRange.AsSpan(4).ToArray());
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VideoToneAdjustment.ApplyBrightnessContrastNv12(source, 0, 2, 2, 0, 100));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VideoToneAdjustment.ApplyBrightnessContrastNv12(source, 2, -2, 2, 0, 100));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VideoToneAdjustment.ApplyBrightnessContrastNv12(source, 3, 2, 2, 0, 100));
+        Assert.Throws<InvalidDataException>(() =>
+            VideoToneAdjustment.ApplyBrightnessContrastNv12(source[..^1], 2, 2, 2, 0, 100));
+        Assert.Throws<InvalidDataException>(() =>
+            VideoToneAdjustment.ApplyBrightnessContrastNv12([.. source, 0], 2, 2, 2, 0, 100));
+    }
+
+    [Fact]
     public async Task CancellationFailureAndCollisionsNeverPublishOrChangeExistingFiles()
     {
         await CreateFixtureAsync(0, withAudio: true);
-        using var editing = await VideoEditingService.CreateAsync(Source, new(1, true), Token);
+        using var editing = await VideoEditingService.CreateAsync(Source, new(1, true, 25, 120), Token);
         byte[] source = await File.ReadAllBytesAsync(Source, Token);
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
@@ -140,6 +316,10 @@ public sealed class VideoEditingTests : IDisposable
         Assert.False(File.Exists(Output));
         Assert.Equal(source, await File.ReadAllBytesAsync(Source, Token));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => VideoEditingService.CreateAsync(Source, new(4), Token));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            VideoEditingService.CreateAsync(Source, new(Brightness: 101), Token));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            VideoEditingService.CreateAsync(Source, new(Contrast: 201), Token));
         string invalid = Path.Combine(_directory, "invalid.mp4");
         File.WriteAllText(invalid, "not media");
         await Assert.ThrowsAnyAsync<Exception>(() => VideoEditingService.CreateAsync(invalid, new(1), Token));
@@ -224,6 +404,28 @@ public sealed class VideoEditingTests : IDisposable
         public void Report(double value) => callback(value);
     }
 
+    private int[] ReadQuadrantLuma(string path)
+    {
+        using var reader = new MediaFoundationFrameReader(path, 192, 128, includeAudio: false);
+        byte[] frame = reader.Read(video: true, Token)!.Value.Data;
+        int[] means = new int[4];
+        for (int quadrant = 0; quadrant < means.Length; quadrant++)
+        {
+            int xStart = quadrant % 2 * 96;
+            int yStart = quadrant / 2 * 64;
+            long sum = 0;
+            for (int y = yStart; y < yStart + 64; y++)
+            for (int x = xStart; x < xStart + 96; x++)
+                sum += frame[y * 192 + x];
+            means[quadrant] = (int)(sum / (96 * 64));
+        }
+        return means;
+    }
+
+    private static int LumaSpread(int[] values) => values.Max() - values.Min();
+
+    private static double AverageLuma(int[] values) => values.Average();
+
     private async Task<int[]> ReadQuadrantsAsync(MediaComposition composition, uint width, uint height)
     {
         using var image = await composition.GetThumbnailAsync(
@@ -244,7 +446,7 @@ public sealed class VideoEditingTests : IDisposable
         return result.ToArray();
     }
 
-    private async Task CreateFixtureAsync(uint orientation, bool withAudio)
+    private async Task CreateFixtureAsync(uint orientation, bool withAudio, uint? videoNominalRange = null)
     {
         const int width = 192, height = 128, frames = 48;
         var video = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, width, height);
@@ -297,6 +499,8 @@ public sealed class VideoEditingTests : IDisposable
         profile.Video.FrameRate.Denominator = 1;
         profile.Video.Bitrate = 1_000_000;
         profile.Video.Properties[RotationKey] = orientation;
+        if (videoNominalRange is { } range)
+            profile.Video.Properties[VideoNominalRangeKey] = range;
         if (!withAudio) profile.Audio = null;
         using var file = new FileStream(Source, FileMode.CreateNew, FileAccess.ReadWrite);
         using var output = file.AsRandomAccessStream();

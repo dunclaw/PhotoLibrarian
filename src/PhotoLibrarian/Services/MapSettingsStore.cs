@@ -2,6 +2,7 @@
 
 using System.Text.Json;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.Services;
 
@@ -17,9 +18,7 @@ public sealed class MapSettingsStore
 
     public MapSettingsStore(string? path = null)
     {
-        _path = path ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PhotoLibrarian", "map-settings.json");
+        _path = path ?? AppDataPaths.SettingsFile("map-settings.json");
     }
 
     public MapProvider Load()
@@ -48,21 +47,9 @@ public sealed class MapSettingsStore
         if (!Enum.IsDefined(provider))
             throw new ArgumentOutOfRangeException(nameof(provider));
 
-        var directory = Path.GetDirectoryName(_path);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
-
-        var temporaryPath = _path + ".tmp";
-        try
-        {
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(new MapSettings { Provider = provider }));
-            File.Move(temporaryPath, _path, true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-                File.Delete(temporaryPath);
-        }
+        AppSettingsFile.WriteAllText(
+            _path,
+            JsonSerializer.Serialize(new MapSettings { Provider = provider }));
     }
 
     private sealed record MapSettings

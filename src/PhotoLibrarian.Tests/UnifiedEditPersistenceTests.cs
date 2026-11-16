@@ -206,4 +206,77 @@ public sealed class UnifiedEditPersistenceTests
         Assert.Equal(external, File.ReadAllBytes(first.FilePath));
         Assert.Equal(label, main.EditHistory.UndoLabel);
     }
+
+    [Fact]
+    public async Task ComposedPresetUsesOneUndoableWriteAndRejectsNoOpsAndStaleTargets()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var photo = await library.AddPhotoAsync("preset.png");
+        var main = library.Main;
+        var baseline = ImageEditService.ReadEditParameters(photo.FilePath);
+        var expectedIdentity = await FileEditTransaction.ReadIdentityAsync(photo.FilePath);
+        var preset = new EditParameters { Exposure = 0.4 };
+        var composition = EditRecipeComposer.Compose(
+            baseline, preset, EditSettingGroup.Tone, 100, isRawTarget: false, sameSource: false);
+
+        Assert.True(await main.ApplyComposedRecipeAsync(
+            photo, composition.Parameters, expectedIdentity, "apply preset"), main.StatusText);
+        Assert.Equal(0.4, ImageEditService.ReadEditParameters(photo.FilePath).Exposure);
+        var undoLabel = main.EditHistory.UndoLabel;
+        var current = ImageEditService.ReadEditParameters(photo.FilePath);
+        var noOpIdentity = await FileEditTransaction.ReadIdentityAsync(photo.FilePath);
+        Assert.False(await main.ApplyComposedRecipeAsync(photo, current, noOpIdentity, "apply preset"));
+        Assert.Equal(undoLabel, main.EditHistory.UndoLabel);
+        Assert.Equal(noOpIdentity, await FileEditTransaction.ReadIdentityAsync(photo.FilePath));
+
+        Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.UndoAsync()).Status);
+        Assert.True(EditRecipeComposer.ContentEquals(
+            baseline, ImageEditService.ReadEditParameters(photo.FilePath)));
+        Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.RedoAsync()).Status);
+        Assert.Equal(0.4, ImageEditService.ReadEditParameters(photo.FilePath).Exposure);
+
+        var staleIdentity = await FileEditTransaction.ReadIdentityAsync(photo.FilePath);
+        await MetadataWriterService.WriteCaptionAsync(photo.FilePath, "External caption");
+        var externalBytes = await File.ReadAllBytesAsync(photo.FilePath);
+        var changedRecipe = ImageEditService.ReadEditParameters(photo.FilePath);
+        changedRecipe.Exposure = 0.8;
+        Assert.False(await main.ApplyComposedRecipeAsync(
+            photo, changedRecipe, staleIdentity, "apply preset"));
+        Assert.Contains("changed before the batch edit", main.StatusText);
+        Assert.Equal(externalBytes, await File.ReadAllBytesAsync(photo.FilePath));
+        Assert.Equal(0.4, ImageEditService.ReadEditParameters(photo.FilePath).Exposure);
+    }
+
+    [Fact]
+    public async Task SyncCopiesOnlySelectedGroupsAcrossTheSelectionAsOneUndoableEdit()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var source = await library.AddPhotoAsync("sync-source.png");
+        var destination = await library.AddPhotoAsync("sync-destination.png");
+        var main = library.Main;
+
+        var sourceRecipe = ImageEditService.ReadEditParameters(source.FilePath);
+        sourceRecipe.Exposure = 0.6;
+        var sourceIdentity = await FileEditTransaction.ReadIdentityAsync(source.FilePath);
+        Assert.True(await main.ApplyComposedRecipeAsync(
+            source, sourceRecipe, sourceIdentity, "source edit"), main.StatusText);
+
+        var destinationRecipe = ImageEditService.ReadEditParameters(destination.FilePath);
+        destinationRecipe.Effect = PhotoEffect.Sepia;
+        var destinationIdentity = await FileEditTransaction.ReadIdentityAsync(destination.FilePath);
+        Assert.True(await main.ApplyComposedRecipeAsync(
+            destination, destinationRecipe, destinationIdentity, "destination effect"), main.StatusText);
+        var destinationBeforeSync = ImageEditService.ReadEditParameters(destination.FilePath);
+
+        Assert.True(await main.SyncEditGroupsAsync(
+            source, [source, destination], EditSettingGroup.Tone), main.StatusText);
+        var synchronized = ImageEditService.ReadEditParameters(destination.FilePath);
+        Assert.Equal(0.6, synchronized.Exposure);
+        Assert.Equal(PhotoEffect.Sepia, synchronized.Effect);
+
+        Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.UndoAsync()).Status);
+        var undone = ImageEditService.ReadEditParameters(destination.FilePath);
+        Assert.Equal(destinationBeforeSync.Exposure, undone.Exposure);
+        Assert.Equal(PhotoEffect.Sepia, undone.Effect);
+    }
 }

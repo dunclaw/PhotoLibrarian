@@ -28,6 +28,8 @@ public partial class ImageEditorViewModel : ObservableObject
     private CropRect? _crop;
     private List<RetouchStroke> _retouchStrokes = [];
     private ToneCurves _toneCurves = new();
+    private ColorAdjustments _colorAdjustments = new();
+    private MonochromeMix _monochromeMix = new();
     private CancellationTokenSource? _rawExport;
     private List<ImageEntry> _images = [];
     private int _openVersion;
@@ -132,6 +134,8 @@ public partial class ImageEditorViewModel : ObservableObject
     public IReadOnlyList<string> RedoHistory => _redoHistory.AsEnumerable().Reverse().Select(x => x.Label).ToArray();
     public bool CanUndo => IsOpen && !IsBusy && _undoHistory.Count > 0;
     public bool CanRedo => IsOpen && !IsBusy && _redoHistory.Count > 0;
+    public bool CanEditMonochromeMix =>
+        IsOpen && !IsBusy && !IsRawPreview && Effect == PhotoEffect.BlackAndWhite;
 
     partial void OnIsSavingChanged(bool value) => NotifyHistoryChanged();
     partial void OnIsOpenChanged(bool value) => NotifyHistoryChanged();
@@ -159,6 +163,7 @@ public partial class ImageEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(CanSavePixels));
         OnPropertyChanged(nameof(CanExportRawDerivative));
         OnPropertyChanged(nameof(SaveDisabledReason));
+        OnPropertyChanged(nameof(CanEditMonochromeMix));
     }
 
     [ObservableProperty]
@@ -202,6 +207,20 @@ public partial class ImageEditorViewModel : ObservableObject
         if (!IsOpen || IsBusy || IsRawPreview) return;
         BeginEdit(label);
         Effect = effect;
+        EndEdit();
+    }
+
+    public void SetMonochromeEnabled(bool enabled)
+    {
+        if (!enabled && Effect != PhotoEffect.BlackAndWhite) return;
+        SelectEffect(enabled ? PhotoEffect.BlackAndWhite : PhotoEffect.None, "Black and white");
+    }
+
+    public void ResetMonochromeMix()
+    {
+        if (!CanEditMonochromeMix) return;
+        BeginEdit("Reset black and white mix");
+        SetMonochromeMix(new MonochromeMix());
         EndEdit();
     }
 
@@ -324,9 +343,8 @@ public partial class ImageEditorViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Bakes the current adjustments into the image file on disk. The original is backed up
-    /// first, then the sliders reset because the values now live in the pixels.
-    /// Returns true when the file was written.
+    /// Saves the current adjustments as a portable recipe or bakes them into the image.
+    /// The original is backed up before either write. Returns true when an edit was saved.
     /// </summary>
     public async Task<bool> SaveAsync(ImageEditService.PixelRenderer renderer)
     {
@@ -335,16 +353,22 @@ public partial class ImageEditorViewModel : ObservableObject
 
         EndEdit();
         var parameters = GetCurrentParameters();
-        if (!parameters.HasAdjustments && _baseline.ToneCurves.IsDefault) return false;
+        if (!parameters.HasAdjustments && _baseline.ToneCurves.IsDefault &&
+            _baseline.ColorAdjustments.IsDefault && _baseline.MonochromeMix.IsDefault &&
+            _baseline.Effect != PhotoEffect.BlackAndWhite) return false;
 
         IsSaving = true;
         try
         {
-            if (!parameters.ToneCurves.IsDefault || !_baseline.ToneCurves.IsDefault)
+            if (!parameters.ToneCurves.IsDefault || !_baseline.ToneCurves.IsDefault ||
+                !parameters.ColorAdjustments.IsDefault || !_baseline.ColorAdjustments.IsDefault ||
+                !parameters.MonochromeMix.IsDefault || !_baseline.MonochromeMix.IsDefault ||
+                parameters.Effect == PhotoEffect.BlackAndWhite ||
+                _baseline.Effect == PhotoEffect.BlackAndWhite)
             {
                 if (PersistEditAsync is not null)
                 {
-                    var kept = await PersistEditAsync("tone curve recipe", _currentEntry.FilePath, _openedIdentity,
+                    var kept = await PersistEditAsync("color recipe", _currentEntry.FilePath, _openedIdentity,
                         copy => ImageEditService.WritePendingRecipeAsync(copy, parameters));
                     if (!kept) return false;
                 }
@@ -408,6 +432,8 @@ public partial class ImageEditorViewModel : ObservableObject
         WhitePoint = WhitePoint,
         Midtones = Midtones,
         ToneCurves = _toneCurves.Clone(),
+        ColorAdjustments = _colorAdjustments.Clone(),
+        MonochromeMix = _monochromeMix.Clone(),
         RotationAngle = RotationAngle,
         Crop = _crop?.Clone(),
         RetouchStrokes = _retouchStrokes.Select(stroke => stroke.Copy()).ToList()
@@ -432,6 +458,26 @@ public partial class ImageEditorViewModel : ObservableObject
         if (_toneCurves.ContentEquals(curves)) return;
         _toneCurves = curves.Clone();
         OnParameterChanged("Tone curve");
+    }
+
+    public void SetColorAdjustments(ColorAdjustments adjustments, string label = "Color adjustments")
+    {
+        ArgumentNullException.ThrowIfNull(adjustments);
+        if (!IsOpen || IsBusy || IsRawPreview) return;
+        adjustments.Validate();
+        if (_colorAdjustments.ContentEquals(adjustments)) return;
+        _colorAdjustments = adjustments.Clone();
+        OnParameterChanged(label);
+    }
+
+    public void SetMonochromeMix(MonochromeMix mix, string label = "Black and white mix")
+    {
+        ArgumentNullException.ThrowIfNull(mix);
+        if (!CanEditMonochromeMix) return;
+        mix.Validate();
+        if (_monochromeMix.ContentEquals(mix)) return;
+        _monochromeMix = mix.Clone();
+        OnParameterChanged(label);
     }
 
     public async Task<bool> KeepRawPreviewRecipeAsync()
@@ -582,8 +628,12 @@ public partial class ImageEditorViewModel : ObservableObject
         var cropChanged = !CropEqual(_crop, p.Crop);
         var retouchChanged = !RetouchStroke.SequenceEqual(_retouchStrokes, p.RetouchStrokes);
         var curvesChanged = !_toneCurves.ContentEquals(p.ToneCurves);
+        var colorAdjustmentsChanged = !_colorAdjustments.ContentEquals(p.ColorAdjustments);
+        var monochromeMixChanged = !_monochromeMix.ContentEquals(p.MonochromeMix);
         _retouchStrokes = p.RetouchStrokes.Select(stroke => stroke.Copy()).ToList();
         _toneCurves = p.ToneCurves.Clone();
+        _colorAdjustments = p.ColorAdjustments.Clone();
+        _monochromeMix = p.MonochromeMix.Clone();
         _crop = p.Crop?.Clone();
         Brightness = p.Brightness;
         Contrast = p.Contrast;
@@ -610,6 +660,8 @@ public partial class ImageEditorViewModel : ObservableObject
         if (cropChanged) OnParameterChanged("Crop");
         if (retouchChanged) OnParameterChanged("Spot retouch");
         if (curvesChanged) OnParameterChanged("Tone curve");
+        if (colorAdjustmentsChanged) OnParameterChanged("Color adjustments");
+        if (monochromeMixChanged) OnParameterChanged("Black and white mix");
     }
 
     // Called when any slider value changes to trigger re-render
@@ -623,7 +675,11 @@ public partial class ImageEditorViewModel : ObservableObject
     partial void OnSaturationChanged(double value) => OnParameterChanged("Saturation");
     partial void OnTemperatureChanged(double value) => OnParameterChanged("Temperature");
     partial void OnTintChanged(double value) => OnParameterChanged("Tint");
-    partial void OnEffectChanged(PhotoEffect value) => OnParameterChanged("Effect");
+    partial void OnEffectChanged(PhotoEffect value)
+    {
+        OnPropertyChanged(nameof(CanEditMonochromeMix));
+        OnParameterChanged("Effect");
+    }
     partial void OnClarityChanged(double value) => OnParameterChanged("Clarity");
     partial void OnSharpnessChanged(double value) => OnParameterChanged("Sharpness");
     partial void OnNoiseReductionChanged(double value) => OnParameterChanged("Noise reduction");
@@ -723,6 +779,7 @@ public partial class ImageEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(CanRedo));
         OnPropertyChanged(nameof(CanSavePixels));
         OnPropertyChanged(nameof(CanExportRawDerivative));
+        OnPropertyChanged(nameof(CanEditMonochromeMix));
         OnPropertyChanged(nameof(IsBusy));
         OnPropertyChanged(nameof(CanNavigate));
         UndoCommand.NotifyCanExecuteChanged();
@@ -741,6 +798,8 @@ public partial class ImageEditorViewModel : ObservableObject
         a.BlackPoint == b.BlackPoint && a.WhitePoint == b.WhitePoint &&
         a.Midtones == b.Midtones && a.RotationAngle == b.RotationAngle &&
         CropEqual(a.Crop, b.Crop) && a.ToneCurves.ContentEquals(b.ToneCurves) &&
+        a.ColorAdjustments.ContentEquals(b.ColorAdjustments) &&
+        a.MonochromeMix.ContentEquals(b.MonochromeMix) &&
         RetouchStroke.SequenceEqual(a.RetouchStrokes, b.RetouchStrokes);
 
     private static bool CropEqual(CropRect? a, CropRect? b) =>

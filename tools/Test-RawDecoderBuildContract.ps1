@@ -54,6 +54,93 @@ try {
     }
     Write-Output 'PASS compiler-version changes cannot reuse the previous generated build tree'
 
+    $longNativeRoot = Join-Path $temporaryRoot (('long-worktree-name-' * 8) + '\native\')
+    $otherNativeRoot = Join-Path $temporaryRoot (('long-worktree-name-' * 8) + '-other\native\')
+    # Evaluation only; no files are created at this short synthetic cache path.
+    $cacheBase = Join-Path ([IO.Path]::GetPathRoot($temporaryRoot)) 'cv-contract'
+    $shortOutputArguments = @("/p:OutDir=$cacheBase\bin\", "/p:IntDir=$cacheBase\obj\")
+    $longTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$longNativeRoot" "/p:OpenCvCacheBase=$cacheBase" @shortOutputArguments /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Could not evaluate the long-worktree OpenCV build tree.`n$($longTree -join "`n")" }
+    $otherTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$otherNativeRoot" "/p:OpenCvCacheBase=$cacheBase" @shortOutputArguments /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Could not evaluate the other worktree's OpenCV build tree.`n$($otherTree -join "`n")" }
+    if ($longTree -eq $otherTree) {
+        throw 'Different worktrees must select different OpenCV build trees.'
+    }
+    $statePath = Join-Path $longTree.Trim() 'tlog\opencv_features2d_AVX512_SKX\Release\opencv_features2d_AVX512_SKX.lastbuildstate'
+    if ($statePath.Length -ge 260) { throw "OpenCV tracking path is too long: $statePath" }
+
+    $ownerScript = Join-Path $PSScriptRoot 'Initialize-OpenCvWorkspace.ps1'
+    $ownerRoot = Join-Path $temporaryRoot 'owner-check'
+    & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repoRoot
+    & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repoRoot
+
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $lockKey = [BitConverter]::ToString($hasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($ownerRoot).TrimEnd('\').ToLowerInvariant()))).Replace('-', '')
+    }
+    finally { $hasher.Dispose() }
+    $lockName = "Global\PhotoLibrarian-OpenCvWorkspace-$lockKey"
+    $testLock = [Threading.Mutex]::new($false, $lockName)
+    try {
+        $abandonCommand = "`$mutex = [Threading.Mutex]::OpenExisting('$lockName'); `$mutex.WaitOne() | Out-Null; [Environment]::Exit(0)"
+        $abandonEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($abandonCommand))
+        $probeCommand = "`$mutex = [Threading.Mutex]::OpenExisting('$lockName'); if (-not `$mutex.WaitOne(3000)) { exit 1 }; `$mutex.ReleaseMutex(); `$mutex.Dispose()"
+        $probeEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probeCommand))
+        foreach ($repository in @($repoRoot, $temporaryRoot)) {
+            $process = Start-Process powershell.exe -Wait -PassThru -NoNewWindow -ArgumentList @('-NoProfile', '-EncodedCommand', $abandonEncoded)
+            if ($process.ExitCode -ne 0) { throw 'Could not create an abandoned OpenCV workspace lock.' }
+
+            $collisionRejected = $false
+            try {
+                & $ownerScript -WorkspaceRoot $ownerRoot -RepositoryRoot $repository
+            }
+            catch {
+                if ($repository -eq $repoRoot -or $_.Exception.Message -notmatch 'cache path collision') { throw }
+                $collisionRejected = $true
+            }
+            if ($repository -ne $repoRoot -and -not $collisionRejected) {
+                throw 'An abandoned lock must not bypass the OpenCV workspace owner check.'
+            }
+            $process = Start-Process powershell.exe -Wait -PassThru -NoNewWindow -ArgumentList @('-NoProfile', '-EncodedCommand', $probeEncoded)
+            if ($process.ExitCode -ne 0) { throw 'The recovered OpenCV workspace lock was not released.' }
+        }
+    }
+    finally { $testLock.Dispose() }
+    Write-Output 'PASS abandoned OpenCV workspace lock is recovered and released'
+
+    $ownerError = Join-Path $temporaryRoot 'owner-error.txt'
+    $process = Start-Process powershell.exe -Wait -PassThru -NoNewWindow -RedirectStandardError $ownerError -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ownerScript`"",
+        '-WorkspaceRoot', "`"$ownerRoot`"", '-RepositoryRoot', "`"$temporaryRoot`"")
+    if ($process.ExitCode -eq 0 -or (Get-Content $ownerError -Raw) -notmatch 'cache path collision') {
+        throw 'An OpenCV cache already owned by another worktree must be rejected.'
+    }
+    Write-Output 'PASS long worktree paths use isolated, collision-checked OpenCV build trees'
+
+    $featuresDirectory = Join-Path $currentTree.Trim() 'opencv\modules\features2d'
+    if (Test-Path $featuresDirectory) {
+        $trackingPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($name in @('opencv_features2d_AVX2', 'opencv_features2d_AVX512_SKX')) {
+            $projectPath = Join-Path $featuresDirectory "$name.vcxproj"
+            if (-not (Test-Path $projectPath)) { continue }
+            foreach ($configuration in @('Debug', 'Release')) {
+                $state = & $msbuild $projectPath /nologo /p:Platform=x64 "/p:Configuration=$configuration" /getProperty:LastBuildState
+                if ($LASTEXITCODE -ne 0) { throw "Could not evaluate $name tracking state." }
+                $statePath = [IO.Path]::GetFullPath([IO.Path]::Combine($featuresDirectory, $state.Trim()))
+                $expectedPath = Join-Path $currentTree.Trim() "tlog\$name\$configuration\$name.lastbuildstate"
+                if ($statePath -ne [IO.Path]::GetFullPath($expectedPath) -or
+                    -not $trackingPaths.Add($statePath)) {
+                    throw 'OpenCV tracking files must be isolated by project and configuration below the build root.'
+                }
+                if ($statePath.Length -ge 260) {
+                    throw "OpenCV tracking state exceeds the classic Windows path limit: $statePath"
+                }
+            }
+        }
+        Write-Output 'PASS short, project/configuration-isolated OpenCV tracking paths'
+    }
+
     $libRawRoot = Join-Path $repoRoot "native\obj\sources\LibRaw-$($dependencies.LibRawVersion)"
     if (Test-Path $libRawRoot) {
         $manifest = [xml](Get-Content (Join-Path $repoRoot 'native\LibRawSources.props') -Raw)

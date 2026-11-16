@@ -82,10 +82,18 @@ public static class ImageExportService
     {
         var recipe = ImageEditService.ReadEditParameters(sourcePath);
         ImageExportPixels? rendered = null;
-        if (!recipe.ToneCurves.IsDefault)
+        var hasPendingMonochrome = recipe.Effect == PhotoEffect.BlackAndWhite;
+        if (!recipe.ToneCurves.IsDefault || !recipe.ColorAdjustments.IsDefault || hasPendingMonochrome)
         {
             if (renderRecipe is null)
-                throw new NotSupportedException("This export cannot render tone curve recipes.");
+            {
+                var unsupported = new List<string>();
+                if (!recipe.ToneCurves.IsDefault) unsupported.Add("tone curve");
+                if (!recipe.ColorAdjustments.IsDefault) unsupported.Add("pending color adjustment");
+                if (hasPendingMonochrome) unsupported.Add("black-and-white");
+                var unsupportedRecipe = string.Join(" and ", unsupported);
+                throw new NotSupportedException($"This export cannot render {unsupportedRecipe} recipes.");
+            }
             rendered = await renderRecipe(sourcePath, recipe, token);
         }
         // Encode to a private staging file, then atomically publish with a non-overwriting move.

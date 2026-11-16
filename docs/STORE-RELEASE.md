@@ -58,7 +58,9 @@ existing app icon. Normal local builds and tests remain unpackaged.
 3. In Partner Center, open the reserved PhotoLibrarian app, create a submission,
    and upload the `.msixbundle` on the **Packages** page.
 4. Complete the listing, screenshots, age ratings, privacy disclosures, and
-   restricted-capability explanation, then submit for certification.
+   restricted-capability explanation, then submit for certification. Set the
+   privacy-policy URL to the publicly deployed `privacy.html` page described in
+   [Release website setup](RELEASE-WEBSITE.md#2-hand-off-the-store-listing-when-it-is-public).
 
 Microsoft signs the package distributed through the Store. No signing
 certificate, PFX, Azure signing account, or GitHub signing secret is needed for

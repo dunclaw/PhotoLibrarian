@@ -138,6 +138,7 @@ public sealed class TinyClipIntegrationTests
         finally
         {
             File.Delete(file);
+            File.Delete(file + ".bak");
             File.Delete(file + ".tmp");
         }
     }

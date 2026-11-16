@@ -83,16 +83,8 @@ public partial class FolderNavigationViewModel : ObservableObject
     private async Task AddFolderAsync()
     {
         DebugLog.WriteLine("AddFolderAsync: Starting folder picker");
-        
-        var picker = new Windows.Storage.Pickers.FolderPicker();
-        picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
-        picker.FileTypeFilter.Add("*");
 
-        // Initialize picker with window handle
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-
-        var folder = await picker.PickSingleFolderAsync();
+        var folder = await App.FolderPickerService.PickFolderAsync();
         if (folder is null)
         {
             DebugLog.WriteLine("AddFolderAsync: User cancelled");
