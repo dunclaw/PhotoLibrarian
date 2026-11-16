@@ -23,6 +23,9 @@ Do not use exceptions for normal flow control. Expected validation outcomes, uns
 
 - Prefer standard Visual Studio VC/MSBuild projects, project references and native build items. Avoid CMake and custom build scripts where standard constructs suffice; any unavoidable upstream generator or acquisition tooling must be narrowly scoped and documented, not hide application compilation.
 - Never check in machine-specific or version-specific compiler executable paths. Select toolchains through supported Visual Studio/MSBuild mechanisms so toolset upgrades do not depend on old compiler locations or stale caches.
+- Copilot sessions must never change persistent User or Machine environment variables, including `PATH`: do not use `setx`, `Environment.SetEnvironmentVariable` with User/Machine targets, or registry environment writes.
+- Prefer executable paths or supported toolchain discovery. Confine any required `PATH` or toolchain setup to a child process (for example, run `vcvars` and MSBuild in the same `cmd.exe` invocation), and avoid accumulating duplicate `PATH` entries. If a reusable shell's process environment must be modified, save its original values and restore them in `finally`.
+- Do not edit PowerShell profiles or invoke installers that persist environment changes as a workaround. Do not repair, trim, or reset the user's existing environment; this policy is prevention, not permission to clean up `PATH`.
 - Use package-manager-native acquisition and centralized manifests/version management where available. Keep intentional dependency pins reproducible and updateable in one place; do not duplicate package versions or add ad hoc bootstrap scripts when standard package management suffices.
 - Preserve architecture/configuration integration, incremental and clean/rebuild behavior, static-linkage choices, and required third-party licenses/source notices when changing native dependencies.
 
