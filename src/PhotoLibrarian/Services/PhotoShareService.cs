@@ -1,7 +1,5 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 
-using System.Globalization;
-using Microsoft.Windows.ApplicationModel.Resources;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.System;
@@ -10,12 +8,10 @@ namespace PhotoLibrarian.Services;
 
 internal static class ShareStrings
 {
-    private static readonly ResourceLoader Loader = new(
-        Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.pri"), "Resources");
+    public static string Get(string key) => ResourceStrings.Get(key);
 
-    public static string Get(string key) => Loader.GetString(key);
     public static string Format(string key, params object?[] values) =>
-        string.Format(CultureInfo.CurrentCulture, Get(key), values);
+        ResourceStrings.Format(key, values);
 }
 
 internal sealed class PhotoShareService : IDisposable
