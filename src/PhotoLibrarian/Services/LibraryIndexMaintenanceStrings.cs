@@ -61,6 +61,8 @@ internal static class LibraryIndexMaintenanceStrings
                 "IndexMaintenanceIssueReparsePointSkipped",
             LibraryIndexMaintenanceIssueKind.CleanupFailed =>
                 "IndexMaintenanceIssueCleanupFailed",
+            LibraryIndexMaintenanceIssueKind.MissingMetadataRetained =>
+                "IndexMaintenanceIssueMissingMetadataRetained",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         });
 }
