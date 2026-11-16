@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 
 namespace PhotoLibrarian;
@@ -12,6 +13,8 @@ public partial class App : Application
     private Window? _window;
 
     public static MainViewModel ViewModel { get; private set; } = null!;
+    public static FolderPickerService FolderPickerService { get; } =
+        new(() => MainWindow);
     public static Task LibraryInitialization { get; private set; } = Task.CompletedTask;
 
     /// <summary>
