@@ -1,8 +1,10 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Effects;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Numerics;
+using Windows.Graphics.DirectX;
 using Windows.Graphics.Imaging;
 using Windows.Security.Cryptography;
 using Windows.Storage;
@@ -37,23 +39,39 @@ public static class ImageEditRenderer
     public static bool IsSupported(string filePath) =>
         SupportedExtensions.Contains(Path.GetExtension(filePath));
 
+    internal static Windows.UI.Color GetBackgroundColor(string filePath) =>
+        AlphaExtensions.Contains(Path.GetExtension(filePath))
+            ? Microsoft.UI.Colors.Transparent
+            : Microsoft.UI.Colors.White;
+
     /// <summary>
     /// Decodes an image into a Win2D bitmap with its EXIF orientation applied. Win2D's own
     /// loaders ignore orientation, which would show (and bake) sideways pixels for phone photos.
+    /// Uploading at 96 DPI keeps Win2D's DIP geometry aligned with source-pixel coordinates even
+    /// when the file carries a rounded or non-96-DPI value.
     /// </summary>
     public static async Task<CanvasBitmap> LoadOrientedAsync(ICanvasResourceCreator device, string filePath)
     {
+        if (RawToneMappingService.IsRaw(filePath))
+            throw new NotSupportedException("RAW must use the scene-linear development and SDR preview pipeline, not the raster decoder.");
         var file = await StorageFile.GetFileFromPathAsync(filePath);
         using var stream = await file.OpenAsync(FileAccessMode.Read);
         var decoder = await BitmapDecoder.CreateAsync(stream);
-        using var bitmap = await decoder.GetSoftwareBitmapAsync(
+        var pixelData = await decoder.GetPixelDataAsync(
             BitmapPixelFormat.Bgra8,
             BitmapAlphaMode.Premultiplied,
             new BitmapTransform(),
             ExifOrientationMode.RespectExifOrientation,
             ColorManagementMode.DoNotColorManage);
 
-        return CanvasBitmap.CreateFromSoftwareBitmap(device, bitmap);
+        return CanvasBitmap.CreateFromBytes(
+            device,
+            pixelData.DetachPixelData(),
+            checked((int)decoder.OrientedPixelWidth),
+            checked((int)decoder.OrientedPixelHeight),
+            DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            96f,
+            CanvasAlphaMode.Premultiplied);
     }
 
     /// <summary>
@@ -63,8 +81,18 @@ public static class ImageEditRenderer
     public static async Task<(uint Width, uint Height)> RenderToFileAsync(
         string filePath, EditParameters parameters)
     {
-        return await RenderToFileAsync(filePath, parameters, autoCropRotation: false);
+        return await RenderToFileAsync(
+            filePath,
+            parameters,
+            CanvasDevice.GetSharedDevice(),
+            autoCropRotation: false);
     }
+
+    internal static Task<(uint Width, uint Height)> RenderToFileAsync(
+        string filePath,
+        EditParameters parameters,
+        ICanvasResourceCreator device) =>
+        RenderToFileAsync(filePath, parameters, device, autoCropRotation: false);
 
     /// <summary>
     /// Bakes a straighten rotation and crops to the largest centered rectangle containing no
@@ -77,6 +105,7 @@ public static class ImageEditRenderer
         return await RenderToFileAsync(
             filePath,
             new EditParameters { RotationAngle = angleDegrees },
+            CanvasDevice.GetSharedDevice(),
             autoCropRotation: true);
     }
 
@@ -113,72 +142,112 @@ public static class ImageEditRenderer
     private static async Task<(uint Width, uint Height)> RenderToFileAsync(
         string filePath,
         EditParameters parameters,
+        ICanvasResourceCreator device,
         bool autoCropRotation)
+    {
+        var rendered = await RenderToPixelsAsync(device, filePath, parameters, autoCropRotation);
+        await EncodeOverFileAsync(filePath, rendered.Pixels, rendered.Width, rendered.Height);
+        return (rendered.Width, rendered.Height);
+    }
+
+    internal static async Task<RenderedPixels> RenderToPixelsAsync(
+        string filePath,
+        EditParameters parameters,
+        bool autoCropRotation = false)
+        => await RenderToPixelsAsync(
+            CanvasDevice.GetSharedDevice(),
+            filePath,
+            parameters,
+            autoCropRotation);
+
+    internal static async Task<RenderedPixels> RenderToPixelsAsync(
+        ICanvasResourceCreator device,
+        string filePath,
+        EditParameters parameters,
+        bool autoCropRotation = false)
     {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Editing not supported for {Path.GetExtension(filePath)}");
 
-        var device = CanvasDevice.GetSharedDevice();
+        using var source = await LoadOrientedAsync(device, filePath);
+        var sourceWidth = source.SizeInPixels.Width;
+        var sourceHeight = source.SizeInPixels.Height;
+        using var retouched = await CreateRetouchedAsync(device, source, parameters.RetouchStrokes);
 
-        byte[] pixels;
+        Vector2 offset;
         uint outWidth;
         uint outHeight;
-
-        using (var source = await LoadOrientedAsync(device, filePath))
+        if (autoCropRotation)
         {
-            var sourceWidth = source.SizeInPixels.Width;
-            var sourceHeight = source.SizeInPixels.Height;
-
-            Vector2 offset;
-            if (autoCropRotation)
-            {
-                var crop = Core.Services.AutoCropGeometry.GetLargestRectangle(
-                    sourceWidth,
-                    sourceHeight,
-                    parameters.RotationAngle);
-                outWidth = (uint)Math.Max(1, Math.Floor(crop.Width));
-                outHeight = (uint)Math.Max(1, Math.Floor(crop.Height));
-                offset = new Vector2(
-                    ((float)outWidth - sourceWidth) / 2f,
-                    ((float)outHeight - sourceHeight) / 2f);
-            }
-            else
-            {
-                var extent = EditEffectGraph.ComputeOutputExtent(
-                    sourceWidth,
-                    sourceHeight,
-                    parameters.RotationAngle);
-                offset = extent.Offset;
-                outWidth = extent.Width;
-                outHeight = extent.Height;
-            }
-
-            var effect = EditEffectGraph.Build(
-                source, new Vector2(sourceWidth, sourceHeight), parameters);
-            try
-            {
-                using var target = new CanvasRenderTarget(device, outWidth, outHeight, 96f);
-                using (var session = target.CreateDrawingSession())
-                {
-                    // Rotation exposes corners that the source doesn't cover. Formats without an
-                    // alpha channel would flatten transparency to black, so fill them with white.
-                    session.Clear(AlphaExtensions.Contains(Path.GetExtension(filePath))
-                        ? Microsoft.UI.Colors.Transparent
-                        : Microsoft.UI.Colors.White);
-                    session.DrawImage(effect, offset);
-                }
-                pixels = target.GetPixelBytes();
-            }
-            finally
-            {
-                // Effects hold no unmanaged file handles; disposing the outermost one releases the
-                // D2D resources we created here (the source bitmap is owned by the using above).
-                if (!ReferenceEquals(effect, source)) (effect as IDisposable)?.Dispose();
-            }
+            var crop = Core.Services.AutoCropGeometry.GetLargestRectangle(
+                sourceWidth,
+                sourceHeight,
+                parameters.RotationAngle);
+            outWidth = (uint)Math.Max(1, Math.Floor(crop.Width));
+            outHeight = (uint)Math.Max(1, Math.Floor(crop.Height));
+            offset = new Vector2(
+                ((float)outWidth - sourceWidth) / 2f,
+                ((float)outHeight - sourceHeight) / 2f);
+        }
+        else
+        {
+            var extent = EditEffectGraph.ComputeOutputExtent(
+                sourceWidth,
+                sourceHeight,
+                parameters.RotationAngle);
+            offset = extent.Offset;
+            outWidth = extent.Width;
+            outHeight = extent.Height;
         }
 
-        await EncodeOverFileAsync(filePath, pixels, outWidth, outHeight);
-        return (outWidth, outHeight);
+        using var target = new CanvasRenderTarget(device, outWidth, outHeight, 96f);
+        using (var session = target.CreateDrawingSession())
+        {
+            // Rotation exposes corners that the source doesn't cover. Formats without an
+            // alpha channel would flatten transparency to black, so fill them with white.
+            session.Clear(GetBackgroundColor(filePath));
+            ImageEditRenderPass.Draw(
+                session,
+                retouched ?? source,
+                parameters,
+                new Vector2(sourceWidth, sourceHeight),
+                Matrix3x2.CreateTranslation(offset));
+        }
+
+        return new RenderedPixels(outWidth, outHeight, target.GetPixelBytes());
+    }
+
+    internal readonly record struct RenderedPixels(uint Width, uint Height, byte[] Pixels);
+
+    /// <summary>Source-resolution CPU stage shared by editor preview and export, before tone/detail/rotation.</summary>
+    internal static async Task<CanvasBitmap?> CreateRetouchedAsync(
+        ICanvasResourceCreator device, CanvasBitmap source, IReadOnlyList<RetouchStroke> strokes,
+        CancellationToken cancellationToken = default)
+    {
+        var preview = await TryCreateRetouchedAsync(device, source, strokes, cancellationToken);
+        // A saved recipe that cannot be replayed is a save failure, never an unretouched success.
+        if (!preview.Result.Succeeded) throw new InvalidDataException(preview.Result.Message);
+        return preview.Bitmap;
+    }
+
+    internal readonly record struct RetouchPreviewResult(CanvasBitmap? Bitmap, RetouchResult Result);
+
+    internal static async Task<RetouchPreviewResult> TryCreateRetouchedAsync(
+        ICanvasResourceCreator device, CanvasBitmap source, IReadOnlyList<RetouchStroke> strokes,
+        CancellationToken cancellationToken = default)
+    {
+        if (strokes.Count == 0) return new(null, new(RetouchStatus.Applied));
+        SpotRetouchProcessor.Validate(strokes);
+        var width = checked((int)source.SizeInPixels.Width);
+        var height = checked((int)source.SizeInPixels.Height);
+        var pixels = source.GetPixelBytes();
+        var result = await Task.Run(() => SpotRetouchProcessor.Apply(pixels, width, height, strokes, cancellationToken),
+            cancellationToken);
+        if (!result.Succeeded) return new(null, result);
+        cancellationToken.ThrowIfCancellationRequested();
+        var bitmap = CanvasBitmap.CreateFromBytes(device, pixels, width, height,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+        return new(bitmap, result);
     }
 
     /// <summary>

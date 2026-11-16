@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
@@ -13,8 +14,10 @@ internal static class WindowsImagingCodec
         uint maximumDimension = uint.MaxValue,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         await using var stream = File.OpenRead(path);
-        var decoder = await BitmapDecoder.CreateAsync(stream.AsRandomAccessStream()).AsTask(cancellationToken);
+        using var randomAccessStream = stream.AsRandomAccessStream();
+        var decoder = await BitmapDecoder.CreateAsync(randomAccessStream).AsTask(cancellationToken);
         var scale = Math.Min(1d, (double)maximumDimension /
             Math.Max(decoder.OrientedPixelWidth, decoder.OrientedPixelHeight));
         var transform = new BitmapTransform
@@ -39,7 +42,8 @@ internal static class WindowsImagingCodec
         byte[] pixels,
         uint width,
         uint height,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool preserveMetadata = false)
     {
         var encoderId = Path.GetExtension(path).ToLowerInvariant() switch
         {
@@ -49,15 +53,32 @@ internal static class WindowsImagingCodec
             _ => BitmapEncoder.JpegEncoderId
         };
         using var stream = new InMemoryRandomAccessStream();
-        var encoder = await BitmapEncoder.CreateAsync(encoderId, stream).AsTask(cancellationToken);
+        await using var source = preserveMetadata ? File.OpenRead(path) : null;
+        var decoder = source is null ? null
+            : await BitmapDecoder.CreateAsync(source.AsRandomAccessStream()).AsTask(cancellationToken);
+        var encoder = decoder is null
+            ? await BitmapEncoder.CreateAsync(encoderId, stream).AsTask(cancellationToken)
+            : await BitmapEncoder.CreateForTranscodingAsync(stream, decoder).AsTask(cancellationToken);
         encoder.SetPixelData(
             BitmapPixelFormat.Bgra8,
             BitmapAlphaMode.Premultiplied,
             width,
             height,
-            96,
-            96,
+            decoder?.DpiX ?? 96,
+            decoder?.DpiY ?? 96,
             pixels);
+        if (decoder is not null && encoderId != BitmapEncoder.BmpEncoderId)
+        {
+            var properties = await decoder.BitmapProperties.GetPropertiesAsync(["System.Photo.Orientation"]);
+            if (properties.TryGetValue("System.Photo.Orientation", out var orientation) &&
+                orientation.Value is ushort value && value != 1)
+            {
+                await encoder.BitmapProperties.SetPropertiesAsync(new BitmapPropertySet
+                {
+                    ["System.Photo.Orientation"] = new BitmapTypedValue((ushort)1, Windows.Foundation.PropertyType.UInt16)
+                });
+            }
+        }
         await encoder.FlushAsync().AsTask(cancellationToken);
         stream.Seek(0);
         using var output = new MemoryStream();

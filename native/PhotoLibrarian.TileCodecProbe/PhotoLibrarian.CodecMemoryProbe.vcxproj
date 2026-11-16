@@ -1,0 +1,15 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\Configurations.props" />
+  <PropertyGroup Label="Globals"><ProjectGuid>{E6E3214F-341B-4DA5-AF33-9B851F884A81}</ProjectGuid></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="..\Toolset.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)' == 'Debug'">true</UseDebugLibraries></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\Native.props" />
+  <ItemDefinitionGroup><Link><AdditionalDependencies>psapi.lib;%(AdditionalDependencies)</AdditionalDependencies><SubSystem>Console</SubSystem></Link></ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="CodecMemoryProbe.cpp" />
+    <ProjectReference Include="PhotoLibrarian.TileCodecProbe.vcxproj"><Project>{6370DCEB-486C-4A9C-B8E8-C40CFB3D6AAF}</Project></ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

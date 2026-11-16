@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using PhotoLibrarian.Core.Data;
 using System.Collections.ObjectModel;
@@ -24,10 +26,10 @@ public partial class TagNavigationViewModel : ObservableObject
         RootTags.Clear();
 
         // Get all unique tags with their counts
-        var tagCounts = await _tagRepo.GetAllTagsWithCountAsync();
+        var tagCounts = await _tagRepo.GetAllTagsWithCountAsync(watchedOnly: true);
         
         // Calculate total count
-        int totalCount = tagCounts.Sum(t => t.Count);
+        int totalCount = await _tagRepo.GetTaggedCountAsync(watchedOnly: true);
 
         // Build hierarchical structure
         var rootDict = new Dictionary<string, TagNode>();
@@ -83,11 +85,7 @@ public partial class TagNavigationViewModel : ObservableObject
             }
         }
 
-        // Calculate totals for parent nodes (sum of all children)
-        foreach (var node in tempRootTags)
-        {
-            UpdateParentCounts(node);
-        }
+        // The repository counts distinct photos at every derived hierarchy level.
         
         // Sort alphabetically at each level
         SortTagNodeRecursive(tempRootTags);
@@ -140,25 +138,6 @@ public partial class TagNavigationViewModel : ObservableObject
             dict[child.Name] = child;
         }
         return dict;
-    }
-
-    private int UpdateParentCounts(TagNode node)
-    {
-        if (node.Children.Count == 0)
-        {
-            // Leaf node, count is already set
-            return node.Count;
-        }
-
-        // Sum counts from all children
-        int total = node.Count; // Start with direct count (if any)
-        foreach (var child in node.Children)
-        {
-            total += UpdateParentCounts(child);
-        }
-
-        node.Count = total;
-        return total;
     }
 }
 

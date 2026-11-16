@@ -1,0 +1,2 @@
+# Validation-only overlay. Install --no-deps --target into a separate directory.
+onnxruntime-directml==1.22.0 --hash=sha256:f8fc1a48b7fb134e34f8f138719a27d1bf6895611728b593fd86bc7c05b848a1

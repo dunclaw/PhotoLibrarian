@@ -12,7 +12,10 @@ public sealed class TinyClipIntegrationTests
     {
         var profile = AutoTagModelCatalog.TinyClip;
         Assert.Contains(profile, AutoTagModelCatalog.Profiles);
-        Assert.True(profile.RequiresLocalImport);
+        Assert.False(profile.RequiresLocalImport);
+        Assert.NotNull(profile.ManifestUri);
+        Assert.Equal("MIT", profile.License);
+        Assert.Equal(["LICENSE", "NOTICE.txt"], profile.RequiredNoticeFiles);
         Assert.True(profile.UsesCalibratedThresholds);
         Assert.False(profile.UsesFixedThresholds);
         Assert.True(profile.UseCpuOnly);

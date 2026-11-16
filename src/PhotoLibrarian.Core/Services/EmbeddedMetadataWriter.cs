@@ -1,3 +1,6 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+using System.Runtime.InteropServices.WindowsRuntime;
+using PhotoLibrarian.Core.Diagnostics;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -38,12 +41,17 @@ public static class EmbeddedMetadataWriter
 
     /// <summary>XMP namespace used for PhotoLibrarian-specific properties (e.g. the user flag).</summary>
     public const string PhotoLibrarianXmpNamespace = "http://ns.photolibrarian.app/1.0/";
+    public const string PhotoTagMetadataPropertyName = "TagMetadata";
 
     /// <summary>
     /// WIC metadata query path for the flag. There is no standard EXIF/XMP "flag" field, so the
     /// value lives in our own XMP namespace — safe to add and ignored by other tools.
     /// </summary>
     private const string FlagQueryPath = "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:Flagged";
+    private const string TagMetadataQueryPath =
+        "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:TagMetadata";
+    private const string ColorLabelQueryPath =
+        "/xmp/{wstr=http://ns.adobe.com/xap/1.0/}:Label";
 
     /// <summary>Returns true if the file format supports in-place metadata writing.</summary>
     public static bool IsSupported(string filePath)
@@ -62,16 +70,73 @@ public static class EmbeddedMetadataWriter
         IReadOnlyList<string>? keywords = null,
         DateTime? dateTaken = null,
         ushort? orientation = null,
-        bool? flagged = null)
+        bool? flagged = null,
+        string? photoTagMetadata = null,
+        string? colorLabel = null,
+        string? formatExtension = null)
     {
-        if (!IsSupported(filePath))
-            throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
+        var extension = formatExtension ?? Path.GetExtension(filePath);
+        if (!SupportedExtensions.Contains(extension))
+            throw new NotSupportedException($"Format not supported for in-place metadata write: {extension}");
 
-        var props = BuildPropertySet(rating, title, keywords, dateTaken, orientation, flagged);
+        var props = BuildPropertySet(
+            rating,
+            title,
+            keywords,
+            dateTaken,
+            orientation,
+            flagged,
+            photoTagMetadata,
+            colorLabel,
+            extension);
         if (props.Count == 0) return;
 
         await WritePropertiesAsync(filePath, props);
     }
+
+    /// <summary>Writes EXIF GPS coordinates and hemisphere references into a JPEG or TIFF.</summary>
+    public static async Task WriteGeotagAsync(string filePath, GeoCoordinate coordinate)
+    {
+        if (!IsSupported(filePath))
+            throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
+
+        var latitude = GeotagMetadataWriterService.ToDegreesMinutesSeconds(coordinate.Latitude);
+        var longitude = GeotagMetadataWriterService.ToDegreesMinutesSeconds(coordinate.Longitude);
+        const uint secondsDenominator = 10_000;
+
+        var properties = new BitmapPropertySet();
+        properties.Add("System.GPS.LatitudeNumerator", new BitmapTypedValue(
+            CreateGpsNumerators(latitude, secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LatitudeDenominator", new BitmapTypedValue(
+            CreateGpsDenominators(secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LatitudeRef", new BitmapTypedValue(
+            coordinate.Latitude < 0 ? "S" : "N",
+            Windows.Foundation.PropertyType.String));
+        properties.Add("System.GPS.LongitudeNumerator", new BitmapTypedValue(
+            CreateGpsNumerators(longitude, secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LongitudeDenominator", new BitmapTypedValue(
+            CreateGpsDenominators(secondsDenominator),
+            Windows.Foundation.PropertyType.UInt32Array));
+        properties.Add("System.GPS.LongitudeRef", new BitmapTypedValue(
+            coordinate.Longitude < 0 ? "W" : "E",
+            Windows.Foundation.PropertyType.String));
+
+        await WritePropertiesAsync(filePath, properties);
+    }
+
+    private static uint[] CreateGpsNumerators(
+        (uint Degrees, uint Minutes, double Seconds) coordinate,
+        uint secondsDenominator) =>
+    [
+        coordinate.Degrees,
+        coordinate.Minutes,
+        (uint)Math.Round(coordinate.Seconds * secondsDenominator)
+    ];
+
+    private static uint[] CreateGpsDenominators(uint secondsDenominator) => [1, 1, secondsDenominator];
 
     /// <summary>
     /// Removes a property from the file (e.g. clearing a rating).
@@ -81,6 +146,16 @@ public static class EmbeddedMetadataWriter
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Format not supported for in-place metadata write: {Path.GetExtension(filePath)}");
         if (propertyKeys.Length == 0) return;
+
+        if (propertyKeys.Contains("System.Photo.DateTaken", StringComparer.Ordinal))
+        {
+            var file = await StorageFile.GetFileFromPathAsync(filePath);
+            // The property store removes the embedded value when SavePropertiesAsync receives null.
+            await file.Properties.SavePropertiesAsync(new Dictionary<string, object>
+            {
+                ["System.Photo.DateTaken"] = null!
+            });
+        }
 
         var props = new BitmapPropertySet();
         foreach (var key in propertyKeys)
@@ -100,17 +175,19 @@ public static class EmbeddedMetadataWriter
                     break;
             }
         }
-        if (props.Count == 0) return;
-
-        await WritePropertiesAsync(filePath, props);
+        if (props.Count > 0)
+            await WritePropertiesAsync(filePath, props);
     }
 
     /// <summary>
     /// Reads currently-stored keywords from the image. Used to merge tag adds/removes.
     /// </summary>
-    public static async Task<IReadOnlyList<string>> ReadKeywordsAsync(string filePath)
+    public static async Task<IReadOnlyList<string>> ReadKeywordsAsync(
+        string filePath,
+        string? formatExtension = null)
     {
-        if (!IsSupported(filePath)) return Array.Empty<string>();
+        if (!SupportedExtensions.Contains(formatExtension ?? Path.GetExtension(filePath)))
+            return Array.Empty<string>();
         try
         {
             var file = await StorageFile.GetFileFromPathAsync(filePath);
@@ -120,7 +197,27 @@ public static class EmbeddedMetadataWriter
             if (view.TryGetValue("System.Keywords", out var val) && val?.Value is string[] arr)
                 return arr;
         }
-        catch { }
+        catch (System.Runtime.InteropServices.COMException exception)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read WIC keywords from {filePath}: {exception.Message}");
+        }
+
+        var xmp = FaceMetadataStore.ReadEmbeddedXmp(filePath);
+        if (xmp is not null)
+        {
+            const string dcNamespace = "http://purl.org/dc/elements/1.1/";
+            var count = xmp.CountArrayItems(dcNamespace, "dc:subject");
+            var keywords = new List<string>(count);
+            for (var index = 1; index <= count; index++)
+            {
+                var keyword = xmp.GetArrayItem(dcNamespace, "dc:subject", index)?.Value;
+                if (!string.IsNullOrWhiteSpace(keyword))
+                    keywords.Add(keyword);
+            }
+            return keywords;
+        }
+
         return Array.Empty<string>();
     }
 
@@ -130,9 +227,15 @@ public static class EmbeddedMetadataWriter
 
     private static BitmapPropertySet BuildPropertySet(
         int? rating, string? title, IReadOnlyList<string>? keywords, DateTime? dateTaken,
-        ushort? orientation = null, bool? flagged = null)
+        ushort? orientation = null, bool? flagged = null, string? photoTagMetadata = null,
+        string? colorLabel = null, string? extension = null)
     {
         var props = new BitmapPropertySet();
+        var xmpQueryPrefix = extension is not null &&
+            (extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
+             extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
+            ? "/ifd"
+            : string.Empty;
 
         if (rating.HasValue)
         {
@@ -182,8 +285,20 @@ public static class EmbeddedMetadataWriter
 
         if (flagged.HasValue)
         {
-            props.Add(FlagQueryPath,
+            props.Add(xmpQueryPrefix + FlagQueryPath,
                 new BitmapTypedValue(flagged.Value ? "True" : "False", Windows.Foundation.PropertyType.String));
+        }
+
+        if (photoTagMetadata is not null)
+        {
+            props.Add(xmpQueryPrefix + TagMetadataQueryPath,
+                new BitmapTypedValue(photoTagMetadata, Windows.Foundation.PropertyType.String));
+        }
+
+        if (colorLabel is not null)
+        {
+            props.Add(xmpQueryPrefix + ColorLabelQueryPath,
+                new BitmapTypedValue(colorLabel, Windows.Foundation.PropertyType.String));
         }
 
         return props;
@@ -193,58 +308,179 @@ public static class EmbeddedMetadataWriter
     /// Two-tier write: try in-place first (byte-exact); fall back to transcoding when in-place
     /// doesn't have room for the new metadata (the common case when adding a tag to a complex file).
     /// </summary>
-    private static async Task WritePropertiesAsync(string filePath, BitmapPropertySet props)
+    private static Task WritePropertiesAsync(string filePath, BitmapPropertySet props) =>
+        RetryOnFileLockAsync(() => WritePropertiesOnceAsync(filePath, props));
+
+    internal static async Task RetryOnFileLockAsync(
+        Func<Task> write, Func<TimeSpan, Task>? delay = null)
     {
+        delay ??= Task.Delay;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await write();
+                return;
+            }
+            catch (Exception ex) when (IsFileLock(ex) && attempt < 3)
+            {
+                await delay(TimeSpan.FromMilliseconds(100 * (1 << attempt)));
+            }
+        }
+    }
+
+    private static bool IsFileLock(Exception exception) =>
+        exception.HResult is unchecked((int)0x80070020) // ERROR_SHARING_VIOLATION
+            or unchecked((int)0x80070021) // ERROR_LOCK_VIOLATION
+            or unchecked((int)0x800704C8) // ERROR_USER_MAPPED_FILE
+            or unchecked((int)0x80030020) // STG_E_SHAREVIOLATION
+            or unchecked((int)0x80030021); // STG_E_LOCKVIOLATION
+
+    private static async Task WritePropertiesOnceAsync(string filePath, BitmapPropertySet props)
+    {
+        byte[]? compatibleJpeg = null;
+        var operation = "opening the image";
         // === Tier 1: in-place (preserves bytes exactly) ===
         try
         {
-            var file = await StorageFile.GetFileFromPathAsync(filePath);
-            using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-            {
-                var decoder = await BitmapDecoder.CreateAsync(stream);
-                var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
-                await encoder.BitmapProperties.SetPropertiesAsync(props);
-                await encoder.FlushAsync();
-            }
+            await WritePropertiesInPlaceAsync(filePath, props);
             return;
         }
         catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == WINCODEC_ERR_TOOMUCHMETADATA)
         {
             // Fall through to transcoding
-            System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder full for {filePath}, transcoding…");
+            LogWriteFailure("In-place", filePath, operation, props, ex);
         }
-        catch (System.Runtime.InteropServices.COMException ex)
+        catch (System.Runtime.InteropServices.COMException ex) when (!IsFileLock(ex))
         {
             // Other WIC error — also try transcoding as a more resilient path
-            System.Diagnostics.Debug.WriteLine($"[METADATA] In-place encoder threw 0x{ex.HResult:X8}, attempting transcode…");
+            LogWriteFailure("In-place", filePath, operation, props, ex);
+        }
+        catch (ArgumentException ex) when (ex.HResult == unchecked((int)0x80070057))
+        {
+            LogWriteFailure("In-place", filePath, operation, props, ex);
+            var bytes = await File.ReadAllBytesAsync(filePath);
+            compatibleJpeg = RemoveJpegXmpByteOrderMarks(bytes);
+            if (compatibleJpeg.Length == bytes.Length)
+                throw;
+            DebugLog.WriteLine(
+                $"[METADATA] Removed a leading UTF-8 byte-order mark outside the JPEG XMP packet for {filePath}, in memory only; retrying with the transcode encoder.");
         }
 
         // === Tier 2: transcode (rewrites file, but preserves encoded image data losslessly) ===
-        await TranscodeWriteAsync(filePath, props);
+        await TranscodeWriteAsync(filePath, props, compatibleJpeg);
     }
 
-    private static async Task TranscodeWriteAsync(string filePath, BitmapPropertySet props)
+    private static async Task WritePropertiesInPlaceAsync(string filePath, BitmapPropertySet props)
     {
-        var file = await StorageFile.GetFileFromPathAsync(filePath);
-        var destBuffer = new InMemoryRandomAccessStream();
+        // FileStream preserves sharing-violation HRESULTs; StorageFile can map them to access denied.
+        using var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        using var stream = fileStream.AsRandomAccessStream();
+        var decoder = await BitmapDecoder.CreateAsync(stream);
+        var encoder = await BitmapEncoder.CreateForInPlacePropertyEncodingAsync(decoder);
+        await encoder.BitmapProperties.SetPropertiesAsync(props);
+        await encoder.FlushAsync();
+    }
+
+    private static void LogWriteFailure(
+        string tier, string filePath, string operation, BitmapPropertySet properties, Exception exception)
+    {
+        DebugLog.WriteLine(
+            $"[METADATA] {tier} write failed while {operation} for {filePath}; " +
+            $"property keys: {string.Join(", ", properties.Keys)}; " +
+            $"{exception.GetType().Name} 0x{exception.HResult:X8}: {exception.Message}");
+    }
+
+    private static async Task TranscodeWriteAsync(
+        string filePath, BitmapPropertySet props, byte[]? compatibleJpeg)
+    {
+        var contents = await TranscodeToBytesAsync(filePath, props, compatibleJpeg);
+
+        // 2) Replace the source only after the decoder and encoder have left their scope.
+        using var fileStream = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        using var outStream = fileStream.AsRandomAccessStream();
+        outStream.Size = 0;
+        using var input = new MemoryStream(contents, writable: false);
+        using var inputStream = input.AsRandomAccessStream();
+        await RandomAccessStream.CopyAsync(inputStream, outStream);
+        await outStream.FlushAsync();
+    }
+
+    private static async Task<byte[]> TranscodeToBytesAsync(
+        string filePath, BitmapPropertySet props, byte[]? compatibleJpeg)
+    {
+        using var destBuffer = new InMemoryRandomAccessStream();
+        var operation = "opening the image";
 
         // 1) Read source + transcode into memory with merged properties
-        using (var srcStream = await file.OpenAsync(FileAccessMode.Read))
+        try
         {
-            var decoder = await BitmapDecoder.CreateAsync(srcStream);
-            var encoder = await BitmapEncoder.CreateForTranscodingAsync(destBuffer, decoder);
-            await encoder.BitmapProperties.SetPropertiesAsync(props);
-            await encoder.FlushAsync();
+            using (var fileStream = compatibleJpeg is not null
+                ? new MemoryStream(compatibleJpeg, writable: false)
+                : (Stream)File.OpenRead(filePath))
+            using (var srcStream = fileStream.AsRandomAccessStream())
+            {
+                operation = "creating the decoder";
+                var decoder = await BitmapDecoder.CreateAsync(srcStream);
+                operation = "creating the transcode encoder";
+                var encoder = await BitmapEncoder.CreateForTranscodingAsync(destBuffer, decoder);
+                operation = "setting metadata properties";
+                await encoder.BitmapProperties.SetPropertiesAsync(props);
+                operation = "flushing the transcode encoder";
+                await encoder.FlushAsync();
+            }
+        }
+        catch (Exception exception) when (
+            exception is System.Runtime.InteropServices.COMException or ArgumentException)
+        {
+            LogWriteFailure("Transcode", filePath, operation, props, exception);
+            throw;
         }
 
-        // 2) Atomically replace the source file with the in-memory result
         destBuffer.Seek(0);
-        using (var outStream = await file.OpenAsync(FileAccessMode.ReadWrite))
+        using var output = new MemoryStream();
+        await destBuffer.AsStreamForRead().CopyToAsync(output);
+        return output.ToArray();
+    }
+
+    private static byte[] RemoveJpegXmpByteOrderMarks(byte[] bytes)
+    {
+        if (bytes.Length < 4 || bytes[0] != 0xff || bytes[1] != 0xd8)
+            return bytes;
+
+        ReadOnlySpan<byte> xmpHeader = "http://ns.adobe.com/xap/1.0/\0"u8;
+        ReadOnlySpan<byte> byteOrderMark = [0xef, 0xbb, 0xbf];
+        var length = bytes.Length;
+        var offset = 2;
+        while (offset + 4 <= length && bytes[offset] == 0xff)
         {
-            outStream.Size = 0;
-            await RandomAccessStream.CopyAsync(destBuffer.GetInputStreamAt(0), outStream);
-            await outStream.FlushAsync();
+            var marker = bytes[offset + 1];
+            if (marker is 0xda or 0xd9)
+                break;
+            if (marker is >= 0xd0 and <= 0xd7 or 0x01)
+            {
+                offset += 2;
+                continue;
+            }
+            var segmentLength = bytes[offset + 2] << 8 | bytes[offset + 3];
+            if (segmentLength < 2 || offset + segmentLength + 2 > length)
+                throw new InvalidDataException("The JPEG metadata segment is invalid.");
+            var payload = bytes.AsSpan(offset + 4, segmentLength - 2);
+            if (marker == 0xe1 && payload.StartsWith(xmpHeader) &&
+                payload[xmpHeader.Length..].StartsWith(byteOrderMark))
+            {
+                // Normalize only the in-memory input; a failed write leaves the original intact.
+                var bomOffset = offset + 4 + xmpHeader.Length;
+                System.Buffer.BlockCopy(bytes, bomOffset + 3, bytes, bomOffset, length - bomOffset - 3);
+                length -= 3;
+                segmentLength -= 3;
+                bytes[offset + 2] = (byte)(segmentLength >> 8);
+                bytes[offset + 3] = (byte)segmentLength;
+            }
+            offset += segmentLength + 2;
         }
-        destBuffer.Dispose();
+        if (length != bytes.Length)
+            Array.Resize(ref bytes, length);
+        return bytes;
     }
 }

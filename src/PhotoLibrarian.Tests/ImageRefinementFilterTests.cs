@@ -1,10 +1,40 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.ViewModels;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
 
 public sealed class ImageRefinementFilterTests
 {
+    [Fact]
+    public void ColorLabelToggleClearsOnlyWhenAllSelectedHaveThatLabel()
+    {
+        var first = CreateImage();
+        var second = CreateImage();
+        first.ColorLabel = "red";
+        second.ColorLabel = "Red";
+        Assert.Null(MetadataPanelViewModel.GetToggledColorLabel([first, second], "Red"));
+        second.ColorLabel = "Purple";
+        Assert.Equal("Red", MetadataPanelViewModel.GetToggledColorLabel([first, second], "Red"));
+    }
+
+    [Fact]
+    public void ColorLabelCombinesWithOtherFiltersCaseInsensitively()
+    {
+        var image = CreateImage();
+        image.ColorLabel = "red";
+        image.Rating = 4;
+        var filter = new ImageRefinementFilter { ColorLabel = "Red", Rating = 3 };
+        Assert.True(filter.IsActive);
+        Assert.True(filter.Matches(image));
+        image.ColorLabel = "Yellow";
+        Assert.False(filter.Matches(image));
+        image.ColorLabel = "Red";
+        image.Rating = 2;
+        Assert.False(filter.Matches(image));
+    }
+
     [Fact]
     public void Matches_CombinesFacetsWithAnd()
     {

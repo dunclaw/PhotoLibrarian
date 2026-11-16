@@ -1,0 +1,44 @@
+<ContentDialog
+    x:Class="PhotoLibrarian.Views.ResizeExportDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Resize and export"
+    PrimaryButtonText="Export"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnExportClick">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16" MinWidth="320">
+            <TextBlock x:Name="SelectionText" TextWrapping="Wrap" />
+            <ComboBox x:Name="ResizeModeBox"
+                      AutomationProperties.AutomationId="ExportResizeMode"
+                      Header="Resize by" SelectedIndex="0"
+                      HorizontalAlignment="Stretch" SelectionChanged="OnResizeModeChanged">
+                <ComboBoxItem Content="Maximum dimension (pixels)" />
+                <ComboBoxItem Content="Percentage of original" />
+            </ComboBox>
+            <NumberBox x:Name="SizeBox"
+                       AutomationProperties.AutomationId="ExportSize"
+                       Header="Maximum width or height (pixels)"
+                       Minimum="1" Maximum="65535" Value="1600"
+                       SpinButtonPlacementMode="Compact" />
+            <NumberBox x:Name="QualityBox"
+                       AutomationProperties.AutomationId="ExportQuality"
+                       Header="JPEG quality (1-100)" Minimum="1" Maximum="100" Value="90"
+                       SpinButtonPlacementMode="Compact" />
+            <TextBox x:Name="FolderBox"
+                     AutomationProperties.AutomationId="ExportOutputFolder"
+                     Header="Output folder" />
+            <Button AutomationProperties.AutomationId="ExportBrowseFolder"
+                    Content="Browse..." Click="OnBrowseClick" />
+            <CheckBox x:Name="StripMetadataBox"
+                      AutomationProperties.AutomationId="ExportStripMetadata"
+                      Content="Strip metadata from exported copies" />
+            <TextBlock Text="Exports JPEG copies without enlarging images. Transparency becomes white; only the first frame is exported. Originals and existing files are never overwritten."
+                       TextWrapping="Wrap" />
+            <TextBlock Text="Unless stripped, copies retain embedded captions, tags, ratings, capture date, author, copyright and camera name. Other metadata (including GPS and face regions) and sidecars are not copied."
+                       TextWrapping="Wrap" />
+            <InfoBar x:Name="ErrorBar" Severity="Error" IsClosable="False" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 
@@ -44,17 +45,17 @@ public sealed class BatchTagProcessor
         Progress?.Invoke(
             this,
             BatchTagProgressEventArgs.Preparing(settings.ProfileId));
-        await _modelProvider.EnsureModelAsync(
-            settings.ProfileId,
-            settings.ModelDirectory,
-            cancellationToken);
-        _autoTagger.LoadModel(
-            settings.ProfileId,
-            settings.ModelDirectory);
-
         var pending = await _store.GetImagesNeedingAutoTagsAsync(
-            definition.PipelineVersion,
+            settings.GetScanVersion(),
             cancellationToken);
+        if (pending.Count > 0)
+        {
+            await _modelProvider.EnsureModelAsync(
+                settings.ProfileId,
+                settings.ModelDirectory,
+                cancellationToken);
+            _autoTagger.LoadModel(settings.ProfileId, settings.ModelDirectory);
+        }
         var processed = 0;
         var failed = 0;
         var tagsAdded = 0;

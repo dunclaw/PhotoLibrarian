@@ -7,14 +7,20 @@
     Title="PhotoLibrarian">
 
     <Grid x:Name="AppRoot">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="F11" Invoked="OnSlideshowInvoked" />
+            <KeyboardAccelerator Key="P" Modifiers="Control" Invoked="OnPrintPhotosInvoked" />
+        </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Top ribbon (shown when viewer is open) -->
-        <views:TopRibbon x:Name="TopRibbon" Grid.Row="0" Visibility="Collapsed" />
+        <StackPanel Grid.Row="0">
+            <views:TopRibbon x:Name="TopRibbon" />
+        </StackPanel>
 
         <!-- Main 3-panel layout -->
         <Grid x:Name="MainLayout" Grid.Row="1">
@@ -23,7 +29,7 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="300" MinWidth="200" />
+                <ColumnDefinition x:Name="InformationPaneColumn" Width="300" MinWidth="200" />
             </Grid.ColumnDefinitions>
 
             <!-- Left: Folder Navigation -->
@@ -47,7 +53,7 @@
             </Grid>
 
             <!-- Resizable splitter -->
-            <controls:GridSplitter Grid.Column="3" 
+            <controls:GridSplitter x:Name="InformationPaneSplitter" Grid.Column="3"
                                    Width="12"
                                    ResizeBehavior="BasedOnAlignment"
                                    ResizeDirection="Auto"
@@ -55,11 +61,35 @@
                                    HorizontalAlignment="Stretch" />
 
             <!-- Right: Metadata Panel -->
-            <views:MetadataPanel x:Name="MetadataDetailPanel" Grid.Column="4" />
+            <Grid x:Name="InformationPane" Grid.Column="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Padding="8,4"
+                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                    <AutoSuggestBox x:Name="LibrarySearchBox"
+                                    AutomationProperties.AutomationId="LibrarySearchBox"
+                                    AutomationProperties.Name="Search current photos"
+                                    PlaceholderText="Search current photos"
+                                    QueryIcon="Find"
+                                    TextMemberPath="FileName"
+                                    DisplayMemberPath="FileName"
+                                    ToolTipService.ToolTip="Search current photos. Examples: rating:&gt;3, flag:pick, iso:&gt;800, camera:x2, date:2026-04, keyword:mountains, person:&quot;Jane Doe&quot;"
+                                    ItemsSource="{x:Bind ViewModel.Search.Suggestions, Mode=OneWay}"
+                                    TextChanged="LibrarySearchBox_TextChanged"
+                                    QuerySubmitted="LibrarySearchBox_QuerySubmitted" />
+                    <InfoBar AutomationProperties.AutomationId="LibrarySearchError"
+                             IsOpen="{x:Bind ViewModel.Search.IsError, Mode=TwoWay}"
+                             Message="{x:Bind ViewModel.Search.ErrorMessage, Mode=OneWay}"
+                             Severity="Error" />
+                </StackPanel>
+                <views:MetadataPanel x:Name="MetadataDetailPanel" Grid.Row="1" />
+            </Grid>
         </Grid>
 
         <!-- Overlay: Image Editor -->
-        <views:ImageEditorView x:Name="EditorOverlay" Grid.Row="0" Grid.RowSpan="2"
+        <views:ImageEditorView x:Name="EditorOverlay" Grid.Row="1"
                                 Visibility="Collapsed" />
 
         <!-- Overlay: Settings Panel -->
@@ -85,8 +115,37 @@
             <views:PeopleReviewView />
         </Border>
 
+        <Border x:Name="DuplicateReviewOverlay"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                Visibility="Collapsed">
+            <views:DuplicateReviewView />
+        </Border>
+
+        <StackPanel x:Name="FooterNotifications" Grid.Row="2" Spacing="4">
+            <InfoBar x:Name="MetadataFallbackInfoBar"
+                     AutomationProperties.AutomationId="MetadataFallbackInfoBar"
+                     Severity="Warning"
+                     Title="Metadata saved outside the image"
+                     IsOpen="False" />
+            <InfoBar x:Name="ImportDeviceInfoBar"
+                     x:Uid="PhotoImportDeviceInfo"
+                     AutomationProperties.AutomationId="PhotoImportDeviceInfoBar"
+                     Severity="Informational"
+                     IsOpen="False"
+                     IsClosable="False">
+                <InfoBar.ActionButton>
+                    <Button x:Name="ImportDeviceButton"
+                            x:Uid="PhotoImportDeviceButton"
+                            AutomationProperties.AutomationId="PhotoImportDetectedDevice"
+                            Click="OnImportDetectedDeviceClick" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+        </StackPanel>
+
         <!-- Status bar -->
-        <Grid Grid.Row="2" Padding="12,6"
+        <Grid x:Name="StatusBar" Grid.Row="3" Padding="12,6"
               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -134,16 +193,9 @@
                     ToolTipService.ToolTip="Stop face detection">
                 <FontIcon x:Name="FaceDetectionIcon" Glyph="&#xE769;" FontSize="14" />
             </Button>
-            <Button x:Name="PeopleReviewButton"
-                    AutomationProperties.AutomationId="PeopleReviewButton"
-                    AutomationProperties.Name="Review people suggestions"
-                    Grid.Column="4"
-                    Margin="0,0,8,0"
-                    Click="OnPeopleReviewClick"
-                    Padding="8,4"
-                    ToolTipService.ToolTip="Review people suggestions">
-                <FontIcon Glyph="&#xE716;" FontSize="14" />
-            </Button>
         </Grid>
+        <ContentControl x:Name="ComparisonOverlay" Grid.RowSpan="4"
+                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                        Visibility="Collapsed" />
     </Grid>
 </Window>

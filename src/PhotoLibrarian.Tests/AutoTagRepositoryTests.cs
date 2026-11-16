@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -7,6 +8,54 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class AutoTagRepositoryTests
 {
+    [Fact]
+    public async Task TryReplaceAutoTagsIfUnchangedAsync_PreservesNewerReviewedTags()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            await tags.TryReplaceAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("cat", 0.72f)],
+                "previous-v1",
+                TestContext.Current.CancellationToken);
+            image.AutoTagScanVersion = "previous-v1";
+            var expectedAutoTags = (await tags.GetTagsAsync(image.Id))
+                .Where(tag => tag.Source == TagSource.AutoML)
+                .ToArray();
+
+            Assert.True(await tags.TryAddReviewedAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("approved", 0.94f)],
+                "reviewed-v2",
+                TestContext.Current.CancellationToken));
+
+            var replaced = await tags.TryReplaceAutoTagsIfUnchangedAsync(
+                image,
+                [new GeneratedImageTag("dog", 0.88f)],
+                expectedAutoTags,
+                image.AutoTagScanVersion,
+                TestContext.Current.CancellationToken);
+
+            Assert.False(replaced);
+            var storedTags = await tags.GetTagsAsync(image.Id);
+            Assert.Contains(storedTags, tag => tag.Tag == "Auto/cat");
+            Assert.Contains(storedTags, tag => tag.Tag == "Auto/approved");
+            Assert.DoesNotContain(storedTags, tag => tag.Tag == "Auto/dog");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
     [Fact]
     public async Task TryReplaceAutoTagsAsync_PreservesManualTagsAndTracksVersion()
     {
@@ -40,7 +89,7 @@ public sealed class AutoTagRepositoryTests
             Assert.Contains(
                 storedTags,
                 tag => tag.Tag == "family" && tag.Source == TagSource.Manual);
-            Assert.Contains(
+            Assert.DoesNotContain(
                 storedTags,
                 tag => tag.Tag == ImageTag.AutomaticRootTag &&
                     tag.Source == TagSource.AutoML);
@@ -84,15 +133,16 @@ public sealed class AutoTagRepositoryTests
                  new("animal/bird/duck", 0.7f)], "hierarchical-v2", TestContext.Current.CancellationToken));
 
             var stored = await tags.GetTagsAsync(image.Id);
-            Assert.Equal(5, stored.Count);
+            Assert.Equal(3, stored.Count);
             Assert.All(stored, tag => Assert.Equal(TagSource.AutoML, tag.Source));
             foreach (var path in new[] { "Auto", "Auto/animal", "Auto/animal/bird" })
             {
-                Assert.Equal(0.95f, Assert.Single(stored, tag => tag.Tag == path).Confidence);
                 Assert.Equal([image.Id], await tags.GetImageIdsWithTagAsync(path));
                 Assert.Equal(image.Id,
                     Assert.Single(await images.GetFilteredAsync(false, [path])).Id);
             }
+            Assert.Equal(0.95f, Assert.Single(stored,
+                tag => tag.Tag == "Auto/animal/bird").Confidence);
             Assert.Equal(0.8f, Assert.Single(stored,
                 tag => tag.Tag == "Auto/animal/bird/eagle").Confidence);
             Assert.Empty(await tags.GetImageIdsWithTagAsync("animal"));
@@ -140,17 +190,15 @@ public sealed class AutoTagRepositoryTests
             Assert.DoesNotContain(stored, tag => tag.Tag == "Auto/eagle");
             Assert.Equal(TagSource.AutoML,
                 Assert.Single(stored, tag => tag.Tag == "Auto/animal/bird/eagle").Source);
-            foreach (var path in new[] { "Auto", "Auto/animal", "Auto/animal/bird" })
-            {
-                var tag = Assert.Single(stored, tag => tag.Tag == path);
-                Assert.Equal(source, tag.Source);
-                Assert.Equal(0.4f, tag.Confidence);
-            }
+            var independentParent = Assert.Single(stored, tag => tag.Tag == "Auto/animal/bird");
+            Assert.Equal(source, independentParent.Source);
+            Assert.Equal(0.4f, independentParent.Confidence);
+            Assert.DoesNotContain(stored, tag => tag.Tag is "Auto" or "Auto/animal");
             Assert.Empty(await tags.GetImagesNeedingAutoTagsAsync("hierarchical-v2",
                 TestContext.Current.CancellationToken));
             await tags.TryReplaceAutoTagsAsync(image, [], "empty-v3", TestContext.Current.CancellationToken);
             stored = await tags.GetTagsAsync(image.Id);
-            Assert.Equal(4, stored.Count);
+            Assert.Equal(2, stored.Count);
             Assert.All(stored, tag => Assert.Equal(source, tag.Source));
         }
         finally
@@ -178,6 +226,102 @@ public sealed class AutoTagRepositoryTests
                 image,
                 [new GeneratedImageTag("cat", 0.9f)],
                 "test-model-v1",
+                TestContext.Current.CancellationToken);
+
+            Assert.False(wasSaved);
+            Assert.Empty(await tags.GetTagsAsync(image.Id));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task TryAddReviewedAutoTagsAsync_AddsAcceptedTagsAndPreservesExistingSources()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            await tags.AddTagAsync(new ImageTag
+            {
+                ImageId = image.Id,
+                Tag = "family",
+                Source = TagSource.Manual
+            });
+            await tags.TryReplaceAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("dog", 0.8f)],
+                "profile-v1",
+                TestContext.Current.CancellationToken);
+
+            var wasSaved = await tags.TryAddReviewedAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("park", 0.7f)],
+                "profile-v1",
+                TestContext.Current.CancellationToken);
+
+            Assert.True(wasSaved);
+            var stored = await tags.GetTagsAsync(image.Id);
+            Assert.Contains(
+                stored,
+                tag => tag.Tag == "family" &&
+                    tag.Source == TagSource.Manual);
+            Assert.Contains(
+                stored,
+                tag => tag.Tag == "Auto/dog" &&
+                    tag.Source == TagSource.AutoML);
+            Assert.Contains(
+                stored,
+                tag => tag.Tag == "Auto/park" &&
+                    tag.Source == TagSource.AutoML);
+            Assert.DoesNotContain(stored, tag => tag.Tag == "Auto/cat");
+            Assert.Empty(await tags.GetImagesNeedingAutoTagsAsync(
+                "profile-v1",
+                TestContext.Current.CancellationToken));
+
+            await tags.AddMetadataTagAsync(
+                image.Id,
+                "Auto/park",
+                TestContext.Current.CancellationToken);
+            Assert.Equal(
+                TagSource.AutoML,
+                Assert.Single(
+                    await tags.GetTagsAsync(image.Id),
+                    tag => tag.Tag == "Auto/park").Source);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task TryAddReviewedAutoTagsAsync_RejectsStaleImageWithoutChangingTags()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            using var database = new CacheDatabase(databasePath);
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            var image = CreateImage();
+            image.Id = await images.UpsertImageAsync(image);
+            image.FileSize++;
+
+            var wasSaved = await tags.TryAddReviewedAutoTagsAsync(
+                image,
+                [new GeneratedImageTag("cat", 0.9f)],
+                "profile-v1",
                 TestContext.Current.CancellationToken);
 
             Assert.False(wasSaved);
@@ -236,10 +380,14 @@ public sealed class AutoTagRepositoryTests
                 Source = TagSource.Imported
             });
 
+            Assert.Equal(
+                2,
+                (await tags.GetImagesWithAutoTagMetadataAsync(
+                    TestContext.Current.CancellationToken)).Count);
             var result = await tags.RemoveAllAutoTagsAsync(
                 TestContext.Current.CancellationToken);
 
-            Assert.Equal(6, result.TagCount);
+            Assert.Equal(2, result.TagCount);
             Assert.Equal(2, result.PhotoCount);
             var firstTags = await tags.GetTagsAsync(first.Id);
             Assert.Equal(

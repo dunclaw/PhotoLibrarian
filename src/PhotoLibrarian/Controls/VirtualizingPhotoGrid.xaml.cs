@@ -1,15 +1,16 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ViewModels;
 using System;
 using System.Collections.Generic;
 using System.Collections;
 using System.Collections.Specialized;
-using System.Diagnostics;
 using System.Linq;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -177,6 +178,14 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         this.Loaded += OnLoaded;
         this.SizeChanged += OnSizeChanged;
         this.KeyDown += OnGridKeyDown;
+        this.GotFocus += OnPhotoGridGotFocus;
+        this.LostFocus += (_, _) =>
+        {
+            _pendingPhotoContextMenu = null;
+            RefreshAllSelectionVisuals(notifyAutomation: false);
+        };
+        this.Loaded += OnAccessibilityLoaded;
+        this.Unloaded += OnAccessibilityUnloaded;
     }
     
     /// <summary>
@@ -184,7 +193,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     /// </summary>
     public void SetGroups(System.Collections.ObjectModel.ObservableCollection<PhotoGroup> groups)
     {
-        Debug.WriteLine($"[VIRTUAL] SetGroups called with {groups?.Count ?? 0} groups");
+        DebugLog.WriteDebugLine($"[VIRTUAL] SetGroups called with {groups?.Count ?? 0} groups");
         
         // Unsubscribe from old collection
         if (_groups != null)
@@ -193,6 +202,9 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         }
         
         _groups = groups;
+        ResetPhotoAutomation();
+        ObservePhotoGroups();
+        _focusedItem = null;
 
         // Drop any selection that may reference items in the previous data set
         // (prevents leaking references and avoids "ghost selection" UX)
@@ -214,7 +226,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             {
                 totalItems += g.Items?.Count ?? 0;
             }
-            Debug.WriteLine($"[VIRTUAL] Total items across all groups: {totalItems}");
+            DebugLog.WriteDebugLine($"[VIRTUAL] Total items across all groups: {totalItems}");
         }
         
         // Initial render
@@ -223,7 +235,9 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     
     private void OnGroupsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        Debug.WriteLine($"[VIRTUAL] OnGroupsCollectionChanged: {e.Action}");
+        ObservePhotoGroups();
+        OnPhotoDataChanged();
+        DebugLog.WriteDebugLine($"[VIRTUAL] OnGroupsCollectionChanged: {e.Action}");
         // Data changed - recalculate layout
         RecalculateLayout();
     }
@@ -247,7 +261,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             _availableHeaderElements.Enqueue(CreateHeaderElement());
         }
         
-        Debug.WriteLine($"[VIRTUAL] Created pool of {InitialPoolSize} photo elements and 20 header elements");
+        DebugLog.WriteDebugLine($"[VIRTUAL] Created pool of {InitialPoolSize} photo elements and 20 header elements");
     }
     
     /// <summary>
@@ -493,7 +507,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             // Handle empty collection - clear everything
             if (_groups == null || _groups.Count == 0)
             {
-                Debug.WriteLine($"[VIRTUAL] Groups empty, clearing all elements");
+                DebugLog.WriteDebugLine($"[VIRTUAL] Groups empty, clearing all elements");
                 
                 // Release all active elements
                 var allActive = _activeElements.ToList();
@@ -523,7 +537,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             // Update visible elements
             UpdateViewport();
             
-            Debug.WriteLine($"[VIRTUAL] Layout updated: {_columnCount} columns, {_totalContentHeight:F0}px tall, ItemSize={ItemSize}");
+            DebugLog.WriteDebugLine($"[VIRTUAL] Layout updated: {_columnCount} columns, {_totalContentHeight:F0}px tall, ItemSize={ItemSize}");
         }
         finally
         {
@@ -590,6 +604,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             .ToList();
         
         VisibleItemsChanged?.Invoke(this, photoItems);
+        UpdatePhotoAutomation();
     }
     
     /// <summary>
@@ -671,7 +686,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
                 else
                 {
                     element = CreateHeaderElement();
-                    Debug.WriteLine($"[VIRTUAL] Header pool exhausted, created new header");
+                    DebugLog.WriteDebugLine($"[VIRTUAL] Header pool exhausted, created new header");
                 }
             }
             else
@@ -683,7 +698,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
                 else
                 {
                     element = CreatePhotoElement();
-                    Debug.WriteLine($"[VIRTUAL] Photo pool exhausted, created new photo element");
+                    DebugLog.WriteDebugLine($"[VIRTUAL] Photo pool exhausted, created new photo element");
                 }
                 
                 // Size the photo element to current ItemSize
@@ -717,6 +732,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     {
         _activeElements.Remove(dataContext);
         ItemsCanvas.Children.Remove(element);
+        RemovePhotoAutomation(dataContext);
         
         // Clear selection visual before returning to pool (selection state itself persists in _selectedItems)
         if (element is Grid grid && dataContext is ImageThumbnailViewModel)
@@ -842,6 +858,14 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             Visibility = Visibility.Collapsed
         };
         grid.Children.Add(faceHighlight);
+        grid.Children.Add(new Border
+        {
+            Tag = "PhotoKeyboardFocus",
+            BorderThickness = new Thickness(2),
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        });
+        ApplyPhotoColors(grid);
 
         // Click and double-click handling
         grid.Tapped += OnPhotoTapped;
@@ -922,7 +946,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         if (sender is FrameworkElement element && element.DataContext is ImageThumbnailViewModel vm)
         {
             // Take keyboard focus so arrow keys work after a click
-            this.Focus(FocusState.Pointer);
+            FocusPhoto(vm, FocusState.Pointer);
             HandleSelection(vm, GetModifierState());
             ItemClicked?.Invoke(this, vm);
         }
@@ -932,6 +956,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     {
         if (sender is FrameworkElement element && element.DataContext is ImageThumbnailViewModel vm)
         {
+            FocusPhoto(vm, FocusState.Pointer);
             // Double-tap collapses to single selection
             HandleSelection(vm, ModifierState.None);
             ItemDoubleClicked?.Invoke(this, vm);
@@ -942,7 +967,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     {
         if (sender is not FrameworkElement element || element.DataContext is not ImageThumbnailViewModel vm) return;
 
-        this.Focus(FocusState.Pointer);
+        FocusPhoto(vm, FocusState.Pointer);
 
         // Standard Explorer behavior: right-clicking an unselected item replaces the selection
         // with just that item; right-clicking a selected item leaves multi-selection intact.
@@ -993,7 +1018,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     {
         if (sender is Grid grid && grid.DataContext is ImageThumbnailViewModel vm && !_selectedItems.Contains(vm))
         {
-            grid.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.LightGray);
+            grid.BorderBrush = new SolidColorBrush(PhotoHoverColor);
         }
     }
     
@@ -1006,7 +1031,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     }
 
     [Flags]
-    private enum ModifierState { None = 0, Ctrl = 1, Shift = 2 }
+    internal enum ModifierState { None = 0, Ctrl = 1, Shift = 2 }
 
     private static ModifierState GetModifierState()
     {
@@ -1079,15 +1104,17 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     /// <summary>
     /// Walks all currently-realized elements and updates their selection border.
     /// </summary>
-    private void RefreshAllSelectionVisuals()
+    private void RefreshAllSelectionVisuals(bool notifyAutomation = true)
     {
         foreach (var kvp in _activeElements)
         {
             if (kvp.Key is ImageThumbnailViewModel vm)
             {
                 ApplySelectionVisual(kvp.Value, _selectedItems.Contains(vm));
+                ApplyPhotoFocusVisual(kvp.Value, vm);
             }
         }
+        if (notifyAutomation) NotifyPhotoSelectionChanged();
     }
 
     /// <summary>
@@ -1108,7 +1135,8 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     /// </summary>
     public void RestoreSelection(
         IReadOnlyCollection<ImageThumbnailViewModel> selected,
-        ImageThumbnailViewModel? primary)
+        ImageThumbnailViewModel? primary,
+        bool scrollIntoView = false)
     {
         _selectedItems.Clear();
         foreach (var item in selected)
@@ -1116,14 +1144,19 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
 
         _primaryItem = primary;
         _anchorItem = primary;
+        _focusedItem = primary;
         RefreshAllSelectionVisuals();
+        if (scrollIntoView && primary is not null)
+            ScrollItemIntoView(primary);
     }
     
-    private static void ApplySelectionVisual(FrameworkElement element, bool selected)
+    private void ApplySelectionVisual(FrameworkElement element, bool selected)
     {
         if (element is Grid grid)
         {
-            grid.BorderBrush = new SolidColorBrush(selected ? SelectionColor : Microsoft.UI.Colors.Transparent);
+            var color = selected ? PhotoSelectionColor : Microsoft.UI.Colors.Transparent;
+            if (grid.BorderBrush is not SolidColorBrush brush || brush.Color != color)
+                grid.BorderBrush = new SolidColorBrush(color);
         }
     }
 
@@ -1196,19 +1229,21 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
     /// <summary>
     /// Handles arrow keys, Home/End, PageUp/PageDown, Ctrl+A, Enter, Escape for grid-style navigation.
     /// </summary>
-    private void OnGridKeyDown(object sender, KeyRoutedEventArgs e)
+    private void OnGridKeyDown(object sender, KeyRoutedEventArgs e) =>
+        e.Handled = HandlePhotoKey(e.Key, GetModifierState());
+
+    internal bool HandlePhotoKey(Windows.System.VirtualKey key, ModifierState mods)
     {
-        if (_groups == null) return;
+        if (ItemsSource is not null || _groups is null) return false;
 
         var flat = GetFlatItems();
-        if (flat.Count == 0) return;
+        if (flat.Count == 0) return false;
 
-        var mods = GetModifierState();
         bool shift = mods.HasFlag(ModifierState.Shift);
         bool ctrl  = mods.HasFlag(ModifierState.Ctrl);
 
         // Ctrl+A — select all
-        if (ctrl && e.Key == Windows.System.VirtualKey.A)
+        if (ctrl && key == Windows.System.VirtualKey.A)
         {
             _selectedItems.Clear();
             foreach (var v in flat) _selectedItems.Add(v);
@@ -1216,36 +1251,47 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             _anchorItem ??= flat[0];
             RefreshAllSelectionVisuals();
             SelectionChanged?.Invoke(this, _selectedItems.ToList());
-            e.Handled = true;
-            return;
+            return true;
         }
 
-        // Enter — open viewer (mirrors double-click)
-        if (e.Key == Windows.System.VirtualKey.Enter && _primaryItem != null)
+        var focused = _focusedItem ?? _primaryItem;
+        if ((key == Windows.System.VirtualKey.Application ||
+             (shift && key == Windows.System.VirtualKey.F10)) && focused is not null)
         {
-            ItemDoubleClicked?.Invoke(this, _primaryItem);
-            e.Handled = true;
-            return;
+            RequestPhotoContextMenu(focused);
+            return true;
+        }
+
+        if (key == Windows.System.VirtualKey.Space && focused is not null)
+        {
+            HandleSelection(focused, mods);
+            return true;
+        }
+
+        // Enter — open the focused photo, even when Ctrl+arrow left it unselected.
+        if (key == Windows.System.VirtualKey.Enter && focused is not null)
+        {
+            HandleSelection(focused, ModifierState.None);
+            ItemDoubleClicked?.Invoke(this, focused);
+            return true;
         }
 
         // Escape — clear selection
-        if (e.Key == Windows.System.VirtualKey.Escape)
+        if (key == Windows.System.VirtualKey.Escape)
         {
             ClearSelection();
-            e.Handled = true;
-            return;
+            return true;
         }
 
         // F — toggle flag on the current selection
-        if (!ctrl && !shift && e.Key == Windows.System.VirtualKey.F)
+        if (!ctrl && !shift && key == Windows.System.VirtualKey.F)
         {
             FlagToggleRequested?.Invoke(this, EventArgs.Empty);
-            e.Handled = true;
-            return;
+            return true;
         }
 
         // Arrow keys / Home / End / PageUp / PageDown — figure out target index
-        int currentIndex = _primaryItem != null ? flat.IndexOf(_primaryItem) : -1;
+        int currentIndex = focused != null ? flat.IndexOf(focused) : -1;
         if (currentIndex < 0) currentIndex = 0;
 
         int targetIndex = currentIndex;
@@ -1253,7 +1299,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         // Approximate "page" rows from current viewport height
         int rowsPerPage = Math.Max(1, (int)(ScrollContainer.ViewportHeight / (ItemSize + ItemSpacing)));
 
-        switch (e.Key)
+        switch (key)
         {
             case Windows.System.VirtualKey.Left:
                 targetIndex = Math.Max(0, currentIndex - 1);
@@ -1280,17 +1326,22 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
                 targetIndex = Math.Min(flat.Count - 1, currentIndex + cols * rowsPerPage);
                 break;
             default:
-                return; // not handled
+                return false;
         }
 
-        if (targetIndex == currentIndex && _primaryItem != null && !shift)
+        if (targetIndex == currentIndex && focused != null && !shift)
         {
             // Already at edge; still mark handled so arrow keys don't move focus elsewhere
-            e.Handled = true;
-            return;
+            return true;
         }
 
         var target = flat[targetIndex];
+
+        if (ctrl && !shift)
+        {
+            FocusPhoto(target, FocusState.Keyboard, scrollIntoView: true);
+            return true;
+        }
 
         if (shift)
         {
@@ -1311,9 +1362,9 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
 
         RefreshAllSelectionVisuals();
         SelectionChanged?.Invoke(this, _selectedItems.ToList());
-        ScrollItemIntoView(target);
+        FocusPhoto(target, FocusState.Keyboard, scrollIntoView: true);
 
-        e.Handled = true;
+        return true;
     }
     
     /// <summary>
@@ -1341,6 +1392,7 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         });
         
         border.Child = text;
+        ApplyHeaderColors(border);
         return border;
     }
 }

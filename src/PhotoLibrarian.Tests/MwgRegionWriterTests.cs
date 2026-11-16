@@ -1,5 +1,6 @@
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using MetadataExtractor.Formats.Xmp;
 using System.Globalization;
 using XmpCore;
 using Xunit;
@@ -20,6 +21,7 @@ public sealed class MwgRegionWriterTests
 
         try
         {
+            await WicTestImage.CreateAsync(imagePath, 1200, 800, jpeg: true);
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
             await MwgRegionWriter.WriteFaceRegionsAsync(
                 imagePath,
@@ -36,13 +38,13 @@ public sealed class MwgRegionWriterTests
                 1200,
                 800);
 
-            var xmp = await File.ReadAllTextAsync(
-                Path.ChangeExtension(imagePath, ".xmp"),
-                TestContext.Current.CancellationToken);
-            Assert.Contains("Alex", xmp);
-            Assert.Contains("0.250000", xmp);
-            Assert.Contains("0.400000", xmp);
-            Assert.DoesNotContain("0,250000", xmp);
+            var xmp = Assert.Single(MetadataExtractor.ImageMetadataReader.ReadMetadata(imagePath)
+                .OfType<XmpDirectory>()).XmpMeta!;
+            var packet = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
+            Assert.Contains("Alex", packet);
+            Assert.Contains("0.250000", packet);
+            Assert.Contains("0.400000", packet);
+            Assert.DoesNotContain("0,250000", packet);
         }
         finally
         {
@@ -53,7 +55,7 @@ public sealed class MwgRegionWriterTests
                 File.Delete(sidecarPath);
             }
 
-            Directory.Delete(directory);
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -264,6 +266,7 @@ public sealed class MwgRegionWriterTests
         try
         {
             await WicTestImage.CreateAsync(jpegPath, 16, 12, true);
+            await File.WriteAllBytesAsync(rawPath, [1, 2, 3], TestContext.Current.CancellationToken);
 
             var store = new FaceMetadataStore();
             await store.WriteAsync(

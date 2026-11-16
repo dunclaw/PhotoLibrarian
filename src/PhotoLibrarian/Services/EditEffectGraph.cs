@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Effects;
 using PhotoLibrarian.Core.Models;
@@ -12,8 +13,9 @@ namespace PhotoLibrarian.Services;
 /// render that bakes the adjustments into the file on save, so what the user sees
 /// is what gets written to disk.
 ///
-/// Effect chain: Source → Exposure → Brightness/Contrast → Saturation →
-/// Temperature/Tint → Highlights/Shadows → Levels → Sharpness → Rotation → Output
+/// Effect chain: Source → Noise Reduction → Exposure → Brightness/Contrast → Saturation →
+/// Temperature/Tint → Highlights/Shadows → Levels → Color Mixer → Sharpness →
+/// Monochrome Mix/Grading or Photo Effect → Rotation → Output
 /// </summary>
 public static class EditEffectGraph
 {
@@ -24,7 +26,7 @@ public static class EditEffectGraph
     /// </summary>
     public static ICanvasImage Build(ICanvasImage source, Vector2 sourceSize, EditParameters p)
     {
-        ICanvasImage current = source;
+        ICanvasImage current = NoiseReductionEffect.Create(source, sourceSize, p.NoiseReduction);
 
         // 1. Exposure (simulated via brightness/gamma)
         if (p.Exposure != 0)
@@ -128,8 +130,44 @@ public static class EditEffectGraph
             };
         }
 
-        // 7. Sharpness (via unsharp mask)
-        if (p.Sharpness > 0)
+        if (!p.ToneCurves.IsIdentity)
+        {
+            p.ToneCurves.Validate();
+            float[] MakeTable(IReadOnlyList<ToneCurvePoint> channel)
+            {
+                var table = new float[256];
+                for (var i = 0; i < table.Length; i++)
+                {
+                    var rgb = ToneCurves.Evaluate(p.ToneCurves.Rgb, i / 255d);
+                    table[i] = (float)ToneCurves.Evaluate(channel, rgb);
+                }
+                return table;
+            }
+            current = new TableTransferEffect
+            {
+                Source = current,
+                RedTable = MakeTable(p.ToneCurves.Red),
+                GreenTable = MakeTable(p.ToneCurves.Green),
+                BlueTable = MakeTable(p.ToneCurves.Blue)
+            };
+        }
+
+        var monochrome = p.Effect == PhotoEffect.BlackAndWhite;
+        current = ColorAdjustmentEffect.Create(
+            current, sourceSize, p.ColorAdjustments, p.MonochromeMix, monochrome: false,
+            applyColorMixer: true, applyGrading: !monochrome);
+
+        // 7. Sharpening. Preserve the old effect exactly for existing recipes.
+        if (p.SharpeningMode == SharpeningMode.UnsharpMask)
+        {
+            current = UnsharpMaskEffect.Create(
+                current,
+                sourceSize,
+                p.UnsharpMaskAmount,
+                p.UnsharpMaskRadius,
+                p.UnsharpMaskThreshold);
+        }
+        else if (p.SharpeningMode == SharpeningMode.Legacy && p.Sharpness > 0)
         {
             current = new SharpenEffect
             {
@@ -137,6 +175,17 @@ public static class EditEffectGraph
                 Amount = Math.Clamp((float)p.Sharpness * 5.0f, 0f, 10f), // 0-5 range
                 Threshold = 0.05f
             };
+        }
+
+        if (monochrome)
+        {
+            current = ColorAdjustmentEffect.Create(
+                current, sourceSize, p.ColorAdjustments, p.MonochromeMix, monochrome: true,
+                applyColorMixer: false, applyGrading: true);
+        }
+        else
+        {
+            current = PhotoEffectTransform.Create(current, p.Effect);
         }
 
         // 8. Rotation

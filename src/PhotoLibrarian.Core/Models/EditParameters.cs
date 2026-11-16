@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.Core.Models;
 
 /// <summary>
@@ -13,66 +14,118 @@ public sealed class EditParameters
     public double Highlights { get; set; }
     public double Shadows { get; set; }
 
+    // RAW-only scene-linear recipe; never interpreted by the legacy raster graph.
+    public double RawExposureEv { get; set; }
+    public double RawWhitePoint { get; set; } = 4.0;
+
     // Color adjustments (-1.0 to 1.0, 0 = no change)
     public double Saturation { get; set; }
     public double Temperature { get; set; }
     public double Tint { get; set; }
+    public PhotoEffect Effect { get; set; }
 
     // Detail
     public double Clarity { get; set; }
+    /// <summary>Legacy SharpenEffect amount. Retained for existing XMP recipes.</summary>
     public double Sharpness { get; set; }
+    /// <summary>Edge-aware noise reduction (0.0 to 1.0, 0 = off).</summary>
+    public double NoiseReduction { get; set; }
+    public SharpeningMode SharpeningMode { get; set; }
+    /// <summary>Unsharp-mask amount (0.0 to 2.0, 0 = off).</summary>
+    public double UnsharpMaskAmount { get; set; }
+    /// <summary>Unsharp-mask Gaussian blur amount in source pixels (0.5 to 5.0).</summary>
+    public double UnsharpMaskRadius { get; set; } = 1.0;
+    /// <summary>Minimum per-channel source/blur difference needed to sharpen (0.0 to 0.25).</summary>
+    public double UnsharpMaskThreshold { get; set; } = 0.02;
 
     // Levels (0.0 to 1.0)
     public double BlackPoint { get; set; }
     public double WhitePoint { get; set; } = 1.0;
     public double Midtones { get; set; } = 0.5;
+    public ToneCurves ToneCurves { get; set; } = new();
+    public ColorAdjustments ColorAdjustments { get; set; } = new();
+    public MonochromeMix MonochromeMix { get; set; } = new();
 
     // Crop & Rotation
     public double RotationAngle { get; set; }
     public CropRect? Crop { get; set; }
+    public List<RetouchStroke> RetouchStrokes { get; set; } = [];
 
     public bool HasAdjustments =>
-        Brightness != 0 || Contrast != 0 || Exposure != 0 ||
+        Effect != PhotoEffect.None || Brightness != 0 || Contrast != 0 || Exposure != 0 ||
+        RawExposureEv != 0 || RawWhitePoint != 4.0 ||
         Highlights != 0 || Shadows != 0 || Saturation != 0 ||
-        Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 ||
-        BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 ||
-        RotationAngle != 0 || Crop is not null;
+        Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
+        SharpeningMode != PhotoLibrarian.Core.Models.SharpeningMode.Legacy || UnsharpMaskAmount != 0 ||
+        UnsharpMaskRadius != 1.0 || UnsharpMaskThreshold != 0.02 ||
+        BlackPoint != 0 || WhitePoint != 1.0 || Midtones != 0.5 || !ToneCurves.IsDefault ||
+        !ColorAdjustments.IsDefault ||
+        !MonochromeMix.IsDefault ||
+        RotationAngle != 0 || Crop is not null || RetouchStrokes.Count != 0;
 
     public EditParameters Clone() => new()
     {
         Brightness = Brightness,
         Contrast = Contrast,
         Exposure = Exposure,
+        RawExposureEv = RawExposureEv,
+        RawWhitePoint = RawWhitePoint,
         Highlights = Highlights,
         Shadows = Shadows,
         Saturation = Saturation,
         Temperature = Temperature,
         Tint = Tint,
+        Effect = Effect,
         Clarity = Clarity,
         Sharpness = Sharpness,
+        NoiseReduction = NoiseReduction,
+        SharpeningMode = SharpeningMode,
+        UnsharpMaskAmount = UnsharpMaskAmount,
+        UnsharpMaskRadius = UnsharpMaskRadius,
+        UnsharpMaskThreshold = UnsharpMaskThreshold,
         BlackPoint = BlackPoint,
         WhitePoint = WhitePoint,
         Midtones = Midtones,
+        ToneCurves = ToneCurves.Clone(),
+        ColorAdjustments = ColorAdjustments.Clone(),
+        MonochromeMix = MonochromeMix.Clone(),
         RotationAngle = RotationAngle,
-        Crop = Crop?.Clone()
+        Crop = Crop?.Clone(),
+        RetouchStrokes = RetouchStrokes.Select(stroke => stroke.Copy()).ToList()
     };
 
     public void Reset()
     {
         Brightness = Contrast = Exposure = 0;
+        RawExposureEv = 0;
+        RawWhitePoint = 4.0;
         Highlights = Shadows = 0;
         Saturation = Temperature = Tint = 0;
-        Clarity = Sharpness = 0;
+        Effect = PhotoEffect.None;
+        Clarity = Sharpness = NoiseReduction = UnsharpMaskAmount = 0;
+        SharpeningMode = PhotoLibrarian.Core.Models.SharpeningMode.Legacy;
+        UnsharpMaskRadius = 1.0;
+        UnsharpMaskThreshold = 0.02;
         BlackPoint = 0;
         WhitePoint = 1.0;
         Midtones = 0.5;
+        ToneCurves = new();
+        ColorAdjustments = new();
+        MonochromeMix = new();
         RotationAngle = 0;
         Crop = null;
+        RetouchStrokes.Clear();
     }
 
     // XMP namespace for PhotoLibrarian edit parameters
     public const string XmpNamespace = "http://ns.photolibrarian.app/edit/1.0/";
     public const string XmpPrefix = "pledit";
+}
+
+public enum SharpeningMode
+{
+    Legacy,
+    UnsharpMask
 }
 
 /// <summary>

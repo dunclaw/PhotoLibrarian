@@ -36,6 +36,33 @@ public sealed class CropMetadataRemapperTests
     }
 
     [Fact]
+    public async Task CropImage_ReadOnlyOriginal_LeavesOriginalAndWritesCopy()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, "image.jpg");
+        try
+        {
+            await WicTestImage.CreateAsync(imagePath, 100, 80, true);
+            File.SetAttributes(imagePath, FileAttributes.ReadOnly);
+
+            var result = await CropService.CropImageAsync(
+                imagePath,
+                new BitmapBounds { X = 25, Y = 20, Width = 50, Height = 40 });
+
+            Assert.Equal((100u, 80u), await WicTestImage.ReadSizeAsync(imagePath));
+            Assert.True(new FileInfo(imagePath).IsReadOnly);
+            Assert.Equal(Path.Combine(directory, "image-cropped.jpg"), result.CopyPath);
+            Assert.Equal((50u, 40u), await WicTestImage.ReadSizeAsync(result.CopyPath!));
+        }
+        finally
+        {
+            File.SetAttributes(imagePath, FileAttributes.Normal);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public void RemapFaceRegion_ClipsPartialRegionAndDropsOutsideRegion()
     {
         var crop = new CropRectangle(25, 20, 50, 40);
@@ -80,39 +107,43 @@ public sealed class CropMetadataRemapperTests
         try
         {
             var cancellationToken = TestContext.Current.CancellationToken;
+            await WicTestImage.CreateAsync(imagePath, 100, 80, jpeg: true);
+            var metadata = new PhotoFaceMetadata(
+                100,
+                80,
+                [
+                    new PortableFaceMetadata(
+                        1,
+                        0.3,
+                        0.25,
+                        0.4,
+                        0.5,
+                        "Alex",
+                        true,
+                        false,
+                        ["Sam"]),
+                    new PortableFaceMetadata(
+                        2,
+                        0,
+                        0,
+                        0.1,
+                        0.1,
+                        "Outside",
+                        true,
+                        false,
+                        [])
+                ]);
             await new FaceMetadataStore().WriteAsync(
                 imagePath,
-                new PhotoFaceMetadata(
-                    100,
-                    80,
-                    [
-                        new PortableFaceMetadata(
-                            1,
-                            0.3,
-                            0.25,
-                            0.4,
-                            0.5,
-                            "Alex",
-                            true,
-                            false,
-                            ["Sam"]),
-                        new PortableFaceMetadata(
-                            2,
-                            0,
-                            0,
-                            0.1,
-                            0.1,
-                            "Outside",
-                            true,
-                            false,
-                            [])
-                    ]),
+                metadata,
                 cancellationToken);
 
-            await WicTestImage.CreateAsync(imagePath, 100, 80, true);
+            var rawPath = Path.Combine(directory, "portrait.cr3");
+            await File.WriteAllBytesAsync(rawPath, [1, 2, 3], cancellationToken);
+            await new FaceMetadataStore().WriteAsync(rawPath, metadata, cancellationToken);
             var ownedSidecar =
                 FaceMetadataStore.GetSidecarPathForImage(imagePath);
-            File.Move(sidecarPath, ownedSidecar);
+            File.Move(Path.ChangeExtension(rawPath, ".xmp"), ownedSidecar);
             sidecarPath = ownedSidecar;
 
             var result = await CropService.CropImageAsync(
@@ -167,6 +198,14 @@ public sealed class CropMetadataRemapperTests
 
     private static void AssertRemappedXmp(IXmpMeta xmp)
     {
+        Assert.Equal(1, xmp.CountArrayItems(MicrosoftPeopleTags.Namespace, MicrosoftPeopleTags.RegionsPath));
+        Assert.Equal(
+            "0.100000, 0.000000, 0.800000, 1.000000",
+            xmp.GetStructField(
+                MicrosoftPeopleTags.Namespace,
+                $"{MicrosoftPeopleTags.RegionsPath}[1]",
+                MicrosoftPeopleTags.RegionNamespace,
+                "Rectangle")?.Value);
         const string listPath = "Regions/mwg-rs:RegionList";
         Assert.Equal(1, xmp.CountArrayItems(CropMetadataRemapper.MwgRs, listPath));
 

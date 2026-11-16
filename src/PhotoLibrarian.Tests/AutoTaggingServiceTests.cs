@@ -157,11 +157,12 @@ public sealed class AutoTaggingServiceTests
     }
 
     [Fact]
-    public void RamPlusProfile_UsesVerifiedOfficialExportAssets()
+    public void RamPlusProfile_UsesVersionedManifestAndVerifiedOfficialExportAssets()
     {
         var profile = AutoTagModelCatalog.RamPlus;
 
-        Assert.True(profile.RequiresLocalImport);
+        Assert.False(profile.RequiresLocalImport);
+        Assert.NotNull(profile.ManifestUri);
         Assert.Equal(384, profile.InputSize);
         Assert.Equal(AutoTagTensorLayout.Nchw, profile.TensorLayout);
         Assert.Equal(AutoTagPixelNormalization.ImageNet, profile.PixelNormalization);

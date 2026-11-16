@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using PhotoLibrarian.Core.Data;
 using System.Collections.ObjectModel;
@@ -22,7 +24,7 @@ public partial class PeopleNavigationViewModel : ObservableObject
     public async Task LoadPeopleAsync()
     {
         var people = await _faceRepo.GetAllPersonsAsync();
-        var personIdsByImageId = await _faceRepo.GetPersonIdsByImageIdAsync();
+        var personIdsByImageId = await _faceRepo.GetPersonIdsByImageIdAsync(watchedOnly: true);
         var imageCounts = personIdsByImageId
             .SelectMany(pair => pair.Value)
             .GroupBy(personId => personId)

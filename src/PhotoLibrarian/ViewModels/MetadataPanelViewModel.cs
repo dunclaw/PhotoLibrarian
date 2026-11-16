@@ -1,11 +1,16 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Data.Sqlite;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.Windows.ApplicationModel.Resources;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace PhotoLibrarian.ViewModels;
@@ -71,6 +76,12 @@ public partial class TagDisplayItem : ObservableObject
     }
 }
 
+public sealed record GeotagBatchResult(
+    int AppliedCount,
+    int TotalCount,
+    int SidecarCount,
+    IReadOnlyList<string> Failures);
+
 public partial class MetadataPanelViewModel : ObservableObject
 {
     // Currently-selected entries (1 or more)
@@ -79,6 +90,17 @@ public partial class MetadataPanelViewModel : ObservableObject
     private TagRepository? _tagRepo;
     private FaceRepository? _faceRepo;
     private MainViewModel? _main;
+    private GeotagMetadataWriterService? _geotagWriter;
+    private CancellationTokenSource? _videoMetadataCancellation;
+    private double? _videoLatitude;
+    private double? _videoLongitude;
+    private Task _videoMetadataReads = Task.CompletedTask;
+    private CancellationTokenSource? _placeNameReadCancellation;
+    private Task _placeNameReads = Task.CompletedTask;
+    private bool _isStopping;
+    private static readonly ResourceLoader ResourceLoader = new(
+        Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.pri"),
+        "Resources");
 
     [ObservableProperty]
     public partial bool HasImage { get; set; }
@@ -88,6 +110,12 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     [ObservableProperty]
     public partial int SelectionCount { get; set; }
+
+    public IReadOnlyList<string> SelectedFilePaths =>
+        _entries.Select(entry => entry.FilePath).ToArray();
+
+    [ObservableProperty]
+    public partial bool CanEditGeotag { get; set; }
 
     [ObservableProperty]
     public partial string SelectionSummary { get; set; } = "";
@@ -100,6 +128,9 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool IsRatingMixed { get; set; }
+
+    [ObservableProperty]
+    public partial string ColorLabelDisplay { get; set; } = "";
 
     /// <summary>True when every selected entry is flagged.</summary>
     [ObservableProperty]
@@ -118,6 +149,7 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public ObservableCollection<TagDisplayItem> Tags { get; } = [];
     public ObservableCollection<PersonTagDisplayItem> PeopleTags { get; } = [];
+    public bool IncludeUnnamedFaces { get; set; }
 
     /// <summary>Date taken common to all selected entries; null if mixed or unset.</summary>
     [ObservableProperty]
@@ -172,32 +204,113 @@ public partial class MetadataPanelViewModel : ObservableObject
     public partial string GpsLongitude { get; set; } = "";
 
     [ObservableProperty]
+    public partial string PlaceName { get; set; } = "";
+
+    [ObservableProperty]
     public partial string MediaType { get; set; } = "";
 
     [ObservableProperty]
     public partial string Author { get; set; } = "";
 
+    [ObservableProperty]
+    public partial string VideoTitle { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoDuration { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoBitrate { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoFrameRate { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoCodec { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoAlbum { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoYear { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoDateEncoded { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string VideoMetadataError { get; set; } = "";
+
     private const string MixedMarker = "Multiple values";
+
+    internal bool TryGetMapCoordinates(out double? latitude, out double? longitude)
+    {
+        latitude = null;
+        longitude = null;
+        if (_entries.Count == 0)
+            return false;
+
+        var coordinates = _entries.Select(entry => (entry.GpsLatitude, entry.GpsLongitude))
+            .Distinct().ToList();
+        if (coordinates.Count != 1)
+            return false;
+
+        (latitude, longitude) = coordinates[0];
+        if (_entries.Count == 1 && _entries[0].MediaType == Core.Models.MediaType.Video)
+        {
+            latitude ??= _videoLatitude;
+            longitude ??= _videoLongitude;
+        }
+        return latitude.HasValue && longitude.HasValue;
+    }
+
+    public string GpsCoordinates
+    {
+        get
+        {
+            if (_entries.Count == 0) return "";
+
+            return FormatGpsCoordinates(_entries);
+        }
+    }
+
+    internal static string FormatGpsCoordinates(IReadOnlyCollection<ImageEntry> entries)
+    {
+        var coordinates = entries
+            .Select(entry => (entry.GpsLatitude, entry.GpsLongitude))
+            .Distinct()
+            .ToList();
+        if (coordinates.Count != 1 ||
+            coordinates[0].GpsLatitude is not double latitude ||
+            coordinates[0].GpsLongitude is not double longitude)
+            return "";
+
+        return $"{latitude.ToString("0.######", CultureInfo.InvariantCulture)}, " +
+               longitude.ToString("0.######", CultureInfo.InvariantCulture);
+    }
 
     public MetadataPanelViewModel() { }
 
     public void Initialize(
-        ImageRepository imageRepo,
-        TagRepository tagRepo,
-        FaceRepository faceRepo,
-        MainViewModel main)
+        ImageRepository? imageRepo = null,
+        TagRepository? tagRepo = null,
+        FaceRepository? faceRepo = null,
+        MainViewModel? main = null,
+        OriginalBackupService? backupService = null)
     {
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
         _faceRepo = faceRepo;
         _main = main;
-        _main.PropertyChanged += (_, e) =>
+        _geotagWriter = new GeotagMetadataWriterService(backupService ?? new OriginalBackupService());
+        if (_main is not null)
         {
-            if (e.PropertyName == nameof(MainViewModel.IsManualFaceTaggingActive))
+            _main.PropertyChanged += (_, e) =>
             {
-                IsManualFaceTaggingActive = _main.IsManualFaceTaggingActive;
-            }
-        };
+                if (e.PropertyName == nameof(MainViewModel.IsManualFaceTaggingActive))
+                {
+                    IsManualFaceTaggingActive = _main.IsManualFaceTaggingActive;
+                }
+            };
+        }
     }
 
     /// <summary>
@@ -211,16 +324,24 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// </summary>
     public async void ShowMetadata(IReadOnlyList<ImageEntry> entries)
     {
+        if (_isStopping) return;
         if (entries == null || entries.Count == 0)
         {
             Clear();
             return;
         }
 
+        CancelVideoMetadataRead();
+        CancelPlaceNameRead();
+        ResetVideoMetadata();
         _entries = entries.ToList();
+        _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = true;
         SelectionCount = _entries.Count;
         IsMultiSelect = _entries.Count > 1;
+        CanEditGeotag = _entries.All(entry => entry.MediaType == Core.Models.MediaType.Image);
+        ColorLabelDisplay = CommonStringOrMixed(_entries, entry =>
+            string.IsNullOrWhiteSpace(entry.ColorLabel) ? "None" : entry.ColorLabel);
 
         if (_entries.Count == 1)
         {
@@ -240,8 +361,9 @@ public partial class MetadataPanelViewModel : ObservableObject
             FocalLength = single.FocalLength.HasValue ? $"{single.FocalLength:F1} mm" : "";
             Aperture = single.Aperture.HasValue ? $"f/{single.Aperture:F1}" : "";
             Iso = single.Iso?.ToString() ?? "";
-            GpsLatitude = single.GpsLatitude.HasValue ? $"{single.GpsLatitude:F4}" : "";
-            GpsLongitude = single.GpsLongitude.HasValue ? $"{single.GpsLongitude:F4}" : "";
+            GpsLatitude = single.GpsLatitude.HasValue ? $"{single.GpsLatitude:F6}" : "";
+            GpsLongitude = single.GpsLongitude.HasValue ? $"{single.GpsLongitude:F6}" : "";
+            PlaceName = single.PlaceName ?? "";
             MediaType = single.MediaType == Core.Models.MediaType.Video ? "Video" : "Photo";
             Author = "";
 
@@ -286,8 +408,9 @@ public partial class MetadataPanelViewModel : ObservableObject
             FocalLength = CommonStringOrMixed(_entries, e => e.FocalLength.HasValue ? $"{e.FocalLength:F1} mm" : "");
             Aperture = CommonStringOrMixed(_entries, e => e.Aperture.HasValue ? $"f/{e.Aperture:F1}" : "");
             Iso = CommonStringOrMixed(_entries, e => e.Iso?.ToString() ?? "");
-            GpsLatitude = CommonStringOrMixed(_entries, e => e.GpsLatitude.HasValue ? $"{e.GpsLatitude:F4}" : "");
-            GpsLongitude = CommonStringOrMixed(_entries, e => e.GpsLongitude.HasValue ? $"{e.GpsLongitude:F4}" : "");
+            GpsLatitude = CommonStringOrMixed(_entries, e => e.GpsLatitude.HasValue ? $"{e.GpsLatitude:F6}" : "");
+            GpsLongitude = CommonStringOrMixed(_entries, e => e.GpsLongitude.HasValue ? $"{e.GpsLongitude:F6}" : "");
+            PlaceName = CommonStringOrMixed(_entries, e => e.PlaceName ?? "");
 
             var types = _entries.Select(e => e.MediaType).Distinct().ToList();
             MediaType = types.Count == 1
@@ -330,6 +453,30 @@ public partial class MetadataPanelViewModel : ObservableObject
             }
         }
 
+        Task placeNameTask = Task.CompletedTask;
+        if (_entries.Count == 1 &&
+            _entries[0].PlaceName is null &&
+            (_entries[0].GpsLatitude.HasValue || _entries[0].GpsLongitude.HasValue))
+        {
+            var cancellation = new CancellationTokenSource();
+            _placeNameReadCancellation = cancellation;
+            placeNameTask = LoadPlaceNameAsync(_entries[0], cancellation);
+            _placeNameReads = _placeNameReads.IsCompleted
+                ? placeNameTask
+                : Task.WhenAll(_placeNameReads, placeNameTask);
+        }
+
+        Task videoMetadataTask = Task.CompletedTask;
+        if (_entries.Count == 1 && _entries[0].MediaType == Core.Models.MediaType.Video)
+        {
+            var cancellation = new CancellationTokenSource();
+            _videoMetadataCancellation = cancellation;
+            videoMetadataTask = LoadVideoMetadataAsync(_entries[0], cancellation);
+            _videoMetadataReads = _videoMetadataReads.IsCompleted
+                ? videoMetadataTask
+                : Task.WhenAll(_videoMetadataReads, videoMetadataTask);
+        }
+
         // Tags — load from DB and compute union
         Tags.Clear();
         if (_tagRepo != null)
@@ -355,7 +502,187 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         await ReloadPeopleTagsAsync();
+        await Task.WhenAll(videoMetadataTask, placeNameTask);
     }
+
+    private async Task LoadPlaceNameAsync(
+        ImageEntry entry,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var metadata = await Task.Run(
+                () => new MetadataReaderService().ReadMetadata(entry.FilePath),
+                cancellation.Token);
+            if (!IsCurrentPlaceNameRequest(cancellation))
+                return;
+
+            entry.PlaceName = metadata.PlaceName ?? "";
+            if (_imageRepo is not null && entry.Id > 0)
+            {
+                try
+                {
+                    await _imageRepo.UpdatePlaceNameAsync(entry.Id, entry.PlaceName);
+                }
+                catch (SqliteException exception)
+                {
+                    Diagnostics.DebugLog.WriteLine(
+                        $"Could not cache local place metadata for {entry.FilePath}: {exception}");
+                }
+            }
+
+            if (IsCurrentPlaceNameRequest(cancellation))
+                PlaceName = entry.PlaceName;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or NotSupportedException or
+                ArgumentException or InvalidOperationException or SqliteException)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read local place metadata for {entry.FilePath}: {exception}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_placeNameReadCancellation, cancellation))
+                _placeNameReadCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private bool IsCurrentPlaceNameRequest(CancellationTokenSource cancellation) =>
+        ReferenceEquals(_placeNameReadCancellation, cancellation) &&
+        !cancellation.IsCancellationRequested;
+
+    private void CancelPlaceNameRead()
+    {
+        var cancellation = _placeNameReadCancellation;
+        if (cancellation is null) return;
+        _placeNameReadCancellation = null;
+        cancellation.Cancel();
+    }
+
+    private async Task LoadVideoMetadataAsync(ImageEntry entry, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var metadata = await VideoMetadataReaderService.ReadAsync(entry.FilePath, cancellation.Token);
+            if (!IsCurrentVideoMetadataRequest(cancellation)) return;
+
+            if (metadata.Width.HasValue && metadata.Height.HasValue)
+                Dimensions = $"{metadata.Width} x {metadata.Height}";
+            VideoTitle = string.IsNullOrWhiteSpace(entry.Title) ? metadata.Title ?? "" : entry.Title;
+            Author = metadata.Artist ?? "";
+            VideoAlbum = metadata.Album ?? "";
+            VideoYear = metadata.Year?.ToString(CultureInfo.CurrentCulture) ?? "";
+            VideoDateEncoded = metadata.DateEncoded.HasValue
+                ? metadata.DateEncoded.Value.LocalDateTime.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture)
+                : "";
+            VideoDuration = metadata.Duration.HasValue ? FormatVideoDuration(metadata.Duration.Value) : "";
+            VideoBitrate = metadata.Bitrate.HasValue ? FormatVideoBitrate(metadata.Bitrate.Value) : "";
+            VideoFrameRate = metadata.FrameRate.HasValue
+                ? FormatVideoValue("MetadataVideoFrameRateFormat",
+                    metadata.FrameRate.Value.ToString("0.##", CultureInfo.CurrentCulture))
+                : "";
+            VideoCodec = metadata.Codec ?? "";
+            if (!entry.DateTaken.HasValue && metadata.DateTaken.HasValue)
+            {
+                CommonDateTaken = metadata.DateTaken.Value.DateTime;
+                DateTaken = metadata.DateTaken.Value.DateTime.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture);
+            }
+            if (string.IsNullOrWhiteSpace(Camera))
+                Camera = FormatCamera(metadata.CameraMake, metadata.CameraModel);
+            _videoLatitude = metadata.Latitude;
+            _videoLongitude = metadata.Longitude;
+            if (!entry.GpsLatitude.HasValue && metadata.Latitude.HasValue)
+                GpsLatitude = metadata.Latitude.Value.ToString("F6", CultureInfo.CurrentCulture);
+            if (!entry.GpsLongitude.HasValue && metadata.Longitude.HasValue)
+                GpsLongitude = metadata.Longitude.Value.ToString("F6", CultureInfo.CurrentCulture);
+            if (metadata.ExtractionError is not null)
+                VideoMetadataError = FormatVideoMetadataError(entry.FileName, metadata.ExtractionError);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or
+                                           UnauthorizedAccessException or NotSupportedException or
+                                           ArgumentException or COMException or InvalidOperationException)
+        {
+            if (!IsCurrentVideoMetadataRequest(cancellation)) return;
+
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read video details for {entry.FilePath}: {exception}");
+            VideoMetadataError = FormatVideoMetadataError(entry.FileName, exception.Message);
+        }
+        finally
+        {
+            if (ReferenceEquals(_videoMetadataCancellation, cancellation))
+                _videoMetadataCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private bool IsCurrentVideoMetadataRequest(CancellationTokenSource cancellation) =>
+        ReferenceEquals(_videoMetadataCancellation, cancellation) && !cancellation.IsCancellationRequested;
+
+    private void CancelVideoMetadataRead()
+    {
+        var cancellation = _videoMetadataCancellation;
+        _videoMetadataCancellation = null;
+        if (cancellation is null) return;
+        cancellation.Cancel();
+    }
+
+    public async Task StopVideoMetadataReadsAsync()
+    {
+        _isStopping = true;
+        CancelVideoMetadataRead();
+        CancelPlaceNameRead();
+        await Task.WhenAll(_videoMetadataReads, _placeNameReads);
+    }
+
+    private void ResetVideoMetadata()
+    {
+        _videoLatitude = null;
+        _videoLongitude = null;
+        VideoTitle = "";
+        VideoDuration = "";
+        VideoBitrate = "";
+        VideoFrameRate = "";
+        VideoCodec = "";
+        VideoAlbum = "";
+        VideoYear = "";
+        VideoDateEncoded = "";
+        VideoMetadataError = "";
+    }
+
+    private static string FormatVideoDuration(TimeSpan duration)
+    {
+        if (duration.TotalSeconds < 1)
+            return ResourceLoader.GetString("MetadataVideoDurationUnderSecond");
+        if (duration.TotalHours >= 1)
+            return $"{(long)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}";
+        return $"{(long)duration.TotalMinutes}:{duration.Seconds:00}";
+    }
+
+    private static string FormatVideoBitrate(uint bitrate) =>
+        bitrate >= 1_000_000
+            ? FormatVideoValue("MetadataVideoMbpsFormat",
+                (bitrate / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture))
+            : FormatVideoValue("MetadataVideoKbpsFormat",
+                (bitrate / 1_000d).ToString("N0", CultureInfo.CurrentCulture));
+
+    private static string FormatVideoValue(string key, string value) =>
+        string.Format(CultureInfo.CurrentCulture, ResourceLoader.GetString(key), value);
+
+    private static string FormatVideoMetadataError(string fileName, string message) =>
+        string.Format(
+            CultureInfo.CurrentCulture,
+            ResourceLoader.GetString("MetadataVideoErrorMessage"),
+            fileName,
+            message);
 
     [ObservableProperty]
     public partial bool IsManualFaceTaggingActive { get; set; }
@@ -368,7 +695,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         foreach (var entry in _entries.Where(entry => entry.Id > 0))
         {
             var faces = await _faceRepo.GetFacesForImageAsync(entry.Id);
-            foreach (var face in faces.Where(face => !string.IsNullOrWhiteSpace(face.PersonName)))
+            foreach (var face in faces.Where(face => IncludeUnnamedFaces || !string.IsNullOrWhiteSpace(face.PersonName)))
             {
                 var item = new PersonTagDisplayItem(entry, face);
                 PeopleTags.Add(item);
@@ -431,13 +758,19 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public void Clear()
     {
+        CancelVideoMetadataRead();
+        CancelPlaceNameRead();
+        ResetVideoMetadata();
         _entries = new();
+        _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = false;
         IsMultiSelect = false;
         SelectionCount = 0;
+        CanEditGeotag = false;
         SelectionSummary = "";
         FileName = "";
         FolderPath = "";
+        PlaceName = "";
         Tags.Clear();
         PeopleTags.Clear();
         CommonDateTaken = null;
@@ -484,20 +817,58 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// always sets to the chosen value (no toggle — too ambiguous when mixed).
     /// </summary>
     [RelayCommand]
-    public async Task SetRatingAsync(int star)
+    public Task SetRatingAsync(int star) => SetRatingCoreAsync(star, toggleOnRepeat: true);
+
+    public Task SetRatingFromShortcutAsync(int rating) =>
+        SetRatingCoreAsync(rating, toggleOnRepeat: false);
+
+    public async Task SetColorLabelFromShortcutAsync(string label)
     {
+        if (_entries.Count == 0 || _main is null) return;
+        var value = GetToggledColorLabel(_entries, label);
+        await SetColorLabelAsync(value);
+    }
+
+    public async Task SetColorLabelAsync(string? value)
+    {
+        if (_entries.Count == 0 || _main is null) return;
+        if (_entries.All(entry => string.Equals(
+            entry.ColorLabel ?? string.Empty, value ?? string.Empty, StringComparison.OrdinalIgnoreCase)))
+            return;
+        await _main.RunPhotoEditAsync("color label", SelectedFilePaths, async copies =>
+        {
+            foreach (var path in copies.Values)
+                await MetadataWriterService.WriteColorLabelAsync(path, value);
+        });
+    }
+
+    internal static string? GetToggledColorLabel(IReadOnlyCollection<ImageEntry> entries, string label) =>
+        entries.All(entry => string.Equals(entry.ColorLabel, label, StringComparison.OrdinalIgnoreCase))
+            ? null : label;
+
+    private async Task SetRatingCoreAsync(int rating, bool toggleOnRepeat)
+    {
+        if (rating is < 0 or > 5) throw new ArgumentOutOfRangeException(nameof(rating));
         if (_entries.Count == 0) return;
 
-        int newRating;
-        if (_entries.Count == 1 && !IsRatingMixed && Rating == star)
-            newRating = 0; // single-select toggle
-        else
-            newRating = star;
+        int newRating = toggleOnRepeat && rating > 0 &&
+            _entries.Count == 1 && !IsRatingMixed && Rating == rating
+                ? 0
+                : rating;
+
+        int? persistedRating = newRating > 0 ? newRating : (int?)null;
+        if (_main is not null)
+        {
+            await _main.RunPhotoEditAsync("rating", SelectedFilePaths, async copies =>
+            {
+                foreach (var path in copies.Values)
+                    await MetadataWriterService.WriteRatingAsync(path, persistedRating);
+            });
+            return;
+        }
 
         Rating = newRating;
         IsRatingMixed = false;
-
-        int? persistedRating = newRating > 0 ? newRating : (int?)null;
         foreach (var entry in _entries)
         {
             entry.Rating = persistedRating;
@@ -511,12 +882,27 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// Saves the current caption to every selected image's XMP sidecar. (LostFocus.)
     /// </summary>
     [RelayCommand]
-    public async Task SaveCaptionAsync()
+    public async Task<bool> SaveCaptionAsync()
     {
-        if (_entries.Count == 0) return;
+        if (_entries.Count == 0) return false;
+        if (_main is not null)
+        {
+            var caption = Caption;
+            return await _main.RunPhotoEditAsync("caption", SelectedFilePaths, async copies =>
+            {
+                foreach (var path in copies.Values)
+                    await MetadataWriterService.WriteCaptionAsync(path, caption);
+            });
+        }
         IsCaptionMixed = false;
         foreach (var entry in _entries)
+        {
             await MetadataWriterService.WriteCaptionAsync(entry.FilePath, Caption);
+            if (_imageRepo is not null)
+                await _imageRepo.UpdateCaptionAsync(entry.Id, Caption);
+            entry.Caption = Caption;
+        }
+        return true;
     }
 
     /// <summary>
@@ -556,6 +942,11 @@ public partial class MetadataPanelViewModel : ObservableObject
     {
         if (_entries.Count == 0 || string.IsNullOrWhiteSpace(tag)) return;
         var trimmed = tag.Trim();
+        if (_main is not null)
+        {
+            await _main.ApplyTagToImagePathsAsync(trimmed, SelectedFilePaths);
+            return;
+        }
 
         // Update UI tag list
         var existing = Tags.FirstOrDefault(t => string.Equals(t.Tag, trimmed, StringComparison.OrdinalIgnoreCase));
@@ -582,10 +973,13 @@ public partial class MetadataPanelViewModel : ObservableObject
                     Confidence = 1.0f
                 });
 
-                // Rewrite sidecar with the full set for this image (DB is the source of truth)
+                // Rewrite portable keywords and source metadata from the current tag set.
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
             }
         }
 
@@ -600,6 +994,22 @@ public partial class MetadataPanelViewModel : ObservableObject
     public async Task RemoveTagAsync(string tag)
     {
         if (_entries.Count == 0 || string.IsNullOrWhiteSpace(tag)) return;
+        if (_main is not null && _tagRepo is not null)
+        {
+            var entries = _entries.ToArray();
+            await _main.RunPhotoEditAsync($"remove tag '{tag}'", SelectedFilePaths, async copies =>
+            {
+                foreach (var entry in entries)
+                {
+                    var tags = await _tagRepo.GetTagsAsync(entry.Id);
+                    tags.RemoveAll(item => string.Equals(item.Tag, tag, StringComparison.OrdinalIgnoreCase));
+                    await TagWriterService.WriteTagsToSidecarAsync(copies[Path.GetFullPath(entry.FilePath)],
+                        tags.Select(item => item.Tag).Distinct(), tags, entry.AutoTagScanVersion,
+                        sourceIdentity: entry.SourceIdentity);
+                }
+            });
+            return;
+        }
 
         // Update UI
         var existing = Tags.FirstOrDefault(t => string.Equals(t.Tag, tag, StringComparison.OrdinalIgnoreCase));
@@ -612,7 +1022,10 @@ public partial class MetadataPanelViewModel : ObservableObject
                 await _tagRepo.RemoveTagAsync(entry.Id, tag);
                 var allTags = await _tagRepo.GetTagsAsync(entry.Id);
                 await TagWriterService.WriteTagsToSidecarAsync(entry.FilePath,
-                    allTags.Select(t => t.Tag).Distinct());
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
             }
         }
 
@@ -623,9 +1036,17 @@ public partial class MetadataPanelViewModel : ObservableObject
     /// <summary>
     /// Sets the same capture date on every selected image (XMP sidecar + DB cache).
     /// </summary>
-    public async Task SetDateTakenAsync(DateTime dt)
+    public async Task<bool> SetDateTakenAsync(DateTime dt)
     {
-        if (_entries.Count == 0) return;
+        if (_entries.Count == 0) return false;
+        if (_main is not null)
+        {
+            return await _main.RunPhotoEditAsync("capture date", SelectedFilePaths, async copies =>
+            {
+                foreach (var path in copies.Values)
+                    await MetadataWriterService.WriteDateTakenAsync(path, dt);
+            });
+        }
         CommonDateTaken = dt;
         IsDateMixed = false;
         DateTaken = dt.ToString("M/d/yyyy h:mm tt");
@@ -639,15 +1060,109 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         if (_main != null) await _main.RefreshAfterDateChangeAsync();
+        return true;
+    }
+
+    public async Task<GeotagBatchResult> SetGeotagAsync(GeoCoordinate coordinate)
+    {
+        if (_entries.Count == 0 || !CanEditGeotag || _geotagWriter is null)
+            return new GeotagBatchResult(0, _entries.Count, 0, []);
+
+        if (_main is not null)
+        {
+            var paths = SelectedFilePaths;
+            var sidecars = 0;
+            var applied = await _main.RunPhotoEditAsync("GPS coordinates", paths, async copies =>
+            {
+                foreach (var copy in copies.Values)
+                    if (await _geotagWriter.WriteAsync(copy, coordinate) == GeotagWriteLocation.XmpSidecar)
+                        sidecars++;
+            });
+            return applied
+                ? new(paths.Count, paths.Count, sidecars, [])
+                : new(0, paths.Count, 0, [_main.StatusText]);
+        }
+
+        var entries = _entries.ToList();
+        var failures = new List<string>();
+        var appliedCount = 0;
+        var sidecarCount = 0;
+        var attempts = await _geotagWriter.WriteBatchAsync(
+            entries.Select(entry => entry.FilePath).ToList(),
+            coordinate);
+
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            var attempt = attempts[index];
+            if (attempt.Location is not { } writeLocation)
+            {
+                failures.Add($"{entry.FileName}: {attempt.Error}");
+                continue;
+            }
+
+            if (writeLocation == GeotagWriteLocation.XmpSidecar)
+                sidecarCount++;
+
+            entry.GpsLatitude = coordinate.Latitude;
+            entry.GpsLongitude = coordinate.Longitude;
+            appliedCount++;
+
+            if (_imageRepo is not null && entry.Id > 0)
+            {
+                try
+                {
+                    var fileInfo = new FileInfo(entry.FilePath);
+                    entry.FileSize = fileInfo.Length;
+                    entry.DateModified = fileInfo.LastWriteTimeUtc;
+                    await _imageRepo.UpdateGpsCoordinatesAsync(
+                        entry.Id,
+                        coordinate.Latitude,
+                        coordinate.Longitude,
+                        entry.FileSize,
+                        entry.DateModified);
+                }
+                catch (Exception exception) when (
+                    exception is not OutOfMemoryException and not StackOverflowException)
+                {
+                    failures.Add(
+                        $"{entry.FileName}: coordinates were written, but the library index could not be updated: {exception.Message}");
+                }
+            }
+        }
+
+        GpsLatitude = CommonStringOrMixed(
+            _entries,
+            entry => entry.GpsLatitude.HasValue ? $"{entry.GpsLatitude:F6}" : "");
+        GpsLongitude = CommonStringOrMixed(
+            _entries,
+            entry => entry.GpsLongitude.HasValue ? $"{entry.GpsLongitude:F6}" : "");
+
+        if (_main is not null && appliedCount > 0)
+            await _main.ImageGrid.RefreshWatchedItemsAsync(
+                entries.Select(entry => entry.FilePath).ToArray());
+
+        return new GeotagBatchResult(appliedCount, entries.Count, sidecarCount, failures);
     }
 
     /// <summary>
     /// Shifts every selected image's capture date by the given offset (useful for time-zone fixes).
     /// Images without a current date are skipped.
     /// </summary>
-    public async Task OffsetDateTakenAsync(TimeSpan offset)
+    public async Task<bool> OffsetDateTakenAsync(TimeSpan offset)
     {
-        if (_entries.Count == 0 || offset == TimeSpan.Zero) return;
+        if (_entries.Count == 0 || offset == TimeSpan.Zero) return false;
+        if (_main is not null)
+        {
+            var entries = _entries.Where(entry => entry.DateTaken.HasValue).ToArray();
+            return await _main.RunPhotoEditAsync("shift capture dates", entries.Select(entry => entry.FilePath).ToArray(),
+                async copies =>
+                {
+                    foreach (var entry in entries)
+                        await MetadataWriterService.WriteDateTakenAsync(
+                            copies[Path.GetFullPath(entry.FilePath)], entry.DateTaken!.Value + offset);
+                });
+        }
 
         foreach (var entry in _entries)
         {
@@ -675,6 +1190,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         if (_main != null) await _main.RefreshAfterDateChangeAsync();
+        return true;
     }
 
     private static string FormatExposureForDisplay(string? raw)

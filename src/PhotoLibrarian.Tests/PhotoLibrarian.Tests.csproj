@@ -24,9 +24,136 @@
     <ProjectReference Include="..\..\tools\PhotoLibrarian.ModelBench\PhotoLibrarian.ModelBench.csproj" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <NativePlatform Condition="'$(Platform)' == 'x86'">Win32</NativePlatform>
+    <NativePlatform Condition="'$(NativePlatform)' == ''">$(Platform)</NativePlatform>
+    <TileCodecProbeDirectory>$(MSBuildProjectDirectory)\..\..\native\bin\$(NativePlatform)\$(Configuration)</TileCodecProbeDirectory>
+  </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.TileCodecProbe\PhotoLibrarian.TileCodecProbe.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.TileCodecProbe\PhotoLibrarian.CodecMemoryProbe.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+    </ProjectReference>
+    <Content Include="$(TileCodecProbeDirectory)\PhotoLibrarian.TileCodecProbe.dll"
+             Link="PhotoLibrarian.TileCodecProbe.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(TileCodecProbeDirectory)\PhotoLibrarian.CodecMemoryProbe.exe"
+             Link="PhotoLibrarian.CodecMemoryProbe.exe" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\PhotoLibrarian\MainWindow.xaml"
+          Link="TestAssets\MainWindow.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
+          Link="TestAssets\MainWindow.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.VideoEditing.cs"
+          Link="TestAssets\MainWindow.VideoEditing.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageGridView.xaml"
+          Link="TestAssets\ImageGridView.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Strings\en-US\Resources.resw"
+          Link="TestAssets\Resources.resw"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Controls\VirtualizingPhotoGrid.xaml.cs"
+          Link="TestAssets\VirtualizingPhotoGrid.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageGridView.xaml.cs"
+          Link="TestAssets\ImageGridView.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\MetadataPanel.xaml"
+          Link="TestAssets\MetadataPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\SettingsPanel.xaml"
+          Link="TestAssets\SettingsPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\SidecarMigrationPanel.xaml"
+          Link="TestAssets\SidecarMigrationPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\FolderNavigationPanel.xaml"
+          Link="TestAssets\FolderNavigationPanel.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageEditorView.xaml"
+          Link="TestAssets\ImageEditorView.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\CropOverlay.xaml"
+          Link="TestAssets\CropOverlay.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\RawDerivativeExportDialog.xaml"
+          Link="TestAssets\RawDerivativeExportDialog.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml"
           Link="TestAssets\ImageViewerOverlay.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.ContextMenu.cs"
+          Link="TestAssets\ImageViewerOverlay.ContextMenu.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ImageViewerOverlay.xaml.cs"
+          Link="TestAssets\ImageViewerOverlay.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
+          Link="TestAssets\MainWindow.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml"
+          Link="TestAssets\TopRibbon.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml.cs"
+          Link="TestAssets\TopRibbon.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso"
+                      LogicalName="PhotoLibrarian.Tests.WaveletNoiseReductionExperiment.cso" />
+    <EmbeddedResource Include="$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso"
+                      LogicalName="PhotoLibrarian.Tests.MultiscaleLocalContrastExperiment.cso" />
+  </ItemGroup>
+
+  <Target Name="CompileWaveletNoiseReductionExperimentShader" BeforeTargets="PrepareResources"
+          Inputs="Assets\WaveletNoiseReductionExperiment.hlsl;$(MSBuildProjectFullPath)"
+          Outputs="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso">
+    <PropertyGroup>
+      <_ShaderSdkRoot Condition="'$(WindowsSdkDir)' != ''">$(WindowsSdkDir)</_ShaderSdkRoot>
+      <_ShaderSdkRoot Condition="'$(_ShaderSdkRoot)' == ''">$(MSBuildProgramFiles32)\Windows Kits\10\</_ShaderSdkRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ShaderCompiler Include="$(_ShaderSdkRoot)\bin\*\$(WindowsSDKBuildToolsArchFolder)\fxc.exe" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_ShaderCompilerPaths>@(_ShaderCompiler)</_ShaderCompilerPaths>
+      <FxcPath Condition="'$(FxcPath)' == '' AND '$(_ShaderCompilerPaths)' != ''">$(_ShaderCompilerPaths.Split(';')[0])</FxcPath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(FxcPath)')" Text="Install the Windows SDK shader compiler (fxc.exe), or set FxcPath to its location." />
+    <MakeDir Directories="$(IntermediateOutputPath)Shaders" />
+    <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso&quot; &quot;$(MSBuildProjectDirectory)\Assets\WaveletNoiseReductionExperiment.hlsl&quot;" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)Shaders\WaveletNoiseReductionExperiment.cso" />
+    </ItemGroup>
+  </Target>
+  <Target Name="CompileMultiscaleLocalContrastExperimentShader" BeforeTargets="PrepareResources"
+          Inputs="Assets\MultiscaleLocalContrastExperiment.hlsl;$(MSBuildProjectFullPath)"
+          Outputs="$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso">
+    <PropertyGroup>
+      <_ShaderSdkRoot Condition="'$(WindowsSdkDir)' != ''">$(WindowsSdkDir)</_ShaderSdkRoot>
+      <_ShaderSdkRoot Condition="'$(_ShaderSdkRoot)' == ''">$(MSBuildProgramFiles32)\Windows Kits\10\</_ShaderSdkRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ShaderCompiler Include="$(_ShaderSdkRoot)\bin\*\$(WindowsSDKBuildToolsArchFolder)\fxc.exe" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_ShaderCompilerPaths>@(_ShaderCompiler)</_ShaderCompilerPaths>
+      <FxcPath Condition="'$(FxcPath)' == '' AND '$(_ShaderCompilerPaths)' != ''">$(_ShaderCompilerPaths.Split(';')[0])</FxcPath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(FxcPath)')" Text="Install the Windows SDK shader compiler (fxc.exe), or set FxcPath to its location." />
+    <MakeDir Directories="$(IntermediateOutputPath)Shaders" />
+    <Exec Command="&quot;$(FxcPath)&quot; /nologo /T ps_4_0 /E main /O3 /Fo &quot;$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso&quot; &quot;$(MSBuildProjectDirectory)\Assets\MultiscaleLocalContrastExperiment.hlsl&quot;" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)Shaders\MultiscaleLocalContrastExperiment.cso" />
+    </ItemGroup>
+  </Target>
 </Project>

@@ -1,0 +1,20 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="Configurations.props" />
+  <PropertyGroup Label="Globals"><ProjectGuid>{655E986A-8A9F-4BC2-8A77-B4D3402A2501}</ProjectGuid></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="Toolset.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>StaticLibrary</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)' == 'Debug'">true</UseDebugLibraries></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="Native.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ZlibSource);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>ZLIB_BUILD;NO_FSEEKO;HAVE_STDARG_H;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(ZlibSource)adler32.c;$(ZlibSource)compress.c;$(ZlibSource)crc32.c;$(ZlibSource)deflate.c;$(ZlibSource)gzclose.c;$(ZlibSource)gzlib.c;$(ZlibSource)gzread.c;$(ZlibSource)gzwrite.c;$(ZlibSource)inflate.c;$(ZlibSource)infback.c;$(ZlibSource)inftrees.c;$(ZlibSource)inffast.c;$(ZlibSource)trees.c;$(ZlibSource)uncompr.c;$(ZlibSource)zutil.c" />
+    <ProjectReference Include="PhotoLibrarian.NativeSources.vcxproj"><Project>{693C7478-6A52-493C-924A-0C77256EE020}</Project><LinkLibraryDependencies>false</LinkLibraryDependencies></ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

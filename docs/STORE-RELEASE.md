@@ -58,7 +58,9 @@ existing app icon. Normal local builds and tests remain unpackaged.
 3. In Partner Center, open the reserved PhotoLibrarian app, create a submission,
    and upload the `.msixbundle` on the **Packages** page.
 4. Complete the listing, screenshots, age ratings, privacy disclosures, and
-   restricted-capability explanation, then submit for certification.
+   restricted-capability explanation, then submit for certification. Set the
+   privacy-policy URL to the publicly deployed `privacy.html` page described in
+   [Release website setup](RELEASE-WEBSITE.md#2-hand-off-the-store-listing-when-it-is-public).
 
 Microsoft signs the package distributed through the Store. No signing
 certificate, PFX, Azure signing account, or GitHub signing secret is needed for
@@ -81,11 +83,12 @@ and Store package identity alone are not sufficient.
 
 ## Build locally
 
-Requires Windows, .NET 10 SDK, and Windows SDK packaging tools. Running the
+Requires Windows, .NET 10 SDK, Visual Studio MSBuild with Desktop C++ and C++
+CMake tools, ARM64 C++ tools for ARM64 packages, and Windows SDK packaging tools. Running the
 tests also requires the .NET 8 runtime. Hosted CI installs both SDKs.
 
 ```powershell
-dotnet build src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64
+msbuild PhotoLibrarian.slnx /restore /m /p:Configuration=Release /p:Platform=x64
 dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 --no-build
 .\tools\Build-Msix.ps1 -Architecture x64 -Version 1.2.3.0
 .\tools\Build-Msix.ps1 -Architecture ARM64 -Version 1.2.3.0

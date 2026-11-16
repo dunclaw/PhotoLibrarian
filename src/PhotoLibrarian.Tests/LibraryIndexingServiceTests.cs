@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
@@ -10,7 +11,341 @@ namespace PhotoLibrarian.Tests;
 public sealed class LibraryIndexingServiceTests
 {
     [Fact]
-    public async Task WatchedFolderChanges_IndexExplorerCopyAndRemoveDeletedImage()
+    public async Task IndexFileAsync_LegacyUnboundCompletionImportsTagsButRemainsPending()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-unbound-scan-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "photo.dng");
+        try
+        {
+            await File.WriteAllBytesAsync(path, [1, 2, 3]);
+            await TagWriterService.WriteTagsToSidecarAsync(path, ["family"],
+                [new ImageTag { Tag = "family", Source = TagSource.Manual, Confidence = 1 }],
+                "legacy-pipeline");
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(database, images, tags, new FaceRepository(database),
+                scanner, new MetadataReaderService(), new FaceMetadataStore());
+            Assert.True(await indexer.IndexFileAsync(path));
+            var image = (await images.GetByPathAsync(path))!;
+            Assert.Null(image.AutoTagScanVersion);
+            Assert.Equal(TagSource.Manual, Assert.Single(await tags.GetTagsAsync(image.Id)).Source);
+            Assert.Single(await tags.GetImagesNeedingAutoTagsAsync("legacy-pipeline"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IndexFolderAsync_DetectsSeparateTagSidecarForEmbeddedCapablePhoto()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-separate-tag-sidecar-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "photo.png");
+        try
+        {
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await TagWriterService.WriteTagsToSidecarAsync(Path.ChangeExtension(path, ".dng"), ["embedded"],
+                [new ImageTag { Tag = "embedded", Source = TagSource.Manual, Confidence = 1 }],
+                "old-pipeline", sourceIdentity: await RecognitionSourceIdentity.ComputeAsync(path));
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(database, images, tags, new FaceRepository(database),
+                scanner, new MetadataReaderService(), new FaceMetadataStore());
+            await indexer.IndexFolderAsync(directory);
+            var image = (await images.GetByPathAsync(path))!;
+
+            // The tag fallback is photo.xmp; face fallback is photo.png.xmp.
+            await TagWriterService.WriteTagsToSidecarAsync(Path.ChangeExtension(path, ".dng"), ["family"],
+                [new ImageTag { Tag = "family", Source = TagSource.Manual, Confidence = 1 }],
+                "pipeline", sourceIdentity: image.SourceIdentity);
+            await indexer.IndexFolderAsync(directory);
+            Assert.Equal("family", Assert.Single(await tags.GetTagsAsync(image.Id)).Tag);
+            Assert.Equal("pipeline", (await images.GetByPathAsync(path))!.AutoTagScanVersion);
+
+            await TagWriterService.WriteTagsToSidecarAsync(path, ["updated"],
+                [new ImageTag { Tag = "updated", Source = TagSource.Manual, Confidence = 1 }],
+                "pipeline", sourceIdentity: image.SourceIdentity);
+            await indexer.IndexFolderAsync(directory);
+            Assert.Equal("updated", Assert.Single(await tags.GetTagsAsync(image.Id)).Tag);
+            Assert.Equal("updated", Assert.Single(new MetadataReaderService()
+                .ReadPortableTagMetadata(path)!.Tags).Tag);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IndexFileAsync_ImportsFaceReviewChangesWithPreservedSidecarStats()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-face-refresh-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "photo.dng");
+        try
+        {
+            await File.WriteAllBytesAsync(path, [1, 2, 3]);
+            var store = new FaceMetadataStore();
+            var original = new PhotoFaceMetadata(100, 100,
+                [new PortableFaceMetadata(0, 0.1, 0.2, 0.3, 0.4, "Alex", false, false, [])]);
+            await store.WriteAsync(path, original);
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var faces = new FaceRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(database, images, new TagRepository(database),
+                faces, scanner, new MetadataReaderService(), store);
+            await indexer.IndexFileAsync(path);
+            var sidecar = new FileInfo(FaceMetadataStore.GetSidecarPathForImage(path));
+            var length = sidecar.Length;
+            var timestamp = sidecar.LastWriteTimeUtc;
+
+            await store.WriteAsync(path, original with
+            {
+                Faces = [original.Faces[0] with { PersonName = "Iris" }]
+            });
+            File.SetLastWriteTimeUtc(sidecar.FullName, timestamp);
+            sidecar.Refresh();
+            Assert.Equal(length, sidecar.Length);
+            Assert.True(await indexer.IndexFileAsync(path));
+            Assert.Equal("Iris", Assert.Single(await faces.GetFacesForImageAsync(
+                (await images.GetByPathAsync(path))!.Id)).PersonName);
+            Assert.False(await indexer.IndexFileAsync(path));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IndexFileAsync_ReimportsChangedPortableTagSidecarForCachedImage()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-tag-sidecar-refresh-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, "photo.raw");
+
+        try
+        {
+            await File.WriteAllBytesAsync(imagePath, [1, 2, 3]);
+            using var database = new CacheDatabase(
+                Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database,
+                images,
+                tags,
+                new FaceRepository(database),
+                scanner,
+                new MetadataReaderService(),
+                new FaceMetadataStore());
+            var originalImageWriteTime = File.GetLastWriteTimeUtc(imagePath);
+
+            await TagWriterService.WriteTagsToSidecarAsync(
+                imagePath,
+                ["Auto/dog", "family"],
+                [
+                    new ImageTag
+                    {
+                        Tag = "Auto",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.55f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "Auto/dog",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.55f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "family",
+                        Source = TagSource.Manual,
+                        Confidence = 1.0f
+                    }
+                ],
+                "model-pipeline-v1",
+                sourceIdentity: await RecognitionSourceIdentity.ComputeAsync(imagePath));
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+            Assert.False(await indexer.IndexFileAsync(imagePath));
+
+            await TagWriterService.WriteTagsToSidecarAsync(
+                imagePath,
+                ["Auto/dog", "family"],
+                [
+                    new ImageTag
+                    {
+                        Tag = "Auto",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.91f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "Auto/dog",
+                        Source = TagSource.AutoML,
+                        Confidence = 0.91f
+                    },
+                    new ImageTag
+                    {
+                        Tag = "family",
+                        Source = TagSource.Manual,
+                        Confidence = 1.0f
+                    }
+                ],
+                "model-pipeline-v2",
+                sourceIdentity: await RecognitionSourceIdentity.ComputeAsync(imagePath));
+
+            Assert.Equal(originalImageWriteTime, File.GetLastWriteTimeUtc(imagePath));
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+
+            var indexedImage = (await images.GetByPathAsync(imagePath))!;
+            var restored = await tags.GetTagsAsync(indexedImage.Id);
+            Assert.Equal(
+                0.91f,
+                Assert.Single(restored, tag => tag.Tag == "Auto/dog").Confidence);
+            Assert.Equal(
+                TagSource.Manual,
+                Assert.Single(restored, tag => tag.Tag == "family").Source);
+            Assert.Equal("model-pipeline-v2", indexedImage.AutoTagScanVersion);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(".png")]
+    [InlineData(".raw")]
+    public async Task IndexFileAsync_RestoresPortableTagSourcesConfidenceAndScanVersion(
+        string extension)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-tag-roundtrip-{Guid.NewGuid():N}");
+        var sourceDirectory = Path.Combine(directory, "source");
+        var movedDirectory = Path.Combine(directory, "moved");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(movedDirectory);
+        var sourcePath = Path.Combine(sourceDirectory, $"tagged{extension}");
+        var imagePath = Path.Combine(movedDirectory, $"tagged{extension}");
+
+        try
+        {
+            if (extension == ".png")
+                await WicTestImage.CreateAsync(sourcePath, 16, 12);
+            else
+                await File.WriteAllBytesAsync(sourcePath, [1, 2, 3]);
+            var portableTags = new[]
+            {
+                new ImageTag
+                {
+                    Tag = "Auto",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.91f
+                },
+                new ImageTag
+                {
+                    Tag = "Auto/animal",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.91f
+                },
+                new ImageTag
+                {
+                    Tag = "Auto/animal/bird",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.91f
+                },
+                new ImageTag
+                {
+                    Tag = "Auto/animal/bird/duck",
+                    Source = TagSource.AutoML,
+                    Confidence = 0.82f
+                },
+                new ImageTag
+                {
+                    Tag = "family",
+                    Source = TagSource.Manual,
+                    Confidence = 1.0f
+                }
+            };
+            const string scanVersion = "profile:approved-pipeline-v7";
+            await TagWriterService.WriteTagsToSidecarAsync(
+                sourcePath,
+                portableTags.Select(tag => tag.Tag),
+                portableTags,
+                scanVersion,
+                sourceIdentity: await RecognitionSourceIdentity.ComputeAsync(sourcePath));
+
+            File.Move(sourcePath, imagePath);
+            var sourceSidecar = Path.ChangeExtension(sourcePath, ".xmp");
+            if (File.Exists(sourceSidecar))
+            {
+                File.Move(
+                    sourceSidecar,
+                    Path.ChangeExtension(imagePath, ".xmp"));
+            }
+
+            using var database = new CacheDatabase(
+                Path.Combine(directory, "fresh-cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            var tags = new TagRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database,
+                images,
+                tags,
+                new FaceRepository(database),
+                scanner,
+                new MetadataReaderService(),
+                new FaceMetadataStore());
+
+            Assert.True(await indexer.IndexFileAsync(imagePath));
+
+            var restored = await tags.GetTagsAsync(
+                (await images.GetByPathAsync(imagePath))!.Id);
+            Assert.Equal(
+                TagSource.AutoML,
+                Assert.Single(restored, tag => tag.Tag == "Auto/animal/bird").Source);
+            Assert.Equal(
+                0.82f,
+                Assert.Single(restored, tag => tag.Tag == "Auto/animal/bird/duck").Confidence);
+            Assert.Equal(
+                TagSource.Manual,
+                Assert.Single(restored, tag => tag.Tag == "family").Source);
+            Assert.Equal(
+                scanVersion,
+                (await images.GetByPathAsync(imagePath))!.AutoTagScanVersion);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task WatchedFolderChanges_PreservesIndexDataWhenImageIsDeleted()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -41,7 +376,62 @@ public sealed class LibraryIndexingServiceTests
             changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             File.Delete(imagePath);
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.Null(await images.GetByPathAsync(imagePath));
+            Assert.NotNull(await images.GetByPathAsync(imagePath));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task WatchedFolderChanges_SuspensionHoldsEventsAndDiscardsOnlyUnchangedReindexedPhotos()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var cleanedPath = Path.Combine(directory, "cleaned.jpg");
+        var editedPath = Path.Combine(directory, "edited.jpg");
+
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database, images, new TagRepository(database), new FaceRepository(database),
+                scanner, new MetadataReaderService(), new FaceMetadataStore());
+            using var changes = new WatchedFolderChangeService(
+                scanner, indexer, images, TimeSpan.FromMilliseconds(150));
+            var changed = new TaskCompletionSource<WatchedFolderChangeService.WatchedLibraryChangedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var syncFailures = 0;
+            changes.LibraryChanged += (_, args) => changed.TrySetResult(args);
+            changes.SyncFailed += (_, _) => Interlocked.Increment(ref syncFailures);
+            scanner.SyncWatchedFolders([(directory, false)]);
+
+            var suspension = changes.SuspendProcessing();
+            await WicTestImage.CreateAsync(cleanedPath, 16, 12);
+            await WicTestImage.CreateAsync(editedPath, 16, 12);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            Assert.Null(await images.GetByPathAsync(cleanedPath));
+            Assert.False(changed.Task.IsCompleted);
+
+            // Simulates a bulk operation that indexed both photos, after which one was edited again.
+            await indexer.IndexFileAsync(cleanedPath);
+            await indexer.IndexFileAsync(editedPath);
+            File.SetLastWriteTimeUtc(editedPath, DateTime.UtcNow.AddMinutes(5));
+            await changes.DiscardReindexedAsync([cleanedPath, editedPath]);
+
+            // An exclusive lock makes any attempt to reprocess the discarded photo report a failure.
+            using (new FileStream(cleanedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                suspension.Dispose();
+                var args = await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                Assert.Contains(editedPath, args.ChangedImagePaths);
+            }
+            Assert.Equal(0, Volatile.Read(ref syncFailures));
         }
         finally
         {
@@ -89,7 +479,7 @@ public sealed class LibraryIndexingServiceTests
             changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             File.Move(oldPath, renamedPath);
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.Null(await images.GetByPathAsync(oldPath));
+            Assert.NotNull(await images.GetByPathAsync(oldPath));
             Assert.NotNull(await images.GetByPathAsync(renamedPath));
         }
         finally
@@ -100,7 +490,7 @@ public sealed class LibraryIndexingServiceTests
     }
 
     [Fact]
-    public async Task WatchedFolderChanges_IndexesMovedInDirectoryAndRemovesMovedOutDirectory()
+    public async Task WatchedFolderChanges_PreservesRecordsWhenDirectoryMovesOut()
     {
         var root = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
         var watched = Path.Combine(root, "watched");
@@ -134,12 +524,54 @@ public sealed class LibraryIndexingServiceTests
             changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Directory.Move(imported, outside);
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.Null(await images.GetByPathAsync(imagePath));
+            Assert.NotNull(await images.GetByPathAsync(imagePath));
         }
         finally
         {
             SqliteConnection.ClearAllPools();
             Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task WatchedFolderChanges_IgnoresDeletedTemporaryFilesButStillReportsSidecars()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var imagePath = Path.Combine(directory, "portrait.cr3");
+        try
+        {
+            await File.WriteAllBytesAsync(imagePath, [1, 2, 3]);
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database, images, new TagRepository(database), new FaceRepository(database),
+                scanner, new MetadataReaderService(), new FaceMetadataStore());
+            await indexer.IndexFileAsync(imagePath);
+            using var changes = new WatchedFolderChangeService(
+                scanner, indexer, images, TimeSpan.FromMilliseconds(200));
+            var changed = new TaskCompletionSource<WatchedFolderChangeService.WatchedLibraryChangedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            changes.LibraryChanged += (_, args) => changed.TrySetResult(args);
+            scanner.SyncWatchedFolders([(directory, false)]);
+
+            var temporaryPath = Path.Combine(directory, "temporary.tmp");
+            await File.WriteAllTextAsync(temporaryPath, "temporary");
+            File.Delete(temporaryPath);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            Assert.False(changed.Task.IsCompleted);
+
+            await new FaceMetadataStore().WriteAsync(imagePath, new PhotoFaceMetadata(16, 12, []));
+            var eventArgs = await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.False(eventArgs.RequiresGridReload);
+            Assert.Contains(imagePath, eventArgs.ChangedImagePaths);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, true);
         }
     }
 
@@ -164,7 +596,12 @@ public sealed class LibraryIndexingServiceTests
             using var changes = new WatchedFolderChangeService(
                 scanner, indexer, images, TimeSpan.FromMilliseconds(250));
             var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            changes.LibraryChanged += (_, _) => changed.TrySetResult();
+            WatchedFolderChangeService.WatchedLibraryChangedEventArgs? changeArgs = null;
+            changes.LibraryChanged += (_, args) =>
+            {
+                changeArgs = args;
+                changed.TrySetResult();
+            };
             scanner.SyncWatchedFolders([(directory, false)]);
 
             await new FaceMetadataStore().WriteAsync(
@@ -172,6 +609,9 @@ public sealed class LibraryIndexingServiceTests
                 new PhotoFaceMetadata(16, 12, []));
 
             await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.NotNull(changeArgs);
+            Assert.False(changeArgs.RequiresGridReload);
+            Assert.Contains(imagePath, changeArgs.ChangedImagePaths);
             Assert.Equal(Path.ChangeExtension(imagePath, ".xmp"),
                 (await images.GetByPathAsync(imagePath))!.FaceSidecarPath);
         }

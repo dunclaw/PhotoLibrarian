@@ -1,5 +1,8 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.ML.Services;
 
@@ -14,6 +17,8 @@ public sealed record RecognitionRequest(
     bool IsFaceDetectionEnabled,
     AutoTaggingSettings? AutoTaggingSettings)
 {
+    public IReadOnlyList<WatchedFolder>? WatchedFolders { get; init; }
+
     public bool IsAutoTaggingEnabled =>
         AutoTaggingSettings?.CanRun == true;
 
@@ -88,14 +93,19 @@ public sealed class RecognitionPipeline
             ? AutoTagModelCatalog.ForId(settings!.ProfileId)
             : null;
 
-        if (request.IsFaceDetectionEnabled)
+        var workItems = await BuildWorkItemsAsync(
+            request,
+            definition,
+            cancellationToken);
+
+        if (workItems.Any(item => item.NeedsFaces))
         {
             await _faceModelProvider.EnsureModelsAsync(cancellationToken);
             _detector.LoadModel();
             _embedder.LoadModel();
         }
 
-        if (taggingEnabled)
+        if (workItems.Any(item => item.NeedsTags))
         {
             await _tagModelProvider.EnsureModelAsync(
                 settings!.ProfileId,
@@ -103,11 +113,6 @@ public sealed class RecognitionPipeline
                 cancellationToken);
             _tagger.LoadModel(settings.ProfileId, settings.ModelDirectory);
         }
-
-        var workItems = await BuildWorkItemsAsync(
-            request,
-            definition,
-            cancellationToken);
 
         var processed = 0;
         var failed = 0;
@@ -141,6 +146,7 @@ public sealed class RecognitionPipeline
 
                 try
                 {
+                    await RecognitionSourceIdentity.ValidateAsync(item.Image, cancellationToken);
                     // A photo that needs face work is decoded once at source
                     // resolution and shared; a tags-only photo skips the
                     // full-resolution decode entirely.
@@ -280,7 +286,7 @@ public sealed class RecognitionPipeline
             : [];
         var pendingTags = definition is not null
             ? await _tagStore.GetImagesNeedingAutoTagsAsync(
-                definition.PipelineVersion,
+                request.AutoTaggingSettings!.GetScanVersion(),
                 cancellationToken)
             : [];
 
@@ -290,12 +296,16 @@ public sealed class RecognitionPipeline
 
         foreach (var image in pendingFaces)
         {
+            if (!IsInScope(image))
+                continue;
             byImageId[image.Id] = items.Count;
             items.Add(new RecognitionWorkItem(image, true, false));
         }
 
         foreach (var image in pendingTags)
         {
+            if (!IsInScope(image))
+                continue;
             if (byImageId.TryGetValue(image.Id, out var index))
             {
                 items[index] = items[index] with { NeedsTags = true };
@@ -307,6 +317,11 @@ public sealed class RecognitionPipeline
         }
 
         return items;
+
+        bool IsInScope(ImageEntry image) =>
+            request.WatchedFolders is null ||
+            request.WatchedFolders.Any(folder => WatchedFolderScope.ContainsFile(
+                image.FilePath, folder.Path, folder.IncludeSubfolders));
     }
 
     private sealed record RecognitionWorkItem(

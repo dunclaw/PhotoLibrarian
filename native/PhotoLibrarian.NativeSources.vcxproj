@@ -1,0 +1,13 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="Configurations.props" />
+  <PropertyGroup Label="Globals"><ProjectGuid>{693C7478-6A52-493C-924A-0C77256EE020}</ProjectGuid></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="Toolset.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>Utility</ConfigurationType><DisableFastUpToDateCheck>true</DisableFastUpToDateCheck></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="Native.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="AcquireRawSources" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(NativeRoot)..\tools\Prepare-RawSources.ps1&quot; -SourceDirectory &quot;$(NativeSources.TrimEnd('\'))&quot;" />
+  </Target>
+</Project>

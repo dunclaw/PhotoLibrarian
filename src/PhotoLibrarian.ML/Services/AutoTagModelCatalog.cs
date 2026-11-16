@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using System.Security.Cryptography;
 
 namespace PhotoLibrarian.ML.Services;
@@ -26,6 +28,8 @@ public static class AutoTagModelCatalog
         $"https://media.githubusercontent.com/media/onnx/models/{ModelZooRevision}/validated/vision/classification";
     private const string ModelZooRawRoot =
         $"https://raw.githubusercontent.com/onnx/models/{ModelZooRevision}/validated/vision/classification";
+    private const string ModelAssetBaseUri =
+        "https://photolibrarianassets.blob.core.windows.net/model-assets";
 
     private static readonly AutoTagAssetDefinition ImageNetLabels = new(
         "imagenet-labels.json",
@@ -101,7 +105,25 @@ public static class AutoTagModelCatalog
         PreserveAspectRatio: false,
         OutputKind: AutoTagOutputKind.BinaryTagMask,
         UsesTagHierarchy: true,
-        OutputName: "targets");
+        OutputName: "targets",
+        ManifestUri: CreateManifestUri(
+            RamPlusProfileId,
+            "ram-plus-swin-large-14m-general-v2-binary-mask-hierarchy-v3"),
+        License: "Apache-2.0",
+        SourceRevisions: new Dictionary<string, string>(
+            StringComparer.Ordinal)
+        {
+            ["recognize-anything"] =
+                "7cb804a8609e9f4b1a50b7f31436d2df40bb9481",
+            ["recognize-anything-plus-model"] =
+                "84d4aee3a0265c4e0df1f714f0572011d1bf2ec3"
+        },
+        RequiredNoticeFiles:
+        [
+            "recognize-anything-LICENSE",
+            "recognize-anything-NOTICE.txt",
+            "MODIFICATIONS.txt"
+        ]);
 
     public static AutoTagModelDefinition TinyClip { get; } = new(
         TinyClipProfileId,
@@ -128,7 +150,19 @@ public static class AutoTagModelCatalog
         OutputKind: AutoTagOutputKind.CosineEmbedding,
         UseCpuOnly: true,
         UsesCalibratedThresholds: true,
-        UsesTagHierarchy: true);
+        UsesTagHierarchy: true,
+        ManifestUri: CreateManifestUri(
+            TinyClipProfileId,
+            "tinyclip-40m-int8-cpu-general-v2-coverage60-top10-20260917-hierarchy-v3"),
+        License: "MIT",
+        SourceRevisions: new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M"] =
+                "95ec8197b3f2fe7f747865c61ca556cf0768b2f7",
+            ["onnx-community/TinyCLIP-ViT-40M-32-Text-19M-LAION400M-ONNX"] =
+                "737108a175dc6c043d9e64cf738baa91a272f7cb"
+        },
+        RequiredNoticeFiles: ["LICENSE", "NOTICE.txt"]);
 
     public static IReadOnlyList<AutoTagModelDefinition> Profiles { get; } =
         [RamPlus, TinyClip, MobileNetV2, EfficientNetLite4];
@@ -270,6 +304,13 @@ public static class AutoTagModelCatalog
             ["bolete"] = "mushroom"
         };
 
+    private static Uri CreateManifestUri(
+        string profileId,
+        string version) =>
+        new(
+            $"{ModelAssetBaseUri}/manifests/" +
+            $"{Uri.EscapeDataString(profileId)}/" +
+            $"{Uri.EscapeDataString(version)}.json");
 }
 
 public enum AutoTagTensorLayout
@@ -337,7 +378,11 @@ public sealed record AutoTagModelDefinition(
     bool UseCpuOnly = false,
     bool UsesCalibratedThresholds = false,
     bool UsesTagHierarchy = false,
-    string? OutputName = null)
+    string? OutputName = null,
+    Uri? ManifestUri = null,
+    string? License = null,
+    IReadOnlyDictionary<string, string>? SourceRevisions = null,
+    IReadOnlyList<string>? RequiredNoticeFiles = null)
 {
     public bool UsesFixedThresholds =>
         OutputKind == AutoTagOutputKind.BinaryTagMask;
@@ -352,5 +397,6 @@ public sealed record AutoTagModelDefinition(
         SafeLabelMappings.Count > 0;
 
     public bool RequiresLocalImport =>
-        ModelAsset.RequiresImport || LabelsAsset.RequiresImport;
+        ManifestUri is null &&
+        (ModelAsset.RequiresImport || LabelsAsset.RequiresImport);
 }

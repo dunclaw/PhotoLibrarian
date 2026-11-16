@@ -1,0 +1,111 @@
+<UserControl
+    x:Class="PhotoLibrarian.Views.AutoTagReviewView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:PhotoLibrarian.ViewModels"
+    xmlns:local="using:PhotoLibrarian.Views"
+    Visibility="{x:Bind local:AutoTagReviewView.BoolToVisibility(ViewModel.IsOpen), Mode=OneWay}">
+    <UserControl.Resources>
+        <DataTemplate x:Key="AutoTagReviewPhotoTemplate"
+                      x:DataType="vm:AutoTagReviewPhotoViewModel">
+            <Border Margin="0,0,0,8"
+                    Padding="8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{ThemeResource ControlCornerRadius}">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="{x:Bind FileName, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{x:Bind ErrorMessage, Mode=OneWay}"
+                               Visibility="{x:Bind local:AutoTagReviewView.BoolToVisibility(HasError), Mode=OneWay}"
+                               Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                               TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{x:Bind Suggestions, Mode=OneWay}"
+                                  Visibility="{x:Bind local:AutoTagReviewView.BoolToVisibility(HasSuggestions), Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AutoTagReviewTagViewModel">
+                                <TextBlock Text="{x:Bind DisplayText, Mode=OneWay}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Uid="AutoTagReviewNoSuggestions"
+                               Visibility="{x:Bind local:AutoTagReviewView.InvertBoolToVisibility(HasSuggestions), Mode=OneWay}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Border Margin="0,8,0,0"
+            Padding="10"
+            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="{ThemeResource ControlCornerRadius}">
+        <StackPanel Spacing="8">
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Uid="AutoTagReviewTitle"
+                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                           VerticalAlignment="Center" />
+                <Button x:Name="CancelGenerationButton"
+                        AutomationProperties.AutomationId="CancelAutoTagReviewGenerationButton"
+                        x:Uid="AutoTagReviewCancelButton"
+                        Grid.Column="1"
+                        Command="{x:Bind ViewModel.CancelGenerationCommand}"
+                        IsEnabled="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
+                        Visibility="{x:Bind local:AutoTagReviewView.BoolToVisibility(ViewModel.IsBusy), Mode=OneWay}"
+                        Padding="8,4" />
+                <Button x:Name="CloseReviewButton"
+                        AutomationProperties.AutomationId="CloseAutoTagReviewButton"
+                        x:Uid="AutoTagReviewCloseButton"
+                        Grid.Column="2"
+                        Command="{x:Bind ViewModel.CloseCommand}"
+                        IsEnabled="{x:Bind ViewModel.CanClose, Mode=OneWay}"
+                        Padding="6,4">
+                    <FontIcon Glyph="&#xE711;" />
+                </Button>
+            </Grid>
+            <TextBlock x:Uid="AutoTagReviewSubtitle"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextWrapping="Wrap" />
+            <ProgressBar AutomationProperties.AutomationId="AutoTagReviewProgress"
+                         x:Uid="AutoTagReviewProgress"
+                         Minimum="0"
+                         Maximum="{x:Bind ViewModel.ProgressMaximum, Mode=OneWay}"
+                         Value="{x:Bind ViewModel.ProgressValue, Mode=OneWay}"
+                         IsIndeterminate="{x:Bind local:AutoTagReviewView.IsProgressIndeterminate(ViewModel.IsBusy, ViewModel.ProgressValue), Mode=OneWay}"
+                         Visibility="{x:Bind local:AutoTagReviewView.BoolToVisibility(ViewModel.IsBusy), Mode=OneWay}" />
+            <TextBlock AutomationProperties.LiveSetting="Polite"
+                       Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                       TextWrapping="Wrap" />
+            <InfoBar AutomationProperties.AutomationId="AutoTagReviewIssues"
+                     IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+                     Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                     Severity="Warning"
+                     IsClosable="False" />
+            <ListView AutomationProperties.AutomationId="AutoTagReviewPhotos"
+                      x:Uid="AutoTagReviewPhotos"
+                      ItemTemplate="{StaticResource AutoTagReviewPhotoTemplate}"
+                      ItemsSource="{x:Bind ViewModel.Photos, Mode=OneWay}"
+                      MaxHeight="240"
+                      SelectionMode="None" />
+            <Button x:Name="ApplyButton"
+                    AutomationProperties.AutomationId="ApplyReviewedAutoTagsButton"
+                    x:Uid="AutoTagReviewApplyButton"
+                    Command="{x:Bind ViewModel.ApplyCommand}"
+                    IsEnabled="{x:Bind ViewModel.CanApply, Mode=OneWay}"
+                    HorizontalAlignment="Right"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Padding="10,4" />
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -1,4 +1,7 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using System;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -18,8 +21,10 @@ internal sealed class ImageZoomPanController
     private readonly Grid _imageHost;
     private readonly Image _image;
 
-    private float _zoomFactor = 1.0f;
-    private const float MaxZoomFactor = 10f;
+    private readonly ViewerZoomScale _scale = new();
+    private double _zoomFactor => _scale.Scale;
+    private const double MaxZoomFactor = ViewerZoomScale.MaxScale;
+    private double RasterizationScale => _image.XamlRoot?.RasterizationScale ?? 1;
 
     private bool _isPanning;
     private Point _panStartPoint;
@@ -29,7 +34,34 @@ internal sealed class ImageZoomPanController
     private int _imageWidth;
     private int _imageHeight;
 
-    public float ZoomFactor => _zoomFactor;
+    public double ZoomFactor => _zoomFactor;
+
+    internal ComparisonViewport CaptureView() => new(
+        _zoomFactor,
+        _imageWidth > 0 ? (_scrollViewer.ActualWidth / 2 - GetCanvasLeft()) / (_imageWidth * _zoomFactor) : 0.5,
+        _imageHeight > 0 ? (_scrollViewer.ActualHeight / 2 - GetCanvasTop()) / (_imageHeight * _zoomFactor) : 0.5,
+        _scale.IsFit, _scale.IsActualSize);
+
+    internal void ApplyView(ComparisonViewport view)
+    {
+        if (_imageWidth <= 0 || _imageHeight <= 0 ||
+            _scrollViewer.ActualWidth <= 0 || _scrollViewer.ActualHeight <= 0) return;
+        if (view.IsFit)
+        {
+            ApplyBestFit();
+            return;
+        }
+        if (view.IsActualSize) _scale.ActualSize(RasterizationScale);
+        else _scale.ZoomTo(view.Scale);
+        UpdateImageSize();
+        var (left, top) = ComparisonViewport.Position(_imageWidth, _imageHeight,
+            _scrollViewer.ActualWidth, _scrollViewer.ActualHeight,
+            _zoomFactor, view.CenterX, view.CenterY);
+        PositionContent(left, top);
+    }
+
+    internal void PanBy(double x, double y) =>
+        PositionContent(GetCanvasLeft() + x, GetCanvasTop() + y, clampWhenFits: true);
 
     public ImageZoomPanController(ScrollViewer scrollViewer, Canvas scrollContent, Grid imageHost, Image image)
     {
@@ -45,11 +77,13 @@ internal sealed class ImageZoomPanController
         System.Diagnostics.Debug.WriteLine($"ZoomPanController: SetImageSize({width}, {height})");
         _imageWidth = width;
         _imageHeight = height;
+        _scale.Fit(1);
         UpdateImageSize();
     }
 
     public void ZoomIn()
     {
+        if (_imageWidth <= 0 || _imageHeight <= 0) return;
         var target = _zoomFactor * 1.2f;
         if (target > MaxZoomFactor) target = MaxZoomFactor;
         ZoomToCenter(target);
@@ -57,6 +91,7 @@ internal sealed class ImageZoomPanController
 
     public void ZoomOut()
     {
+        if (_imageWidth <= 0 || _imageHeight <= 0) return;
         var target = _zoomFactor / 1.2f;
         var minZoom = GetMinZoomFactor();
         if (target < minZoom) target = minZoom;
@@ -92,17 +127,34 @@ internal sealed class ImageZoomPanController
             fitHeight = Math.Max(viewportHeight / 2, viewportHeight - 2 * contentInset);
         }
 
-        var zoomX = (float)(fitWidth / _imageWidth);
-        var zoomY = (float)(fitHeight / _imageHeight);
-        var bestFitZoom = Math.Min(zoomX, zoomY);
-
-        if (bestFitZoom < 0.01f) bestFitZoom = 0.01f;
-        if (bestFitZoom > MaxZoomFactor) bestFitZoom = MaxZoomFactor;
+        var bestFitZoom = ViewerZoomScale.FitScale(_imageWidth, _imageHeight, fitWidth, fitHeight);
 
         System.Diagnostics.Debug.WriteLine($"ZoomPanController: ApplyBestFit - viewport={viewportWidth}x{viewportHeight}, zoom={bestFitZoom:F3}");
 
-        ApplyZoom(bestFitZoom);
+        _scale.Fit(bestFitZoom);
+        UpdateImageSize();
         CenterContent();
+    }
+
+    public void ApplyActualSize()
+    {
+        if (_imageWidth <= 0 || _imageHeight <= 0 || _image.XamlRoot is null ||
+            _scrollViewer.ActualWidth <= 0 || _scrollViewer.ActualHeight <= 0)
+            return;
+        _scale.ActualSize(RasterizationScale);
+        UpdateImageSize();
+        PositionContent(
+            (_scrollViewer.ActualWidth - _imageHost.Width) / 2,
+            (_scrollViewer.ActualHeight - _imageHost.Height) / 2);
+    }
+
+    public void HandleRasterizationScaleChanged()
+    {
+        if (!_scale.IsActualSize ||
+            Math.Abs(_zoomFactor - ViewerZoomScale.ActualSizeScale(RasterizationScale)) < 1e-10)
+            return;
+        ZoomToCenter(ViewerZoomScale.ActualSizeScale(RasterizationScale));
+        _scale.ActualSize(RasterizationScale);
     }
 
     public void HandleSizeChanged(Size previousSize)
@@ -117,22 +169,32 @@ internal sealed class ImageZoomPanController
         var oldH = previousSize.Height;
         var currentLeft = GetCanvasLeft();
         var currentTop = GetCanvasTop();
+        var oldZoom = _zoomFactor;
 
+        var fitScale = ViewerZoomScale.FitScale(_imageWidth, _imageHeight,
+            Math.Max(1, _scrollViewer.ActualWidth), Math.Max(1, _scrollViewer.ActualHeight));
+        _scale.UpdateViewport(fitScale, RasterizationScale);
         UpdateImageSize();
+
+        if (_scale.IsFit)
+        {
+            CenterContent();
+            return;
+        }
 
         if (oldW > 0 && oldH > 0)
         {
             // Shift position to keep the same image center visible
             var newW = _scrollViewer.ActualWidth;
             var newH = _scrollViewer.ActualHeight;
-            PositionContent(currentLeft + (newW - oldW) / 2, currentTop + (newH - oldH) / 2);
+            var centerImageX = (oldW / 2 - currentLeft) / oldZoom;
+            var centerImageY = (oldH / 2 - currentTop) / oldZoom;
+            PositionContent(newW / 2 - centerImageX * _zoomFactor, newH / 2 - centerImageY * _zoomFactor);
         }
         else
         {
             CenterContent();
         }
-
-        UpdateMinZoomFactor();
     }
 
     public void HandlePointerWheelChanged(PointerRoutedEventArgs e)
@@ -238,7 +300,7 @@ internal sealed class ImageZoomPanController
     public void HandlePointerPressed(ScrollViewer sv, PointerRoutedEventArgs e)
     {
         var pt = e.GetCurrentPoint(sv);
-        if (!pt.Properties.IsLeftButtonPressed && !pt.IsInContact)
+        if (!ShouldStartPan(e.Pointer.PointerDeviceType, pt.Properties.IsLeftButtonPressed, pt.IsInContact))
             return;
 
         _isPanning = true;
@@ -249,6 +311,9 @@ internal sealed class ImageZoomPanController
         sv.CapturePointer(e.Pointer);
         e.Handled = true;
     }
+
+    internal static bool ShouldStartPan(PointerDeviceType deviceType, bool isLeftButtonPressed, bool isInContact) =>
+        deviceType == PointerDeviceType.Mouse ? isLeftButtonPressed : isInContact;
 
     public void HandlePointerMoved(ScrollViewer sv, PointerRoutedEventArgs e)
     {
@@ -279,7 +344,7 @@ internal sealed class ImageZoomPanController
         _isPanning = false;
     }
 
-    private float GetMinZoomFactor()
+    private double GetMinZoomFactor()
     {
         if (_imageWidth == 0 || _imageHeight == 0)
             return 0.01f;
@@ -289,15 +354,11 @@ internal sealed class ImageZoomPanController
         if (viewportWidth <= 0 || viewportHeight <= 0)
             return 0.01f;
 
-        var zoomX = (float)(viewportWidth / _imageWidth);
-        var zoomY = (float)(viewportHeight / _imageHeight);
-        var bestFitZoom = Math.Min(zoomX, zoomY);
-        
-        // Don't allow zooming out past fit - stop when image is centered and fully visible
-        return Math.Max(0.01f, bestFitZoom);
+        var bestFitZoom = ViewerZoomScale.FitScale(_imageWidth, _imageHeight, viewportWidth, viewportHeight);
+        return _scale.MinimumScale(bestFitZoom, RasterizationScale);
     }
 
-    private void ZoomToCenter(float targetZoom)
+    private void ZoomToCenter(double targetZoom)
     {
         var viewportWidth = _scrollViewer.ActualWidth;
         var viewportHeight = _scrollViewer.ActualHeight;
@@ -315,9 +376,9 @@ internal sealed class ImageZoomPanController
         PositionContent(newCanvasLeft, newCanvasTop);
     }
 
-    private void ApplyZoom(float zoom)
+    private void ApplyZoom(double zoom)
     {
-        _zoomFactor = zoom;
+        _scale.ZoomTo(zoom);
         UpdateImageSize();
     }
 
@@ -411,13 +472,6 @@ internal sealed class ImageZoomPanController
         var left = Math.Max(0, (viewportWidth - contentWidth) / 2);
         var top = Math.Max(0, (viewportHeight - contentHeight) / 2);
         PositionContent(left, top);
-    }
-
-    private void UpdateMinZoomFactor()
-    {
-        var minZoom = GetMinZoomFactor();
-        if (_zoomFactor < minZoom)
-            ZoomToCenter(minZoom);
     }
 
     private double GetCanvasLeft()

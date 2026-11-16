@@ -9,18 +9,19 @@
     <Grid Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="300" />
+            <ColumnDefinition x:Name="AdjustmentsColumn" Width="300" />
         </Grid.ColumnDefinitions>
 
         <!-- Win2D Canvas for real-time preview -->
         <Grid Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
             <!-- Top bar -->
-            <Grid Padding="12,8"
+            <Grid Height="48" Padding="12,8"
                   Background="{ThemeResource LayerFillColorDefaultBrush}"
                   BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                   BorderThickness="0,0,0,1">
@@ -33,6 +34,17 @@
                            TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <Button x:Name="PreviousBtn" Click="OnPrevious" Padding="8"
+                            AutomationProperties.Name="Previous photo" AutomationProperties.AutomationId="EditorPrevious"
+                            ToolTipService.ToolTip="Previous photo (Left arrow; Ctrl+Page Up)">
+                        <FontIcon Glyph="&#xE76B;" FontSize="14" />
+                    </Button>
+                    <Button x:Name="NextBtn" Click="OnNext" Padding="8"
+                            AutomationProperties.Name="Next photo" AutomationProperties.AutomationId="EditorNext"
+                            ToolTipService.ToolTip="Next photo (Right arrow; Ctrl+Page Down)">
+                        <FontIcon Glyph="&#xE76C;" FontSize="14" />
+                    </Button>
+                    <AppBarSeparator />
                     <Button Click="OnZoomOut" ToolTipService.ToolTip="Zoom out (Ctrl+-)" Padding="8"
                             AutomationProperties.Name="Zoom out">
                         <FontIcon Glyph="&#xE71F;" FontSize="14" />
@@ -53,33 +65,131 @@
                         <FontIcon Glyph="&#xE71E;" FontSize="14" />
                     </Button>
                     <AppBarSeparator />
+                    <Button x:Name="ComparisonButton" Content="Compare" Padding="8,4" IsEnabled="False"
+                            AutomationProperties.Name="Before and after recipe views"
+                            AutomationProperties.AutomationId="EditorComparison"
+                            ToolTipService.ToolTip="Before recipes (B), side by side (N), split (M). Press again for After.">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <ToggleMenuFlyoutItem x:Name="AfterViewItem" Text="After" Tag="After"
+                                                     IsChecked="True"
+                                                     AutomationProperties.AutomationId="EditorAfterView" />
+                                <ToggleMenuFlyoutItem x:Name="BeforeViewItem" Text="Before recipes (B)" Tag="Before"
+                                                     AutomationProperties.AutomationId="EditorBeforeView" />
+                                <ToggleMenuFlyoutItem x:Name="SideBySideViewItem" Text="Side by side (N)" Tag="SideBySide"
+                                                     AutomationProperties.AutomationId="EditorSideBySideView" />
+                                <ToggleMenuFlyoutItem x:Name="SplitViewItem" Text="Split (M)" Tag="Split"
+                                                     AutomationProperties.AutomationId="EditorSplitView" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Before ignores all recipes, not earlier baked edits." IsEnabled="False" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button x:Name="ClippingButton" Content="Clipping" Padding="8,4" IsEnabled="False"
+                            AutomationProperties.Name="Clipping overlays"
+                            AutomationProperties.AutomationId="EditorClipping"
+                            ToolTipService.ToolTip="View-only SDR clipping on the edited image. Histogram indicators use sampled rendered pixels.">
+                        <Button.Flyout>
+                            <MenuFlyout Opening="OnClippingOpening">
+                                <MenuFlyoutItem x:Name="ClippingSummaryItem" Text="Sampled output" IsEnabled="False"
+                                                AutomationProperties.AutomationId="EditorClippingSummary" />
+                                <ToggleMenuFlyoutItem x:Name="ClippedShadowsItem" Text="Shadows (blue): all RGB at black"
+                                                     AutomationProperties.AutomationId="EditorClippedShadows" />
+                                <ToggleMenuFlyoutItem x:Name="ClippedHighlightsItem" Text="Highlights (red): any RGB at white"
+                                                     AutomationProperties.AutomationId="EditorClippedHighlights" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="SDR output, not RAW sensor clipping. After image only." IsEnabled="False" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button x:Name="SaveBtn" Click="OnSave" ToolTipService.ToolTip="Save edits" Padding="8"
-                            AutomationProperties.Name="Save edits">
+                            AutomationProperties.Name="Save edits" AutomationProperties.AutomationId="EditorSave">
                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
                     </Button>
-                    <Button Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8"
-                            AutomationProperties.Name="Close editor">
+                    <Button x:Name="CloseBtn" Click="OnClose" ToolTipService.ToolTip="Close editor" Padding="8"
+                            AutomationProperties.Name="Close editor" AutomationProperties.AutomationId="EditorClose">
                         <FontIcon Glyph="&#xE711;" FontSize="14" />
                     </Button>
                 </StackPanel>
             </Grid>
 
-            <canvas:CanvasControl x:Name="EditCanvas" Grid.Row="1" Margin="16"
+            <Grid x:Name="RetouchToolbar" Grid.Row="1" ColumnSpacing="12" Padding="12,4"
+                  Background="{ThemeResource LayerFillColorDefaultBrush}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <ToggleButton x:Name="RetouchToggle" Content="Retouch" Click="OnRetouchToggled"
+                                  VerticalAlignment="Center"
+                                  AutomationProperties.Name="Spot retouch mode"
+                                  AutomationProperties.AutomationId="EditorRetouch" />
+                    <StackPanel x:Name="RetouchHistoryTools" Orientation="Horizontal" Spacing="4"
+                                Visibility="Collapsed">
+                        <Button x:Name="RetouchUndoBtn" x:Uid="RibbonUndoButton" Click="OnUndoClick" Padding="8"
+                                IsEnabled="False" AutomationProperties.AutomationId="RetouchUndo">
+                            <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                        </Button>
+                        <Button x:Name="RetouchRedoBtn" x:Uid="RibbonRedoButton" Click="OnRedoClick" Padding="8"
+                                IsEnabled="False" AutomationProperties.AutomationId="RetouchRedo">
+                            <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="Brush radius" VerticalAlignment="Center" />
+                <Slider x:Name="RetouchRadius" Grid.Column="2" Minimum="2" Maximum="24" Value="8" StepFrequency="1"
+                        ValueChanged="OnRetouchRadiusChanged"
+                        AutomationProperties.Name="Retouch brush radius in source pixels"
+                        AutomationProperties.AutomationId="EditorRetouchRadius" />
+                <TextBlock x:Name="RetouchRadiusText" Grid.Column="3" Text="8 px" MinWidth="40" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="4" Text="Paint over the whole spot; release to heal. Middle-drag to pan; Escape cancels."
+                           VerticalAlignment="Center" TextWrapping="Wrap" />
+            </Grid>
+            <InfoBar x:Name="RetouchStatus" Grid.Row="2" Canvas.ZIndex="1" VerticalAlignment="Top"
+                     IsOpen="False" IsClosable="True" Severity="Warning"
+                     AutomationProperties.AutomationId="EditorRetouchStatus"
+                     AutomationProperties.LiveSetting="Polite" />
+            <canvas:CanvasControl x:Name="EditCanvas" Grid.Row="2" Margin="16"
                                    AutomationProperties.Name="Edit preview"
+                                   AutomationProperties.AutomationId="EditorPreview"
                                    Draw="OnCanvasDraw"
                                    CreateResources="OnCanvasCreateResources"
                                    SizeChanged="OnEditCanvasSizeChanged"
                                    PointerWheelChanged="OnEditCanvasPointerWheelChanged"
                                    PointerPressed="OnEditCanvasPointerPressed"
                                    PointerMoved="OnEditCanvasPointerMoved"
+                                   PointerEntered="OnEditCanvasPointerEntered"
+                                   PointerExited="OnEditCanvasPointerExited"
                                    PointerReleased="OnEditCanvasPointerReleased"
-                                   PointerCanceled="OnEditCanvasPointerReleased"
+                                   PointerCanceled="OnEditCanvasPointerCanceled"
                                    PointerCaptureLost="OnEditCanvasPointerCaptureLost"
                                    DoubleTapped="OnEditCanvasDoubleTapped" />
+            <Border x:Name="ComparisonLabel" Grid.Row="2" Margin="24" Padding="8,4"
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    IsHitTestVisible="False" Visibility="Collapsed">
+                <TextBlock x:Name="ComparisonLabelText" Text="Before recipes"
+                           AutomationProperties.AutomationId="EditorComparisonLabel"
+                           AutomationProperties.LiveSetting="Polite" />
+            </Border>
+            <Border x:Name="SplitDivider" Grid.Row="2" Margin="16" Width="1"
+                    HorizontalAlignment="Left" IsHitTestVisible="False" Visibility="Collapsed"
+                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Slider x:Name="SplitPositionSlider" Grid.Row="2" Width="200" Margin="24"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Minimum="0" Maximum="100" Value="50" StepFrequency="1"
+                    Visibility="Collapsed" ValueChanged="OnSplitPositionChanged"
+                    AutomationProperties.Name="Before and after split position, percent before"
+                    AutomationProperties.AutomationId="EditorSplitPosition"
+                    ToolTipService.ToolTip="Split position: before on the left, after on the right" />
+
         </Grid>
 
         <!-- Adjustment sliders panel -->
-        <ScrollViewer Grid.Column="1" Padding="12"
+        <ScrollViewer x:Name="AdjustmentsPanel" Grid.Column="1" Padding="12"
                       Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
                       BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                       BorderThickness="1,0,0,0">
@@ -88,12 +198,59 @@
 
                 <!-- Quick actions -->
                 <StackPanel Orientation="Horizontal" Spacing="4">
-                    <Button Content="Auto" Click="OnAutoEnhance" Padding="8,4" />
-                    <Button Content="Reset" Click="OnReset" Padding="8,4" />
+                    <Button x:Name="AutoBtn" Content="Auto" Click="OnAutoEnhance" Padding="8,4" />
+                    <Button x:Name="ResetBtn" Content="Reset" Click="OnReset" Padding="8,4"
+                            AutomationProperties.AutomationId="EditorReset" />
                     <Button x:Name="RevertBtn" Content="Revert" Click="OnRevert" Padding="8,4"
                             Visibility="Collapsed" />
+                    <Button x:Name="UndoBtn" x:Uid="RibbonUndoButton" Click="OnUndoClick" Padding="8"
+                            IsEnabled="False" AutomationProperties.AutomationId="EditorUndo">
+                        <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                    </Button>
+                    <Button x:Name="RedoBtn" x:Uid="RibbonRedoButton" Click="OnRedoClick" Padding="8"
+                            IsEnabled="False" AutomationProperties.AutomationId="EditorRedo">
+                        <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                    </Button>
                 </StackPanel>
 
+                <StackPanel x:Name="RawPreviewPanel" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Before/after comparison is not available for RAW development."
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="RawPreviewStatus" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="EditorRawPreviewStatus"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <canvas:CanvasControl x:Name="RawHistogramCanvas" Height="112" Draw="OnHistogramDraw"
+                                          AutomationProperties.Name="Developed SDR luminance histogram"
+                                          AutomationProperties.AutomationId="EditorRawHistogram" />
+                    <TextBlock Text="Exposure (stops)" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Name="RawExposureText" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="RawExposureSlider"
+                            AutomationProperties.Name="RAW exposure in stops"
+                            AutomationProperties.AutomationId="EditorRawExposure"
+                            Minimum="-8" Maximum="8" StepFrequency="0.1" SmallChange="0.1"
+                            Value="0" ValueChanged="OnRawSliderChanged" />
+                    <TextBlock Text="Scene white point" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <TextBlock x:Name="RawWhitePointText" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="RawWhitePointSlider"
+                            AutomationProperties.Name="RAW scene white point"
+                            AutomationProperties.AutomationId="EditorRawWhitePoint"
+                            Minimum="1" Maximum="16" StepFrequency="0.1" SmallChange="0.1"
+                            ToolTipService.ToolTip="Scene-linear luminance mapped to SDR white after exposure. Higher values retain more unsaturated highlight range."
+                            Value="4" ValueChanged="OnRawSliderChanged" />
+                    <Button x:Name="KeepRecipeBtn" Content="Keep preview recipe" Click="OnKeepRawRecipe"
+                            AutomationProperties.Name="Keep RAW preview recipe in an XMP sidecar"
+                            AutomationProperties.AutomationId="EditorKeepRawRecipe" />
+                    <Button x:Name="ExportRawBtn" Content="Export SDR derivative..." Click="OnExportRaw"
+                            AutomationProperties.Name="Export RAW development as a separate SDR JPEG or PNG"
+                            AutomationProperties.AutomationId="EditorExportRawDerivative" />
+                    <Button x:Name="CancelRawExportBtn" Content="Cancel export" Click="OnCancelRawExport"
+                            Visibility="Collapsed" AutomationProperties.Name="Cancel RAW derivative export"
+                            AutomationProperties.AutomationId="EditorCancelRawExport" />
+                    <TextBlock Text="Only these RAW controls apply. Color mixer, color grading, tone curves, and other raster adjustments are retained in the recipe but not applied to RAW."
+                               TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                </StackPanel>
+
+                <StackPanel x:Name="RasterAdjustmentsPanel" Spacing="12">
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Tone section -->
@@ -154,51 +311,347 @@
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
 
+                <Expander x:Name="ColorMixerExpander" Header="Color mixer (OkLCh)"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorColorMixer">
+                    <StackPanel Spacing="8">
+                        <ComboBox x:Name="ColorMixerBand" SelectedIndex="0"
+                                  SelectionChanged="OnColorMixerBandChanged"
+                                  AutomationProperties.Name="Color mixer hue band"
+                                  AutomationProperties.AutomationId="EditorColorMixerBand">
+                            <ComboBoxItem Content="Red" />
+                            <ComboBoxItem Content="Orange" />
+                            <ComboBoxItem Content="Yellow" />
+                            <ComboBoxItem Content="Green" />
+                            <ComboBoxItem Content="Aqua" />
+                            <ComboBoxItem Content="Blue" />
+                            <ComboBoxItem Content="Purple" />
+                            <ComboBoxItem Content="Magenta" />
+                        </ComboBox>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Hue shift" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorMixerHueSlider" Minimum="-180" Maximum="180"
+                                    StepFrequency="1" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Selected color band's hue shift in degrees"
+                                    AutomationProperties.AutomationId="EditorColorMixerHue" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Saturation" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorMixerSaturationSlider" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Selected color band's saturation adjustment"
+                                    AutomationProperties.AutomationId="EditorColorMixerSaturation" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Luminance" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorMixerLuminanceSlider" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Selected color band's luminance adjustment"
+                                    AutomationProperties.AutomationId="EditorColorMixerLuminance" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+
+                <Expander x:Name="MonochromeMixExpander" x:Uid="EditorMonochromePanel"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorMonochromeMix">
+                    <StackPanel Spacing="8" Margin="0,0,8,0">
+                        <ToggleSwitch x:Name="MonochromeToggle" x:Uid="EditorMonochromeToggle"
+                                      Toggled="OnMonochromeToggled"
+                                      AutomationProperties.AutomationId="EditorMonochromeToggle" />
+                        <ContentControl x:Name="MonochromeMixControls" HorizontalContentAlignment="Stretch" IsEnabled="False">
+                          <StackPanel Spacing="8">
+                            <TextBlock x:Uid="EditorMonochromeDirection"
+                                       TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="MonochromeRedSlider" x:Uid="EditorMonochromeRed" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeRed" />
+                            <Slider x:Name="MonochromeOrangeSlider" x:Uid="EditorMonochromeOrange" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeOrange" />
+                            <Slider x:Name="MonochromeYellowSlider" x:Uid="EditorMonochromeYellow" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeYellow" />
+                            <Slider x:Name="MonochromeGreenSlider" x:Uid="EditorMonochromeGreen" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeGreen" />
+                            <Slider x:Name="MonochromeAquaSlider" x:Uid="EditorMonochromeAqua" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeAqua" />
+                            <Slider x:Name="MonochromeBlueSlider" x:Uid="EditorMonochromeBlue" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeBlue" />
+                            <Slider x:Name="MonochromePurpleSlider" x:Uid="EditorMonochromePurple" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    TickFrequency="1" TickPlacement="Inline"
+                                    AutomationProperties.AutomationId="EditorMonochromePurple" />
+                            <Slider x:Name="MonochromeMagentaSlider" x:Uid="EditorMonochromeMagenta" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" TickFrequency="1" TickPlacement="Inline"
+                                    ValueChanged="OnMonochromeMixSliderChanged"
+                                    AutomationProperties.AutomationId="EditorMonochromeMagenta" />
+                            <Button x:Name="MonochromeReset" x:Uid="EditorMonochromeReset" Click="OnResetMonochromeMix"
+                                    AutomationProperties.AutomationId="EditorMonochromeReset" />
+                          </StackPanel>
+                        </ContentControl>
+                        <TextBlock x:Uid="EditorMonochromeToning"
+                                   TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander x:Name="ColorGradingExpander" Header="Color grading"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorColorGrading">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Stretch">
+                            <ColorPicker x:Name="ShadowColorPicker"
+                                         ColorSpectrumShape="Ring"
+                                         IsMoreButtonVisible="False"
+                                         IsColorSliderVisible="False"
+                                         IsColorChannelTextInputVisible="False"
+                                         IsHexInputVisible="False"
+                                         IsAlphaEnabled="False"
+                                         IsAlphaSliderVisible="False"
+                                         IsAlphaTextInputVisible="False"
+                                         ColorChanged="OnShadowColorChanged"
+                                         AutomationProperties.Name="Shadow color grading wheel"
+                                         AutomationProperties.AutomationId="EditorShadowColorWheel" />
+                        </Viewbox>
+                        <Slider x:Name="ShadowAmountSlider" Minimum="0" Maximum="1"
+                                StepFrequency="0.01" Value="0"
+                                ValueChanged="OnColorAdjustmentSliderChanged"
+                                AutomationProperties.Name="Shadow grading amount"
+                                AutomationProperties.AutomationId="EditorShadowAmount" />
+                        <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Stretch">
+                            <ColorPicker x:Name="MidtoneColorPicker"
+                                         ColorSpectrumShape="Ring"
+                                         IsMoreButtonVisible="False"
+                                         IsColorSliderVisible="False"
+                                         IsColorChannelTextInputVisible="False"
+                                         IsHexInputVisible="False"
+                                         IsAlphaEnabled="False"
+                                         IsAlphaSliderVisible="False"
+                                         IsAlphaTextInputVisible="False"
+                                         ColorChanged="OnMidtoneColorChanged"
+                                         AutomationProperties.Name="Midtone color grading wheel"
+                                         AutomationProperties.AutomationId="EditorMidtoneColorWheel" />
+                        </Viewbox>
+                        <Slider x:Name="MidtoneAmountSlider" Minimum="0" Maximum="1"
+                                StepFrequency="0.01" Value="0"
+                                ValueChanged="OnColorAdjustmentSliderChanged"
+                                AutomationProperties.Name="Midtone grading amount"
+                                AutomationProperties.AutomationId="EditorMidtoneAmount" />
+                        <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Stretch">
+                            <ColorPicker x:Name="HighlightColorPicker"
+                                         ColorSpectrumShape="Ring"
+                                         IsMoreButtonVisible="False"
+                                         IsColorSliderVisible="False"
+                                         IsColorChannelTextInputVisible="False"
+                                         IsHexInputVisible="False"
+                                         IsAlphaEnabled="False"
+                                         IsAlphaSliderVisible="False"
+                                         IsAlphaTextInputVisible="False"
+                                         ColorChanged="OnHighlightColorChanged"
+                                         AutomationProperties.Name="Highlight color grading wheel"
+                                         AutomationProperties.AutomationId="EditorHighlightColorWheel" />
+                        </Viewbox>
+                        <Slider x:Name="HighlightAmountSlider" Minimum="0" Maximum="1"
+                                StepFrequency="0.01" Value="0"
+                                ValueChanged="OnColorAdjustmentSliderChanged"
+                                AutomationProperties.Name="Highlight grading amount"
+                                AutomationProperties.AutomationId="EditorHighlightAmount" />
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Blending" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorGradingBlendingSlider" Minimum="0" Maximum="1"
+                                    StepFrequency="0.01" Value="0.5"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Color grading range blending"
+                                    AutomationProperties.AutomationId="EditorColorGradingBlending" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Balance" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="ColorGradingBalanceSlider" Minimum="-1" Maximum="1"
+                                    StepFrequency="0.01" Value="0"
+                                    ValueChanged="OnColorAdjustmentSliderChanged"
+                                    AutomationProperties.Name="Color grading tonal balance"
+                                    AutomationProperties.AutomationId="EditorColorGradingBalance" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Detail section -->
                 <TextBlock Text="Detail" Style="{StaticResource BodyStrongTextBlockStyle}" />
 
                 <StackPanel Spacing="2">
+                    <TextBlock Text="Noise reduction" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="NoiseReductionSlider"
+                            AutomationProperties.Name="Noise reduction"
+                            AutomationProperties.AutomationId="EditorNoiseReduction"
+                            Minimum="0" Maximum="1" StepFrequency="0.01" SmallChange="0.01"
+                            ToolTipService.ToolTip="Smooth noise while retaining strong edges. Higher values can soften fine texture."
+                            Value="0" ValueChanged="OnSliderChanged" />
+                </StackPanel>
+                <StackPanel Spacing="2">
                     <TextBlock Text="Clarity" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="ClaritySlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
                             TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Sharpness" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="SharpnessSlider" Minimum="0" Maximum="1" StepFrequency="0.01"
-                            Value="0" ValueChanged="OnSliderChanged" />
+                <StackPanel x:Name="SharpeningPanel" Spacing="8">
+                    <TextBlock Text="Sharpening" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <CheckBox x:Name="AdvancedSharpeningCheckBox"
+                              AutomationProperties.Name="Advanced sharpening"
+                              AutomationProperties.AutomationId="EditorAdvancedSharpening"
+                              Content="Advanced"
+                              Checked="OnAdvancedSharpeningChanged"
+                              Unchecked="OnAdvancedSharpeningChanged" />
+                    <StackPanel x:Name="BasicSharpeningPanel" Spacing="4">
+                        <TextBlock Text="Amount" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Slider x:Name="SharpnessSlider"
+                                AutomationProperties.Name="Sharpening amount"
+                                AutomationProperties.AutomationId="EditorSharpness"
+                                Minimum="0" Maximum="1" StepFrequency="0.01"
+                                ToolTipService.ToolTip="Increase edge contrast to make details look sharper."
+                                Value="0" ValueChanged="OnSliderChanged" />
+                    </StackPanel>
+                    <StackPanel x:Name="UnsharpMaskPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock Text="Increases edge contrast; it does not recover lost detail."
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Spacing="4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Amount" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="UnsharpMaskAmountText" Grid.Column="1"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </Grid>
+                            <Slider x:Name="UnsharpMaskAmountSlider"
+                                    AutomationProperties.Name="Advanced sharpening amount"
+                                    AutomationProperties.AutomationId="EditorUnsharpAmount"
+                                    Minimum="0" Maximum="2" StepFrequency="0.01"
+                                    Value="0" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Radius (pixels)" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="UnsharpMaskRadiusText" Grid.Column="1"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </Grid>
+                            <Slider x:Name="UnsharpMaskRadiusSlider"
+                                    AutomationProperties.Name="Sharpening radius in pixels"
+                                    AutomationProperties.AutomationId="EditorUnsharpRadius"
+                                    Minimum="0.5" Maximum="5" StepFrequency="0.1"
+                                    ToolTipService.ToolTip="Set how far sharpening extends around edges, measured in original image pixels."
+                                    Value="1" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Noise threshold" Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="UnsharpMaskThresholdText" Grid.Column="1"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </Grid>
+                            <Slider x:Name="UnsharpMaskThresholdSlider"
+                                    AutomationProperties.Name="Sharpening noise threshold"
+                                    AutomationProperties.AutomationId="EditorUnsharpThreshold"
+                                    Minimum="0" Maximum="0.25" StepFrequency="0.005"
+                                    ToolTipService.ToolTip="Raise this to avoid sharpening small differences such as noise."
+                                    Value="0.02" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                 <!-- Levels section -->
-                <TextBlock Text="Levels" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <canvas:CanvasControl x:Name="HistogramCanvas"
-                                      Height="112"
-                                      Draw="OnHistogramDraw"
-                                      PointerPressed="OnHistogramPointerPressed"
-                                      PointerMoved="OnHistogramPointerMoved"
-                                      PointerReleased="OnHistogramPointerReleased"
-                                      PointerCanceled="OnHistogramPointerCanceled" />
+                <Expander x:Name="LevelsPanel" Header="Levels" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorLevelsPanel">
+                    <StackPanel Spacing="12">
+                        <canvas:CanvasControl x:Name="HistogramCanvas"
+                                              Height="112"
+                                              Draw="OnHistogramDraw"
+                                              PointerPressed="OnHistogramPointerPressed"
+                                              PointerMoved="OnHistogramPointerMoved"
+                                              PointerReleased="OnHistogramPointerReleased"
+                                              PointerCanceled="OnHistogramPointerCanceled"
+                                              PointerCaptureLost="OnHistogramPointerCanceled" />
 
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Black Point" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="BlackPointSlider" Minimum="0" Maximum="0.5" StepFrequency="0.01"
-                            Value="0" ValueChanged="OnSliderChanged" />
-                </StackPanel>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="White Point" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="WhitePointSlider" Minimum="0.5" Maximum="1" StepFrequency="0.01"
-                            Value="1" ValueChanged="OnSliderChanged" />
-                </StackPanel>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
-                    <Slider x:Name="MidtonesSlider" Minimum="0.1" Maximum="0.9" StepFrequency="0.01"
-                            TickFrequency="0.4" TickPlacement="Inline"
-                            Value="0.5" ValueChanged="OnSliderChanged" />
-                </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Black Point" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="BlackPointSlider" Minimum="0" Maximum="0.5" StepFrequency="0.01"
+                                    Value="0" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="White Point" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="WhitePointSlider" Minimum="0.5" Maximum="1" StepFrequency="0.01"
+                                    Value="1" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Midtones" Style="{StaticResource CaptionTextBlockStyle}" />
+                            <Slider x:Name="MidtonesSlider" Minimum="0.1" Maximum="0.9" StepFrequency="0.01"
+                                    TickFrequency="0.4" TickPlacement="Inline"
+                                    Value="0.5" ValueChanged="OnSliderChanged" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="Tone curve" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="EditorCurvePanel">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="CurveChannel" SelectedIndex="0"
+                                      SelectionChanged="OnCurveChannelChanged"
+                                      AutomationProperties.Name="Curve channel"
+                                      AutomationProperties.AutomationId="EditorCurveChannel">
+                                <ComboBoxItem Content="RGB" />
+                                <ComboBoxItem Content="Red" />
+                                <ComboBoxItem Content="Green" />
+                                <ComboBoxItem Content="Blue" />
+                            </ComboBox>
+                            <Button Grid.Column="1" Content="Reset" Click="OnCurveReset"
+                                    AutomationProperties.Name="Reset selected curve"
+                                    AutomationProperties.AutomationId="EditorCurveReset" />
+                        </Grid>
+                        <canvas:CanvasControl x:Name="CurveCanvas" Height="200" IsTabStop="True"
+                                              AutomationProperties.Name="Tone curve graph"
+                                              AutomationProperties.AutomationId="EditorCurveGraph"
+                                              AutomationProperties.HelpText="Click to add or select a point; release near another point or either end to remove. Page Up or Page Down selects a point; arrows adjust; Delete removes; Insert adds."
+                                              ToolTipService.ToolTip="Click to add or select; release near another point or either end to remove. Curves save in a portable sidecar."
+                                              Draw="OnCurveDraw" PointerPressed="OnCurvePressed"
+                                              PointerMoved="OnCurveMoved" PointerReleased="OnCurveReleased"
+                                              PointerCanceled="OnCurveCanceled" PointerCaptureLost="OnCurveCaptureLost"
+                                              KeyDown="OnCurveKeyDown" />
+                    </StackPanel>
+                </Expander>
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 

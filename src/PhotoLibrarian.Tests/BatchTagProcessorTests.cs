@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ML.Services;
@@ -5,8 +6,14 @@ using Xunit;
 
 namespace PhotoLibrarian.Tests;
 
-public sealed class BatchTagProcessorTests
+public sealed class BatchTagProcessorTests : IDisposable
 {
+    private readonly string _directory = Path.Combine(
+        Path.GetTempPath(),
+        $"PhotoLibrarian-batch-tags-{Guid.NewGuid():N}");
+
+    public BatchTagProcessorTests() => Directory.CreateDirectory(_directory);
+
     [Fact]
     public async Task ProcessLibraryAsync_WaitsForIdleAndStoresEachPrediction()
     {
@@ -48,8 +55,9 @@ public sealed class BatchTagProcessorTests
             saved => Assert.Equal(
                 new GeneratedImageTag("dog", 0.8f),
                 Assert.Single(saved.Tags)));
+        Assert.All(store.Saved, saved => Assert.Null(saved.ScanVersion));
         Assert.All(
-            store.Saved,
+            store.MarkedVersions,
             saved => Assert.Equal(
                 AutoTagModelCatalog.MobileNetV2.PipelineVersion,
                 saved.ScanVersion));
@@ -118,15 +126,22 @@ public sealed class BatchTagProcessorTests
             });
     }
 
-    private static ImageEntry CreateImage(long id) => new()
+    private ImageEntry CreateImage(long id)
     {
-        Id = id,
-        FilePath = $@"C:\Photos\photo-{id}.jpg",
-        FileName = $"photo-{id}.jpg",
-        FileSize = 100,
-        DateModified = DateTime.UtcNow,
-        DateIndexed = DateTime.UtcNow
-    };
+        var path = Path.Combine(_directory, $"photo-{id}.raw");
+        File.WriteAllBytes(path, [1, 2, 3]);
+        var file = new FileInfo(path);
+        return new ImageEntry
+        {
+            Id = id,
+            FilePath = path,
+            FileName = file.Name,
+            FileSize = file.Length,
+            DateModified = file.LastWriteTimeUtc,
+            DateIndexed = DateTime.UtcNow,
+            MediaType = MediaType.Image
+        };
+    }
 
     private sealed class FakeStore(
         IReadOnlyList<ImageEntry> images) : IAutoTagStore
@@ -135,21 +150,46 @@ public sealed class BatchTagProcessorTests
         public List<(
             ImageEntry Image,
             IReadOnlyCollection<GeneratedImageTag> Tags,
-            string ScanVersion)> Saved { get; } = [];
+            string? ScanVersion)> Saved { get; } = [];
+        public List<(long ImageId, string ScanVersion)> MarkedVersions { get; } = [];
+
+        public Task<List<ImageTag>> GetTagsAsync(
+            long imageId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new List<ImageTag>());
 
         public Task<List<ImageEntry>> GetImagesNeedingAutoTagsAsync(
             string scanVersion,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(Images.ToList());
 
-        public Task<bool> TryReplaceAutoTagsAsync(
+        public Task<bool> TryReplaceAutoTagsIfUnchangedAsync(
             ImageEntry expectedImage,
             IReadOnlyCollection<GeneratedImageTag> tags,
-            string scanVersion,
+            IReadOnlyCollection<ImageTag> expectedAutoTags,
+            string? expectedScanVersion,
             CancellationToken cancellationToken = default)
         {
-            Saved.Add((expectedImage, tags, scanVersion));
+            Saved.Add((expectedImage, tags, null));
             return Task.FromResult(true);
+        }
+
+        public Task<bool> TryRestoreAutoTagsAsync(
+            ImageEntry expectedImage,
+            IReadOnlyCollection<ImageTag> expectedAutoTags,
+            IReadOnlyCollection<ImageTag> previousAutoTags,
+            string? previousScanVersion,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task SetAutoTagScanVersionAsync(
+            long imageId,
+            string scanVersion,
+            CancellationToken cancellationToken = default,
+            string? expectedSourceIdentity = null)
+        {
+            MarkedVersions.Add((imageId, scanVersion));
+            return Task.CompletedTask;
         }
     }
 
@@ -217,5 +257,10 @@ public sealed class BatchTagProcessorTests
             WaitCount++;
             return Task.CompletedTask;
         }
+    }
+
+    public void Dispose()
+    {
+        Directory.Delete(_directory, recursive: true);
     }
 }

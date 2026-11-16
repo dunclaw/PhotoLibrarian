@@ -3,14 +3,14 @@ using PhotoLibrarian.Core.Models;
 namespace PhotoLibrarian.Core.Services;
 
 /// <summary>
-/// Writes face regions + names to XMP using the MWG Region Schema standard.
-/// This is the same format used by Windows Photo Gallery, Picasa, digiKam, etc.
+/// Writes face regions + names to XMP using the MWG Region Schema standard,
+/// alongside Microsoft People Tags for Windows Photo Gallery and Explorer.
 /// Schema: mwg-rs:Regions/mwg-rs:RegionList with mwg-rs:Area and stArea:* properties.
 /// </summary>
 public static class MwgRegionWriter
 {
     /// <summary>
-    /// Writes face regions to an XMP sidecar file following MWG Region Schema.
+    /// Writes face regions to embedded XMP or a sidecar using both region schemas.
     /// </summary>
     public static async Task WriteFaceRegionsAsync(string imagePath, IEnumerable<FaceRegion> faces, int imageWidth, int imageHeight)
     {

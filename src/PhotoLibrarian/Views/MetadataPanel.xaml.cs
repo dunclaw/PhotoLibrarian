@@ -1,10 +1,18 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Services;
 using System;
 using System.Globalization;
+using System.Linq;
 
 namespace PhotoLibrarian.Views;
 
@@ -20,6 +28,11 @@ public sealed partial class MetadataPanel : UserControl
     private string _lastLoadedCaption = "";
     private bool _suppressDateBoxLostFocus;
     private string _lastLoadedDateText = "";
+    private DispatcherQueueTimer? _geotagSaveTimer;
+    private string _lastLoadedGeotagCoordinates = "";
+    private string[] _geotagSelectionPaths = [];
+    private bool _suppressGeotagTextChanged;
+    private bool _isSavingGeotag;
 
     // Accepted date formats (in order). M/d/yyyy h:mm tt is the canonical one shown to user.
     private static readonly string[] AcceptedDateFormats = new[]
@@ -41,12 +54,20 @@ public sealed partial class MetadataPanel : UserControl
         this.Loaded += OnLoaded;
     }
 
+    public bool FocusNewTagInput() => NewTagBox.Focus(FocusState.Programmatic);
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null) return;
+        _geotagSaveTimer ??= DispatcherQueue.CreateTimer();
+        _geotagSaveTimer.Interval = TimeSpan.FromMilliseconds(800);
+        _geotagSaveTimer.IsRepeating = false;
+        _geotagSaveTimer.Tick += OnGeotagSaveTimerTick;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        App.ViewModel.AutoTagReview.PropertyChanged += OnAutoTagReviewPropertyChanged;
         TagsList.ItemsSource = ViewModel.Tags;
         PeopleTagsList.ItemsSource = ViewModel.PeopleTags;
+        UpdateDisplay();
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -56,7 +77,29 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.HasImage):
             case nameof(MetadataPanelViewModel.FileName):
             case nameof(MetadataPanelViewModel.SelectionCount):
+            case nameof(MetadataPanelViewModel.IsMultiSelect):
+            case nameof(MetadataPanelViewModel.ColorLabelDisplay):
+            case nameof(MetadataPanelViewModel.CanEditGeotag):
+            case nameof(MetadataPanelViewModel.FilePath):
+            case nameof(MetadataPanelViewModel.FolderPath):
                 DispatcherQueue.TryEnqueue(UpdateDisplay);
+                break;
+            case nameof(MetadataPanelViewModel.VideoTitle):
+            case nameof(MetadataPanelViewModel.VideoDuration):
+            case nameof(MetadataPanelViewModel.VideoBitrate):
+            case nameof(MetadataPanelViewModel.VideoFrameRate):
+            case nameof(MetadataPanelViewModel.VideoCodec):
+            case nameof(MetadataPanelViewModel.VideoAlbum):
+            case nameof(MetadataPanelViewModel.VideoYear):
+            case nameof(MetadataPanelViewModel.VideoDateEncoded):
+            case nameof(MetadataPanelViewModel.VideoMetadataError):
+            case nameof(MetadataPanelViewModel.Dimensions):
+            case nameof(MetadataPanelViewModel.Author):
+            case nameof(MetadataPanelViewModel.Camera):
+            case nameof(MetadataPanelViewModel.GpsLatitude):
+            case nameof(MetadataPanelViewModel.GpsLongitude):
+            case nameof(MetadataPanelViewModel.PlaceName):
+                DispatcherQueue.TryEnqueue(UpdateVideoDetailsDisplay);
                 break;
             case nameof(MetadataPanelViewModel.CommonDateTaken):
             case nameof(MetadataPanelViewModel.IsDateMixed):
@@ -73,6 +116,17 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.IsManualFaceTaggingActive):
                 DispatcherQueue.TryEnqueue(UpdateAddPeopleTagsButtonState);
                 break;
+        }
+    }
+
+    private void OnAutoTagReviewPropertyChanged(
+        object? sender,
+        System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(AutoTagReviewViewModel.IsBusy) or
+            nameof(AutoTagReviewViewModel.IsApplying))
+        {
+            DispatcherQueue.TryEnqueue(UpdateSuggestTagsButtonState);
         }
     }
 
@@ -95,6 +149,10 @@ public sealed partial class MetadataPanel : UserControl
     {
         if (ViewModel is null || !ViewModel.HasImage)
         {
+            SuggestTagsButton.IsEnabled = false;
+            CopyFileNameButton.IsEnabled = false;
+            CopyFolderPathButton.IsEnabled = false;
+            CopyFullPathButton.IsEnabled = false;
             EmptyContent.Visibility = Visibility.Visible;
             DetailContent.Visibility = Visibility.Collapsed;
             return;
@@ -102,6 +160,7 @@ public sealed partial class MetadataPanel : UserControl
 
         EmptyContent.Visibility = Visibility.Collapsed;
         DetailContent.Visibility = Visibility.Visible;
+        UpdateSuggestTagsButtonState();
 
         // Multi-select banner
         bool multi = ViewModel.IsMultiSelect;
@@ -136,19 +195,26 @@ public sealed partial class MetadataPanel : UserControl
         // Date taken — compact text editor
         RefreshDateDisplay();
 
-        // Geotag
-        if (!string.IsNullOrEmpty(ViewModel.GpsLatitude) && ViewModel.GpsLatitude != "Multiple values")
-            GeotagText.Text = $"{ViewModel.GpsLatitude}, {ViewModel.GpsLongitude}";
-        else if (ViewModel.GpsLatitude == "Multiple values")
-            GeotagText.Text = "Multiple geotags";
-        else
-            GeotagText.Text = "Add geotag";
+        var geotagSelectionPaths = ViewModel.SelectedFilePaths.ToArray();
+        var sameGeotagSelection = _geotagSelectionPaths.SequenceEqual(
+            geotagSelectionPaths, StringComparer.OrdinalIgnoreCase);
+        if (!sameGeotagSelection ||
+            (GeotagCoordinatesBox.FocusState == FocusState.Unfocused && !_isSavingGeotag))
+        {
+            _geotagSaveTimer?.Stop();
+            _suppressGeotagTextChanged = true;
+            GeotagCoordinatesBox.Text = ViewModel.GpsCoordinates;
+            _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
+            _suppressGeotagTextChanged = false;
+        }
+        _geotagSelectionPaths = geotagSelectionPaths;
+        GeotagCoordinatesBox.IsEnabled = ViewModel.CanEditGeotag;
 
         // Information section
         InfoFileName.Text = ViewModel.FileName;
         InfoFolder.Text = !string.IsNullOrEmpty(ViewModel.FolderPath) ? ViewModel.FolderPath : "—";
         InfoFileSize.Text = ViewModel.FileSize;
-        InfoDimensions.Text = !string.IsNullOrEmpty(ViewModel.Dimensions) ? ViewModel.Dimensions : "—";
+        ColorLabelButton.Content = ViewModel.ColorLabelDisplay;
         InfoCamera.Text = !string.IsNullOrEmpty(ViewModel.Camera) ? ViewModel.Camera : "—";
         InfoAuthor.Text = !string.IsNullOrEmpty(ViewModel.Author) ? ViewModel.Author : "Add an author";
         InfoExposure.Text = ViewModel.Exposure;
@@ -157,7 +223,11 @@ public sealed partial class MetadataPanel : UserControl
         InfoIso.Text = ViewModel.Iso;
         InfoLatitude.Text = ViewModel.GpsLatitude;
         InfoLongitude.Text = ViewModel.GpsLongitude;
+        InfoPlaceName.Text = ViewModel.PlaceName;
         InfoFilePath.Text = ViewModel.FilePath;
+        CopyFileNameButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FileName);
+        CopyFolderPathButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FolderPath);
+        CopyFullPathButton.IsEnabled = !multi && !string.IsNullOrWhiteSpace(ViewModel.FilePath);
         AddPeopleTagsButton.Visibility = ViewModel.IsMultiSelect
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -170,10 +240,230 @@ public sealed partial class MetadataPanel : UserControl
         InfoIsoRow.Visibility = string.IsNullOrEmpty(ViewModel.Iso) ? Visibility.Collapsed : Visibility.Visible;
         InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
         InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
-        InfoDimensionsRow.Visibility = string.IsNullOrEmpty(ViewModel.Dimensions) ? Visibility.Collapsed : Visibility.Visible;
+        InfoPlaceNameRow.Visibility = string.IsNullOrEmpty(ViewModel.PlaceName)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        UpdateVideoDetailsDisplay();
 
         UpdateStars();
         UpdateFlag();
+    }
+
+    private void UpdateVideoDetailsDisplay()
+    {
+        if (ViewModel is null) return;
+
+        InfoDimensions.Text = !string.IsNullOrEmpty(ViewModel.Dimensions) ? ViewModel.Dimensions : "—";
+        InfoDimensionsRow.Visibility = string.IsNullOrEmpty(ViewModel.Dimensions) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoTitle.Text = ViewModel.VideoTitle;
+        InfoVideoTitleRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoTitle) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoDuration.Text = ViewModel.VideoDuration;
+        InfoVideoDurationRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoDuration) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoBitrate.Text = ViewModel.VideoBitrate;
+        InfoVideoBitrateRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoBitrate) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoFrameRate.Text = ViewModel.VideoFrameRate;
+        InfoVideoFrameRateRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoFrameRate) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoCodec.Text = ViewModel.VideoCodec;
+        InfoVideoCodecRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoCodec) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoAlbum.Text = ViewModel.VideoAlbum;
+        InfoVideoAlbumRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoAlbum) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoYear.Text = ViewModel.VideoYear;
+        InfoVideoYearRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoYear) ? Visibility.Collapsed : Visibility.Visible;
+        InfoVideoDateEncoded.Text = ViewModel.VideoDateEncoded;
+        InfoVideoDateEncodedRow.Visibility = string.IsNullOrEmpty(ViewModel.VideoDateEncoded) ? Visibility.Collapsed : Visibility.Visible;
+        InfoAuthor.Text = !string.IsNullOrEmpty(ViewModel.Author) ? ViewModel.Author : "Add an author";
+        InfoCamera.Text = !string.IsNullOrEmpty(ViewModel.Camera) ? ViewModel.Camera : "—";
+        InfoCameraRow.Visibility = string.IsNullOrEmpty(ViewModel.Camera) ? Visibility.Collapsed : Visibility.Visible;
+        InfoLatitude.Text = ViewModel.GpsLatitude;
+        InfoLongitude.Text = ViewModel.GpsLongitude;
+        UpdateMapLinks();
+        InfoPlaceName.Text = ViewModel.PlaceName;
+        InfoLatRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLatitude) ? Visibility.Collapsed : Visibility.Visible;
+        InfoLonRow.Visibility = string.IsNullOrEmpty(ViewModel.GpsLongitude) ? Visibility.Collapsed : Visibility.Visible;
+        InfoPlaceNameRow.Visibility = string.IsNullOrEmpty(ViewModel.PlaceName)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        VideoMetadataErrorBar.Message = ViewModel.VideoMetadataError;
+        VideoMetadataErrorBar.IsOpen = !string.IsNullOrEmpty(ViewModel.VideoMetadataError);
+    }
+
+    private void UpdateMapLinks()
+    {
+        var canOpen = ViewModel is not null &&
+            ViewModel.TryGetMapCoordinates(out var latitude, out var longitude) &&
+            MapLinkService.TryCreateUri(App.ViewModel.Settings.MapProvider, latitude, longitude, out _);
+        InfoLatitudeLink.Content = ViewModel?.GpsLatitude;
+        InfoLongitudeLink.Content = ViewModel?.GpsLongitude;
+        GeotagMapLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
+        InfoLatitudeLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
+        InfoLongitudeLink.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
+        InfoLatitude.Visibility = canOpen ? Visibility.Collapsed : Visibility.Visible;
+        InfoLongitude.Visibility = canOpen ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private async void OnMapCoordinatesClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { HasImage: true } viewModel ||
+            !viewModel.TryGetMapCoordinates(out var latitude, out var longitude) ||
+            !MapLinkService.TryCreateUri(App.ViewModel.Settings.MapProvider, latitude, longitude, out var uri))
+            return;
+
+        try
+        {
+            if (!await Windows.System.Launcher.LaunchUriAsync(uri!))
+                App.ViewModel.StatusText = MapStrings.Get("MapLaunchFailed");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException or
+                                   System.Runtime.InteropServices.COMException)
+        {
+            PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"[MAP] Could not open map: {ex.Message}");
+            App.ViewModel.StatusText = MapStrings.Format("MapLaunchError", ex.Message);
+        }
+    }
+
+    private void OnCopyFileNameClick(object sender, RoutedEventArgs e) =>
+        CopyDetail(ViewModel?.FileName, "filename");
+
+    private void OnCopyFolderPathClick(object sender, RoutedEventArgs e) =>
+        CopyDetail(ViewModel?.FolderPath, "folder path");
+
+    private void OnCopyFullPathClick(object sender, RoutedEventArgs e) =>
+        CopyDetail(ViewModel?.FilePath, "full path");
+
+    private void CopyDetail(string? value, string description)
+    {
+        if (ViewModel is not { HasImage: true, IsMultiSelect: false })
+            value = null;
+
+        App.ViewModel.StatusText = PhotoClipboardService.CopyText(value, description);
+    }
+
+    private void OnGeotagCoordinatesTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressGeotagTextChanged || ViewModel is not { CanEditGeotag: true })
+            return;
+
+        _geotagSaveTimer?.Stop();
+        _geotagSaveTimer?.Start();
+    }
+
+    private void OnGeotagSaveTimerTick(DispatcherQueueTimer sender, object args) =>
+        _ = SaveGeotagCoordinatesAsync(showInvalidInput: false);
+
+    private void OnGeotagCoordinatesLostFocus(object sender, RoutedEventArgs e)
+    {
+        _geotagSaveTimer?.Stop();
+        if (GeotagCoordinatesBox.Text == _lastLoadedGeotagCoordinates &&
+            ViewModel is { } viewModel)
+        {
+            _suppressGeotagTextChanged = true;
+            GeotagCoordinatesBox.Text = viewModel.GpsCoordinates;
+            _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
+            _suppressGeotagTextChanged = false;
+        }
+        _ = SaveGeotagCoordinatesAsync(showInvalidInput: true);
+    }
+
+    private async Task SaveGeotagCoordinatesAsync(bool showInvalidInput)
+    {
+        if (_isSavingGeotag ||
+            ViewModel is not { HasImage: true, CanEditGeotag: true } viewModel ||
+            GeotagCoordinatesBox.Text == _lastLoadedGeotagCoordinates)
+            return;
+
+        var coordinateParts = GeotagCoordinatesBox.Text.Split(',');
+        if (coordinateParts.Length != 2 ||
+            !double.TryParse(
+                coordinateParts[0].Trim(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var latitude) ||
+            !double.TryParse(
+                coordinateParts[1].Trim(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var longitude))
+        {
+            if (showInvalidInput)
+                App.ViewModel.StatusText = "Enter coordinates as latitude, longitude.";
+            return;
+        }
+
+        GeoCoordinate coordinate;
+        try
+        {
+            coordinate = new GeoCoordinate(latitude, longitude);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            if (showInvalidInput)
+                App.ViewModel.StatusText = exception.Message;
+            return;
+        }
+
+        var submittedText = GeotagCoordinatesBox.Text;
+        var submittedPaths = viewModel.SelectedFilePaths.ToArray();
+        var saveSucceeded = false;
+        var selectionStillMatches = false;
+        _isSavingGeotag = true;
+        try
+        {
+            var result = await viewModel.SetGeotagAsync(coordinate);
+            selectionStillMatches = viewModel.SelectedFilePaths.SequenceEqual(
+                submittedPaths,
+                StringComparer.OrdinalIgnoreCase);
+            saveSucceeded = result.Failures.Count == 0;
+            App.ViewModel.StatusText = saveSucceeded
+                ? $"Saved geotag for {result.AppliedCount} photo(s)."
+                : $"Updated GPS coordinates for {result.AppliedCount} of {result.TotalCount} photo(s); {result.Failures.Count} item(s) need attention.";
+
+            if (saveSucceeded && selectionStillMatches &&
+                GeotagCoordinatesBox.Text == submittedText)
+            {
+                _lastLoadedGeotagCoordinates = submittedText;
+                if (GeotagCoordinatesBox.FocusState == FocusState.Unfocused)
+                {
+                    _suppressGeotagTextChanged = true;
+                    GeotagCoordinatesBox.Text = viewModel.GpsCoordinates;
+                    _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
+                    _suppressGeotagTextChanged = false;
+                }
+            }
+
+            if (result.Failures.Count > 0)
+            {
+                var failures = new ScrollViewer
+                {
+                    MaxHeight = 320,
+                    Content = new TextBlock
+                    {
+                        Text = string.Join(Environment.NewLine, result.Failures),
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                };
+                var failureDialog = new ContentDialog
+                {
+                    XamlRoot = XamlRoot,
+                    Title = "Some geotags need attention",
+                    Content = failures,
+                    CloseButtonText = "Close"
+                };
+                await failureDialog.ShowAsync();
+            }
+        }
+        catch (Exception exception)
+        {
+            App.ViewModel.StatusText = $"Could not finish the geotag update: {exception.Message}";
+        }
+        finally
+        {
+            _isSavingGeotag = false;
+            if (saveSucceeded && selectionStillMatches &&
+                GeotagCoordinatesBox.Text != submittedText)
+            {
+                _geotagSaveTimer?.Start();
+            }
+        }
     }
 
     private void OnAddPeopleTagsClick(object sender, RoutedEventArgs e) =>
@@ -272,16 +562,25 @@ public sealed partial class MetadataPanel : UserControl
             ViewModel.SetRatingCommand.Execute(star);
     }
 
+    private async void OnColorLabelClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null || sender is not MenuFlyoutItem { Tag: string label }) return;
+        await ViewModel.SetColorLabelAsync(label.Length == 0 ? null : label);
+    }
+
     // --- Caption ---
 
-    private void OnCaptionLostFocus(object sender, RoutedEventArgs e)
+    private async void OnCaptionLostFocus(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null || _suppressCaptionSave) return;
         if (CaptionBox.Text == _lastLoadedCaption) return;
         ViewModel.Caption = CaptionBox.Text;
-        ViewModel.SaveCaptionCommand.Execute(null);
-        _lastLoadedCaption = CaptionBox.Text;
-        CaptionMixedHint.Visibility = Visibility.Collapsed;
+        var caption = CaptionBox.Text;
+        if (await ViewModel.SaveCaptionAsync())
+        {
+            _lastLoadedCaption = caption;
+            CaptionMixedHint.Visibility = Visibility.Collapsed;
+        }
     }
 
     // --- Tags ---
@@ -314,6 +613,33 @@ public sealed partial class MetadataPanel : UserControl
             ViewModel.RemoveTagCommand.Execute(tag);
     }
 
+    private async void OnSuggestTagsClick(object sender, RoutedEventArgs e)
+    {
+        var grid = App.ViewModel.ImageGrid;
+        var selectedImages = grid.SelectedImages.Count > 0
+            ? grid.SelectedImages
+                .Where(image => image.Entry.MediaType == MediaType.Image)
+                .Select(image => image.Entry)
+                .ToArray()
+            : grid.SelectedImage is { Entry.MediaType: MediaType.Image } selected
+                ? [selected.Entry]
+                : [];
+        await App.ViewModel.AutoTagReview.OpenForImagesAsync(selectedImages);
+    }
+
+    private void UpdateSuggestTagsButtonState()
+    {
+        if (ViewModel is null)
+            return;
+
+        var review = App.ViewModel.AutoTagReview;
+        SuggestTagsButton.IsEnabled =
+            ViewModel.HasImage &&
+            ViewModel.MediaType != "Video" &&
+            !review.IsBusy &&
+            !review.IsApplying;
+    }
+
     // --- Date taken: compact text editor ---
 
     /// <summary>
@@ -324,6 +650,9 @@ public sealed partial class MetadataPanel : UserControl
     private void RefreshDateDisplay()
     {
         if (ViewModel is null) return;
+        if (DateTakenBox.FocusState != FocusState.Unfocused &&
+            !string.Equals(DateTakenBox.Text, _lastLoadedDateText, StringComparison.Ordinal))
+            return;
 
         _suppressDateBoxLostFocus = true;
         if (ViewModel.IsDateMixed)
@@ -404,7 +733,7 @@ public sealed partial class MetadataPanel : UserControl
         }
 
         DateParseError.Visibility = Visibility.Collapsed;
-        await ViewModel.SetDateTakenAsync(parsed);
+        if (!await ViewModel.SetDateTakenAsync(parsed)) return;
         _lastLoadedDateText = parsed.ToString("M/d/yyyy h:mm tt", CultureInfo.CurrentCulture);
         // Re-format the box to canonical form
         _suppressDateBoxLostFocus = true;
@@ -429,7 +758,7 @@ public sealed partial class MetadataPanel : UserControl
         var combined = new DateTime(date.Year, date.Month, date.Day,
                                     time.Hours, time.Minutes, time.Seconds,
                                     DateTimeKind.Local);
-        await ViewModel.SetDateTakenAsync(combined);
+        if (!await ViewModel.SetDateTakenAsync(combined)) return;
         // Close the flyout
         DatePickerBtn.Flyout?.Hide();
     }
@@ -443,7 +772,7 @@ public sealed partial class MetadataPanel : UserControl
         ApplyShiftButton.IsEnabled = false;
         try
         {
-            await ViewModel.OffsetDateTakenAsync(offset);
+            if (!await ViewModel.OffsetDateTakenAsync(offset)) return;
         }
         finally
         {

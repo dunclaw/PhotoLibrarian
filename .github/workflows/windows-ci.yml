@@ -24,6 +24,27 @@ defaults:
     shell: pwsh
 
 jobs:
+  model-research-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test dataset audits and Open Images preparation
+        run: python -m unittest discover -s tools\PhotoLibrarian.ModelTraining -p "test_*.py" -v
+      - name: Test isolated pilot evaluation tools (no model or GPU required)
+        shell: pwsh
+        run: |
+          $venv = Join-Path $env:RUNNER_TEMP 'pilot-evaluation'
+          python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $python = Join-Path $venv 'Scripts\python.exe'
+          & $python -m pip install -r tools\PhotoLibrarian.ModelTraining\requirements-evaluation.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -m unittest discover -s tools\PhotoLibrarian.ModelTraining -p "test_*.py" -v
+
   version:
     runs-on: windows-latest
     outputs:
@@ -59,12 +80,15 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
+      - uses: microsoft/setup-msbuild@v2
       - name: Build application and test projects
-        run: dotnet build src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64
+        run: msbuild PhotoLibrarian.slnx /restore /m /p:Configuration=Release /p:Platform=x64
+      - name: Verify native source and toolchain contracts
+        run: .\tools\Test-RawDecoderBuildContract.ps1
       - name: Run xUnit tests
         run: |
           New-Item artifacts\test-results -ItemType Directory -Force | Out-Null
-          dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 --no-build -- -result-xml artifacts\test-results\tests.xml
+          dotnet run --project src\PhotoLibrarian.Tests\PhotoLibrarian.Tests.csproj -c Release -p:Platform=x64 --no-build -- -longRunning 60 -result-xml artifacts\test-results\tests.xml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload test results
         if: always()

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Models;
 using System.Globalization;
@@ -7,7 +8,7 @@ namespace PhotoLibrarian.Core.Data;
 /// <summary>
 /// Repository for image CRUD operations against the SQLite cache.
 /// </summary>
-public sealed class ImageRepository
+public sealed partial class ImageRepository
 {
     private readonly CacheDatabase _db;
 
@@ -24,11 +25,15 @@ public sealed class ImageRepository
             INSERT INTO images (file_path, file_name, file_hash, file_size, width, height,
                                 date_taken, date_modified, camera_make, camera_model, lens_model,
                                 focal_length, aperture, exposure_time, iso, gps_latitude, gps_longitude,
-                                rating, orientation, media_type, video_duration, is_flagged)
+                                place_name, rating, color_label, orientation, media_type, video_duration, is_flagged, caption, title,
+                                search_metadata_indexed, source_identity, metadata_stamp, metadata_hash)
             VALUES ($path, $name, $hash, $size, $w, $h, $taken, $modified,
                     $make, $model, $lens, $focal, $aperture, $exposure, $iso,
-                    $lat, $lon, $rating, $orient, $mediatype, $duration, $flagged)
+                    $lat, $lon, $place, $rating, $colorLabel, $orient, $mediatype, $duration, $flagged, $caption, $title,
+                    1, $sourceIdentity, $metadataStamp, $metadataHash)
             ON CONFLICT(file_path) DO UPDATE SET
+                file_name=excluded.file_name, caption=excluded.caption, title=excluded.title,
+                search_metadata_indexed=1,
                 file_hash=excluded.file_hash, file_size=excluded.file_size,
                 width=excluded.width, height=excluded.height,
                 date_taken=excluded.date_taken, date_modified=excluded.date_modified,
@@ -36,18 +41,25 @@ public sealed class ImageRepository
                 lens_model=excluded.lens_model, focal_length=excluded.focal_length,
                 aperture=excluded.aperture, exposure_time=excluded.exposure_time,
                 iso=excluded.iso, gps_latitude=excluded.gps_latitude,
-                gps_longitude=excluded.gps_longitude, rating=excluded.rating,
+                gps_longitude=excluded.gps_longitude, place_name=excluded.place_name, rating=excluded.rating,
+                color_label=excluded.color_label,
                 orientation=excluded.orientation, media_type=excluded.media_type,
                 video_duration=excluded.video_duration,
+                source_identity=excluded.source_identity,
+                metadata_stamp=excluded.metadata_stamp, metadata_hash=excluded.metadata_hash,
                 face_scan_version=CASE
-                    WHEN images.file_size <> excluded.file_size
-                      OR images.date_modified <> excluded.date_modified
+                    WHEN (excluded.source_identity IS NOT NULL AND
+                          images.source_identity IS NOT excluded.source_identity)
+                      OR (excluded.source_identity IS NULL AND
+                          (images.file_size <> excluded.file_size OR images.date_modified <> excluded.date_modified))
                     THEN NULL
                     ELSE images.face_scan_version
                 END,
                 auto_tag_scan_version=CASE
-                    WHEN images.file_size <> excluded.file_size
-                      OR images.date_modified <> excluded.date_modified
+                    WHEN (excluded.source_identity IS NOT NULL AND
+                          images.source_identity IS NOT excluded.source_identity)
+                      OR (excluded.source_identity IS NULL AND
+                          (images.file_size <> excluded.file_size OR images.date_modified <> excluded.date_modified))
                     THEN NULL
                     ELSE images.auto_tag_scan_version
                 END
@@ -59,6 +71,9 @@ public sealed class ImageRepository
         cmd.Parameters.AddWithValue("$path", image.FilePath);
         cmd.Parameters.AddWithValue("$name", image.FileName);
         cmd.Parameters.AddWithValue("$hash", (object?)image.FileHash ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$sourceIdentity", (object?)image.SourceIdentity ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$metadataStamp", (object?)image.MetadataStamp ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$metadataHash", (object?)image.MetadataHash ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$size", image.FileSize);
         cmd.Parameters.AddWithValue("$w", image.Width);
         cmd.Parameters.AddWithValue("$h", image.Height);
@@ -73,11 +88,15 @@ public sealed class ImageRepository
         cmd.Parameters.AddWithValue("$iso", (object?)image.Iso ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lat", (object?)image.GpsLatitude ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$lon", (object?)image.GpsLongitude ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$place", (object?)image.PlaceName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$rating", (object?)image.Rating ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$colorLabel", (object?)image.ColorLabel ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$orient", image.Orientation);
         cmd.Parameters.AddWithValue("$mediatype", (int)image.MediaType);
         cmd.Parameters.AddWithValue("$duration", (object?)image.VideoDuration ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$flagged", image.IsFlagged ? 1 : 0);
+        cmd.Parameters.AddWithValue("$caption", (object?)image.Caption ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$title", (object?)image.Title ?? DBNull.Value);
 
         var result = await cmd.ExecuteScalarAsync();
         return (long)result!;
@@ -96,22 +115,54 @@ public sealed class ImageRepository
         return ReadImageEntry(reader);
     }
 
-    public async Task<List<ImageEntry>> GetAllAsync(string? orderBy = "date_taken", bool descending = true)
+    public async Task<List<ImageEntry>> GetAllAsync(
+        string? orderBy = "date_taken",
+        bool descending = true,
+        CancellationToken cancellationToken = default,
+        bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
         var dir = descending ? "DESC" : "ASC";
         var validColumns = new HashSet<string> { "date_taken", "file_name", "date_modified", "rating", "file_size" };
         var col = validColumns.Contains(orderBy ?? "") ? orderBy : "date_taken";
-        cmd.CommandText = $"SELECT * FROM images ORDER BY {col} {dir}";
+        var table = watchedOnly ? "watched_images" : "images";
+        cmd.CommandText = $"SELECT * FROM {table} ORDER BY {col} {dir}";
 
         var results = new List<ImageEntry>();
-        using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
         {
             results.Add(ReadImageEntry(reader));
         }
         return results;
+    }
+
+    public async Task<List<ImageEntry>> GetNearbyBurstAsync(ImageEntry basis,
+        TimeSpan timeRadius, CancellationToken token = default)
+    {
+        if (timeRadius <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(timeRadius));
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // No LIMIT: stream all indexed stills in the time window, including filtered-out photos.
+        // Without capture time, restrict the fallback to the same folder and file modification time.
+        string column = basis.DateTaken.HasValue ? "date_taken" : "date_modified";
+        DateTime time = basis.DateTaken ?? basis.DateModified;
+        cmd.CommandText = $"SELECT * FROM images WHERE id != $id AND media_type = 0 " +
+            $"AND {column} >= $start AND {column} <= $end ORDER BY {column}";
+        cmd.Parameters.AddWithValue("$id", basis.Id);
+        cmd.Parameters.AddWithValue("$start", time.Subtract(timeRadius).ToString("O"));
+        cmd.Parameters.AddWithValue("$end", time.Add(timeRadius).ToString("O"));
+        var results = new List<ImageEntry>();
+        using var reader = await cmd.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token))
+        {
+            var image = ReadImageEntry(reader);
+            if (basis.DateTaken.HasValue || string.Equals(Path.GetDirectoryName(image.FilePath),
+                Path.GetDirectoryName(basis.FilePath), StringComparison.OrdinalIgnoreCase))
+                results.Add(image);
+        }
+        return results.OrderBy(image => Math.Abs(((image.DateTaken ?? image.DateModified) - time).Ticks)).ToList();
     }
 
     public async Task<List<ImageEntry>> GetFilteredAsync(
@@ -140,9 +191,7 @@ public sealed class ImageRepository
             else
             {
                 // Show images that have any of the selected tags (OR logic)
-                // Because we store all parent paths, we can use simple equality (uses index!)
-                // Example: Selecting "people/family" will match images with that exact tag entry,
-                // which was inserted for images tagged with "people/family/kids" and its parents
+                // Match derived ancestors without treating them as portable keywords.
                 var conditions = new List<string>();
                 for (int i = 0; i < tagFilters!.Count; i++)
                 {
@@ -153,7 +202,7 @@ public sealed class ImageRepository
                 var whereClause = string.Join(" OR ", conditions);
                 cmd.CommandText = $@"
                     SELECT DISTINCT i.* FROM images i
-                    INNER JOIN tags t ON i.id = t.image_id
+                    INNER JOIN tag_hierarchy t ON i.id = t.image_id
                     WHERE {whereClause}
                     ORDER BY i.{col} {dir}";
             }
@@ -173,11 +222,13 @@ public sealed class ImageRepository
         return results;
     }
 
-    public async Task<int> GetCountAsync()
+    public async Task<int> GetCountAsync(bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM images";
+        cmd.CommandText = watchedOnly
+            ? "SELECT COUNT(*) FROM watched_images"
+            : "SELECT COUNT(*) FROM images";
         var result = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(result);
     }
@@ -191,28 +242,71 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task<int> DeleteMissingInDirectoryAsync(string directoryPath)
+    public async Task<bool> TryRelocateAsync(
+        long imageId,
+        string newFilePath,
+        long fileSize,
+        DateTime lastWriteTimeUtc,
+        string? sidecarPath,
+        long? sidecarSize,
+        DateTime? sidecarModifiedUtc,
+        CancellationToken cancellationToken = default)
     {
-        var prefix = Path.TrimEndingDirectorySeparator(directoryPath) + Path.DirectorySeparatorChar;
         using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
-            SELECT file_path FROM images
-            WHERE substr(file_path, 1, length($prefix)) = $prefix COLLATE NOCASE
+            UPDATE images
+            SET file_path = $path,
+                file_name = $name,
+                file_size = $size,
+                date_modified = $modified,
+                face_sidecar_path = $sidecar_path,
+                face_sidecar_size = $sidecar_size,
+                face_sidecar_modified = $sidecar_modified
+            WHERE id = $id
+              AND NOT EXISTS (
+                  SELECT 1 FROM images WHERE file_path = $path
+              )
+            RETURNING id
             """;
-        cmd.Parameters.AddWithValue("$prefix", prefix);
-        var missing = new List<string>();
-        using (var reader = await cmd.ExecuteReaderAsync())
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$path", newFilePath);
+        cmd.Parameters.AddWithValue("$name", Path.GetFileName(newFilePath));
+        cmd.Parameters.AddWithValue("$size", fileSize);
+        cmd.Parameters.AddWithValue("$modified", lastWriteTimeUtc.ToString("O"));
+        cmd.Parameters.AddWithValue(
+            "$sidecar_path",
+            (object?)sidecarPath ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(
+            "$sidecar_size",
+            (object?)sidecarSize ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(
+            "$sidecar_modified",
+            (object?)sidecarModifiedUtc?.ToString("O") ?? DBNull.Value);
+
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        if (result is null)
         {
-            while (await reader.ReadAsync())
-            {
-                var path = reader.GetString(0);
-                if (!File.Exists(path)) missing.Add(path);
-            }
+            transaction.Rollback();
+            return false;
         }
-        foreach (var path in missing)
-            await DeleteByPathAsync(path);
-        return missing.Count;
+
+        using var hashCommand = conn.CreateCommand();
+        hashCommand.Transaction = transaction;
+        hashCommand.CommandText = """
+            UPDATE duplicate_hash_cache
+            SET file_size = $size, modified_ticks = $ticks
+            WHERE image_id = $id
+            """;
+        hashCommand.Parameters.AddWithValue("$id", imageId);
+        hashCommand.Parameters.AddWithValue("$size", fileSize);
+        hashCommand.Parameters.AddWithValue("$ticks", lastWriteTimeUtc.Ticks);
+        await hashCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     public async Task UpdateRatingAsync(long imageId, int? rating)
@@ -237,13 +331,29 @@ public sealed class ImageRepository
     }
 
     /// <summary>Number of images currently flagged — drives the "Flagged" node's count.</summary>
-    public async Task<int> GetFlaggedCountAsync()
+    public async Task<int> GetFlaggedCountAsync(bool watchedOnly = false)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM images WHERE is_flagged = 1";
+        cmd.CommandText = watchedOnly
+            ? "SELECT COUNT(*) FROM watched_images WHERE is_flagged = 1"
+            : "SELECT COUNT(*) FROM images WHERE is_flagged = 1";
         var result = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(result);
+    }
+
+    public async Task<Dictionary<string, int>> GetColorLabelCountsAsync(bool watchedOnly = false)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = watchedOnly
+            ? "SELECT color_label, COUNT(*) FROM watched_images WHERE color_label IS NOT NULL GROUP BY color_label COLLATE NOCASE"
+            : "SELECT color_label, COUNT(*) FROM images WHERE color_label IS NOT NULL GROUP BY color_label COLLATE NOCASE";
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            counts[reader.GetString(0)] = reader.GetInt32(1);
+        return counts;
     }
 
     public async Task UpdateDateTakenAsync(long imageId, DateTime? dateTaken)
@@ -254,6 +364,52 @@ public sealed class ImageRepository
         cmd.Parameters.AddWithValue("$id", imageId);
         cmd.Parameters.AddWithValue("$taken", (object?)dateTaken?.ToString("O") ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateGpsCoordinatesAsync(
+        long imageId,
+        double latitude,
+        double longitude,
+        long fileSize,
+        DateTime dateModified)
+    {
+        using var conn = _db.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = """
+                UPDATE images
+                SET gps_latitude = $latitude,
+                    gps_longitude = $longitude,
+                    file_size = $size,
+                    date_modified = $modified
+                WHERE id = $id
+                """;
+            cmd.Parameters.AddWithValue("$id", imageId);
+            cmd.Parameters.AddWithValue("$latitude", latitude);
+            cmd.Parameters.AddWithValue("$longitude", longitude);
+            cmd.Parameters.AddWithValue("$size", fileSize);
+            cmd.Parameters.AddWithValue("$modified", dateModified.ToString("O"));
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = """
+                UPDATE duplicate_hash_cache
+                SET file_size = $size, modified_ticks = $ticks
+                WHERE image_id = $id
+                """;
+            cmd.Parameters.AddWithValue("$id", imageId);
+            cmd.Parameters.AddWithValue("$size", fileSize);
+            cmd.Parameters.AddWithValue("$ticks", dateModified.ToUniversalTime().Ticks);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
     }
 
     public async Task UpdateOrientationAsync(long imageId, int orientation)
@@ -296,14 +452,36 @@ public sealed class ImageRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdatePathAsync(long imageId, string newPath)
+    public async Task UpdatePathAsync(long imageId, string newPath, string? sidecarPath)
     {
         using var conn = _db.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE images SET file_path = $path, file_name = $name WHERE id = $id";
+        cmd.CommandText = "UPDATE images SET file_path = $path, file_name = $name, face_sidecar_path = $sidecar WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", imageId);
         cmd.Parameters.AddWithValue("$path", newPath);
         cmd.Parameters.AddWithValue("$name", System.IO.Path.GetFileName(newPath));
+        cmd.Parameters.AddWithValue("$sidecar", (object?)sidecarPath ?? DBNull.Value);
+        if (await cmd.ExecuteNonQueryAsync() != 1)
+            throw new InvalidOperationException("The photo is no longer in the library.");
+    }
+
+    public async Task UpdateCaptionAsync(long imageId, string? caption)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET caption = $caption WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$caption", (object?)caption ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdatePlaceNameAsync(long imageId, string placeName)
+    {
+        using var conn = _db.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE images SET place_name = $place WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", imageId);
+        cmd.Parameters.AddWithValue("$place", placeName);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -314,8 +492,14 @@ public sealed class ImageRepository
             Id = reader.GetInt64(reader.GetOrdinal("id")),
             FilePath = reader.GetString(reader.GetOrdinal("file_path")),
             FileName = reader.GetString(reader.GetOrdinal("file_name")),
+            Caption = ReadNullableString(reader, "caption"),
+            Title = ReadNullableString(reader, "title"),
+            SearchMetadataIndexed = ReadBoolean(reader, "search_metadata_indexed"),
             FileHash = reader.IsDBNull(reader.GetOrdinal("file_hash")) ? null : reader.GetString(reader.GetOrdinal("file_hash")),
             FileSize = reader.GetInt64(reader.GetOrdinal("file_size")),
+            SourceIdentity = ReadNullableString(reader, "source_identity"),
+            MetadataStamp = ReadNullableString(reader, "metadata_stamp"),
+            MetadataHash = ReadNullableString(reader, "metadata_hash"),
             Width = reader.GetInt32(reader.GetOrdinal("width")),
             Height = reader.GetInt32(reader.GetOrdinal("height")),
             DateTaken = reader.IsDBNull(reader.GetOrdinal("date_taken"))
@@ -343,7 +527,9 @@ public sealed class ImageRepository
             Iso = reader.IsDBNull(reader.GetOrdinal("iso")) ? null : reader.GetInt32(reader.GetOrdinal("iso")),
             GpsLatitude = reader.IsDBNull(reader.GetOrdinal("gps_latitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_latitude")),
             GpsLongitude = reader.IsDBNull(reader.GetOrdinal("gps_longitude")) ? null : reader.GetDouble(reader.GetOrdinal("gps_longitude")),
+            PlaceName = ReadNullableString(reader, "place_name"),
             Rating = reader.IsDBNull(reader.GetOrdinal("rating")) ? null : reader.GetInt32(reader.GetOrdinal("rating")),
+            ColorLabel = ReadNullableString(reader, "color_label"),
             Orientation = reader.GetInt32(reader.GetOrdinal("orientation")),
             MediaType = (MediaType)reader.GetInt32(reader.GetOrdinal("media_type")),
             VideoDuration = reader.IsDBNull(reader.GetOrdinal("video_duration")) ? null : reader.GetDouble(reader.GetOrdinal("video_duration")),

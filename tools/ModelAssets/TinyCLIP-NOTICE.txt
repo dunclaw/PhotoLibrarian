@@ -1,0 +1,16 @@
+PhotoLibrarian TinyCLIP distribution
+
+TinyCLIP weights: wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M,
+revision 95ec8197b3f2fe7f747865c61ca556cf0768b2f7.
+Quantized ONNX source: onnx-community/TinyCLIP-ViT-40M-32-Text-19M-LAION400M-ONNX,
+revision 737108a175dc6c043d9e64cf738baa91a272f7cb.
+Upstream MIT license and third-party attributions are retained in LICENSE.
+
+PhotoLibrarian extracts the vision-only pixel_values -> image_embeds graph
+and recenters constant ConvInteger weights/zero points from signed INT8 to
+UINT8 for CPU compatibility using an exact integer identity. Text embeddings
+are generated from the pinned text graph and tokenizer for the unchanged
+3,632-concept general-v2 vocabulary, using the prompt "a photo of {label}".
+No training, fine-tuning or new calibration is performed for this release.
+The app's existing cosine cutoffs, hierarchy, CPU-only execution and explicit
+user trust requirements are unchanged. Photos and predictions remain local.

@@ -41,12 +41,15 @@ if (-not (Test-Path $makePri)) {
 
 New-Item $packageDirectory -ItemType Directory -Force | Out-Null
 $runtime = "win-$($Architecture.ToLowerInvariant())"
-dotnet publish (Join-Path $repoRoot 'src\PhotoLibrarian\PhotoLibrarian.csproj') `
-    --configuration Release --runtime $runtime --self-contained true `
-    "-p:Platform=$Architecture" -p:WindowsPackageType=MSIX -p:EnableMsixTooling=false `
-    -p:PublishTrimmed=false -p:PublishReadyToRun=false --output $layout
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$msbuild = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'MSBuild\Current\Bin\MSBuild.exe'
+if ($LASTEXITCODE -ne 0 -or -not $msbuild) { throw 'Install Visual Studio MSBuild and the Desktop development with C++ workload.' }
+& $msbuild (Join-Path $repoRoot 'src\PhotoLibrarian\PhotoLibrarian.csproj') `
+    /restore /t:Publish /m /p:Configuration=Release "/p:RuntimeIdentifier=$runtime" /p:SelfContained=true `
+    "/p:Platform=$Architecture" /p:WindowsPackageType=MSIX /p:EnableMsixTooling=false `
+    /p:PublishTrimmed=false /p:PublishReadyToRun=false "/p:PublishDir=$layout\"
 if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish failed with exit code $LASTEXITCODE."
+    throw "MSBuild publish failed with exit code $LASTEXITCODE."
 }
 
 foreach ($requiredFile in @('PhotoLibrarian.exe', 'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'App.xbf', 'MainWindow.xbf')) {

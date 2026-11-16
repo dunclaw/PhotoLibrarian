@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -5,6 +7,7 @@ using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices.WindowsRuntime;
 
@@ -35,7 +38,8 @@ public enum SortByOption
     DateTaken,      // Chronological by date taken (newest first by default)
     DateModified,   // By file system modified date
     FileSize,       // By file size (largest first by default)
-    Rating          // By rating (highest first)
+    Rating,         // By rating (highest first)
+    Random
 }
 
 /// <summary>
@@ -57,9 +61,11 @@ public partial class ImageGridViewModel : ObservableObject
     private readonly ImageRepository _imageRepo;
     private readonly TagRepository _tagRepo;
     private readonly FaceRepository _faceRepo;
+    private readonly ImageSearchRepository _searchRepo;
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly MainViewModel _main;
+    private readonly GridLayoutSettingsStore? _layoutSettingsStore;
     private List<string>? _currentFolderFilters; // Changed to support multiple folders
     private bool _currentDateRootSelected; // Root "Dates" node selected (show all dated images)
     private List<int>? _currentYearFilters;
@@ -69,10 +75,18 @@ public partial class ImageGridViewModel : ObservableObject
     private bool _currentTagRootSelected; // Root "Tags" node selected (show all tagged images)
     private List<string>? _currentTagFilters;
     private bool _currentFlaggedSelected; // "Flagged" node selected (show flagged working set)
+    private bool _currentNotTaggedSelected;
+    private List<string>? _currentColorLabelFilters;
+    private string _searchText = "";
+    private IReadOnlyList<ImageEntry> _searchScope = [];
+    private int _groupingVersion;
+    private int _gridDataUpdateDepth;
     private string? _currentSortBy = "date_taken";
     private CancellationTokenSource? _loadCts;
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
     private string? _primarySelectedPath;
+    private string? _revealedExportPath;
+    private int _randomSeed = Random.Shared.Next();
     
     // Queue management for viewport-aware loading
     private readonly Queue<ImageThumbnailViewModel> _loadQueue = new();
@@ -81,6 +95,8 @@ public partial class ImageGridViewModel : ObservableObject
     private DateTime _lastScrollReorder = DateTime.MinValue;
     private const int ScrollReorderThrottleMs = 150; // Don't reorder more than every 150ms
     private Task? _backgroundLoadTask;
+    private readonly HashSet<string> _revealedImportedPaths =
+        new(StringComparer.OrdinalIgnoreCase);
     
     // Limit concurrent thumbnail loading to prevent memory exhaustion
     internal static readonly SemaphoreSlim s_thumbnailLoadSemaphore = new(8, 8);
@@ -88,8 +104,28 @@ public partial class ImageGridViewModel : ObservableObject
     public ObservableCollection<ImageThumbnailViewModel> Images { get; } = [];
     public ObservableCollection<PhotoGroup> GroupedImages { get; } = [];
     public ImageRefinementFilter Refinement { get; private set; } = ImageRefinementFilter.Empty;
+    public bool RequiresTagData => Refinement.RequiresTags || _currentNotTaggedSelected;
+    public bool HasTagDependentFilter =>
+        RequiresTagData || _currentTagRootSelected || (_currentTagFilters?.Count > 0);
+    public bool IsUpdatingGridData => _gridDataUpdateDepth > 0;
 
     public event EventHandler? ResultsChanged;
+    public event EventHandler<SelectionRestoreRequestedEventArgs>? SelectionRestoreRequested;
+
+    /// <summary>Keep a newly exported item visible until the user changes the browsing filters.</summary>
+    public void RevealExportedImage(string path) => _revealedExportPath = path;
+
+    public void RevealExportedVideo(string path) => RevealExportedImage(path);
+
+    public void RevealImportedPhotos(IEnumerable<string> paths)
+    {
+        _revealedImportedPaths.Clear();
+        foreach (var path in paths)
+            _revealedImportedPaths.Add(Path.GetFullPath(path));
+    }
+
+    public List<ImageEntry> GetViewerImages() =>
+        DisplayedEntries.ToList();
 
     [ObservableProperty]
     private GroupByOption _groupBy = GroupByOption.None;
@@ -102,17 +138,41 @@ public partial class ImageGridViewModel : ObservableObject
     
     partial void OnGroupByChanged(GroupByOption value)
     {
+        SaveLayoutSettings();
         _ = ApplyGroupingAsync();
     }
     
     partial void OnSortByChanged(SortByOption value)
     {
+        SaveLayoutSettings();
         _ = ApplyGroupingAsync();
     }
     
     partial void OnSortDescendingChanged(bool value)
     {
+        SaveLayoutSettings();
         _ = ApplyGroupingAsync();
+    }
+
+    private void SaveLayoutSettings()
+    {
+        if (_layoutSettingsStore is null)
+            return;
+
+        try
+        {
+            _layoutSettingsStore.Save(new GridLayoutSettings
+            {
+                GroupBy = GroupBy,
+                SortBy = SortBy,
+                SortDescending = SortDescending
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DebugLog.WriteLine($"[GRID LAYOUT] Could not save preferences: {ex.Message}");
+            _main.StatusText = $"Could not save grid layout: {ex.Message}";
+        }
     }
 
     [ObservableProperty]
@@ -134,16 +194,26 @@ public partial class ImageGridViewModel : ObservableObject
         ImageRepository imageRepo,
         TagRepository tagRepo,
         FaceRepository faceRepo,
+        ImageSearchRepository searchRepo,
         FolderScannerService scanner,
         MetadataReaderService metadataReader,
-        MainViewModel main)
+        MainViewModel main,
+        GridLayoutSettingsStore? layoutSettingsStore = null)
     {
         _imageRepo = imageRepo;
         _tagRepo = tagRepo;
         _faceRepo = faceRepo;
+        _searchRepo = searchRepo;
         _scanner = scanner;
         _metadataReader = metadataReader;
         _main = main;
+        _layoutSettingsStore = layoutSettingsStore;
+
+        // Restore before the view is created, without saving or regrouping partial state.
+        var layout = layoutSettingsStore?.Load() ?? new GridLayoutSettings();
+        _groupBy = layout.GroupBy;
+        _sortBy = layout.SortBy;
+        _sortDescending = layout.SortDescending;
 
         ThumbnailSize = 180;
         SortField = "Date Taken";
@@ -161,9 +231,31 @@ public partial class ImageGridViewModel : ObservableObject
             _queuedItems.Clear();
         }
     }
+
+    public void InvalidateWatchedFolders()
+    {
+        Cleanup();
+        _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
+        _searchScope = [];
+    }
     
     public async Task LoadImagesAsync()
     {
+        _gridDataUpdateDepth++;
+        try
+        {
+            await LoadImagesCoreAsync();
+        }
+        finally
+        {
+            _gridDataUpdateDepth--;
+        }
+    }
+
+    private async Task LoadImagesCoreAsync()
+    {
+        ++_groupingVersion;
         // Cancel any pending thumbnail loads from previous folder
         _loadCts?.Cancel();
         _loadCts = new CancellationTokenSource();
@@ -181,6 +273,7 @@ public partial class ImageGridViewModel : ObservableObject
                 // Expected when cancelling
             }
         }
+        if (ct.IsCancellationRequested) return;
         
         // Clear the queue
         lock (_queueLock)
@@ -190,8 +283,26 @@ public partial class ImageGridViewModel : ObservableObject
         }
 
         // Get all images from DB (we'll filter to union of all criteria)
-        var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending);
-        var tagsByImageId = Refinement.RequiresTags
+        var allImages = await _imageRepo.GetAllAsync(_currentSortBy, SortDescending, watchedOnly: true);
+        if (_revealedExportPath is { } exportPath &&
+            !allImages.Any(image => string.Equals(image.FilePath, exportPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            var exported = await _imageRepo.GetByPathAsync(exportPath);
+            if (exported is not null)
+                allImages.Add(exported);
+        }
+        foreach (var importedPath in _revealedImportedPaths)
+        {
+            if (allImages.Any(image =>
+                    string.Equals(image.FilePath, importedPath, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            var imported = await _imageRepo.GetByPathAsync(importedPath);
+            if (imported is not null)
+                allImages.Add(imported);
+        }
+        if (ct.IsCancellationRequested) return;
+        var searchText = _searchText;
+        var tagsByImageId = RequiresTagData
             ? await _tagRepo.GetTagsByImageIdAsync()
             : null;
         bool hasPeopleFilter = _currentPeopleRootSelected ||
@@ -200,16 +311,11 @@ public partial class ImageGridViewModel : ObservableObject
         var personIdsByImageId = Refinement.RequiresPeople || hasPeopleFilter
             ? await _faceRepo.GetPersonIdsByImageIdAsync()
             : null;
+        if (ct.IsCancellationRequested) return;
         
-        // Clear old images and dispose thumbnails to free memory
-        foreach (var img in Images)
-        {
-            if (img.Thumbnail is not null)
-            {
-                // Clear the source to allow GC to collect the bitmap data
-                img.Thumbnail = null;
-            }
-        }
+        // Watcher refreshes after exports must not discard already-decoded, unchanged previews.
+        var previousImages = Images.GroupBy(image => image.Entry.FilePath, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         Images.Clear();
         
         // Hint to GC to collect disposed bitmaps
@@ -226,12 +332,20 @@ public partial class ImageGridViewModel : ObservableObject
         bool hasTagFilter = _currentTagRootSelected || 
                            (_currentTagFilters is not null && _currentTagFilters.Count > 0);
         bool hasFlagFilter = _currentFlaggedSelected;
+        bool hasSearch = !string.IsNullOrWhiteSpace(searchText);
 
         // If no filters active, show nothing
         if (!hasFolderFilter && !hasDateFilter && !hasPeopleFilter &&
-            !hasTagFilter && !hasFlagFilter)
+            !hasTagFilter && !hasFlagFilter && !_currentNotTaggedSelected &&
+            (_currentColorLabelFilters is null || _currentColorLabelFilters.Count == 0) &&
+            _revealedExportPath is null && _revealedImportedPaths.Count == 0)
         {
+            _searchScope = [];
             DebugLog.WriteLine($"LoadImagesAsync: No filters active, showing empty grid");
+            _main.StatusText = "Select a folder to view photos";
+            await ApplyGroupingAsync();
+            RestoreSelectionAfterLoad();
+            ResultsChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
 
@@ -243,6 +357,7 @@ public partial class ImageGridViewModel : ObservableObject
             taggedImageIds = new HashSet<long>(taggedImages.Select(i => i.Id));
             DebugLog.WriteLine($"LoadImagesAsync: Loaded {taggedImageIds.Count} images matching tag filters");
         }
+        if (ct.IsCancellationRequested) return;
 
         // Prepare folder filters with separators for correct prefix matching
         var folderFilters = _currentFolderFilters?.Select(f => 
@@ -252,11 +367,11 @@ public partial class ImageGridViewModel : ObservableObject
         DebugLog.WriteLine($"LoadImagesAsync: Total images from DB: {allImages.Count}, FolderFilters: {folderFilters?.Count ?? 0}, DateFilters: {hasDateFilter}, TagFilters: {hasTagFilter}");
         DebugLog.WriteLine(
             "  UNION logic: Show images matching ANY filter " +
-            "(folder OR date OR people OR tag OR flag)");
+            "(folder OR date OR people OR tag OR flag OR not tagged OR color label)");
 
         int matchCount = 0;
         int skipCount = 0;
-        int index = 0;
+        var searchScope = new List<ImageEntry>();
         foreach (var img in allImages)
         {
             bool matchesAnyFilter = false;
@@ -326,20 +441,54 @@ public partial class ImageGridViewModel : ObservableObject
             tagsByImageId?.TryGetValue(img.Id, out imageTags);
             personIdsByImageId?.TryGetValue(img.Id, out imagePersonIds);
 
-            if (matchesAnyFilter &&
-                Refinement.Matches(img, imageTags, imagePersonIds))
+            if (MatchesNavigationAndRefinement(img, matchesAnyFilter,
+                _currentNotTaggedSelected, Refinement, imageTags, imagePersonIds, _currentColorLabelFilters))
             {
+                searchScope.Add(img);
                 matchCount++;
                 if (matchCount <= 3)
                     DebugLog.WriteLine($"  Including '{img.FilePath}'");
-
-                Images.Add(new ImageThumbnailViewModel(img, ct) { Index = index });
-                index++;
             }
             else
             {
                 skipCount++;
             }
+        }
+        _searchScope = searchScope;
+        IReadOnlyList<ImageEntry> displayedImages = searchScope;
+        if (hasSearch)
+        {
+            try
+            {
+                displayedImages = await Task.Run(() => _searchRepo.FilterAsync(searchText, searchScope,
+                    cancellationToken: ct));
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            if (ct.IsCancellationRequested) return;
+        }
+        var revealed = allImages.FirstOrDefault(image =>
+            string.Equals(image.FilePath, _revealedExportPath, StringComparison.OrdinalIgnoreCase));
+        if (revealed is not null && !displayedImages.Any(image =>
+                string.Equals(image.FilePath, revealed.FilePath, StringComparison.OrdinalIgnoreCase)))
+            displayedImages = displayedImages.Append(revealed).ToList();
+        foreach (var importedPath in _revealedImportedPaths)
+        {
+            var imported = allImages.FirstOrDefault(image =>
+                string.Equals(image.FilePath, importedPath, StringComparison.OrdinalIgnoreCase));
+            if (imported is not null &&
+                !displayedImages.Any(image => string.Equals(
+                    image.FilePath, imported.FilePath, StringComparison.OrdinalIgnoreCase)))
+                displayedImages = displayedImages.Append(imported).ToList();
+        }
+        foreach (var image in displayedImages)
+        {
+            previousImages.TryGetValue(image.FilePath, out var previous);
+            var thumbnail = ImageThumbnailViewModel.CreateForRefresh(image, previous, ct);
+            thumbnail.Index = Images.Count;
+            Images.Add(thumbnail);
         }
         
         if (skipCount > 2)
@@ -359,10 +508,11 @@ public partial class ImageGridViewModel : ObservableObject
 
         // HYBRID APPROACH: Scan folders to find any missing/new files not in database
         // This ensures we show all images even if database is stale/incomplete
-        if (hasFolderFilter && folderFilters is not null)
+        if (!hasSearch && hasFolderFilter && folderFilters is not null)
         {
+            var watchedFolders = _main.FolderNav.RootFolders.ToList();
             // Get indexed file paths for quick lookup
-            var indexedPaths = new HashSet<string>(Images.Select(i => i.Entry.FilePath), StringComparer.OrdinalIgnoreCase);
+            var indexedPaths = new HashSet<string>(allImages.Select(i => i.FilePath), StringComparer.OrdinalIgnoreCase);
             var initialCount = Images.Count;
 
             foreach (var filter in folderFilters)
@@ -381,13 +531,17 @@ public partial class ImageGridViewModel : ObservableObject
                     {
                         if (ct.IsCancellationRequested) break;
                         
-                        if (FolderScannerService.IsSupportedFile(filePath) && !indexedPaths.Contains(filePath))
+                        if (FolderScannerService.IsSupportedFile(filePath) &&
+                            !indexedPaths.Contains(filePath) &&
+                            watchedFolders.Any(root => WatchedFolderScope.ContainsFile(
+                                filePath, root.Path, root.IncludeSubfolders)))
                         {
                             result.Add(filePath);
                         }
                     }
                     return result;
                 }, ct);
+                if (ct.IsCancellationRequested) return;
                 
                 if (missingFiles.Count > 0)
                 {
@@ -432,6 +586,8 @@ public partial class ImageGridViewModel : ObservableObject
             }
         }
         
+        if (ct.IsCancellationRequested) return;
+
         // Load thumbnails in batches (sequential, but fast with Windows cache)
         DebugLog.WriteLine($"LoadImagesAsync: Starting thumbnail loading for {Images.Count} items");
         
@@ -442,8 +598,11 @@ public partial class ImageGridViewModel : ObservableObject
             _queuedItems.Clear();
             foreach (var vm in Images)
             {
-                _loadQueue.Enqueue(vm);
-                _queuedItems.Add(vm);
+                if (vm.Thumbnail is null)
+                {
+                    _loadQueue.Enqueue(vm);
+                    _queuedItems.Add(vm);
+                }
             }
         }
         
@@ -451,8 +610,6 @@ public partial class ImageGridViewModel : ObservableObject
         StartBackgroundLoadingIfNeeded();
         
         await ApplyGroupingAsync();
-        RestoreSelectionAfterLoad();
-        ResultsChanged?.Invoke(this, EventArgs.Empty);
     }
     
     
@@ -505,6 +662,7 @@ public partial class ImageGridViewModel : ObservableObject
             
             DebugLog.WriteLine($"[VIEWPORT] Reordered queue: {visibleCount} visible, {nonVisibleCount} non-visible");
         }
+        StartBackgroundLoadingIfNeeded();
     }
     
     /// <summary>
@@ -591,10 +749,13 @@ public partial class ImageGridViewModel : ObservableObject
     
     private async Task LoadSingleThumbnailAsync(ImageThumbnailViewModel vm, CancellationToken ct)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var loadToken = timeout.Token;
         try
         {
             DebugLog.WriteLine($"[LOAD] Loading thumbnail for {vm.Entry.FileName}");
-            await s_thumbnailLoadSemaphore.WaitAsync(ct);
+            await s_thumbnailLoadSemaphore.WaitAsync(loadToken);
             try
             {
                 // Check if we're shutting down
@@ -605,7 +766,8 @@ public partial class ImageGridViewModel : ObservableObject
                 }
                 
                 // Load thumbnail stream on background thread
-                var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180, loadToken)
+                    .WaitAsync(loadToken);
                 DebugLog.WriteLine($"[LOAD] Got {streamBytes?.Length ?? 0} bytes for {vm.Entry.FileName}");
                 
                 if (streamBytes != null && !ct.IsCancellationRequested)
@@ -614,16 +776,15 @@ public partial class ImageGridViewModel : ObservableObject
                     if (App.MainWindow?.DispatcherQueue == null)
                     {
                         DebugLog.WriteLine($"[LOAD] No dispatcher queue for {vm.Entry.FileName}");
-                        vm.IsLoading = false;
                         return;
                     }
                     
-                    var tcs = new TaskCompletionSource<bool>();
-                    App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    bool queued = App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
                     {
                         try
                         {
-                            if (!ct.IsCancellationRequested)
+                            if (!loadToken.IsCancellationRequested)
                             {
                                 DebugLog.WriteLine($"[LOAD] Creating BitmapImage for {vm.Entry.FileName}");
                                 // Create BitmapImage on UI thread
@@ -635,23 +796,23 @@ public partial class ImageGridViewModel : ObservableObject
                                 
                                 DebugLog.WriteLine($"[LOAD] Setting Thumbnail directly for {vm.Entry.FileName}");
                                 // Apply directly - no buffer/flush needed with custom virtualization
-                                vm.Thumbnail = bitmapImage;
-                                vm.IsLoading = false;
+                                if (!loadToken.IsCancellationRequested)
+                                {
+                                    vm.Thumbnail = bitmapImage;
+                                    vm.IsLoading = false;
+                                }
                             }
-                            tcs.SetResult(true);
+                            tcs.TrySetResult(true);
                         }
                         catch (Exception ex)
                         {
                             DebugLog.WriteLine($"[ERROR] Failed to load thumbnail: {ex.Message}");
-                            vm.IsLoading = false;
-                            tcs.SetResult(false);
+                            tcs.TrySetResult(false);
                         }
                     });
-                    await tcs.Task;
-                }
-                else
-                {
-                    vm.IsLoading = false;
+                    if (!queued)
+                        throw new InvalidOperationException("The UI dispatcher could not queue a thumbnail update.");
+                    await tcs.Task.WaitAsync(loadToken);
                 }
             }
             finally
@@ -661,13 +822,21 @@ public partial class ImageGridViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            // Expected when switching folders or shutting down
-            vm.IsLoading = false;
+            if (!ct.IsCancellationRequested)
+                DebugLog.WriteLine($"[ERROR] Thumbnail loading timed out for {vm.FileName}");
         }
         catch (Exception ex)
         {
             DebugLog.WriteLine($"[ERROR] Failed to load thumbnail for {vm.FileName}: {ex.Message}");
-            vm.IsLoading = false;
+        }
+        finally
+        {
+            // Observable WinUI-bound state must also finish on the UI thread on cancellation/timeout.
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher?.HasThreadAccess == true)
+                vm.IsLoading = false;
+            else if (dispatcher?.TryEnqueue(() => vm.IsLoading = false) != true)
+                DebugLog.WriteLine($"[LOAD] Could not finish thumbnail state for {vm.FileName}: UI dispatcher unavailable.");
         }
     }
 
@@ -786,10 +955,11 @@ public partial class ImageGridViewModel : ObservableObject
         {
             // Use semaphore to limit concurrent operations (8 is optimal)
             var semaphore = new SemaphoreSlim(8, 8);
-            var tasks = new List<Task<(ImageThumbnailViewModel vm, byte[]? streamBytes)>>();
+            var tasks = new List<Task<(ImageThumbnailViewModel vm, byte[]? streamBytes, int version)>>();
             
             foreach (var vm in viewModels)
             {
+                var version = vm.ThumbnailVersion;
                 tasks.Add(Task.Run(async () =>
                 {
                     using (profiler.StartTimer("CACHE_WAIT", vm.FileName))
@@ -802,18 +972,18 @@ public partial class ImageGridViewModel : ObservableObject
                         using (profiler.StartTimer("CACHE_READ", vm.FileName))
                         {
                             // Get encoded thumbnail from Windows cache (instant if cached)
-                            var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180);
+                            var streamBytes = await RecipeThumbnailService.GetThumbnailStreamAsync(vm.Entry.FilePath, 180, ct);
                             if (streamBytes == null)
                             {
                                 DebugLog.WriteLine($"[WARN] Failed to get thumbnail for: {vm.FileName} at {vm.Entry.FilePath}");
                             }
-                            return (vm, streamBytes);
+                            return (vm, streamBytes, version);
                         }
                     }
                     catch (Exception ex)
                     {
                         DebugLog.WriteLine($"[ERROR] Exception loading thumbnail for {vm.FileName}: {ex.Message}");
-                        return (vm, null);
+                        return (vm, (byte[]?)null, version);
                     }
                     finally
                     {
@@ -834,15 +1004,16 @@ public partial class ImageGridViewModel : ObservableObject
         profiler.Log("STEP2_START", "Creating BitmapImages on UI thread");
         var bitmapSw = System.Diagnostics.Stopwatch.StartNew();
         
-        foreach (var (vm, streamBytes) in thumbnailData)
+        foreach (var (vm, streamBytes, version) in thumbnailData)
         {
             if (ct.IsCancellationRequested) break;
+            if (version != vm.ThumbnailVersion) continue;
             
             if (streamBytes != null && streamBytes.Length > 0)
             {
                 using (profiler.StartTimer("UI_CREATE_BITMAP", vm.FileName))
                 {
-                    await vm.LoadThumbnailFromStreamAsync(streamBytes);
+                    await vm.LoadThumbnailFromStreamAsync(streamBytes, version);
                 }
             }
             else
@@ -866,6 +1037,8 @@ public partial class ImageGridViewModel : ObservableObject
 
     public async Task FilterByFoldersAsync(List<string>? folderPaths)
     {
+        _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         DebugLog.WriteLine($"FilterByFoldersAsync: folderPaths={{{(folderPaths != null ? string.Join(", ", folderPaths.Select(p => $"'{p}'")) : "null")}}}");
         
@@ -885,6 +1058,22 @@ public partial class ImageGridViewModel : ObservableObject
         // });
     }
 
+    internal static bool MatchesNavigationAndRefinement(
+        ImageEntry image,
+        bool matchesOtherNavigation,
+        bool notTaggedSelected,
+        ImageRefinementFilter refinement,
+        IReadOnlyCollection<string>? tags,
+        IReadOnlyCollection<long>? personIds = null,
+        IReadOnlyCollection<string>? colorLabels = null)
+    {
+        bool matchesNavigation = matchesOtherNavigation ||
+            (notTaggedSelected && ImageRefinementFilter.IsUntagged(tags)) ||
+            (image.ColorLabel is not null &&
+             colorLabels?.Contains(image.ColorLabel, StringComparer.OrdinalIgnoreCase) == true);
+        return matchesNavigation && refinement.Matches(image, tags, personIds);
+    }
+
     public async Task FilterByMultipleCriteriaAsync(
         List<string>? folderPaths,
         bool dateRootSelected,
@@ -894,10 +1083,14 @@ public partial class ImageGridViewModel : ObservableObject
         List<long>? personIds,
         bool tagRootSelected,
         List<string>? tags,
-        bool flaggedSelected = false)
+        bool flaggedSelected = false,
+        bool notTaggedSelected = false,
+        List<string>? colorLabels = null)
     {
+        _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, people={personIds?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}");
+        DebugLog.WriteLine($"FilterByMultipleCriteriaAsync: folders={folderPaths?.Count ?? 0}, years={years?.Count ?? 0}, months={months?.Count ?? 0}, people={personIds?.Count ?? 0}, tags={tags?.Count ?? 0}, flagged={flaggedSelected}, notTagged={notTaggedSelected}");
         
         // Pause background indexing while user is browsing
         _main.PauseBackgroundIndexing();
@@ -911,6 +1104,8 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagRootSelected = tagRootSelected;
         _currentTagFilters = tags;
         _currentFlaggedSelected = flaggedSelected;
+        _currentNotTaggedSelected = notTaggedSelected;
+        _currentColorLabelFilters = colorLabels;
         
         DebugLog.WriteLine($"  T+{sw.ElapsedMilliseconds}ms: Starting LoadImagesAsync");
         await LoadImagesAsync();
@@ -928,6 +1123,8 @@ public partial class ImageGridViewModel : ObservableObject
 
     public async Task ApplyRefinementAsync(ImageRefinementFilter refinement)
     {
+        _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         Refinement = refinement ?? ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));
         await LoadImagesAsync();
@@ -945,6 +1142,7 @@ public partial class ImageGridViewModel : ObservableObject
     {
         bool refinementDependsOnChangedMetadata =
             Refinement.Rating.HasValue ||
+            Refinement.ColorLabel is not null ||
             Refinement.DateFrom.HasValue ||
             Refinement.DateTo.HasValue ||
             Refinement.MissingMetadata != MissingMetadataFilter.None;
@@ -964,11 +1162,121 @@ public partial class ImageGridViewModel : ObservableObject
         var vm = Images.FirstOrDefault(v => string.Equals(v.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
         if (vm == null) return;
         vm.InvalidateThumbnail();
-        var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(filePath, 180);
+        var version = vm.ThumbnailVersion;
+        var streamBytes = await RecipeThumbnailService.GetThumbnailStreamAsync(filePath, 180);
         if (streamBytes != null)
         {
-            await vm.LoadThumbnailFromStreamAsync(streamBytes);
+            await vm.LoadThumbnailFromStreamAsync(streamBytes, version);
         }
+        else if (version == vm.ThumbnailVersion)
+        {
+            vm.IsLoading = false;
+            DebugLog.WriteLine($"[ERROR] Could not refresh thumbnail for {filePath}");
+            throw new IOException($"Could not refresh thumbnail for {vm.FileName}.");
+        }
+    }
+
+    public async Task RefreshWatchedItemsAsync(IReadOnlyCollection<string> filePaths)
+    {
+        var requiresReload = RequiresTagData ||
+            _currentTagRootSelected ||
+            (_currentTagFilters is not null && _currentTagFilters.Count > 0) ||
+            Refinement.PersonId.HasValue ||
+            _currentPeopleRootSelected ||
+            (_currentPersonFilters is not null && _currentPersonFilters.Count > 0);
+        var requiresRegroup = false;
+
+        foreach (var filePath in filePaths.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var updatedEntry = await _imageRepo.GetByPathAsync(filePath);
+            if (updatedEntry is null)
+                continue;
+
+            var item = Images.FirstOrDefault(image =>
+                string.Equals(image.Entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+            if (item is null)
+            {
+                requiresReload |= Refinement.ColorLabel is not null ||
+                    (_currentColorLabelFilters is not null && _currentColorLabelFilters.Count > 0);
+                continue;
+            }
+
+            var previousEntry = item.Entry;
+            requiresReload |= DoesActiveFilterDependOnChangedMetadata(previousEntry, updatedEntry);
+            requiresRegroup |= DoesCurrentOrderingDependOnChangedMetadata(previousEntry, updatedEntry);
+            item.UpdateEntry(updatedEntry);
+            await RefreshSingleImageAsync(filePath);
+        }
+
+        if (requiresReload)
+        {
+            await LoadImagesAsync();
+        }
+        else if (requiresRegroup)
+        {
+            await ApplyGroupingAsync();
+        }
+        else
+        {
+            RefreshMetadataFromSelection();
+        }
+    }
+
+    private bool DoesActiveFilterDependOnChangedMetadata(ImageEntry previous, ImageEntry current)
+    {
+        var missing = Refinement.MissingMetadata;
+        var dateChanged = previous.DateTaken != current.DateTaken;
+        var ratingChanged = previous.Rating != current.Rating;
+        var geotagChanged = previous.GpsLatitude != current.GpsLatitude ||
+                            previous.GpsLongitude != current.GpsLongitude;
+        var faceDataChanged = previous.FaceSidecarPath != current.FaceSidecarPath ||
+                              previous.FaceSidecarSize != current.FaceSidecarSize ||
+                              previous.FaceSidecarModified != current.FaceSidecarModified ||
+                              previous.FaceScanVersion != current.FaceScanVersion;
+
+        return (Refinement.Rating.HasValue || missing.HasFlag(MissingMetadataFilter.Rating)) &&
+                   ratingChanged ||
+               (Refinement.ColorLabel is not null ||
+                (_currentColorLabelFilters is not null && _currentColorLabelFilters.Count > 0)) &&
+                   !string.Equals(previous.ColorLabel, current.ColorLabel, StringComparison.OrdinalIgnoreCase) ||
+               (_currentFlaggedSelected || Refinement.Flag != FlagFilterMode.Any) &&
+                   previous.IsFlagged != current.IsFlagged ||
+               (Refinement.DateFrom.HasValue || Refinement.DateTo.HasValue ||
+                missing.HasFlag(MissingMetadataFilter.CaptureDate) ||
+                _currentDateRootSelected ||
+                (_currentYearFilters is not null && _currentYearFilters.Count > 0) ||
+                (_currentMonthFilters is not null && _currentMonthFilters.Count > 0)) &&
+                   dateChanged ||
+               missing.HasFlag(MissingMetadataFilter.Geotag) && geotagChanged ||
+               (Refinement.RequiresPeople || _currentPeopleRootSelected ||
+                (_currentPersonFilters is not null && _currentPersonFilters.Count > 0)) &&
+                   faceDataChanged;
+    }
+
+    private bool DoesCurrentOrderingDependOnChangedMetadata(ImageEntry previous, ImageEntry current)
+    {
+        var groupKeyChanged = GroupBy switch
+        {
+            GroupByOption.YearTaken or GroupByOption.MonthTaken =>
+                previous.DateTaken != current.DateTaken,
+            GroupByOption.FileSize => previous.FileSize != current.FileSize,
+            GroupByOption.ImageSize =>
+                previous.Width != current.Width || previous.Height != current.Height,
+            GroupByOption.Rating => previous.Rating != current.Rating,
+            GroupByOption.Camera =>
+                previous.CameraMake != current.CameraMake || previous.CameraModel != current.CameraModel,
+            _ => false
+        };
+        var sortKeyChanged = SortBy switch
+        {
+            SortByOption.DateTaken => previous.DateTaken != current.DateTaken,
+            SortByOption.DateModified => previous.DateModified != current.DateModified,
+            SortByOption.FileSize => previous.FileSize != current.FileSize,
+            SortByOption.Rating => previous.Rating != current.Rating,
+            _ => false
+        };
+
+        return groupKeyChanged || sortKeyChanged;
     }
 
     /// <summary>
@@ -978,10 +1286,26 @@ public partial class ImageGridViewModel : ObservableObject
     /// </summary>
     private async Task ApplyGroupingAsync()
     {
+        _gridDataUpdateDepth++;
+        try
+        {
+            await ApplyGroupingCoreAsync();
+        }
+        finally
+        {
+            _gridDataUpdateDepth--;
+        }
+    }
+
+    private async Task ApplyGroupingCoreAsync()
+    {
+        var version = ++_groupingVersion;
         var currentGroupBy = GroupBy;
         var currentSortBy = SortBy;
         var currentSortDesc = SortDescending;
+        var randomSeed = _randomSeed;
         var imageCount = Images.Count;
+        var imageSnapshot = Images.ToList();
         
         DebugLog.WriteLine($"[GROUPING] ApplyGroupingAsync called, GroupBy={currentGroupBy}, Images.Count={imageCount}");
         
@@ -992,12 +1316,15 @@ public partial class ImageGridViewModel : ObservableObject
                 var tcs = new TaskCompletionSource<bool>();
                 App.MainWindow.DispatcherQueue.TryEnqueue(() =>
                 {
-                    GroupedImages.Clear();
+                    if (version == _groupingVersion) GroupedImages.Clear();
                     tcs.SetResult(true);
                 });
                 await tcs.Task;
             }
+            if (version != _groupingVersion) return;
             DebugLog.WriteLine($"[GROUPING] No images to group");
+            RestoreSelectionAfterLoad();
+            ResultsChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
         
@@ -1006,14 +1333,11 @@ public partial class ImageGridViewModel : ObservableObject
         {
             try
             {
-                // Take snapshot of Images collection
-                var imageSnapshot = Images.ToList();
-                
                 if (currentGroupBy == GroupByOption.None)
                 {
                     // No grouping - single flat group. Still apply sort so dates/ratings reorder
                     // after edits without requiring a full DB reload.
-                    var sortedFlat = ApplySortToGroup(imageSnapshot, currentSortBy, currentSortDesc);
+                    var sortedFlat = SortItems(imageSnapshot, item => item.Entry, currentSortBy, currentSortDesc, randomSeed).ToList();
                     return new List<PhotoGroup>
                     {
                         new PhotoGroup
@@ -1042,7 +1366,7 @@ public partial class ImageGridViewModel : ObservableObject
                 var result = new List<PhotoGroup>();
                 foreach (var group in groupedData)
                 {
-                    var sortedItems = ApplySortToGroup(group.items, currentSortBy, currentSortDesc);
+                    var sortedItems = SortItems(group.items, item => item.Entry, currentSortBy, currentSortDesc, randomSeed).ToList();
                     result.Add(new PhotoGroup
                     {
                         Header = $"{group.header} ({group.items.Count:N0})",
@@ -1058,6 +1382,7 @@ public partial class ImageGridViewModel : ObservableObject
                 return new List<PhotoGroup>();
             }
         });
+        if (version != _groupingVersion) return;
         
         // Update UI on main thread
         if (App.MainWindow?.DispatcherQueue != null)
@@ -1067,6 +1392,11 @@ public partial class ImageGridViewModel : ObservableObject
             {
                 try
                 {
+                    if (version != _groupingVersion)
+                    {
+                        tcs.SetResult(true);
+                        return;
+                    }
                     GroupedImages.Clear();
                     foreach (var group in groups)
                     {
@@ -1083,11 +1413,15 @@ public partial class ImageGridViewModel : ObservableObject
             });
             await tcs.Task;
         }
+        // A superseded grouping must not publish the temporary empty grid of a newer load.
+        if (version != _groupingVersion) return;
+        RestoreSelectionAfterLoad();
+        ResultsChanged?.Invoke(this, EventArgs.Empty);
     }
     
     private List<(string header, List<ImageThumbnailViewModel> items)> GroupByFileType(List<ImageThumbnailViewModel> items)
     {
-        return Images
+        return items
             .GroupBy(vm => Path.GetExtension(vm.Entry.FilePath).ToUpperInvariant())
             .OrderBy(g => g.Key)
             .Select(g => (g.Key.TrimStart('.') + " Files", g.ToList()))
@@ -1179,22 +1513,54 @@ public partial class ImageGridViewModel : ObservableObject
             .ToList();
     }
     
-    private List<ImageThumbnailViewModel> ApplySortToGroup(List<ImageThumbnailViewModel> items, SortByOption sortBy, bool sortDescending)
+    private static List<ImageThumbnailViewModel> ApplySortToGroup(List<ImageThumbnailViewModel> items, SortByOption sortBy, bool sortDescending)
+        => SortItems(items, item => item.Entry, sortBy, sortDescending).ToList();
+
+    private static IEnumerable<T> SortItems<T>(
+        IEnumerable<T> items, Func<T, ImageEntry> entry, SortByOption sortBy, bool sortDescending, int randomSeed = 0)
     {
+        if (sortBy == SortByOption.Random)
+            return items.OrderBy(item => RandomKey(entry(item).FilePath, randomSeed))
+                .ThenBy(item => entry(item).FilePath, StringComparer.OrdinalIgnoreCase);
+
         var sorted = sortBy switch
         {
-            SortByOption.FileName => items.OrderBy(vm => vm.Entry.FileName),
-            SortByOption.DateTaken => items.OrderBy(vm => vm.Entry.DateTaken ?? DateTime.MaxValue),
-            SortByOption.DateModified => items.OrderBy(vm => vm.Entry.DateModified),
-            SortByOption.FileSize => items.OrderBy(vm => vm.Entry.FileSize),
-            SortByOption.Rating => items.OrderBy(vm => vm.Entry.Rating ?? 0),
+            SortByOption.FileName => items.OrderBy(item => entry(item).FileName),
+            SortByOption.DateTaken => items.OrderBy(item => entry(item).DateTaken ?? DateTime.MaxValue),
+            SortByOption.DateModified => items.OrderBy(item => entry(item).DateModified),
+            SortByOption.FileSize => items.OrderBy(item => entry(item).FileSize),
+            SortByOption.Rating => items.OrderBy(item => entry(item).Rating ?? 0),
             _ => items.AsEnumerable()
         };
         
         if (sortDescending)
             sorted = sorted.Reverse();
             
-        return sorted.ToList();
+        return sorted;
+    }
+
+    internal static ulong RandomKey(string path, int seed)
+    {
+        ulong hash = 14695981039346656037UL ^ (uint)seed;
+        foreach (var character in path.ToUpperInvariant())
+        {
+            hash ^= character;
+            hash *= 1099511628211UL;
+        }
+        hash ^= hash >> 30;
+        hash *= 0xbf58476d1ce4e5b9UL;
+        hash ^= hash >> 27;
+        hash *= 0x94d049bb133111ebUL;
+        hash ^= hash >> 31;
+        return hash;
+    }
+
+    public async Task ReshuffleAsync()
+    {
+        int nextSeed;
+        do { nextSeed = Random.Shared.Next(); } while (nextSeed == _randomSeed);
+        _randomSeed = nextSeed;
+        await ApplyGroupingAsync();
     }
 
     [RelayCommand]
@@ -1224,9 +1590,30 @@ public partial class ImageGridViewModel : ObservableObject
         await LoadImagesAsync();
     }
 
+    public async Task ApplySearchAsync(string text)
+    {
+        _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
+        _searchText = text;
+        await LoadImagesAsync();
+    }
+
+    public Task<List<ImageEntry>> GetSearchSuggestionsAsync(string text, CancellationToken cancellationToken)
+    {
+        var scope = _searchScope;
+        var sortBy = SortBy;
+        var descending = SortDescending;
+        var randomSeed = _randomSeed;
+        return Task.Run(() => _searchRepo.FilterAsync(text,
+            SortItems(scope, image => image, sortBy, descending, randomSeed).ToList(),
+            8, cancellationToken), cancellationToken);
+    }
+
     [RelayCommand]
     private async Task ClearFilter()
     {
+        _revealedExportPath = null;
+        _revealedImportedPaths.Clear();
         _currentFolderFilters = null;
         _currentDateRootSelected = false;
         _currentYearFilters = null;
@@ -1236,6 +1623,9 @@ public partial class ImageGridViewModel : ObservableObject
         _currentTagRootSelected = false;
         _currentTagFilters = null;
         _currentFlaggedSelected = false;
+        _currentNotTaggedSelected = false;
+        _currentColorLabelFilters = null;
+        _searchScope = [];
         Refinement = ImageRefinementFilter.Empty;
         OnPropertyChanged(nameof(Refinement));
         Images.Clear();
@@ -1243,7 +1633,13 @@ public partial class ImageGridViewModel : ObservableObject
         SelectedImage = null;
         _selectedPaths.Clear();
         _primarySelectedPath = null;
-        await ApplyGroupingAsync();
+        if (!string.IsNullOrWhiteSpace(_searchText))
+            await LoadImagesAsync();
+        else
+        {
+            await ApplyGroupingAsync();
+            ResultsChanged?.Invoke(this, EventArgs.Empty);
+        }
         // Don't set status text here - let MainViewModel handle it
     }
 
@@ -1261,6 +1657,7 @@ public partial class ImageGridViewModel : ObservableObject
 
     partial void OnSelectedImageChanged(ImageThumbnailViewModel? value)
     {
+        if (_main.ImageViewer.IsOpen) return;
         // Push selection (single or multi) to the metadata panel.
         if (SelectedImages.Count > 0)
         {
@@ -1281,6 +1678,14 @@ public partial class ImageGridViewModel : ObservableObject
     /// closes and the panel should go back to describing the selection.
     /// </summary>
     public void RefreshMetadataFromSelection() => OnSelectedImageChanged(SelectedImage);
+
+    public void SelectViewerEntry(ImageEntry entry)
+    {
+        var item = Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
+        UpdateSelection(item is null ? [] : [item], item);
+        SelectionRestoreRequested?.Invoke(this, new SelectionRestoreRequestedEventArgs(scrollIntoView: true));
+    }
 
     /// <summary>
     /// Called by ImageGridView when the grid's SelectionChanged event fires.
@@ -1314,15 +1719,26 @@ public partial class ImageGridViewModel : ObservableObject
         SelectedImages.Clear();
         SelectedImages.AddRange(visibleSelection);
         SelectedImage = primary;
+        _selectedPaths.Clear();
+        foreach (var item in visibleSelection)
+            _selectedPaths.Add(item.Entry.FilePath);
+        _primarySelectedPath = primary?.Entry.FilePath;
         RefreshMetadataFromSelection();
+        SelectionRestoreRequested?.Invoke(this, new SelectionRestoreRequestedEventArgs(scrollIntoView: false));
     }
+
+    /// <summary>The filtered photos in the order the grid shows them (group order, then sort).</summary>
+    public IReadOnlyList<ImageEntry> DisplayedEntries =>
+        GroupedImages.Count > 0
+            ? GroupedImages.SelectMany(group => group.Items).Select(vm => vm.Entry).ToList()
+            : Images.Select(vm => vm.Entry).ToList();
 
     [RelayCommand]
     private void OpenViewer()
     {
         if (SelectedImage is not null)
         {
-            _main.ImageViewer.OpenImage(SelectedImage.Entry, Images.Select(i => i.Entry).ToList());
+            _main.ImageViewer.OpenImage(SelectedImage.Entry, GetViewerImages());
         }
     }
 
@@ -1387,12 +1803,20 @@ public partial class ImageGridViewModel : ObservableObject
     }
 }
 
+public sealed class SelectionRestoreRequestedEventArgs(bool scrollIntoView) : EventArgs
+{
+    public bool ScrollIntoView { get; } = scrollIntoView;
+}
+
 public partial class ImageThumbnailViewModel : ObservableObject
 {
     private readonly CancellationToken _cancellationToken;
     private bool _thumbnailLoaded;
+    private (DateTime Modified, long Length) _recipeStamp;
+    private int _thumbnailVersion;
+    internal int ThumbnailVersion => _thumbnailVersion;
 
-    public ImageEntry Entry { get; }
+    public ImageEntry Entry { get; private set; }
     
     /// <summary>
     /// Current index in the Images collection. Updated when items are added/removed.
@@ -1417,10 +1841,43 @@ public partial class ImageThumbnailViewModel : ObservableObject
     public ImageThumbnailViewModel(ImageEntry entry, CancellationToken cancellationToken = default)
     {
         Entry = entry;
+        _recipeStamp = RecipeThumbnailService.GetRecipeStamp(entry.FilePath);
         _cancellationToken = cancellationToken;
 
         IsLoading = true; // This initial set is OK (happens before binding)
     }
+
+    public void UpdateEntry(ImageEntry entry)
+    {
+        Entry = entry;
+        OnPropertyChanged(nameof(FileName));
+        OnPropertyChanged(nameof(DateDisplay));
+        OnPropertyChanged(nameof(Rating));
+        OnPropertyChanged(nameof(IsFlagged));
+        OnPropertyChanged(nameof(FlagVisibility));
+        OnPropertyChanged(nameof(IsVideo));
+        OnPropertyChanged(nameof(VideoIconVisibility));
+    }
+
+    internal static ImageThumbnailViewModel CreateForRefresh(
+        ImageEntry entry, ImageThumbnailViewModel? previous, CancellationToken cancellationToken = default)
+    {
+        var result = new ImageThumbnailViewModel(entry, cancellationToken);
+        if (previous is not null && result.CanReuseThumbnail(previous))
+        {
+            result.Thumbnail = previous.Thumbnail;
+            result.IsLoading = result.Thumbnail is null;
+        }
+        return result;
+    }
+
+    internal static bool CanReuseThumbnail(ImageEntry previous, ImageEntry current) =>
+        string.Equals(previous.FilePath, current.FilePath, StringComparison.OrdinalIgnoreCase) &&
+        previous.DateModified == current.DateModified && previous.FileSize == current.FileSize &&
+        previous.MediaType == current.MediaType;
+
+    internal bool CanReuseThumbnail(ImageThumbnailViewModel previous) =>
+        CanReuseThumbnail(previous.Entry, Entry) && previous._recipeStamp == _recipeStamp;
 
     /// <summary>
     /// Raises change notifications for the flag-derived properties after <see cref="Entry"/>'s
@@ -1440,6 +1897,8 @@ public partial class ImageThumbnailViewModel : ObservableObject
     public void InvalidateThumbnail()
     {
         _thumbnailLoaded = false;
+        _thumbnailVersion++;
+        _recipeStamp = RecipeThumbnailService.GetRecipeStamp(Entry.FilePath);
         Thumbnail = null;
         IsLoading = true;
     }
@@ -1454,7 +1913,7 @@ public partial class ImageThumbnailViewModel : ObservableObject
         if (_thumbnailLoaded)
             return;
         
-        _thumbnailLoaded = true;
+        var version = _thumbnailVersion;
         try
         {
             if (_cancellationToken.IsCancellationRequested)
@@ -1464,18 +1923,21 @@ public partial class ImageThumbnailViewModel : ObservableObject
             }
 
             // Fallback: use Windows thumbnail cache
-            var streamBytes = await WindowsThumbnailService.GetThumbnailStreamAsync(Entry.FilePath, 180);
+            var streamBytes = await RecipeThumbnailService.GetThumbnailStreamAsync(Entry.FilePath, 180, _cancellationToken);
             if (streamBytes != null)
             {
-                await LoadThumbnailFromStreamAsync(streamBytes);
+                await LoadThumbnailFromStreamAsync(streamBytes, version);
             }
             else
             {
+                if (version != _thumbnailVersion) return;
                 IsLoading = false;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            DebugLog.WriteLine($"LoadThumbnailAsync failed for {FileName}: {ex.Message}");
+            if (version != _thumbnailVersion) return;
             IsLoading = false;
         }
     }
@@ -1484,10 +1946,12 @@ public partial class ImageThumbnailViewModel : ObservableObject
     /// Loads a thumbnail from encoded stream bytes (PNG/BMP from Windows cache).
     /// Much faster than pixel decode - just uses BitmapImage.SetSourceAsync on pre-encoded data.
     /// </summary>
-    public async Task LoadThumbnailFromStreamAsync(byte[] streamBytes)
+    public async Task LoadThumbnailFromStreamAsync(byte[] streamBytes, int? expectedVersion = null)
     {
+        if (expectedVersion.HasValue && expectedVersion.Value != _thumbnailVersion) return;
         if (_thumbnailLoaded) return;
         _thumbnailLoaded = true;
+        var version = _thumbnailVersion;
         
         try
         {
@@ -1496,12 +1960,15 @@ public partial class ImageThumbnailViewModel : ObservableObject
             {
                 await bitmapImage.SetSourceAsync(stream.AsRandomAccessStream());
             }
+            if (version != _thumbnailVersion) return;
             Thumbnail = bitmapImage;
             IsLoading = false;
         }
         catch (Exception ex)
         {
             DebugLog.WriteLine($"LoadThumbnailFromStreamAsync failed for {FileName}: {ex.Message}");
+            if (version != _thumbnailVersion) return;
+            _thumbnailLoaded = false;
             IsLoading = false;
         }
     }

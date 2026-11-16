@@ -2,7 +2,8 @@
     x:Class="PhotoLibrarian.Views.MetadataPanel"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:vm="using:PhotoLibrarian.ViewModels">
+    xmlns:vm="using:PhotoLibrarian.ViewModels"
+    xmlns:views="using:PhotoLibrarian.Views">
 
     <UserControl.Resources>
         <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
@@ -109,7 +110,18 @@
                             Margin="0,2,0,0" />
 
                     <TextBlock Text="Geotag" Style="{StaticResource SectionHeaderStyle}" />
-                    <TextBlock x:Name="GeotagText" Style="{StaticResource PlaceholderStyle}" Margin="0,2,0,0" />
+                    <TextBox x:Name="GeotagCoordinatesBox"
+                             PlaceholderText="latitude, longitude"
+                             AutomationProperties.AutomationId="GeotagCoordinatesBox"
+                             AutomationProperties.Name="Latitude and longitude"
+                             TextChanged="OnGeotagCoordinatesTextChanged"
+                             LostFocus="OnGeotagCoordinatesLostFocus" />
+                    <HyperlinkButton x:Name="GeotagMapLink"
+                                     x:Uid="GeotagMapLink"
+                                     AutomationProperties.AutomationId="GeotagMapLink"
+                                     HorizontalAlignment="Left"
+                                     Visibility="Collapsed"
+                                     Click="OnMapCoordinatesClick" />
 
                     <TextBlock Text="Caption" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBox x:Name="CaptionBox"
@@ -126,7 +138,23 @@
                                Foreground="{ThemeResource SystemAccentColorLight2}"
                                Margin="0,2,0,0" />
 
-                    <TextBlock Text="Descriptive tags" Style="{StaticResource SectionHeaderStyle}" />
+                    <Grid Margin="0,8,0,0" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Descriptive tags"
+                                   Style="{StaticResource SectionHeaderStyle}"
+                                   Margin="0,4,0,2"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="SuggestTagsButton"
+                                AutomationProperties.AutomationId="SuggestTagsButton"
+                                x:Uid="MetadataSuggestTagsButton"
+                                Grid.Column="1"
+                                Click="OnSuggestTagsClick"
+                                Padding="8,4"
+                                VerticalAlignment="Center" />
+                    </Grid>
                     <ItemsRepeater x:Name="TagsList" Margin="0,4,0,0">
                         <ItemsRepeater.Layout>
                             <StackLayout Orientation="Vertical" Spacing="2" />
@@ -156,6 +184,7 @@
                             </DataTemplate>
                         </ItemsRepeater.ItemTemplate>
                     </ItemsRepeater>
+                    <views:AutoTagReviewView />
                     <Grid Margin="0,4,0,0" ColumnSpacing="4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -307,19 +336,41 @@
                     <TextBlock Text="Information" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" />
 
                     <StackPanel Spacing="6">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <InfoBar x:Name="VideoMetadataErrorBar"
+                                 x:Uid="MetadataVideoErrorBar"
+                                 AutomationProperties.AutomationId="MetadataVideoErrorBar"
+                                 IsOpen="False"
+                                 IsClosable="False"
+                                 Severity="Error" />
+                        <Grid ColumnSpacing="4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Filename:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoFileName" Style="{StaticResource InfoValueStyle}"
                                        TextTrimming="CharacterEllipsis"
                                        ToolTipService.ToolTip="{x:Bind InfoFileName.Text, Mode=OneWay}" />
+                            <Button x:Name="CopyFileNameButton" Grid.Column="2"
+                                    AutomationProperties.AutomationId="CopyFileName"
+                                    AutomationProperties.Name="Copy filename with extension"
+                                    ToolTipService.ToolTip="Copy filename with extension"
+                                    Click="OnCopyFileNameClick"
+                                    IsEnabled="False" Padding="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
                         </Grid>
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid ColumnSpacing="4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Folder:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoFolder" Style="{StaticResource InfoValueStyle}"
                                        TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                        ToolTipService.ToolTip="{x:Bind InfoFolder.Text, Mode=OneWay}" />
+                            <Button x:Name="CopyFolderPathButton" Grid.Column="2"
+                                    AutomationProperties.AutomationId="CopyFolderPath"
+                                    AutomationProperties.Name="Copy folder path"
+                                    ToolTipService.ToolTip="Copy folder path"
+                                    Click="OnCopyFolderPathClick"
+                                    IsEnabled="False" Padding="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
                         </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -349,6 +400,26 @@
                         </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Color label:" Style="{StaticResource InfoLabelStyle}" />
+                            <Button Grid.Column="1" x:Name="ColorLabelButton"
+                                    AutomationProperties.AutomationId="MetadataColorLabel"
+                                    AutomationProperties.Name="Color label"
+                                    HorizontalAlignment="Left"
+                                    ToolTipService.ToolTip="Press 6, 7, 8, or 9 for Red, Yellow, Green, or Blue. Press again to clear.">
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelRed" Text="Red (6)" Tag="Red" Click="OnColorLabelClick" />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelYellow" Text="Yellow (7)" Tag="Yellow" Click="OnColorLabelClick" />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelGreen" Text="Green (8)" Tag="Green" Click="OnColorLabelClick" />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelBlue" Text="Blue (9)" Tag="Blue" Click="OnColorLabelClick" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="ColorLabelClear" Text="Clear label" Tag="" Click="OnColorLabelClick" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Flag:" Style="{StaticResource InfoLabelStyle}" />
                             <Button Grid.Column="1" x:Name="FlagButton" Click="OnFlagClick"
                                     Style="{StaticResource DateTimePickerFlyoutButtonStyle}"
@@ -363,6 +434,46 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Dimensions:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoDimensions" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoTitleRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoTitleLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoTitle" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoDurationRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoDurationLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoDuration" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoBitrateRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoBitrateLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoBitrate" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoFrameRateRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoFrameRateLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoFrameRate" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoCodecRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoCodecLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoCodec" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoAlbumRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoAlbumLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoAlbum" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoYearRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoYearLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoYear" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid x:Name="InfoVideoDateEncodedRow">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" x:Uid="MetadataVideoDateEncodedLabel" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoVideoDateEncoded" Style="{StaticResource InfoValueStyle}" />
                         </Grid>
                         <Grid x:Name="InfoCameraRow">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -399,19 +510,42 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Latitude:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoLatitude" Style="{StaticResource InfoValueStyle}" />
+                            <HyperlinkButton Grid.Column="1" x:Name="InfoLatitudeLink"
+                                             x:Uid="MapLatitudeLink"
+                                             AutomationProperties.AutomationId="MapLatitudeLink"
+                                             Padding="0" FontSize="13" Visibility="Collapsed"
+                                             Click="OnMapCoordinatesClick" />
                         </Grid>
                         <Grid x:Name="InfoLonRow">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Longitude:" Style="{StaticResource InfoLabelStyle}" />
                             <TextBlock Grid.Column="1" x:Name="InfoLongitude" Style="{StaticResource InfoValueStyle}" />
+                            <HyperlinkButton Grid.Column="1" x:Name="InfoLongitudeLink"
+                                             x:Uid="MapLongitudeLink"
+                                             AutomationProperties.AutomationId="MapLongitudeLink"
+                                             Padding="0" FontSize="13" Visibility="Collapsed"
+                                             Click="OnMapCoordinatesClick" />
                         </Grid>
-                        <Grid Margin="0,4,0,0">
+                        <Grid x:Name="InfoPlaceNameRow">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Place:" Style="{StaticResource InfoLabelStyle}" />
+                            <TextBlock Grid.Column="1" x:Name="InfoPlaceName" Style="{StaticResource InfoValueStyle}" />
+                        </Grid>
+                        <Grid Margin="0,4,0,0" ColumnSpacing="4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Path:" Style="{StaticResource InfoLabelStyle}"
                                        VerticalAlignment="Top" />
                             <TextBlock Grid.Column="1" x:Name="InfoFilePath" Style="{StaticResource InfoValueStyle}"
                                        FontSize="11" IsTextSelectionEnabled="True"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Button x:Name="CopyFullPathButton" Grid.Column="2"
+                                    AutomationProperties.AutomationId="CopyFullPath"
+                                    AutomationProperties.Name="Copy full path"
+                                    ToolTipService.ToolTip="Copy full path including filename"
+                                    Click="OnCopyFullPathClick"
+                                    IsEnabled="False" Padding="8" VerticalAlignment="Top">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                            </Button>
                         </Grid>
                     </StackPanel>
                 </StackPanel>

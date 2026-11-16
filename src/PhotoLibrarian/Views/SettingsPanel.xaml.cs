@@ -1,9 +1,12 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 
 namespace PhotoLibrarian.Views;
@@ -50,6 +53,23 @@ public sealed partial class SettingsPanel : UserControl
         System.ComponentModel.PropertyChangedEventArgs e) =>
         DispatcherQueue.TryEnqueue(UpdateDisplay);
 
+    private void OnMapProviderChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingDisplay || ViewModel is null || MapProviderCombo.SelectedIndex is < 0 or > 1)
+            return;
+
+        try
+        {
+            ViewModel.SetMapProvider((MapProvider)MapProviderCombo.SelectedIndex);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"[MAP] Could not save preferences: {ex.Message}");
+            App.ViewModel.StatusText = MapStrings.Format("MapProviderSaveFailed", ex.Message);
+            UpdateDisplay();
+        }
+    }
+
     private void UpdateDisplay()
     {
         if (ViewModel is null)
@@ -61,9 +81,11 @@ public sealed partial class SettingsPanel : UserControl
         try
         {
             var profile = ViewModel.SelectedProfile;
+            MapProviderCombo.SelectedIndex = (int)ViewModel.MapProvider;
             var isProfileEditable =
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             var calibratedThresholdsVisibility =
                 profile.UsesCalibratedThresholds
                     ? Visibility.Visible
@@ -75,8 +97,29 @@ public sealed partial class SettingsPanel : UserControl
             var isTinyClip =
                 profile.Id == AutoTagModelCatalog.TinyClipProfileId;
             CacheSizeText.Text =
-                $"Cache size: {ViewModel.ThumbnailCacheSizeMB} MB";
+                LibraryIndexMaintenanceStrings.Format(
+                    "IndexMaintenanceDatabaseSize",
+                    ViewModel.ThumbnailCacheSizeMB);
             CachePathText.Text = ViewModel.CacheLocation;
+            RepairLibraryIndexButton.IsEnabled =
+                !ViewModel.IsIndexMaintenanceRunning &&
+                !ViewModel.IsHierarchyTagCleanupRunning;
+            CancelIndexMaintenanceButton.Visibility =
+                ViewModel.IsIndexMaintenanceRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            IndexMaintenanceProgressBar.Visibility =
+                ViewModel.IsIndexMaintenanceRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            IndexMaintenanceProgressBar.IsIndeterminate =
+                ViewModel.IsIndexMaintenanceProgressIndeterminate;
+            IndexMaintenanceProgressBar.Value =
+                ViewModel.IndexMaintenanceProgress;
+            IndexMaintenanceStatusText.Text =
+                ViewModel.IndexMaintenanceStatus;
+            IndexMaintenanceDiagnosticsText.Text =
+                ViewModel.IndexMaintenanceDiagnostics;
             AutoTaggingToggle.IsOn =
                 ViewModel.IsAutoTaggingEnabled;
             AutoTaggingToggle.IsEnabled =
@@ -90,6 +133,17 @@ public sealed partial class SettingsPanel : UserControl
                 $"Asset size: {ViewModel.ModelDownloadSize}";
             ModelDownloadStatusText.Text =
                 ViewModel.ModelDownloadStatus;
+            ModelDownloadMessageText.Text =
+                ViewModel.ModelDownloadMessage;
+            ModelDownloadProgressBar.Value =
+                ViewModel.ModelDownloadProgress;
+            ModelDownloadProgressBar.Visibility =
+                ViewModel.IsModelDownloadRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            ModelDownloadProgressBar.IsIndeterminate =
+                ViewModel.IsModelDownloadRunning &&
+                ViewModel.ModelDownloadProgress == 0;
             QualityStatusText.Text = ViewModel.QualityStatus;
             MaximumTagsNumberBox.Maximum =
                 profile.MaximumSupportedTags;
@@ -132,6 +186,12 @@ public sealed partial class SettingsPanel : UserControl
             BinaryDetectionScoreHelpText.Visibility =
                 binaryTagMaskVisibility;
             ModelDirectoryText.Text = ViewModel.ModelDirectory;
+            ChooseModelDirectoryButton.IsEnabled =
+                !ViewModel.IsModelDownloadRunning &&
+                !ViewModel.IsModelImportRunning;
+            ResetModelDirectoryButton.IsEnabled =
+                !ViewModel.IsModelDownloadRunning &&
+                !ViewModel.IsModelImportRunning;
             AutoTaggingStatusText.Text =
                 ViewModel.AutoTaggingStatus;
             AutoTaggingProgress.Visibility =
@@ -150,7 +210,8 @@ public sealed partial class SettingsPanel : UserControl
 
             RunBenchmarkButton.IsEnabled =
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             BenchmarkProgressRing.IsActive =
                 ViewModel.IsBenchmarkRunning;
             BenchmarkProgressRing.Visibility =
@@ -164,20 +225,41 @@ public sealed partial class SettingsPanel : UserControl
             ApproveProfileButton.IsEnabled =
                 !ViewModel.IsBenchmarkRunning &&
                 !ViewModel.IsModelImportRunning &&
-                (!profile.RequiresLocalImport ||
+                !ViewModel.IsModelDownloadRunning &&
+                (ViewModel.ModelDownloadStatus.StartsWith(
+                     "Imported", StringComparison.Ordinal) ||
                  ViewModel.ModelDownloadStatus.StartsWith(
-                     "Imported", StringComparison.Ordinal));
+                     "Downloaded", StringComparison.Ordinal));
             var requiresImport = profile.RequiresLocalImport;
-            ImportModelAssetsButton.Content =
-                $"Import {profile.DisplayName} assets";
-            ImportModelAssetsButton.Visibility =
-                requiresImport
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-            ImportModelAssetsButton.IsEnabled =
-                requiresImport &&
+            var supportsLocalImport = requiresImport ||
+                profile.ManifestUri is not null;
+            var supportsDownload = profile.ManifestUri is not null ||
+                profile.ModelAsset.DownloadUri is not null &&
+                profile.LabelsAsset.DownloadUri is not null;
+            DownloadModelAssetsButton.Visibility = supportsDownload
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            DownloadModelAssetsButton.IsEnabled =
+                supportsDownload &&
+                !ViewModel.IsModelDownloadRunning &&
                 !ViewModel.IsModelImportRunning &&
                 !ViewModel.IsBenchmarkRunning &&
+                !ViewModel.IsAutoTaggingRunning;
+            CancelModelDownloadButton.Visibility =
+                ViewModel.IsModelDownloadRunning
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            ImportModelAssetsButton.Visibility =
+                supportsLocalImport
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            ImportModelAssetsButton.Content =
+                $"Import {profile.DisplayName} assets";
+            ImportModelAssetsButton.IsEnabled =
+                supportsLocalImport &&
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsBenchmarkRunning &&
+                !ViewModel.IsModelDownloadRunning &&
                 !ViewModel.IsAutoTaggingRunning;
             ModelImportProgressRing.IsActive =
                 ViewModel.IsModelImportRunning;
@@ -186,12 +268,13 @@ public sealed partial class SettingsPanel : UserControl
                     ? Visibility.Visible
                     : Visibility.Collapsed;
             ModelImportInfoBar.Visibility =
-                requiresImport
+                supportsLocalImport
                     ? Visibility.Visible
                     : Visibility.Collapsed;
-            ModelImportInfoBar.IsOpen = requiresImport;
-            ModelImportInfoBar.Title =
-                $"Local assets — {profile.DisplayName}";
+            ModelImportInfoBar.IsOpen = supportsLocalImport;
+            ModelImportInfoBar.Title = supportsDownload
+                ? $"Download or import — {profile.DisplayName}"
+                : $"Local assets — {profile.DisplayName}";
             ModelImportInfoBar.Message =
                 ViewModel.ModelImportMessage;
             ModelImportInfoBar.Severity =
@@ -205,15 +288,30 @@ public sealed partial class SettingsPanel : UserControl
             DeleteSelectedModelButton.IsEnabled =
                 !ViewModel.IsAutoTaggingRunning &&
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             DeleteAllModelsButton.IsEnabled =
                 !ViewModel.IsAutoTaggingRunning &&
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
             RemoveAutoTagsButton.IsEnabled =
                 !ViewModel.IsAutoTagCleanupRunning &&
+                !ViewModel.IsHierarchyTagCleanupRunning &&
                 !ViewModel.IsBenchmarkRunning &&
-                !ViewModel.IsModelImportRunning;
+                !ViewModel.IsModelImportRunning &&
+                !ViewModel.IsModelDownloadRunning;
+            HierarchyCleanupButton.IsEnabled =
+                !ViewModel.IsHierarchyTagCleanupRunning &&
+                !ViewModel.IsAutoTagCleanupRunning &&
+                !ViewModel.IsIndexMaintenanceRunning;
+            HierarchyCleanupStatusText.Text = ViewModel.HierarchyTagCleanupStatus;
+            var hierarchyCleanupVisibility = ViewModel.IsHierarchyTagCleanupRunning
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            CancelHierarchyCleanupButton.Visibility = hierarchyCleanupVisibility;
+            HierarchyCleanupProgressBar.Visibility = hierarchyCleanupVisibility;
+            HierarchyCleanupProgressBar.Value = ViewModel.HierarchyTagCleanupProgress;
         }
         finally
         {
@@ -221,14 +319,34 @@ public sealed partial class SettingsPanel : UserControl
         }
     }
 
-    private async void OnRebuildCache(
+    private async void OnRepairLibraryIndex(
         object sender,
         RoutedEventArgs e)
     {
-        if (ViewModel?.RebuildCacheCommand.CanExecute(null) == true)
+        if (ViewModel is null ||
+            !await ConfirmAsync(
+                LibraryIndexMaintenanceStrings.Get(
+                    "IndexMaintenanceConfirmTitle"),
+                LibraryIndexMaintenanceStrings.Get(
+                    "IndexMaintenanceConfirmMessage"),
+                LibraryIndexMaintenanceStrings.Get(
+                    "IndexMaintenanceConfirmPrimary")))
         {
-            await ViewModel.RebuildCacheCommand.ExecuteAsync(null);
+            return;
         }
+
+        await ViewModel.RepairLibraryIndexCommand.ExecuteAsync(null);
+        if (App.ViewModel is not null)
+        {
+            await App.ViewModel.RefreshAfterIndexAsync();
+        }
+    }
+
+    private void OnCancelIndexMaintenance(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ViewModel?.CancelIndexMaintenanceCommand.Execute(null);
     }
 
     private async void OnClose(object sender, RoutedEventArgs e)
@@ -345,6 +463,23 @@ public sealed partial class SettingsPanel : UserControl
         }
     }
 
+    private async void OnDownloadModelAssets(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (ViewModel is not null)
+        {
+            await ViewModel.DownloadSelectedModelAssetsAsync();
+        }
+    }
+
+    private void OnCancelModelDownload(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ViewModel?.CancelModelDownload();
+    }
+
     private async void OnDeleteSelectedModel(
         object sender,
         RoutedEventArgs e)
@@ -360,6 +495,20 @@ public sealed partial class SettingsPanel : UserControl
 
         await ViewModel.DeleteSelectedModelAssetsAsync();
     }
+
+    private async void OnCleanupHierarchicalTags(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null ||
+            !await ConfirmAsync(
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupConfirmTitle"),
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupConfirmMessage"),
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupConfirmPrimary")))
+            return;
+        await App.ViewModel.CleanupHierarchicalTagsAsync();
+    }
+
+    private void OnCancelHierarchicalTagCleanup(object sender, RoutedEventArgs e) =>
+        App.ViewModel.CancelHierarchicalTagCleanup();
 
     private async void OnRemoveAutoTags(
         object sender,

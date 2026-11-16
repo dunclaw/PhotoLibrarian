@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using PhotoLibrarian.Core.Data;
 
@@ -30,6 +32,6 @@ public partial class FlagNavigationViewModel : ObservableObject
 
     public async Task LoadAsync()
     {
-        Count = await _imageRepo.GetFlaggedCountAsync();
+        Count = await _imageRepo.GetFlaggedCountAsync(watchedOnly: true);
     }
 }

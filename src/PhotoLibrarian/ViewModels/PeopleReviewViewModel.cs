@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media;
@@ -20,6 +21,7 @@ public partial class PeopleReviewViewModel : ObservableObject
     private int _refreshRequest;
     private bool _isPeopleManagementLoaded;
     private bool _arePersonTargetsLoaded;
+    private IReadOnlySet<long>? _reviewImageIds;
 
     public bool IsApplyingSuggestionRefresh { get; private set; }
 
@@ -62,6 +64,12 @@ public partial class PeopleReviewViewModel : ObservableObject
             EnsurePersonDropTargetsLoadedAsync());
     }
 
+    public async Task OpenForImagesAsync(IReadOnlyList<ImageEntry> images)
+    {
+        _reviewImageIds = images.Select(image => image.Id).ToHashSet();
+        await OpenAsync();
+    }
+
     [RelayCommand]
     public void Close()
     {
@@ -78,7 +86,9 @@ public partial class PeopleReviewViewModel : ObservableObject
         {
             await _refreshGate.WaitAsync(cancellationToken);
             entered = true;
-            var groups = await _service.GetSuggestionGroupsAsync(cancellationToken);
+            var groups = await _service.GetSuggestionGroupsAsync(
+                cancellationToken,
+                _reviewImageIds);
             if (request != Volatile.Read(ref _refreshRequest)) return;
 
             // Capture the latest user choice after the query. The user can select
@@ -289,7 +299,7 @@ public partial class PeopleReviewViewModel : ObservableObject
 
             IsBusy = true;
             StatusMessage = "Loading people...";
-            var snapshot = await _service.GetPeopleManagementAsync(cancellationToken);
+            var snapshot = await _service.GetPeopleManagementAsync(cancellationToken, _reviewImageIds);
             // The user can select another person while the refresh is loading.
             // Preserve that latest choice rather than the selection from refresh start.
             var selectedPersonId = SelectedPerson?.Id;
@@ -471,9 +481,9 @@ public partial class PeopleReviewViewModel : ObservableObject
         {
             await _service.UndoTagAsync(operation, cancellationToken);
             ClearTagOperation();
-            var groupsTask = _service.GetSuggestionGroupsAsync(cancellationToken);
+            var groupsTask = _service.GetSuggestionGroupsAsync(cancellationToken, _reviewImageIds);
             var targetsTask = _service.GetPersonDropTargetsAsync(cancellationToken);
-            var managementTask = _service.GetPeopleManagementAsync(cancellationToken);
+            var managementTask = _service.GetPeopleManagementAsync(cancellationToken, _reviewImageIds);
             await Task.WhenAll(groupsTask, targetsTask, managementTask);
 
             ReconcileGroups(await groupsTask);

@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.UI.Xaml;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Services;
@@ -11,6 +12,7 @@ public partial class App : Application
     private Window? _window;
 
     public static MainViewModel ViewModel { get; private set; } = null!;
+    public static Task LibraryInitialization { get; private set; } = Task.CompletedTask;
 
     /// <summary>
     /// Global logging control. Set to false to disable debug logging.
@@ -39,6 +41,12 @@ public partial class App : Application
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var dataDir = Path.Combine(appData, "PhotoLibrarian");
         Directory.CreateDirectory(dataDir);
+        Core.Diagnostics.DebugLog.EnableFileLogging(Path.Combine(dataDir, "Logs"));
+        Diagnostics.DebugLog.WriteLine(
+            $"PhotoLibrarian starting: {typeof(App).Assembly.GetName().Version}, " +
+            $"{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
+            $"{Environment.OSVersion.VersionString}");
+        _ = Task.Run(() => new PhotoSharePreparationService().CleanupExpired());
         var dbPath = Path.Combine(dataDir, "cache.db");
 
         // Create services
@@ -73,6 +81,10 @@ public partial class App : Application
         var autoTaggingService = new AutoTaggingService(
             sessionManager,
             autoTagModelManager);
+        var selectedPhotoAutoTagReviewProcessor =
+            new SelectedPhotoAutoTagReviewProcessor(
+                autoTagModelManager,
+                autoTaggingService);
         var recognitionPipeline = new RecognitionPipeline(
             faceRepo,
             tagRepo,
@@ -104,14 +116,18 @@ public partial class App : Application
             autoTaggingSettingsStore,
             autoTagModelManager,
             autoTagBenchmarkProcessor,
-            activityGate);
+            selectedPhotoAutoTagReviewProcessor,
+            activityGate,
+            photoFuseFaces: new FaceLibraryProcessor(faceRepo,
+                new LocalFaceModelProvider(sessionManager), faceDetectionService, faceEmbeddingService));
 
         _window = new MainWindow();
+        LibraryInitialization = ViewModel.InitializeAsync();
         _window.Activate();
 
-        await ViewModel.InitializeAsync();
+        await LibraryInitialization;
     }
 
     public static new App Current => (App)Application.Current;
-    public static Window? MainWindow => ((App)Application.Current)._window;
+    public static Window? MainWindow => Application.Current is App app ? app._window : null;
 }

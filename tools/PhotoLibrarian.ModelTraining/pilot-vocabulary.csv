@@ -1,0 +1,101 @@
+label,category,parent,description,exclude,aliases
+animal,animals,,A visible nonhuman animal,People or animal-shaped toys,
+cat,animals,animal,A domestic cat,Wild big cats,kitten
+dog,animals,animal,A domestic dog,Wolves or dog-shaped toys,puppy
+bird,animals,animal,A visible bird including poultry,Aircraft or decorative silhouettes,
+duck,animals,bird,A visually identifiable duck,Geese or uncertain waterbirds,
+chicken,animals,bird,A live domestic chicken,Prepared chicken meat,
+horse,animals,animal,A horse or pony,Zebras or horse statues,pony
+cow,animals,animal,Domestic cattle,Buffalo or uncertain bovines,cattle
+sheep,animals,animal,A sheep or lamb,Goats,lamb
+goat,animals,animal,A goat,Sheep,
+rabbit,animals,animal,A rabbit or hare,Rabbit-shaped toys,bunny
+deer,animals,animal,A deer,Antelope or uncertain ungulates,
+fish,animals,animal,A live fish in water or aquarium,Prepared fish food,
+insect,animals,animal,A visible insect,Spiders or indistinct specks,
+butterfly,animals,insect,A visually identifiable butterfly,Moths when uncertain,
+flower,nature,,A visible flower or flowering head,Floral print patterns,flowers
+tree,nature,,A visible tree,Tree-shaped decorations,trees
+forest,nature,,A scene dominated by many trees,A single isolated tree,woods
+grass,nature,,Visible growing grass,Artificial turf when identifiable,
+leaves,nature,,Visible plant leaves,Printed leaf motifs,leaf
+mushroom,nature,,A visible fungal fruiting body,Mushroom-shaped ornaments,
+garden,nature,,An intentionally cultivated planted area,Uncultivated woodland,
+mountain,nature,,A substantial mountain landform,Small mounds,
+rocks,nature,,Visible natural rocks or boulders,Manufactured brickwork,rock
+beach,nature,,A shore with sand or pebbles beside water,A sandbox without shoreline,
+ocean,nature,,A visually supported sea or ocean scene,Exact named bodies of water,sea
+lake,nature,,An inland standing body of water,Ocean or swimming pools,
+river,nature,,A visible natural flowing watercourse,Canals when clearly engineered,stream
+waterfall,nature,,Water visibly falling over a natural drop,Fountains,
+desert,nature,,An arid sparsely vegetated landscape,A beach alone,
+house,buildings,,A residential house exterior,Inferring who lives there,
+building,buildings,,A visible constructed building,Natural rock formations,
+bridge,buildings,,A structure spanning a gap or water,A road without visible span,
+road,buildings,,A vehicle roadway,Footpaths alone,
+street,buildings,road,A road in a visibly built-up setting,Exact street names,
+stairs,buildings,,A visible flight of steps,Ladders,
+playground,buildings,,A play area with play equipment,Inferring a school from children,
+fountain,buildings,,An ornamental constructed water jet or cascade,Natural waterfalls,
+tent,buildings,,A pitched fabric shelter,Inferring an overnight stay,
+market,buildings,,Visible vendor stalls offering goods,Inferring a particular country or culture,
+car,transport,,A passenger automobile,Toy cars unless clearly the subject,automobile
+bus,transport,,A passenger bus or coach,Large vans when uncertain,
+truck,transport,,A freight or utility truck,Passenger cars,lorry
+bicycle,transport,,A pedal bicycle,Motorcycles,bike
+motorcycle,transport,,A motorized two-wheel road vehicle,Bicycles,motorbike
+train,transport,,A rail vehicle,Toy trains unless clearly the subject,
+boat,transport,,A watercraft,Boat-shaped decorations,
+airplane,transport,,A fixed-wing aircraft,Birds or helicopters,aeroplane
+helicopter,transport,,A rotorcraft,Fixed-wing aircraft,
+wheelchair,transport,,A visible mobility wheelchair,Inferring health or disability of a person,
+chair,home,,A visible chair,Inferring occupancy,
+table,home,,A visible table,Countertops when clearly fixed,
+sofa,home,,An upholstered couch or sofa,Beds,couch
+bed,home,,A visible bed,Inferring sleep or relationships,
+kitchen,home,,A room visibly equipped for food preparation,A lone appliance in another setting,
+bathroom,home,,A room visibly equipped with sanitary fixtures,Inferring private activity,
+book,home,,A visible bound book,Inferring reading from proximity,books
+computer,home,,A visible desktop or laptop computer,Televisions,laptop
+television,home,,A visible television,Computer monitors when distinguishable,tv
+houseplant,home,,A cultivated potted indoor plant,Inferring indoor location from a close-up alone,
+food,food,,Visible edible prepared or raw food,Inferring ingredients or dietary restrictions,
+fruit,food,food,Visible edible fruit,Plastic decorative fruit,
+vegetable,food,food,Visible edible vegetables,Inferring ingredients in mixed dishes,vegetables
+bread,food,food,Visible bread or rolls,Cakes,
+cake,food,food,A visible cake,Inferring birthday or wedding without other evidence,
+pizza,food,food,A visually identifiable pizza,Inferring unseen toppings,
+rice,food,food,Visible cooked or uncooked rice,Other grains when uncertain,
+noodles,food,food,Visible noodles or pasta,Inferring regional cuisine,pasta
+meal,food,food,A visibly served arrangement of food,Inferring breakfast or dinner from appearance,
+drink,food,,A visible beverage,Inferring alcohol or ingredients from an opaque container,beverage
+walking,activities,,A person visibly taking steps,Standing poses or inferred destinations,
+running,activities,,A person visibly running,Static poses when motion is uncertain,jogging
+swimming,activities,,A person visibly propelling themselves in water,Standing beside water,
+cycling,activities,,A person visibly riding a bicycle,A parked bicycle alone,bicycling
+cooking,activities,,Visible active preparation of food,A person merely beside food,
+reading,activities,,A person visibly attending to an open book or text,A closed book nearby,
+playing music,activities,,A person visibly performing with an instrument,An unattended instrument,
+dancing,activities,,People visibly engaged in dance,Inferring a specific tradition,
+gardening,activities,,Visible active tending of plants,A garden without active tending,
+fishing,activities,,Visible angling with rod or line,Inferring fishing from a boat alone,
+person,people,,A visible real person,Names or sensitive traits,people
+group of people,people,person,At least three visible people,Inferring family or friendship,
+picnic,people,,People or food arranged for an outdoor meal,Inferring occasion or relationships,
+concert,people,,A visible musical performance setting,Inferring genre or performer identity,
+celebration,people,,A gathering with visible celebratory decorations or actions,Specific holidays or religions from appearance alone,
+snow,weather,,Visible snow on the ground or falling,White sand or foam,
+rain,weather,,Visible falling rain or clearly resolved raindrops,Wet ground alone,
+clouds,weather,,Visible sky clouds,Smoke,cloud
+rainbow,weather,,A visible atmospheric rainbow,Rainbow-colored graphics,
+sunset or sunrise,weather,,A low-sun sky with visible dawn or dusk cues,Inferring morning versus evening,sunset|sunrise
+ball,objects,,A visible sports or play ball,Inferring a sport from a generic ball,
+toy,objects,,A visible object designed for play,Inferring the owner's age,toys
+musical instrument,objects,,A visible musical instrument,Inferring active performance,
+camera,objects,,A visible photographic camera,Inferring the photographer's identity,
+phone,objects,,A visible telephone or smartphone,Inferring a call from proximity,smartphone
+bag,objects,,A visible bag or backpack,Inferring contents,backpack
+umbrella,objects,,A visible open or folded umbrella,Inferring rain when weather is not visible,
+hat,objects,,A visible headwear item,Inferring religious or cultural identity,
+shoes,objects,,Visible footwear,Inferring occupation or gender,shoe
+sign,objects,,A visible sign or notice,Exact location inferred from text alone,

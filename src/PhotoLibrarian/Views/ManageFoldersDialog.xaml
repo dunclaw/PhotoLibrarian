@@ -18,8 +18,8 @@
         </Grid.RowDefinitions>
 
         <!-- Description -->
-        <TextBlock Grid.Row="0" TextWrapping="Wrap" 
-                   Text="Add or remove folders from your photo library. All photos and videos in these folders and their subfolders will be indexed." />
+        <TextBlock x:Uid="ManageFoldersDescription" Grid.Row="0" TextWrapping="Wrap"
+                   Text="Add folders to your library. Removing a folder hides its photos unless another watched folder includes them. Photos and sidecars stay on disk; cached metadata is kept for re-adding the folder." />
 
         <!-- Folder list -->
         <ListView Grid.Row="1" x:Name="FoldersList" 

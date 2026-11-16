@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 
 namespace PhotoLibrarian.Core.Data;
@@ -17,5 +18,6 @@ public interface IFaceScanStore
         DateTime expectedDateModified,
         IReadOnlyCollection<FaceRegion> faces,
         string scanVersion,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? expectedSourceIdentity = null);
 }

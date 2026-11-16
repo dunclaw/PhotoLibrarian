@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PhotoLibrarian.Core.Data;
@@ -5,6 +6,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -19,6 +21,8 @@ public partial class MainViewModel : ObservableObject
     private readonly MetadataReaderService _metadataReader;
     private readonly LibraryIndexingService _indexingService;
     private readonly WatchedFolderChangeService _watchedChanges;
+    private CancellationTokenSource? _hierarchyCleanupCancellation;
+    private bool _libraryFoldersChanging;
     private readonly OriginalBackupService _backupService;
     private readonly IDisposable _faceResources;
     private readonly RecognitionPipeline _recognitionPipeline;
@@ -31,6 +35,9 @@ public partial class MainViewModel : ObservableObject
     private bool _faceDetectionEnabled = true;
     private bool _autoTaggingEnabled;
     private bool _recognitionRescanRequested;
+    private bool _duplicateScanActive;
+    private bool _autoTagReviewActive;
+    private bool _photoFuseRecognitionPaused;
     private int _lastAutoTagTreeRefresh;
     private volatile bool _isShuttingDown;
 
@@ -39,14 +46,33 @@ public partial class MainViewModel : ObservableObject
     public PeopleNavigationViewModel PeopleNav { get; }
     public TagNavigationViewModel TagNav { get; }
     public FlagNavigationViewModel FlagNav { get; }
+    public ColorLabelNavigationViewModel ColorLabelNav { get; }
+    public NotTaggedNavigationViewModel NotTaggedNav { get; }
     public ImageGridViewModel ImageGrid { get; }
     public ImageViewerViewModel ImageViewer { get; }
     public ImageEditorViewModel ImageEditor { get; }
     public MetadataPanelViewModel MetadataPanel { get; }
     public PeopleReviewViewModel PeopleReview { get; }
+    public DuplicateReviewViewModel DuplicateReview { get; }
+    public AutoTagReviewViewModel AutoTagReview { get; }
     public SettingsViewModel Settings { get; }
     public Services.PhotoOperationsService PhotoOps { get; }
+    public PhotoImportService PhotoImport { get; }
     public OriginalBackupService BackupService => _backupService;
+    public LibrarySearchViewModel Search { get; }
+    public PhotoFuseViewModel PhotoFuse { get; }
+
+    public async Task PauseRecognitionForPhotoFuseAsync()
+    {
+        _photoFuseRecognitionPaused = true;
+        await StopRecognitionAsync();
+    }
+
+    public void ResumeRecognitionAfterPhotoFuse()
+    {
+        _photoFuseRecognitionPaused = false;
+        StartRecognitionProcessing();
+    }
 
     [ObservableProperty]
     public partial string StatusText { get; set; }
@@ -94,7 +120,10 @@ public partial class MainViewModel : ObservableObject
         AutoTaggingSettingsStore autoTaggingSettingsStore,
         AutoTagModelManager autoTagModelManager,
         AutoTagBenchmarkProcessor autoTagBenchmarkProcessor,
-        UserActivityGate activityGate)
+        SelectedPhotoAutoTagReviewProcessor selectedPhotoAutoTagReviewProcessor,
+        UserActivityGate activityGate,
+        Services.GridLayoutSettingsStore? gridLayoutSettingsStore = null,
+        FaceLibraryProcessor? photoFuseFaces = null)
     {
         _db = db;
         _imageRepo = imageRepo;
@@ -112,6 +141,16 @@ public partial class MainViewModel : ObservableObject
         _faceReviewService = faceReviewService;
         _faceResources = faceResources;
         _activityGate = activityGate;
+        PhotoFuse = new PhotoFuseViewModel(
+            (image, token) => _imageRepo.GetNearbyBurstAsync(image, TimeSpan.FromMinutes(2), token),
+            (image, token) => photoFuseFaces is null
+                ? throw new InvalidOperationException("Local face scanning is unavailable.")
+                : photoFuseFaces.ScanPhotoAsync(image, token),
+            image => _faceRepo.GetFacesForImageAsync(image.Id));
+        PhotoImport = new PhotoImportService(
+            metadataReader,
+            indexingService,
+            imageRepo);
 
         StatusText = "Ready";
 
@@ -120,33 +159,69 @@ public partial class MainViewModel : ObservableObject
         PeopleNav = new PeopleNavigationViewModel(faceRepo);
         TagNav = new TagNavigationViewModel(tagRepo);
         FlagNav = new FlagNavigationViewModel(imageRepo);
+        ColorLabelNav = new ColorLabelNavigationViewModel(imageRepo);
+        NotTaggedNav = new NotTaggedNavigationViewModel(tagRepo);
+        var searchRepo = new ImageSearchRepository(db);
         ImageGrid = new ImageGridViewModel(
             imageRepo,
             tagRepo,
             faceRepo,
+            searchRepo,
             scanner,
             metadataReader,
-            this);
+            this,
+            gridLayoutSettingsStore ?? new PhotoLibrarian.Services.GridLayoutSettingsStore());
         ImageViewer = new ImageViewerViewModel();
+        ImageViewer.PersistEditAsync = (label, path, prepare) =>
+            RunPhotoEditAsync(label, [path], copies => prepare(copies[Path.GetFullPath(path)]));
+        ImageViewer.EffectRecipeChanged += ImageGrid.RefreshSingleImageAsync;
+        Search = new LibrarySearchViewModel(ImageGrid, ImageViewer);
         ImageEditor = new ImageEditorViewModel(backupService);
+        ImageEditor.OperationFailed += (_, message) => StatusText = message;
+        ImageEditor.PersistEditAsync = (label, path, identity, prepare) =>
+            RunPhotoEditAsync(label, [path], copies => prepare(copies[Path.GetFullPath(path)]), identity);
         MetadataPanel = new MetadataPanelViewModel();
-        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this);
+        MetadataPanel.Initialize(imageRepo, tagRepo, faceRepo, this, backupService);
         PeopleReview = new PeopleReviewViewModel(faceReviewService);
         Settings = new SettingsViewModel(
             db,
             autoTaggingSettingsStore,
             autoTagModelManager,
-            autoTagBenchmarkProcessor);
+            autoTagBenchmarkProcessor,
+            new LibraryIndexMaintenanceService(
+                db,
+                imageRepo,
+                indexingService));
+        AutoTagReview = new AutoTagReviewViewModel(
+            selectedPhotoAutoTagReviewProcessor,
+            tagRepo,
+            () => Settings.CurrentAutoTaggingSettings);
+        AutoTagReview.SetRecognitionCallbacks(
+            PauseRecognitionForAutoTagReviewAsync,
+            ResumeRecognitionAfterAutoTagReview);
+        AutoTagReview.SetAfterApplyCallback(async () =>
+        {
+            await RefreshTagsTreeAsync();
+            await MetadataPanel.ReloadTagsAsync();
+        });
+        AutoTagReview.StatusUpdated += status => StatusText = status;
         _autoTaggingEnabled =
             Settings.CurrentAutoTaggingSettings.CanRun;
         PhotoOps = new Services.PhotoOperationsService(imageRepo, backupService);
+        DuplicateReview = new DuplicateReviewViewModel(
+            new DuplicateDetectionService(imageRepo, watchedOnly: true),
+            PhotoOps);
+        DuplicateReview.BeforeScanAsync = PauseRecognitionForDuplicateScanAsync;
+        DuplicateReview.AfterScan = ResumeRecognitionAfterDuplicateScan;
 
         _indexingService.Progress += OnIndexingProgress;
         _recognitionPipeline.Progress += OnRecognitionProgress;
         Settings.AutoTaggingSettingsChanged += OnAutoTaggingSettingsChanged;
         ImageViewer.CurrentEntryChanged += OnViewerEntryChanged;
+        ImageGrid.ResultsChanged += OnGridResultsChanged;
         ImageEditor.EditsApplied += OnEditsApplied;
         ImageEditor.Reverted += OnEditsReverted;
+        ImageEditor.CurrentEntryChanged += OnEditorEntryChanged;
     }
 
     private async void OnEditsReverted(object? sender, string filePath)
@@ -182,10 +257,33 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void OnViewerEntryChanged(ImageEntry? entry)
     {
+        if (ImageEditor.IsOpen) entry = ImageEditor.CurrentEntry;
         if (entry is not null)
+        {
+            ImageGrid.SelectViewerEntry(entry);
             MetadataPanel.ShowMetadata(entry);
+        }
         else
             ImageGrid.RefreshMetadataFromSelection();
+    }
+
+    private void OnGridResultsChanged(object? sender, EventArgs e)
+    {
+        ImageEditor.UpdateLibraryImages(ImageGrid.GetViewerImages());
+        if (ImageViewer.IsOpen && !ImageEditor.IsOpen)
+            ImageViewer.UpdateLibraryImages(ImageGrid.GetViewerImages());
+    }
+
+    private void OnEditorEntryChanged(ImageEntry? entry)
+    {
+        if (entry is not null)
+            ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
+        else
+        {
+            if (ImageViewer.IsOpen)
+                ImageViewer.UpdateLibraryImages(ImageGrid.GetViewerImages());
+            ImageGrid.RefreshMetadataFromSelection();
+        }
     }
 
     public async Task InitializeAsync()
@@ -193,16 +291,39 @@ public partial class MainViewModel : ObservableObject
         await _db.InitializeAsync();
         await FolderNav.LoadWatchedFoldersAsync();
         await FlagNav.LoadAsync();
+        await ColorLabelNav.LoadAsync();
+        await NotTaggedNav.LoadAsync();
         
         // Don't load images on startup - wait for user to select a folder
         // This prevents showing all 535 indexed images in random order
-        TotalImages = await _imageRepo.GetCountAsync();
+        TotalImages = await _imageRepo.GetCountAsync(watchedOnly: true);
         StatusText = TotalImages > 0 ? "Select a folder to view photos" : "Add folders to get started";
 
         // Start background indexing to populate metadata (tags, dates)
         StartBackgroundIndexing();
         StartBackgroundFaceDetection();
         StartBackgroundAutoTagging();
+    }
+
+    public async Task EnsureImportDestinationWatchedAsync(string destinationPath)
+    {
+        var fullPath = Path.GetFullPath(destinationPath);
+        var probePath = Path.Combine(fullPath, "_");
+        if (FolderNav.RootFolders.Any(folder =>
+                WatchedFolderScope.ContainsFile(
+                    probePath,
+                    folder.Path,
+                    folder.IncludeSubfolders)))
+            return;
+
+        await new WatchedFolderRepository(_db).AddAsync(fullPath);
+        await FolderNav.LoadWatchedFoldersAsync();
+    }
+
+    public async Task RefreshAfterPhotoImportAsync(IReadOnlyCollection<string> importedPaths)
+    {
+        ImageGrid.RevealImportedPhotos(importedPaths);
+        await RefreshAfterIndexAsync();
     }
 
     public void SyncWatchedFolders()
@@ -241,7 +362,9 @@ public partial class MainViewModel : ObservableObject
             StatusText = $"Library update failed: {error.Message}");
     }
 
-    private void OnWatchedLibraryChanged(object? sender, EventArgs e)
+    private void OnWatchedLibraryChanged(
+        object? sender,
+        WatchedFolderChangeService.WatchedLibraryChangedEventArgs e)
     {
         if (_isShuttingDown) return;
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
@@ -249,12 +372,22 @@ public partial class MainViewModel : ObservableObject
             if (_isShuttingDown) return;
             try
             {
+                DebugLog.WriteLine(e.RequiresGridReload
+                    ? "Library: refreshing after watched-folder membership change"
+                    : $"Library: refreshing {e.ChangedImagePaths.Count} watched item(s) in place");
                 if (ImageViewer.CurrentEntry is { } current &&
                     !System.IO.File.Exists(current.FilePath))
                     ImageViewer.CloseCommand.Execute(null);
-                await RefreshAfterIndexAsync();
-                ImageViewer.UpdateLibraryImages(
-                    ImageGrid.Images.Select(image => image.Entry).ToList());
+
+                if (e.RequiresGridReload)
+                {
+                    await RefreshAfterIndexAsync();
+                }
+                else
+                {
+                    await ImageGrid.RefreshWatchedItemsAsync(e.ChangedImagePaths);
+                    await RefreshNavigationAfterIndexAsync();
+                }
             }
             catch (Exception ex)
             {
@@ -279,7 +412,7 @@ public partial class MainViewModel : ObservableObject
         {
             ImageViewer.OpenImage(
                 entry,
-                ImageGrid.Images.Select(image => image.Entry).ToList());
+                ImageGrid.GetViewerImages());
         }
 
         if (App.MainWindow is MainWindow window)
@@ -331,6 +464,8 @@ public partial class MainViewModel : ObservableObject
             personName,
             cancellationToken);
         await MetadataPanel.ReloadPeopleTagsAsync();
+        if (PhotoFuse.IsActive)
+            await PhotoFuse.RefreshFacesAsync();
         if (App.MainWindow is MainWindow window)
             await window.RefreshPeopleFiltersAsync();
         StatusText = $"Added people tag for {personName.Trim()}.";
@@ -401,7 +536,14 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void StartRecognitionProcessing()
     {
-        if (_isShuttingDown || TotalImages == 0)
+        if (_libraryFoldersChanging)
+            return;
+        if (_isShuttingDown ||
+            Settings.IsHierarchyTagCleanupRunning ||
+            _duplicateScanActive ||
+            _autoTagReviewActive ||
+            _photoFuseRecognitionPaused ||
+            TotalImages == 0)
         {
             return;
         }
@@ -442,8 +584,9 @@ public partial class MainViewModel : ObservableObject
     {
         try
         {
+            var watchedFolders = await new WatchedFolderRepository(_db).GetAllAsync();
             await _recognitionPipeline.ProcessLibraryAsync(
-                request,
+                request with { WatchedFolders = watchedFolders },
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -496,32 +639,28 @@ public partial class MainViewModel : ObservableObject
         _indexingCts?.Cancel();
         _indexingCts = new CancellationTokenSource();
         var ct = _indexingCts.Token;
+        var folders = FolderNav.RootFolders.ToList();
 
         _ = Task.Run(async () =>
         {
             // Wait a bit before starting to let UI settle
             await Task.Delay(2000, ct);
             
-            DebugLog.WriteLine($"StartBackgroundIndexing: Starting scan of {FolderNav.RootFolders.Count} folders");
+            DebugLog.WriteLine($"StartBackgroundIndexing: Starting scan of {folders.Count} folders");
+            var libraryChanged = false;
 
-            foreach (var folder in FolderNav.RootFolders)
+            foreach (var folder in folders)
             {
                 if (ct.IsCancellationRequested) break;
 
                 try
                 {
                     DebugLog.WriteLine($"  Indexing folder: {folder.Path}");
-                    await _indexingService.IndexFolderAsync(folder.Path, folder.IncludeSubfolders, ct);
+                    libraryChanged |= await _indexingService.IndexFolderAsync(
+                        folder.Path,
+                        folder.IncludeSubfolders,
+                        ct);
                     DebugLog.WriteLine($"  Completed folder: {folder.Path}");
-                    
-                    if (!ct.IsCancellationRequested)
-                    {
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
-                        {
-                            await RefreshAfterIndexAsync();
-                        });
-                    }
-
                 }
                 catch (OperationCanceledException)
                 {
@@ -536,6 +675,14 @@ public partial class MainViewModel : ObservableObject
             }
             
             DebugLog.WriteLine($"StartBackgroundIndexing: All folders complete");
+            if (libraryChanged && !ct.IsCancellationRequested)
+            {
+                App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
+                {
+                    if (!_isShuttingDown)
+                        await RefreshAfterIndexAsync();
+                });
+            }
         }, ct);
     }
 
@@ -554,7 +701,7 @@ public partial class MainViewModel : ObservableObject
 
     public void StartBackgroundFaceDetection()
     {
-        if (_isShuttingDown || !_faceDetectionEnabled || TotalImages == 0)
+        if (_isShuttingDown || _duplicateScanActive || !_faceDetectionEnabled || TotalImages == 0)
         {
             return;
         }
@@ -575,6 +722,18 @@ public partial class MainViewModel : ObservableObject
         _faceDetectionEnabled = false;
         await StopRecognitionAsync();
         return shouldResume;
+    }
+
+    private async Task PauseRecognitionForDuplicateScanAsync()
+    {
+        _duplicateScanActive = true;
+        await StopRecognitionAsync();
+    }
+
+    private void ResumeRecognitionAfterDuplicateScan()
+    {
+        _duplicateScanActive = false;
+        StartRecognitionProcessing();
     }
 
     public void ResumeFaceDetection(bool shouldResume)
@@ -614,6 +773,33 @@ public partial class MainViewModel : ObservableObject
         }
 
         SetRecognitionStage(RecognitionStage.None, false);
+    }
+
+    public async Task PauseRecognitionForFolderChangeAsync()
+    {
+        _libraryFoldersChanging = true;
+        await StopRecognitionAsync();
+    }
+
+    public void ResumeRecognitionAfterFolderChange()
+    {
+        _libraryFoldersChanging = false;
+        StartRecognitionProcessing();
+    }
+
+    private async Task PauseRecognitionForAutoTagReviewAsync()
+    {
+        _autoTagReviewActive = true;
+        await StopRecognitionAsync();
+    }
+
+    private void ResumeRecognitionAfterAutoTagReview()
+    {
+        _autoTagReviewActive = false;
+        if (!_isShuttingDown && (_faceDetectionEnabled || _autoTaggingEnabled))
+        {
+            StartRecognitionProcessing();
+        }
     }
 
     /// <summary>
@@ -665,6 +851,91 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    public async Task CleanupHierarchicalTagsAsync()
+    {
+        if (Settings.IsHierarchyTagCleanupRunning ||
+            Settings.IsAutoTagCleanupRunning ||
+            Settings.IsIndexMaintenanceRunning ||
+            IsIndexing)
+        {
+            Settings.HierarchyTagCleanupStatus =
+                LibraryIndexMaintenanceStrings.Get("HierarchyCleanupBusy");
+            return;
+        }
+        Settings.IsHierarchyTagCleanupRunning = true;
+        Settings.HierarchyTagCleanupProgress = 0;
+        Settings.HierarchyTagCleanupStatus =
+            LibraryIndexMaintenanceStrings.Get("HierarchyCleanupStarting");
+        using var cancellation = new CancellationTokenSource();
+        _hierarchyCleanupCancellation = cancellation;
+        // Cleanup reindexes each photo it writes; the watcher would otherwise reindex it again and
+        // hold the file exclusively while cleanup is writing the next one.
+        var watcherSuspension = _watchedChanges.SuspendProcessing();
+        try
+        {
+            await StopRecognitionAsync();
+            var backups = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PhotoLibrarian", "TagCleanupBackups");
+            var cleanup = new HierarchicalTagCleanupService(_imageRepo, _tagRepo, _indexingService, backups);
+            var progress = new Progress<HierarchicalTagCleanupProgress>(ReportHierarchyCleanupProgress);
+            var result = await Task.Run(() => cleanup.CleanupAsync(progress, cancellation.Token));
+            await _watchedChanges.DiscardReindexedAsync(result.ReindexedPaths ?? []);
+            await RefreshAfterIndexAsync();
+            await MetadataPanel.ReloadTagsAsync();
+            var status = LibraryIndexMaintenanceStrings.Format(
+                result.Cancelled ? "HierarchyCleanupCancelled" : "HierarchyCleanupCompleted",
+                result.RemovedTags, result.UpdatedPhotos,
+                result.ScannedPhotos, result.BackupDirectory, result.ReconciledPhotos);
+            if (result.Failures.Count > 0)
+            {
+                status += Environment.NewLine + LibraryIndexMaintenanceStrings.Format(
+                    "HierarchyCleanupFailures", result.Failures.Count);
+                status += Environment.NewLine + string.Join(Environment.NewLine, result.Failures.Take(20));
+                foreach (var failure in result.Failures)
+                    DebugLog.WriteLine($"Hierarchy tag cleanup issue: {failure}");
+            }
+            Settings.HierarchyTagCleanupStatus = status;
+            StatusText = status;
+        }
+        catch (Exception exception)
+        {
+            DebugLog.WriteLine($"Hierarchy tag cleanup failed: {exception}");
+            Settings.HierarchyTagCleanupStatus =
+                LibraryIndexMaintenanceStrings.Format(
+                    "HierarchyCleanupFailed", HierarchicalTagCleanupService.DescribeFailure(exception));
+            StatusText = Settings.HierarchyTagCleanupStatus;
+        }
+        finally
+        {
+            _hierarchyCleanupCancellation = null;
+            watcherSuspension.Dispose();
+            Settings.IsHierarchyTagCleanupRunning = false;
+            StartRecognitionProcessing();
+        }
+    }
+
+    public void CancelHierarchicalTagCleanup()
+    {
+        if (_hierarchyCleanupCancellation is not { } cancellation) return;
+        cancellation.Cancel();
+        Settings.HierarchyTagCleanupStatus =
+            LibraryIndexMaintenanceStrings.Get("HierarchyCleanupCancelling");
+    }
+
+    private void ReportHierarchyCleanupProgress(HierarchicalTagCleanupProgress update)
+    {
+        if (_hierarchyCleanupCancellation is not { IsCancellationRequested: false }) return;
+        Settings.HierarchyTagCleanupProgress = update.Total > 0
+            ? 100d * update.Processed / update.Total
+            : 0;
+        Settings.HierarchyTagCleanupStatus = LibraryIndexMaintenanceStrings.Format(
+            "HierarchyCleanupProgress", update.Processed, update.Total,
+            update.UpdatedPhotos, update.ReconciledPhotos, update.FailedPhotos,
+            Path.GetFileName(update.CurrentPath));
+        StatusText = Settings.HierarchyTagCleanupStatus;
+    }
+
     public async Task RemoveAllAutomaticTagsAsync(
         CancellationToken cancellationToken = default)
     {
@@ -678,13 +949,56 @@ public partial class MainViewModel : ObservableObject
             _autoTaggingEnabled = false;
             await StopRecognitionAsync();
 
+            var affectedImages = await _tagRepo.GetImagesWithAutoTagMetadataAsync(
+                cancellationToken);
             var result = await _tagRepo.RemoveAllAutoTagsAsync(
                 cancellationToken);
+            var metadataFailures = 0;
+            string? firstMetadataFailure = null;
+            foreach (var image in affectedImages)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    if (!System.IO.File.Exists(image.FilePath))
+                    {
+                        throw new FileNotFoundException(
+                            "The photo is no longer available.",
+                            image.FilePath);
+                    }
+
+                    var remainingTags = await _tagRepo.GetTagsAsync(image.Id);
+                    await TagWriterService.WriteTagsToSidecarAsync(
+                        image.FilePath,
+                        remainingTags.Select(tag => tag.Tag),
+                        remainingTags,
+                        autoTagScanVersion: null);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    metadataFailures++;
+                    firstMetadataFailure ??=
+                        $"{image.FilePath}: {exception.Message}";
+                    DebugLog.WriteLine(
+                        $"Failed to remove automatic tag metadata from {image.FilePath}: {exception}");
+                }
+            }
+
             await RefreshTagsTreeAsync();
             await MetadataPanel.ReloadTagsAsync();
 
             var status =
                 $"Removed {result.TagCount:N0} automatic tag assignments from {result.PhotoCount:N0} photos. Automatic tagging is off.";
+            if (metadataFailures > 0)
+            {
+                status +=
+                    $" Metadata was not updated for {metadataFailures:N0} photo(s); first failure: {firstMetadataFailure}";
+            }
             Settings.AutoTaggingStatus = status;
             StatusText = status;
         }
@@ -827,32 +1141,12 @@ public partial class MainViewModel : ObservableObject
     public async Task SetFlagAsync(IReadOnlyList<ImageEntry> entries, bool flagged)
     {
         if (entries is null || entries.Count == 0) return;
-
-        int changed = 0;
-        foreach (var entry in entries)
+        await RunPhotoEditAsync(flagged ? "flag photos" : "unflag photos",
+            entries.Select(entry => entry.FilePath).ToArray(), async copies =>
         {
-            try
-            {
-                await MetadataWriterService.WriteFlagAsync(entry.FilePath, flagged);
-            }
-            catch (Exception ex)
-            {
-                DebugLog.WriteLine($"[FLAG] Failed to write flag to {entry.FilePath}: {ex.Message}");
-            }
-
-            entry.IsFlagged = flagged;
-            if (entry.Id > 0)
-                await _imageRepo.UpdateFlagAsync(entry.Id, flagged);
-            changed++;
-        }
-
-        StatusText = flagged
-            ? $"Flagged {changed:N0} item(s)"
-            : $"Unflagged {changed:N0} item(s)";
-
-        await RefreshFlagNavAsync();
-        MetadataPanel.RefreshFlagState();
-        await ImageGrid.OnFlagsChangedAsync(entries, flagged);
+            foreach (var path in copies.Values)
+                await MetadataWriterService.WriteFlagAsync(path, flagged);
+        });
     }
 
     /// <summary>
@@ -861,6 +1155,7 @@ public partial class MainViewModel : ObservableObject
     public async Task RefreshFlagNavAsync()
     {
         await FlagNav.LoadAsync();
+        await ColorLabelNav.LoadAsync();
         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
         {
             if (App.MainWindow is MainWindow window)
@@ -873,7 +1168,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task RefreshTagsTreeAsync()
     {
-        if (ImageGrid.Refinement.RequiresTags)
+        if (ImageGrid.HasTagDependentFilter)
             await ImageGrid.LoadImagesAsync();
 
         if (App.MainWindow is MainWindow window)
@@ -883,6 +1178,7 @@ public partial class MainViewModel : ObservableObject
         else
         {
             await TagNav.LoadTagsAsync();
+            await NotTaggedNav.LoadAsync();
         }
     }
 
@@ -896,11 +1192,8 @@ public partial class MainViewModel : ObservableObject
         await DateNav.LoadDatesAsync();
         if (App.MainWindow is MainWindow window)
         {
-            window.DispatcherQueue.TryEnqueue(async () =>
-            {
-                await window.RefreshMetadataTreesAsync();
-                await ImageGrid.RefreshGroupingAsync();
-            });
+            await window.RefreshMetadataTreesAsync();
+            await ImageGrid.RefreshGroupingAsync();
         }
     }
 
@@ -914,44 +1207,29 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(tag) || filePaths == null || filePaths.Count == 0) return;
         var trimmed = tag.Trim();
 
-        StatusText = $"Applying tag '{trimmed}' to {filePaths.Count:N0} item(s)…";
-
-        int applied = 0;
-        int skipped = 0;
-        foreach (var path in filePaths)
+        await RunPhotoEditAsync($"add tag '{trimmed}'", filePaths.ToArray(), async copies =>
         {
-            try
+            foreach (var (path, copy) in copies)
             {
                 var entry = await _imageRepo.GetByPathAsync(path);
-                if (entry == null || entry.Id <= 0) { skipped++; continue; }
-
-                await _tagRepo.AddTagAsync(new ImageTag
+                if (entry is null || entry.Id <= 0)
+                    throw new IOException($"The photo is no longer indexed: {path}");
+                var allTags = await _tagRepo.GetTagsAsync(entry.Id);
+                allTags.RemoveAll(item => string.Equals(item.Tag, trimmed, StringComparison.OrdinalIgnoreCase));
+                allTags.Add(new ImageTag
                 {
                     ImageId = entry.Id,
                     Tag = trimmed,
                     Source = TagSource.Manual,
                     Confidence = 1.0f
                 });
-
-                var allTags = await _tagRepo.GetTagsAsync(entry.Id);
-                await TagWriterService.WriteTagsToSidecarAsync(path,
-                    allTags.Select(t => t.Tag).Distinct());
-
-                applied++;
+                await TagWriterService.WriteTagsToSidecarAsync(copy,
+                    allTags.Select(t => t.Tag).Distinct(),
+                    allTags,
+                    entry.AutoTagScanVersion,
+                    sourceIdentity: entry.SourceIdentity);
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[TAGDROP] Failed to apply '{trimmed}' to {path}: {ex.Message}");
-                skipped++;
-            }
-        }
-
-        StatusText = skipped == 0
-            ? $"Applied tag '{trimmed}' to {applied:N0} item(s)"
-            : $"Applied tag '{trimmed}' to {applied:N0} item(s) ({skipped:N0} skipped)";
-
-        await RefreshTagsTreeAsync();
-        await MetadataPanel.ReloadTagsAsync();
+        });
     }
 
     /// <summary>
@@ -1029,6 +1307,83 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    public async Task IndexCroppedCopyAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        if (await _imageRepo.GetByPathAsync(path) is null)
+            throw new InvalidOperationException($"The cropped copy at '{path}' could not be added to the library.");
+        await RefreshAfterIndexAsync();
+        StatusText = $"Original is read-only; saved cropped copy as {Path.GetFileName(path)}";
+    }
+
+    public async Task IndexRawDerivativeAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        if (await _imageRepo.GetByPathAsync(path) is null)
+            throw new InvalidOperationException($"The derivative at '{path}' could not be added to the library.");
+        await RefreshAfterIndexAsync();
+    }
+
+    public async Task IndexPanoramaAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var entry = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException(
+                $"The panorama at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedImage(entry.FilePath);
+        await RefreshAfterIndexAsync();
+        ImageViewer.OpenImage(entry, ImageGrid.GetViewerImages());
+        StatusText = PanoramaStrings.Format("PanoramaCreatedStatus", entry.FileName);
+    }
+
+    public Task OpenStabilizedVideoAsync(string path) => OpenVideoCopyAsync(path, edited: false);
+
+    public Task OpenEditedVideoAsync(string path) => OpenVideoCopyAsync(path, edited: true);
+
+    private async Task OpenVideoCopyAsync(string path, bool edited)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The copy at '{path}' could not be shown in the grid.");
+        ImageViewer.OpenExportedVideo(copy);
+        StatusText = edited ? Services.VideoEditStrings.Format("VideoEditOpened", path) : $"Opened stabilized copy: {path}";
+    }
+
+    public async Task OpenTrimmedVideoAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The trimmed copy at '{path}' could not be added to the library.");
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The trimmed copy at '{path}' could not be shown in the grid.");
+        ImageViewer.OpenExportedVideo(copy);
+        StatusText = $"Opened trimmed copy: {path}";
+    }
+
+    public async Task RevealPhotoFuseCopyAsync(string path)
+    {
+        await _indexingService.IndexFileAsync(path);
+        var copy = await _imageRepo.GetByPathAsync(path)
+            ?? throw new InvalidOperationException($"The composite at '{path}' could not be added to the library.");
+        if (copy.MediaType != MediaType.Image)
+            throw new InvalidOperationException("The saved Photo Fuse copy is not a still image.");
+        // The existing transient export reveal is media-neutral despite its historical name.
+        ImageGrid.RevealExportedVideo(copy.FilePath);
+        await RefreshAfterIndexAsync();
+        copy = ImageGrid.Images.FirstOrDefault(image =>
+            string.Equals(image.Entry.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Entry
+            ?? throw new InvalidOperationException($"The composite at '{path}' could not be shown in the grid.");
+        ImageGrid.SelectViewerEntry(copy);
+    }
+
     public async Task MakeCopyForEditingAsync(ImageEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -1046,7 +1401,7 @@ public partial class MainViewModel : ObservableObject
 
         await RefreshAfterIndexAsync();
 
-        var viewerEntries = ImageGrid.Images.Select(image => image.Entry).ToList();
+        var viewerEntries = ImageGrid.GetViewerImages();
         var visibleCopy = viewerEntries.FirstOrDefault(image => image.Id == copyEntry.Id);
         if (visibleCopy is not null)
         {
@@ -1063,16 +1418,22 @@ public partial class MainViewModel : ObservableObject
     public async Task RefreshAfterIndexAsync()
     {
         await ImageGrid.LoadImagesAsync();
-        TotalImages = await _imageRepo.GetCountAsync();
+        TotalImages = await _imageRepo.GetCountAsync(watchedOnly: true);
         StatusText = $"{TotalImages:N0} items";
-        // Refresh date and tag navigation data
+        await RefreshNavigationAfterIndexAsync();
+        StartBackgroundFaceDetection();
+        StartBackgroundAutoTagging();
+    }
+
+    private async Task RefreshNavigationAfterIndexAsync()
+    {
         await DateNav.LoadDatesAsync();
         await PeopleNav.LoadPeopleAsync();
         await TagNav.LoadTagsAsync();
         await FlagNav.LoadAsync();
-        StartBackgroundFaceDetection();
-        StartBackgroundAutoTagging();
-        
+        await ColorLabelNav.LoadAsync();
+        await NotTaggedNav.LoadAsync();
+
         // Update UI trees on main thread
         App.MainWindow?.DispatcherQueue.TryEnqueue(async () =>
         {
@@ -1085,8 +1446,12 @@ public partial class MainViewModel : ObservableObject
 
     public async Task CleanupAsync()
     {
+        await EditHistory.WaitForIdleAsync();
+        Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
+        await AutoTagReview.ShutdownAsync();
+        await MetadataPanel.StopVideoMetadataReadsAsync();
         _watchedChanges.Dispose();
         _scanner.WatcherError -= OnWatcherError;
         _indexingCts?.Cancel();
@@ -1103,6 +1468,9 @@ public partial class MainViewModel : ObservableObject
         _recognitionPipeline.Progress -= OnRecognitionProgress;
         Settings.AutoTaggingSettingsChanged -= OnAutoTaggingSettingsChanged;
         _faceResources.Dispose();
+        EditHistory.Clear();
         _scanner.Dispose();
+        DebugLog.WriteLine("MainViewModel: Cleanup complete");
+        Core.Diagnostics.DebugLog.Flush(TimeSpan.FromSeconds(1));
     }
 }

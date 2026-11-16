@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Diagnostics;
@@ -25,7 +27,7 @@ public partial class DateNavigationViewModel : ObservableObject
         RootNodes.Clear();
 
         // Get all images with DateTaken
-        var images = await _imageRepo.GetAllAsync();
+        var images = await _imageRepo.GetAllAsync(watchedOnly: true);
         var imagesWithDates = images.Where(i => i.DateTaken.HasValue).ToList();
 
         DebugLog.WriteLine($"DateNavigationViewModel.LoadDatesAsync: Total images={images.Count}, with dates={imagesWithDates.Count}");

@@ -1,0 +1,773 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="EditorMonochromePanel.Header" xml:space="preserve"><value>Black and white</value></data>
+  <data name="EditorMonochromeToggle.Header" xml:space="preserve"><value>Convert to black and white</value></data>
+  <data name="EditorMonochromeToggle.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Convert to black and white</value></data>
+  <data name="EditorMonochromeToggle.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Adjust areas by their original color, even though the preview is black and white. Try Blue to darken skies or Green to brighten foliage. Colors absent from the original photo will have little effect.</value></data>
+  <data name="EditorMonochromeDirection.Text" xml:space="preserve"><value>Original colors: left = darker, right = brighter</value></data>
+  <data name="EditorMonochromeRed.Header" xml:space="preserve"><value>Red</value></data>
+  <data name="EditorMonochromeRed.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally red areas</value></data>
+  <data name="EditorMonochromeOrange.Header" xml:space="preserve"><value>Orange</value></data>
+  <data name="EditorMonochromeOrange.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally orange areas</value></data>
+  <data name="EditorMonochromeYellow.Header" xml:space="preserve"><value>Yellow</value></data>
+  <data name="EditorMonochromeYellow.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally yellow areas</value></data>
+  <data name="EditorMonochromeGreen.Header" xml:space="preserve"><value>Green (foliage)</value></data>
+  <data name="EditorMonochromeGreen.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally green areas, such as foliage</value></data>
+  <data name="EditorMonochromeAqua.Header" xml:space="preserve"><value>Aqua</value></data>
+  <data name="EditorMonochromeAqua.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally aqua areas</value></data>
+  <data name="EditorMonochromeBlue.Header" xml:space="preserve"><value>Blue (skies)</value></data>
+  <data name="EditorMonochromeBlue.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally blue areas, such as skies</value></data>
+  <data name="EditorMonochromePurple.Header" xml:space="preserve"><value>Purple</value></data>
+  <data name="EditorMonochromePurple.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally purple areas</value></data>
+  <data name="EditorMonochromeMagenta.Header" xml:space="preserve"><value>Magenta</value></data>
+  <data name="EditorMonochromeMagenta.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Brightness of originally magenta areas</value></data>
+  <data name="EditorMonochromeReset.Content" xml:space="preserve"><value>Reset mix</value></data>
+  <data name="EditorMonochromeReset.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reset black and white mix, keeping black and white enabled</value></data>
+  <data name="EditorMonochromeToning.Text" xml:space="preserve"><value>For a sepia or selenium tint, use Color grading below.</value></data>
+  <data name="ComparisonCompareMenu.Text" xml:space="preserve"><value>Compare selected photos</value></data>
+  <data name="GridComparison.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Compare selected photos</value></data>
+  <data name="GridComparison.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Compare selected photos in this window. Select 2 or more still photos; the layout adapts automatically.</value></data>
+  <data name="ComparisonSelectionHelp" xml:space="preserve"><value>Select 2 or more still photos to compare. Videos cannot be included.</value></data>
+  <data name="ComparisonFit.Label" xml:space="preserve"><value>Fit all</value></data>
+  <data name="ComparisonActual.Label" xml:space="preserve"><value>100%</value></data>
+  <data name="ComparisonZoomIn.Label" xml:space="preserve"><value>Zoom in</value></data>
+  <data name="ComparisonZoomOut.Label" xml:space="preserve"><value>Zoom out</value></data>
+  <data name="ComparisonRestore.Label" xml:space="preserve"><value>Restore all</value></data>
+  <data name="ComparisonClose.Label" xml:space="preserve"><value>Back to library</value></data>
+  <data name="ComparisonRemove.Content" xml:space="preserve"><value>Remove</value></data>
+  <data name="ComparisonRemove.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Remove only from this workspace; never deletes the photo or changes selection.</value></data>
+  <data name="ComparisonRemoveName" xml:space="preserve"><value>Remove {0} from workspace</value></data>
+  <data name="ComparisonRetry.Content" xml:space="preserve"><value>Retry loading</value></data>
+  <data name="ComparisonRetryName" xml:space="preserve"><value>Retry loading {0}</value></data>
+  <data name="ComparisonHelp.Text" xml:space="preserve"><value>Wheel to zoom; drag to pan. All photos move together. Remove hides a candidate here only; Restore all brings them back. Escape returns to the library.</value></data>
+  <data name="ComparisonKeyboardHelp" xml:space="preserve"><value>Plus and minus zoom all photos. Arrow keys pan all photos. Home fits all; 1 shows actual pixels. Tab moves between commands and photos; Escape closes.</value></data>
+  <data name="ComparisonCount" xml:space="preserve"><value>{0} of {1} candidates. Library selection, ratings and edits are unchanged.</value></data>
+  <data name="ComparisonLoading" xml:space="preserve"><value>Waiting for full-resolution photo...</value></data>
+  <data name="ComparisonDimensions" xml:space="preserve"><value>{0} x {1} pixels</value></data>
+  <data name="ComparisonLoadFailed" xml:space="preserve"><value>Could not load photo: {0}. Remove candidates to free memory, or retry.</value></data>
+  <data name="ViewerQuickRotateLeftLabel" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="ViewerQuickRotateRightLabel" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="ViewerQuickAutoBrightnessLabel" xml:space="preserve"><value>Auto brightness</value></data>
+  <data name="ViewerQuickAutoColorLabel" xml:space="preserve"><value>Auto color</value></data>
+  <data name="ViewerQuickRotateLeft.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="ViewerQuickRotateRight.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="ViewerQuickAutoBrightness.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Auto brightness</value></data>
+  <data name="ViewerQuickAutoColor.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Auto color</value></data>
+  <data name="ViewerQuickAutoBrightness.Content" xml:space="preserve"><value>Auto brightness</value></data>
+  <data name="ViewerQuickAutoColor.Content" xml:space="preserve"><value>Auto color</value></data>
+  <data name="ViewerQuickRotateLeft.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate this photo 90 degrees left. Undo is available.</value></data>
+  <data name="ViewerQuickRotateRight.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate this photo 90 degrees right. Undo is available.</value></data>
+  <data name="ViewerQuickAutoBrightness.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace tone settings with conservative automatic exposure and contrast. Undo is available.</value></data>
+  <data name="ViewerQuickAutoColor.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace color settings with conservative automatic white balance and saturation. Undo is available.</value></data>
+  <data name="GeotagMapLink.Content" xml:space="preserve"><value>Open map</value></data>
+  <data name="GeotagMapLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open geotag coordinates on a map</value></data>
+  <data name="MapProviderCombo.Header" xml:space="preserve"><value>Map provider</value></data>
+  <data name="MapProviderCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Map provider</value></data>
+  <data name="MapProviderPrivacy.Text" xml:space="preserve"><value>Opening coordinates sends them to the selected map provider in your browser.</value></data>
+  <data name="MapLatitudeLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open latitude and longitude on a map</value></data>
+  <data name="MapLongitudeLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open latitude and longitude on a map</value></data>
+  <data name="MapProviderSaveFailed" xml:space="preserve"><value>Could not save map provider: {0}</value></data>
+  <data name="MapLaunchFailed" xml:space="preserve"><value>Could not open the map in a browser.</value></data>
+  <data name="MapLaunchError" xml:space="preserve"><value>Could not open the map: {0}</value></data>
+  <data name="HierarchyCleanupDescription.Text" xml:space="preserve"><value>Clean up legacy hierarchy tags in watched photos, including older automatic tags stored only in the cache. Keep the longest tag in each slash-delimited branch and save it portably with the photo.</value></data>
+  <data name="HierarchyCleanupButton.Content" xml:space="preserve"><value>Collapse redundant hierarchy tags...</value></data>
+  <data name="HierarchyCleanupButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Collapse redundant hierarchy tags</value></data>
+  <data name="HierarchyCleanupConfirmTitle" xml:space="preserve"><value>Collapse hierarchy tags in watched photos?</value></data>
+  <data name="HierarchyCleanupConfirmMessage" xml:space="preserve"><value>This scans indexed photos in all watched folders, including legacy automatic tags stored only in the cache, and saves the cleaned tags with each photo. Existing portable tag provenance stays authoritative; stale cache rows are reconciled to it. For example, Auto, Auto/animal, and Auto/animal/dog become only Auto/animal/dog. Sibling branches and unrelated tags are kept. A prefix is removed even if you originally entered it independently. Photo, existing XMP, and original cached-tag backups are retained before each change. Unavailable or unreadable files are skipped and reported. This cannot be undone from the tag panel; use the backups to recover removed keywords.</value></data>
+  <data name="HierarchyCleanupConfirmPrimary" xml:space="preserve"><value>Back up and collapse tags</value></data>
+  <data name="HierarchyCleanupStarting" xml:space="preserve"><value>Stopping recognition and scanning watched photos for redundant hierarchy keywords...</value></data>
+  <data name="HierarchyCleanupCompleted" xml:space="preserve"><value>Removed {0:N0} redundant tag assignments; rewrote metadata for {1:N0} photos and reconciled {4:N0} cached photos; scanned {2:N0} photos. Backups for changed photos and cached tags: {3}</value></data>
+  <data name="HierarchyCleanupFailed" xml:space="preserve"><value>Hierarchy cleanup could not finish: {0}</value></data>
+  <data name="HierarchyCleanupBusy" xml:space="preserve"><value>Wait for the current indexing or cleanup operation to finish, then try again.</value></data>
+  <data name="HierarchyCleanupCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
+  <data name="HierarchyCleanupCancelButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Cancel hierarchy tag cleanup</value></data>
+  <data name="HierarchyCleanupProgressBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Hierarchy tag cleanup progress</value></data>
+  <data name="HierarchyCleanupProgress" xml:space="preserve"><value>Checked {0:N0} of {1:N0} photos; rewrote {2:N0}, reconciled {3:N0}, {4:N0} issues. Current: {5}</value></data>
+  <data name="HierarchyCleanupCancelling" xml:space="preserve"><value>Cancelling after the current photo is finished...</value></data>
+  <data name="HierarchyCleanupCancelled" xml:space="preserve"><value>Cleanup cancelled. Removed {0:N0} redundant tag assignments; rewrote metadata for {1:N0} photos and reconciled {4:N0} cached photos; checked {2:N0} photos. Running cleanup again resumes safely. Backups: {3}</value></data>
+  <data name="HierarchyCleanupFailures" xml:space="preserve"><value>{0:N0} photos were skipped or could not be updated. All issues are recorded in the PhotoLibrarian log; the first ones are listed below.</value></data>
+  <data name="RibbonUndoCaption.Text" xml:space="preserve"><value>Undo</value></data>
+  <data name="RibbonRedoCaption.Text" xml:space="preserve"><value>Redo</value></data>
+  <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Undo</value></data>
+  <data name="RibbonRedoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Redo</value></data>
+  <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Undo edit (Ctrl+Z)</value></data>
+  <data name="RibbonRedoButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Redo edit (Ctrl+Y or Ctrl+Shift+Z)</value></data>
+  <data name="RibbonUndoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Photo and metadata edits in this session. Excludes file moves/deletes, exported copies, people review and automatic changes. Save or discard pending adjustments to leave their preview history.</value></data>
+  <data name="RibbonRedoButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Photo and metadata edits in this session. Excludes file moves/deletes, exported copies, people review and automatic changes. Save or discard pending adjustments to leave their preview history.</value></data>
+  <data name="RibbonEffectsCaption.Text" xml:space="preserve"><value>Effects</value></data>
+  <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose a photo effect</value></data>
+  <data name="RibbonEffectsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show effect previews for this photo</value></data>
+  <data name="EditorEffectsTitle.Text" xml:space="preserve"><value>Effects</value></data>
+  <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo effects</value></data>
+  <data name="EditorEffectsGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve"><value>Use arrow keys to select an effect. None removes only the effect, keeping other adjustments.</value></data>
+  <data name="EditorEffectNone" xml:space="preserve"><value>None</value></data>
+  <data name="EditorEffectBlackAndWhite" xml:space="preserve"><value>Black and white</value></data>
+  <data name="EditorEffectRedFilter" xml:space="preserve"><value>Red filter</value></data>
+  <data name="EditorEffectOrangeFilter" xml:space="preserve"><value>Orange filter</value></data>
+  <data name="EditorEffectYellowFilter" xml:space="preserve"><value>Yellow filter</value></data>
+  <data name="EditorEffectSepia" xml:space="preserve"><value>Sepia</value></data>
+  <data name="EditorEffectCyanotype" xml:space="preserve"><value>Cyanotype</value></data>
+  <data name="EditorEffectWarmTint" xml:space="preserve"><value>Warm tint</value></data>
+  <data name="EditorEffectCoolTint" xml:space="preserve"><value>Cool tint</value></data>
+  <data name="EditorEffectHistory" xml:space="preserve"><value>Effect: {0}</value></data>
+  <data name="EditorEffectsLoading" xml:space="preserve"><value>Updating previews from this photo...</value></data>
+  <data name="EditorEffectsReady" xml:space="preserve"><value>Previews include current adjustments. None keeps your other adjustments.</value></data>
+  <data name="EditorEffectsFailed" xml:space="preserve"><value>Effect previews could not be loaded: {0}</value></data>
+  <data name="EditorEffectsRawUnavailable" xml:space="preserve"><value>Effects require a supported raster photo. For RAW, export an SDR derivative and edit that copy.</value></data>
+  <data name="EditorEffectsApplyFailed" xml:space="preserve"><value>The photo effect could not be applied: {0}</value></data>
+  <data name="EditorPresetsHeading.Text" xml:space="preserve"><value>Presets</value></data>
+  <data name="EditorPresetAmountLabel.Text" xml:space="preserve"><value>Amount</value></data>
+  <data name="EditorSavePresetButton.Content" xml:space="preserve"><value>Save preset...</value></data>
+  <data name="EditorSavePresetButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Save a preset from selected setting groups</value></data>
+  <data name="EditorApplyPresetButton.Content" xml:space="preserve"><value>Apply preset</value></data>
+  <data name="EditorApplyPresetButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Apply the selected preset at the chosen amount</value></data>
+  <data name="EditorPresetGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Saved photo presets</value></data>
+  <data name="EditorPresetAmountSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preset amount, percent</value></data>
+  <data name="EditorPresetAmountSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Set the preset strength from 0 to 200 percent.</value></data>
+  <data name="EditorPresetPreviewImage.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preset amount preview</value></data>
+  <data name="EditorPresetFavorite.Content" xml:space="preserve"><value>Favorite</value></data>
+  <data name="EditorPresetFavorite.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Toggle preset favorite</value></data>
+  <data name="EditorPresetDelete.Content" xml:space="preserve"><value>Delete</value></data>
+  <data name="EditorPresetDelete.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Delete preset</value></data>
+  <data name="EditPresetName" xml:space="preserve"><value>Preset name</value></data>
+  <data name="EditPresetNamePlaceholder" xml:space="preserve"><value>Enter a name</value></data>
+  <data name="EditPresetSave" xml:space="preserve"><value>Save preset</value></data>
+  <data name="EditPresetContinue" xml:space="preserve"><value>Continue</value></data>
+  <data name="EditPresetCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="EditPresetSaveTitle" xml:space="preserve"><value>Save preset</value></data>
+  <data name="EditPresetDeleteTitle" xml:space="preserve"><value>Delete preset?</value></data>
+  <data name="EditPresetDeleteMessage" xml:space="preserve"><value>Delete "{0}"? This does not change any photos.</value></data>
+  <data name="EditPresetDelete" xml:space="preserve"><value>Delete preset</value></data>
+  <data name="EditPresetGroupsRequired" xml:space="preserve"><value>Select at least one setting group.</value></data>
+  <data name="EditPresetNameRequired" xml:space="preserve"><value>Enter a preset name.</value></data>
+  <data name="EditGroupTone" xml:space="preserve"><value>Tone</value></data>
+  <data name="EditGroupColor" xml:space="preserve"><value>Color</value></data>
+  <data name="EditGroupEffect" xml:space="preserve"><value>Effect</value></data>
+  <data name="EditGroupDetail" xml:space="preserve"><value>Detail</value></data>
+  <data name="EditGroupToneCurves" xml:space="preserve"><value>Tone curves</value></data>
+  <data name="EditGroupColorAdjustments" xml:space="preserve"><value>Color adjustments</value></data>
+  <data name="EditGroupGeometry" xml:space="preserve"><value>Geometry and crop</value></data>
+  <data name="EditGroupRetouch" xml:space="preserve"><value>Retouch (same photo only)</value></data>
+  <data name="EditGroupRawDevelopment" xml:space="preserve"><value>RAW development</value></data>
+  <data name="EditPresetsUnavailable" xml:space="preserve"><value>Presets are unavailable.</value></data>
+  <data name="EditPresetsEmpty" xml:space="preserve"><value>No presets saved yet.</value></data>
+  <data name="EditPresetsCount" xml:space="preserve"><value>{0} preset(s). Favorites appear first.</value></data>
+  <data name="EditPresetPreviewReady" xml:space="preserve"><value>Preview is based on the photo's current edits. Applying changes the photo and adds one undoable edit.</value></data>
+  <data name="EditPresetPreviewSkipped" xml:space="preserve"><value>Preview ready. These groups will be skipped for this photo: {0}.</value></data>
+  <data name="EditPresetPreviewFailed" xml:space="preserve"><value>Preset preview could not be rendered: {0}</value></data>
+  <data name="EditPresetSaved" xml:space="preserve"><value>Saved preset "{0}".</value></data>
+  <data name="EditPresetOperationFailed" xml:space="preserve"><value>Preset operation failed: {0}</value></data>
+  <data name="MigrationPreviewButton.Content" xml:space="preserve"><value>Migrate XMP sidecars...</value></data>
+  <data name="MigrationTitle" xml:space="preserve"><value>Migrate XMP sidecars</value></data>
+  <data name="MigrationConfirm" xml:space="preserve"><value>Migrate ready files</value></data>
+  <data name="MigrationClose" xml:space="preserve"><value>Close</value></data>
+  <data name="MigrationNotice.Text" xml:space="preserve"><value>Preview the chosen folder and its subfolders. Only JPEG and PNG support this lossless migration; other formats, ambiguous associations, and conflicting properties are skipped. Neither embedded nor sidecar values win a conflict. Complete XMP properties, including unknown namespaces, are retained. Pixel data, orientation, and all non-XMP bytes stay unchanged. Original media and sidecars are backed up beside the photos in .photolibrarian-migration-backups. A sidecar is removed only after verified on-disk read-back. Cancel stops between files; a file already committing finishes safely.</value></data>
+  <data name="MigrationConsent.Content" xml:space="preserve"><value>I authorize embedding the ready files and removing their verified sidecars.</value></data>
+  <data name="MigrationProgress.AutomationProperties.Name" xml:space="preserve"><value>Sidecar migration progress</value></data>
+  <data name="MigrationResults.AutomationProperties.Name" xml:space="preserve"><value>Migration preview and per-file results</value></data>
+  <data name="MigrationCancel.Content" xml:space="preserve"><value>Cancel remaining work</value></data>
+  <data name="MigrationScanning" xml:space="preserve"><value>Inspecting sidecars; no files are being changed...</value></data>
+  <data name="MigrationPreviewSummary" xml:space="preserve"><value>{0:N0} of {1:N0} items are ready. Review the paths and skipped reasons before authorizing migration.</value></data>
+  <data name="MigrationScanFailed" xml:space="preserve"><value>Preview failed: {0}</value></data>
+  <data name="MigrationRunning" xml:space="preserve"><value>Backing up, embedding, and verifying metadata...</value></data>
+  <data name="MigrationResultSummary" xml:space="preserve"><value>{0:N0} migrated; {1:N0} failed; {2:N0} skipped; {3:N0} canceled. Keep the backup folders until you have checked your photos. Failed items retain their sidecars; read error details before retrying.</value></data>
+  <data name="MigrationItem" xml:space="preserve"><value>{0}
+Image: {1}
+{2}
+Backup: {3}
+{4}</value></data>
+  <data name="MigrationReady" xml:space="preserve"><value>Ready: packet can be merged without conflicting XMP properties.</value></data>
+  <data name="MigrationMigrated" xml:space="preserve"><value>Migrated: embedded metadata verified; sidecar removed. Originals retained in backup.</value></data>
+  <data name="MigrationCanceled" xml:space="preserve"><value>Canceled: no further files will be changed.</value></data>
+  <data name="MigrationUnsupported" xml:space="preserve"><value>Skipped: this format has no proven lossless packet migration. Keep the sidecar (including RAW, video, TIFF, HEIC, and JPEG-XR).</value></data>
+  <data name="MigrationAmbiguous" xml:space="preserve"><value>Skipped: missing or ambiguous image association, shared basename, or both sidecar naming conventions exist. Resolve the association manually and preview again.</value></data>
+  <data name="MigrationConflict" xml:space="preserve"><value>Skipped: embedded and sidecar properties differ. Resolve their values in your metadata editor before retrying; no value was overwritten.</value></data>
+  <data name="MigrationRecipe" xml:space="preserve"><value>Skipped: PhotoLibrarian edit recipe present. The raster editor cannot yet safely clear a migrated embedded recipe after baking edits. Keep the entire sidecar to preserve pending adjustments.</value></data>
+  <data name="MigrationOrientation" xml:space="preserve"><value>Skipped: sidecar contains an orientation override. Keep the sidecar; this operation must not change the displayed orientation.</value></data>
+  <data name="MigrationChanged" xml:space="preserve"><value>Not migrated: media, sidecar, or association changed since preview. Preview again after other edits finish.</value></data>
+  <data name="MigrationReparsePoint" xml:space="preserve"><value>Skipped: linked, redirected, or cloud-placeholder path. Use an ordinary local folder.</value></data>
+  <data name="MigrationPacketTooLarge" xml:space="preserve"><value>Skipped: media exceeds the 256 MiB inspection limit, XMP exceeds 1 MiB, or the merged JPEG packet exceeds its single-segment limit. Keep the sidecar.</value></data>
+  <data name="MigrationInvalidContainer" xml:space="preserve"><value>Skipped: malformed or unrecognized image container. Keep the original and sidecar.</value></data>
+  <data name="MigrationUnsafePacket" xml:space="preserve"><value>Skipped: this packet/container cannot be preserved safely (for example extended/duplicate XMP, compressed PNG XMP, unsupported RDF, or invalid XML). Keep the sidecar.</value></data>
+  <data name="MigrationVerificationFailed" xml:space="preserve"><value>Not migrated: packet or non-XMP byte verification failed. Original sidecar retained; inspect error details and backups.</value></data>
+  <data name="MigrationFileError" xml:space="preserve"><value>Not migrated: file access or metadata error. Check permissions, close other editors, and inspect details. If recovery is required, restore from the reported backup before retrying.</value></data>
+  <data name="MotionPhotoPlay" xml:space="preserve"><value>Play motion</value></data>
+  <data name="MotionPhotoPause" xml:space="preserve"><value>Pause motion and show still photo</value></data>
+  <data name="MotionPhotoPlayer.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Motion photo playback</value></data>
+  <data name="MotionPhotoUnavailable" xml:space="preserve"><value>Motion could not be opened: {0} The still photo is unchanged.</value></data>
+  <data name="MotionPhotoTimeout" xml:space="preserve"><value>Motion took too long to open. Showing the unchanged still photo.</value></data>
+  <data name="MotionPhotoMediaLimit" xml:space="preserve"><value>Motion playback is limited to 30 seconds and 4096 pixels per side. Showing the still photo.</value></data>
+  <data name="MotionPhotoCodecUnavailable" xml:space="preserve"><value>Windows could not decode this motion video. Its codec may be unavailable, or the video may be damaged. Showing the still photo.</value></data>
+  <data name="AppleLivePhotoMissingMovie" xml:space="preserve"><value>This still has an Apple Live Photo identifier, but no matching MOV was found in the same folder. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoAmbiguous" xml:space="preserve"><value>More than one MOV has this Apple Live Photo identifier. Playback is unavailable rather than guessing. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoMissingTiming" xml:space="preserve"><value>The matching MOV does not contain Apple's still-image-time metadata. Playback is unavailable. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoSearchLimit" xml:space="preserve"><value>This folder has too many video files to search safely for the Live Photo partner. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoUnsupportedStillFormat" xml:space="preserve"><value>Apple Live Photo pairing is not verified for HEIC/HEIF still images yet. The still photo is unchanged.</value></data>
+  <data name="AppleLivePhotoUnavailable" xml:space="preserve"><value>The Apple Live Photo pair could not be verified. The still photo is unchanged.</value></data>
+  <data name="PhotoGridName" xml:space="preserve"><value>Photos</value></data>
+  <data name="PhotoGridHelp" xml:space="preserve"><value>Use arrow keys to move, Space to select, Enter to open, and Shift+F10 for photo actions. Hold Control to move without changing selection or Shift to select a range.</value></data>
+  <data name="PhotoGridItemHelp" xml:space="preserve"><value>Enter to open. Shift+F10 for photo actions.</value></data>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="DuplicateTitle.Text" xml:space="preserve"><value>Duplicate photos</value></data>
+  <data name="DuplicateSubtitle.Text" xml:space="preserve"><value>Matches to the displayed photos, including copies elsewhere in the library.</value></data>
+  <data name="DuplicateScanButton.Content" xml:space="preserve"><value>Scan library</value></data>
+  <data name="DuplicateCancelButton.Content" xml:space="preserve"><value>Cancel scan</value></data>
+  <data name="DuplicateKeepPhoto.Content" xml:space="preserve"><value>Keep this photo</value></data>
+  <data name="DuplicateEmptyTitle.Text" xml:space="preserve"><value>No duplicate candidates to review.</value></data>
+  <data name="DuplicateEmptySubtitle.Text" xml:space="preserve"><value>Run a scan to compare the indexed still photos.</value></data>
+  <data name="DuplicateSafetyNotice.Message" xml:space="preserve"><value>Near matches are suggestions, not proof. Compare carefully; photos are only moved to the Recycle Bin after you choose a keeper and confirm.</value></data>
+  <data name="DuplicateInitialStatus" xml:space="preserve"><value>Run a scan to look for duplicate photos.</value></data>
+  <data name="DuplicateScanningStatus" xml:space="preserve"><value>Scanning indexed photos…</value></data>
+  <data name="DuplicateNoCandidates" xml:space="preserve"><value>No duplicate candidates were found.</value></data>
+  <data name="DuplicateScanSummary" xml:space="preserve"><value>{0} exact groups and {1} near-match candidates found.</value></data>
+  <data name="DuplicateLimitWarning" xml:space="preserve"><value>A comparison or decoding safety limit was reached; near-match results may be incomplete.</value></data>
+  <data name="DuplicateDiagnosticsSummary" xml:space="preserve"><value>{0} indexed path(s) could not be fully scanned. These include library locations outside the displayed folder. Expand details to check the exact paths; no files were removed.</value></data>
+  <data name="DuplicateDiagnosticDetails.Header" xml:space="preserve"><value>Scan diagnostic paths</value></data>
+  <data name="DuplicateDiagnosticItem" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="DuplicateAdditionalDiagnostics" xml:space="preserve"><value>{0} additional diagnostic(s) omitted.</value></data>
+  <data name="DuplicateScanCanceled" xml:space="preserve"><value>Duplicate scan canceled.</value></data>
+  <data name="DuplicateScanFailed" xml:space="preserve"><value>Duplicate scan failed: {0}</value></data>
+  <data name="DuplicatePreviewFailed" xml:space="preserve"><value>A preview could not be loaded for {0}: {1}</value></data>
+  <data name="DuplicatePreviewMissing" xml:space="preserve"><value>Windows did not provide a thumbnail preview.</value></data>
+  <data name="DuplicateRecycleCanceled" xml:space="preserve"><value>{0}: the file was not recycled; the operation may have been canceled.</value></data>
+  <data name="DuplicateSidecarRecycleFailed" xml:space="preserve"><value>The photo was recycled, but its metadata sidecar could not be moved to the Recycle Bin.</value></data>
+  <data name="DuplicateRecycleComplete" xml:space="preserve"><value>Moved {0} duplicate photo(s) to the Recycle Bin.</value></data>
+  <data name="DuplicateRecyclePartial" xml:space="preserve"><value>Moved {0} of {1} photo(s) to the Recycle Bin.</value></data>
+  <data name="DuplicateRecycleInterrupted" xml:space="preserve"><value>Recycling was canceled after moving {0} of {1} photo(s). Remaining candidates were left untouched.</value></data>
+  <data name="DuplicateRecycleErrorItem" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="DuplicateProgressStatus" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} · {3}</value></data>
+  <data name="DuplicateStageInspecting" xml:space="preserve"><value>Checking library files and cached hashes</value></data>
+  <data name="DuplicateStageExactHash" xml:space="preserve"><value>Hashing possible exact copies of the displayed photos</value></data>
+  <data name="DuplicateStagePerceptualHash" xml:space="preserve"><value>Building or reusing similarity hashes</value></data>
+  <data name="DuplicateStageComparing" xml:space="preserve"><value>Comparing against the displayed photos</value></data>
+  <data name="DuplicateStageVerifying" xml:space="preserve"><value>Verifying matched file contents</value></data>
+  <data name="DuplicateFileDetails" xml:space="preserve"><value>{0:N0} bytes · {1} × {2} · {3}</value></data>
+  <data name="DuplicateKeepAutomationName" xml:space="preserve"><value>Keep {0}</value></data>
+  <data name="DuplicateExactKind" xml:space="preserve"><value>Exact match (same file contents)</value></data>
+  <data name="DuplicateNearKind" xml:space="preserve"><value>Near match (perceptual hash, {0}/63 bits differ)</value></data>
+  <data name="DuplicateExactHeader" xml:space="preserve"><value>{0} exact copies</value></data>
+  <data name="DuplicateNearHeader" xml:space="preserve"><value>Possible near match</value></data>
+  <data name="DuplicateNearSummary" xml:space="preserve"><value>{0} · {1}</value></data>
+  <data name="DuplicateScanButtonName" xml:space="preserve"><value>Scan for duplicate photos</value></data>
+  <data name="DuplicateCancelButtonName" xml:space="preserve"><value>Cancel duplicate scan</value></data>
+  <data name="DuplicateCloseButtonName" xml:space="preserve"><value>Close duplicate review</value></data>
+  <data name="DuplicateRecycleButtonName" xml:space="preserve"><value>Move non-kept duplicate photos to Recycle Bin</value></data>
+  <data name="DuplicateMainButtonName" xml:space="preserve"><value>Find duplicate photos</value></data>
+  <data name="GridDuplicateReviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Find duplicates</value></data>
+  <data name="GridDuplicateReviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Find duplicates of the displayed photos, including matches elsewhere in the library</value></data>
+  <data name="GridPeopleReviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Review people suggestions</value></data>
+  <data name="GridPeopleReviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Review people suggestions in the displayed photos</value></data>
+  <data name="DuplicateNearRecycleWarning" xml:space="preserve"><value>This is a perceptual near-match suggestion and may be a false positive. Only continue if you have compared the photos and want the non-kept file recycled.</value></data>
+  <data name="DuplicateExactRecycleWarning" xml:space="preserve"><value>The selected photo will remain. The other exact copies will be sent to the Recycle Bin.</value></data>
+  <data name="DuplicateRecycleDialogTitle" xml:space="preserve"><value>Move duplicate photos to the Recycle Bin?</value></data>
+  <data name="DuplicateRecycleDialogContent" xml:space="preserve"><value>{0}&#x0a;&#x0a;Keep: {1}&#x0a;Move: {2} photo(s)</value></data>
+  <data name="DuplicateRecycleDialogPrimary" xml:space="preserve"><value>Move {0} to Recycle Bin</value></data>
+  <data name="DuplicateRecycleDialogCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="DuplicateRecycleFailed" xml:space="preserve"><value>Could not recycle duplicate photos: {0}</value></data>
+  <data name="DuplicateUnverifiedContent" xml:space="preserve"><value>The duplicate scan did not verify this photo's content.</value></data>
+  <data name="DuplicateFileChanged" xml:space="preserve"><value>The photo changed or is no longer available. Run the duplicate scan again.</value></data>
+  <data name="DuplicateContentChanged" xml:space="preserve"><value>The photo contents changed after the scan. Run the duplicate scan again.</value></data>
+  <data name="DuplicateChangedDuringVerification" xml:space="preserve"><value>The photo changed during verification. Run the duplicate scan again.</value></data>
+  <data name="PrintTitle" xml:space="preserve"><value>Print photos</value></data>
+  <data name="PrintTaskTitle" xml:space="preserve"><value>PhotoLibrarian photos</value></data>
+  <data name="PrintSamplePhotoSingle" xml:space="preserve"><value>Previewing {0} · 1 photo selected</value></data>
+  <data name="PrintSamplePhotoMultiple" xml:space="preserve"><value>Previewing {0} · {1} photos selected</value></data>
+  <data name="PrintLayoutHeader" xml:space="preserve"><value>Photo size and layout</value></data>
+  <data name="PrintLayoutFullPage" xml:space="preserve"><value>Full page</value></data>
+  <data name="PrintLayoutFourBySix" xml:space="preserve"><value>4 × 6 in</value></data>
+  <data name="PrintLayoutFiveBySeven" xml:space="preserve"><value>5 × 7 in</value></data>
+  <data name="PrintLayoutEightByTen" xml:space="preserve"><value>8 × 10 in</value></data>
+  <data name="PrintLayoutWallet" xml:space="preserve"><value>Wallet (2.5 × 3.5 in, four per page)</value></data>
+  <data name="PrintLayoutContactSheet" xml:space="preserve"><value>Contact sheet (3 × 3 with filenames)</value></data>
+  <data name="PrintPlacementHeader" xml:space="preserve"><value>Photo placement</value></data>
+  <data name="PrintPlacementFit" xml:space="preserve"><value>Fit — show entire photo</value></data>
+  <data name="PrintPlacementFill" xml:space="preserve"><value>Fill frame — crop edges</value></data>
+  <data name="PrintPlacementPolicy" xml:space="preserve"><value>Fit shows the whole photo and may leave blank space. Fill crops the edges. Photos are never stretched.</value></data>
+  <data name="PrintPreviewNote" xml:space="preserve"><value>Continue to see the actual printer preview and page margins. Printing never changes the photo files.</value></data>
+  <data name="PrintContinue" xml:space="preserve"><value>Continue to print preview</value></data>
+  <data name="PrintCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PrintClose" xml:space="preserve"><value>Close</value></data>
+  <data name="PrintAlreadyOpen" xml:space="preserve"><value>A print preview is already open.</value></data>
+  <data name="PrintSelectionRequired" xml:space="preserve"><value>Select one or more photos to print.</value></data>
+  <data name="PrintRawUnsupported" xml:space="preserve"><value>RAW photos cannot be printed yet because the print path does not apply the RAW development recipe.</value></data>
+  <data name="PrintUnsupportedFormats" xml:space="preserve"><value>These selected items are not supported for printing. Supported formats are JPEG, PNG, TIFF, and BMP.</value></data>
+  <data name="PrintNotSupported" xml:space="preserve"><value>Windows printing is not available on this device.</value></data>
+  <data name="PrintUiUnavailable" xml:space="preserve"><value>Windows could not open print preview. Check that a printer is installed and available.</value></data>
+  <data name="PrintErrorTitle" xml:space="preserve"><value>Printing unavailable</value></data>
+  <data name="PrintFailed" xml:space="preserve"><value>Printing could not continue: {0}</value></data>
+  <data name="PrintPhotoLoadFailed" xml:space="preserve"><value>Could not load "{0}": {1}</value></data>
+  <data name="PrintSubmitted" xml:space="preserve"><value>Print job submitted to Windows.</value></data>
+  <data name="PrintCanceled" xml:space="preserve"><value>Print job canceled or failed.</value></data>
+  <data name="DuplicateSelectionRequired" xml:space="preserve"><value>Select a duplicate candidate first.</value></data>
+  <data name="DuplicateKeeperRequired" xml:space="preserve"><value>Choose which photo to keep first.</value></data>
+  <data name="NotTaggedLabel.Text" xml:space="preserve">
+    <value>Not tagged</value>
+    <comment>Browse node for library items with no tags.</comment>
+  </data>
+  <data name="NotTaggedTree.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Not tagged</value>
+  </data>
+  <data name="NotTaggedNode.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Not tagged</value>
+  </data>
+  <data name="MetadataSuggestTagsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Suggest tags for selected photos</value>
+  </data>
+  <data name="MetadataSuggestTagsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Generate local tag suggestions for the selected photos</value>
+  </data>
+  <data name="MetadataSuggestTagsButton.Content" xml:space="preserve">
+    <value>Suggest</value>
+  </data>
+  <data name="AutoTagReviewTitle.Text" xml:space="preserve">
+    <value>Suggested tags</value>
+  </data>
+  <data name="AutoTagReviewSubtitle.Text" xml:space="preserve">
+    <value>Review these suggestions here; the photo stays visible. Nothing is saved until you add them.</value>
+  </data>
+  <data name="AutoTagReviewCancelButton.Content" xml:space="preserve">
+    <value>Stop generating</value>
+  </data>
+  <data name="AutoTagReviewCloseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Close automatic tag review</value>
+  </data>
+  <data name="AutoTagReviewCloseButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Close automatic tag review</value>
+  </data>
+  <data name="AutoTagReviewApplyButton.Content" xml:space="preserve">
+    <value>Add suggestions</value>
+  </data>
+  <data name="AutoTagReviewNoSuggestions.Text" xml:space="preserve">
+    <value>No suggestions for this photo.</value>
+  </data>
+  <data name="AutoTagReviewProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Automatic tag suggestion progress</value>
+  </data>
+  <data name="AutoTagReviewPhotos.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Selected photos and automatic tag suggestions</value>
+  </data>
+  <data name="AutoTagReviewInitialStatus" xml:space="preserve">
+    <value>Preparing selected photos.</value>
+  </data>
+  <data name="AutoTagReviewNoSelection" xml:space="preserve">
+    <value>Select one or more photos before suggesting tags.</value>
+  </data>
+  <data name="AutoTagReviewProgressStatus" xml:space="preserve">
+    <value>{0:N0} of {1:N0} photos processed — {2}</value>
+  </data>
+  <data name="AutoTagReviewReadyStatus" xml:space="preserve">
+    <value>{0:N0} photos processed; {1:N0} suggestions ready to add.</value>
+  </data>
+  <data name="AutoTagReviewCanceledStatus" xml:space="preserve">
+    <value>Stopped after {0:N0} of {1:N0} photos. Completed suggestions are shown; nothing has been saved yet.</value>
+  </data>
+  <data name="AutoTagReviewGenerationFailed" xml:space="preserve">
+    <value>Suggestions could not be generated. No tags were saved.</value>
+  </data>
+  <data name="AutoTagReviewSuggestion" xml:space="preserve">
+    <value>{0} — {1} confidence</value>
+  </data>
+  <data name="AutoTagReviewIssuesSummary" xml:space="preserve">
+    <value>{0:N0} photo(s) need attention. See the messages on each photo.</value>
+  </data>
+  <data name="AutoTagReviewPhotoChanged" xml:space="preserve">
+    <value>The photo or its indexed file details changed before the tags could be saved. Refresh the library and review it again.</value>
+  </data>
+  <data name="AutoTagReviewMetadataSkipped" xml:space="preserve">
+    <value>Tags were saved in the library, but photo metadata was not updated because {0}</value>
+  </data>
+  <data name="AutoTagReviewSaveFailed" xml:space="preserve">
+    <value>Could not finish saving these tags: {0}. Retry is safe; existing tags are preserved.</value>
+  </data>
+  <data name="AutoTagReviewRefreshFailed" xml:space="preserve">
+    <value>Tags were saved, but the tag lists could not be refreshed: {0}</value>
+  </data>
+  <data name="AutoTagReviewApplyStatus" xml:space="preserve">
+    <value>Added {0:N0} tag(s) across {1:N0} photo(s); {2:N0} photo(s) need attention.</value>
+  </data>
+  <data name="GridShareButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Share selected photos</value></data>
+  <data name="GridShareButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Share or email resized copies of selected photos</value></data>
+  <data name="ShareAction" xml:space="preserve"><value>Share or email...</value></data>
+  <data name="ShareTitle" xml:space="preserve"><value>Share photos</value></data>
+  <data name="ShareNoPhotos" xml:space="preserve"><value>No prepared photos are available.</value></data>
+  <data name="ShareSelectionLimit" xml:space="preserve"><value>Select 1 to 20 still photos to share. Videos are not supported. Originals will not be changed.</value></data>
+  <data name="SharePolicy" xml:space="preserve"><value>Prepare {0} photo(s) as JPEG copies: at most 1600 pixels on the longest side, never enlarged, at 85% quality. Batches are limited to 20 photos and 20 MiB; your mail provider may have a lower limit. Only the first frame is used. Common embedded descriptive metadata is retained; GPS, face regions and sidecars are not copied. Originals and selection remain unchanged.&#x0a;&#x0a;Windows Share passes the copies to an app you choose. Email opens your default mail app and the copies folder: you must attach the JPEG files yourself, because mailto links cannot reliably attach files.&#x0a;&#x0a;Temporary copies are kept locally for 7 days, then removed on the next app launch or share. Save a separate copy for long-lived drafts.</value></data>
+  <data name="ShareWindowsButton" xml:space="preserve"><value>Windows Share</value></data>
+  <data name="ShareEmailButton" xml:space="preserve"><value>Email (attach manually)</value></data>
+  <data name="ShareCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="ShareClose" xml:space="preserve"><value>Close</value></data>
+  <data name="ShareContinue" xml:space="preserve"><value>Use prepared copies</value></data>
+  <data name="SharePreparing" xml:space="preserve"><value>Preparing resized copies...</value></data>
+  <data name="ShareCancelling" xml:space="preserve"><value>Cancelling preparation...</value></data>
+  <data name="ShareProgress" xml:space="preserve"><value>Preparing {0:N0} of {1:N0}: {2}</value></data>
+  <data name="ShareCancelled" xml:space="preserve"><value>Sharing cancelled. No files were handed off.</value></data>
+  <data name="SharePartial" xml:space="preserve"><value>{0} copies prepared; {1} photos could not be prepared. Review the errors before continuing. Unsupported or unavailable photos are not sent.</value></data>
+  <data name="ShareUnavailable" xml:space="preserve"><value>Windows Share could not open: {0}&#x0a;&#x0a;You can instead open an email draft and the copies folder, then attach the files manually.</value></data>
+  <data name="ShareSheetOpened" xml:space="preserve"><value>Windows Share opened with resized copies. Choose a target app to continue; nothing has been sent by PhotoLibrarian.</value></data>
+  <data name="ShareManualAttachment" xml:space="preserve"><value>Photos are NOT attached or sent. Attach the JPEG copies from the folder below in your mail app. Copies are kept for 7 days; save them elsewhere for longer-lived drafts.</value></data>
+  <data name="ShareFolderFailed" xml:space="preserve"><value>The copies folder could not be opened automatically. Open the path above in File Explorer.</value></data>
+  <data name="ShareMailFailed" xml:space="preserve"><value>No mail draft was opened. Configure a default mail app, or open your mail app and compose a message manually.</value></data>
+  <data name="ShareFailed" xml:space="preserve"><value>Could not share photos: {0}</value></data>
+  <data name="ShareMailSubject" xml:space="preserve"><value>Photos</value></data>
+  <data name="ShareMailBody" xml:space="preserve"><value>Attach the resized JPEG copies from the PhotoLibrarian folder opened in File Explorer before sending this message. No photos have been attached automatically.</value></data>
+  <data name="PanoramaMenuAction" xml:space="preserve"><value>Stitch panorama (2-64 photos)</value></data>
+  <data name="PanoramaProgressStarting" xml:space="preserve"><value>Preparing all selected photos. Order does not matter; every photo must overlap the connected set. Camera sweeps use spherical projection; flatter sets use projective alignment. Review seams and the automatic crop before saving.</value></data>
+  <data name="PanoramaProgress" xml:space="preserve"><value>{0} ({1}%)</value></data>
+  <data name="PanoramaProgressAutomationName" xml:space="preserve"><value>Panorama progress</value></data>
+  <data name="PanoramaPreviewAutomationName" xml:space="preserve"><value>Stitched panorama preview</value></data>
+  <data name="PanoramaZoom" xml:space="preserve"><value>Zoom to inspect seams (1 fits the entire panorama)</value></data>
+  <data name="PanoramaSaveProgressAutomationName" xml:space="preserve"><value>Panorama save progress</value></data>
+  <data name="PanoramaStitchTitle" xml:space="preserve"><value>Stitch panorama</value></data>
+  <data name="PanoramaSavingTitle" xml:space="preserve"><value>Saving panorama</value></data>
+  <data name="PanoramaReviewTitle" xml:space="preserve"><value>Review panorama</value></data>
+  <data name="PanoramaSaveButton" xml:space="preserve"><value>Save panorama</value></data>
+  <data name="PanoramaCancelButton" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PanoramaCloseButton" xml:space="preserve"><value>Close</value></data>
+  <data name="PanoramaPreviewDetails" xml:space="preserve"><value>{5:N0} photos aligned into {0:N0} x {1:N0} pixels. {2:N0} of {3:N0} overlap matches agree ({4:P0}). Output scale: {6:P0}; clean crop retains {7:P0} of the canvas. Check the entire view, seams, and crop before saving. A new JPEG is saved beside the first photo and opened in the viewer; all originals stay unchanged. Source edit recipes are not applied.</value></data>
+  <data name="PanoramaSaveNotStarted" xml:space="preserve"><value>Panorama not saved</value></data>
+  <data name="PanoramaCancelled" xml:space="preserve"><value>Panorama cancelled</value></data>
+  <data name="PanoramaFailed" xml:space="preserve"><value>Panorama failed: {0}</value></data>
+  <data name="PanoramaPreviewFailed" xml:space="preserve"><value>Could not create a safe panorama: {0}</value></data>
+  <data name="PanoramaEncodingProgress" xml:space="preserve"><value>Encoding the panorama JPEG...</value></data>
+  <data name="PanoramaSaveCancelling" xml:space="preserve"><value>Cancelling and removing the temporary output...</value></data>
+  <data name="PanoramaSaveCancelled" xml:space="preserve"><value>Panorama save cancelled</value></data>
+  <data name="PanoramaSavedButNotIndexedTitle" xml:space="preserve"><value>Panorama saved but not indexed</value></data>
+  <data name="PanoramaSavedButNotIndexed" xml:space="preserve"><value>Saved panorama at {0}, but could not add it to the library: {1}</value></data>
+  <data name="PanoramaSaveFailedTitle" xml:space="preserve"><value>Could not save panorama</value></data>
+  <data name="PanoramaSaveFailed" xml:space="preserve"><value>Could not save panorama: {0}</value></data>
+  <data name="PanoramaCreatedStatus" xml:space="preserve"><value>Created panorama {0}</value></data>
+  <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
+  <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Repair moves and remove stale index entries for files verified missing from accessible watched folders. Unavailable locations are retained. Photos and sidecars are never changed. This repairs the existing index, not a clean rebuild.</value></data>
+  <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>
+  <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
+  <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>
+  <data name="IndexMaintenanceConfirmTitle" xml:space="preserve"><value>Repair the library index?</value></data>
+  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes entries verified missing by repeated folder scans. Offline or unreadable locations are retained. No photos or sidecars are modified or deleted.</value></data>
+  <data name="IndexMaintenanceConfirmPrimary" xml:space="preserve"><value>Repair index</value></data>
+  <data name="IndexMaintenanceStarting" xml:space="preserve"><value>Preparing a safe library index scan…</value></data>
+  <data name="IndexMaintenanceProgress" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} — {3}</value></data>
+  <data name="IndexMaintenanceCompleted" xml:space="preserve"><value>Completed. Updated {0:N0} file(s), repaired {1:N0} move(s), and removed {4:N0} verified missing index entry/entries. Photos were not changed.</value></data>
+  <data name="IndexMaintenanceCompletedWithIssues" xml:space="preserve"><value>Completed with {3:N0} issue(s). Updated {0:N0} file(s), repaired {1:N0} move(s), and removed {4:N0} verified missing index entry/entries. Unavailable or unreadable locations were retained. Review the diagnostics below.</value></data>
+  <data name="IndexMaintenanceCancelled" xml:space="preserve"><value>Cancelled after updating {0:N0} file(s), repairing {1:N0} move(s), and removing {4:N0} verified missing index entry/entries. An incomplete cleanup batch is rolled back; completed work is retained. Retry to finish.</value></data>
+  <data name="IndexMaintenanceFailed" xml:space="preserve"><value>Library index maintenance failed: {0}. Completed indexing work is retained; an incomplete cleanup batch is rolled back. Retry after resolving the reported problem.</value></data>
+  <data name="IndexMaintenanceStageScanning" xml:space="preserve"><value>Scanning folders</value></data>
+  <data name="IndexMaintenanceStageVerifyingMoves" xml:space="preserve"><value>Verifying exact file identity</value></data>
+  <data name="IndexMaintenanceStageIndexing" xml:space="preserve"><value>Indexing files</value></data>
+  <data name="IndexMaintenanceStageRemoving" xml:space="preserve"><value>Removing verified missing index entries</value></data>
+  <data name="IndexMaintenanceIssueCleanupFailed" xml:space="preserve"><value>Missing-entry cleanup failed; no entries were removed by this cleanup batch</value></data>
+  <data name="IndexMaintenanceStageComplete" xml:space="preserve"><value>Complete</value></data>
+  <data name="IndexMaintenanceIssue" xml:space="preserve"><value>{0} — {1}: {2}</value></data>
+  <data name="IndexMaintenanceIssueNoWatchedFolders" xml:space="preserve"><value>No watched folders</value></data>
+  <data name="IndexMaintenanceIssueFolderUnavailable" xml:space="preserve"><value>Folder unavailable; existing records were retained</value></data>
+  <data name="IndexMaintenanceIssueAccessDenied" xml:space="preserve"><value>Access denied; existing records were retained</value></data>
+  <data name="IndexMaintenanceIssueFolderScanFailed" xml:space="preserve"><value>Could not scan folder; existing records were retained</value></data>
+  <data name="IndexMaintenanceIssueFileReadFailed" xml:space="preserve"><value>Could not read file</value></data>
+  <data name="IndexMaintenanceIssueFileIndexFailed" xml:space="preserve"><value>Could not update file index</value></data>
+  <data name="IndexMaintenanceIssuePendingMetadataExport" xml:space="preserve"><value>People metadata export is pending; skipped to avoid writing sidecar data</value></data>
+  <data name="IndexMaintenanceIssueReparsePointSkipped" xml:space="preserve"><value>Symbolic link or reparse point skipped; its contents were not traversed or indexed</value></data>
+  <data name="IndexMaintenanceAdditionalDiagnostics" xml:space="preserve"><value>{0:N0} additional diagnostic(s) omitted.</value></data>
+  <data name="IndexMaintenanceProgressBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Library index maintenance progress</value></data>
+  <data name="MetadataVideoErrorBar.Title" xml:space="preserve">
+    <value>Some video details unavailable</value>
+  </data>
+  <data name="MetadataVideoErrorMessage" xml:space="preserve">
+    <value>Couldn't read video details for {0}: {1}</value>
+  </data>
+  <data name="MetadataVideoTitleLabel.Text" xml:space="preserve">
+    <value>Title:</value>
+  </data>
+  <data name="MetadataVideoDurationLabel.Text" xml:space="preserve">
+    <value>Duration:</value>
+  </data>
+  <data name="MetadataVideoDurationUnderSecond" xml:space="preserve">
+    <value>Less than 1 second</value>
+  </data>
+  <data name="MetadataVideoKbpsFormat" xml:space="preserve">
+    <value>{0} kbps</value>
+  </data>
+  <data name="MetadataVideoMbpsFormat" xml:space="preserve">
+    <value>{0} Mbps</value>
+  </data>
+  <data name="MetadataVideoFrameRateFormat" xml:space="preserve">
+    <value>{0} fps</value>
+  </data>
+  <data name="MetadataVideoBitrateLabel.Text" xml:space="preserve">
+    <value>Bitrate:</value>
+  </data>
+  <data name="MetadataVideoFrameRateLabel.Text" xml:space="preserve">
+    <value>Frame rate:</value>
+  </data>
+  <data name="MetadataVideoCodecLabel.Text" xml:space="preserve">
+    <value>Codec:</value>
+  </data>
+  <data name="MetadataVideoAlbumLabel.Text" xml:space="preserve">
+    <value>Album:</value>
+  </data>
+  <data name="MetadataVideoYearLabel.Text" xml:space="preserve">
+    <value>Year:</value>
+  </data>
+  <data name="MetadataVideoDateEncodedLabel.Text" xml:space="preserve">
+    <value>Date encoded:</value>
+  </data>
+  <data name="ViewerActualSize.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Actual size</value>
+  </data>
+  <data name="ViewerActualSize.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Actual size: one image pixel per display pixel (A)</value>
+  </data>
+  <data name="ViewerInformationPane.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Show information pane</value>
+  </data>
+  <data name="ViewerInformationPane.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>Show or hide the tag and caption information pane (I)</value>
+  </data>
+  <data name="ManageFoldersDescription.Text" xml:space="preserve">
+    <value>Add folders to your library. Removing a folder hides its photos unless another watched folder includes them. Photos and sidecars stay on disk; cached metadata is kept for re-adding the folder.</value>
+  </data>
+  <data name="WatchedFolderUpdateFailed" xml:space="preserve">
+    <value>Could not update library folders: {0}</value>
+  </data>
+  <data name="FuseViewerLaunch.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo Fuse</value></data>
+  <data name="FuseViewerLaunch.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace a face from a nearby group photo. Click again to save a new copy and exit.</value></data>
+  <data name="FuseSaved" xml:space="preserve"><value>Saved Photo Fuse copy: {0}</value></data>
+  <data name="FuseTitle" xml:space="preserve"><value>Photo Fuse</value></data>
+  <data name="FuseStatusBar.Title" xml:space="preserve"><value>Photo Fuse</value></data>
+  <data name="FuseFindingFaces" xml:space="preserve"><value>Finding faces in this photo...</value></data>
+  <data name="FuseSearching" xml:space="preserve"><value>Looking for replacements... {0}/{1} nearby photos</value></data>
+  <data name="FuseNoFaces" xml:space="preserve"><value>No faces found. Use Add people tags in the details rail to draw a missed face.</value></data>
+  <data name="FuseDiscoveryComplete" xml:space="preserve"><value>Select a face: {0} similar photos found; {1} incompatible photos skipped. Click Fuse again to save a new copy in the original photo's format (up to 1600 pixels; source tags, GPS and people identities are not copied).</value></data>
+  <data name="FuseLastSkip" xml:space="preserve"><value>Last skip: {0}</value></data>
+  <data name="FusePreparingFailed" xml:space="preserve"><value>Photo Fuse could not prepare this photo: {0}</value></data>
+  <data name="FuseReplacementPreviewed" xml:space="preserve"><value>Replacement previewed. Inspect the face and its edges; choose Original to undo. Click Photo Fuse again to save a new copy in the original photo's format (up to 1600 pixels). JPEG uses 95% quality without chroma subsampling. Originals are never overwritten; source tags, GPS and people identities are not copied.</value></data>
+  <data name="FuseOriginalRestored" xml:space="preserve"><value>Original restored. Click another face to choose a replacement.</value></data>
+  <data name="FuseReplacementFailed" xml:space="preserve"><value>Replacement not applied: {0}</value></data>
+  <data name="FuseWaitForSearch" xml:space="preserve"><value>Wait for Photo Fuse to finish searching before adding a face.</value></data>
+  <data name="FuseNoOptions" xml:space="preserve"><value>No aligned nearby faces found for this position.</value></data>
+  <data name="FuseOptionsGuidance" xml:space="preserve"><value>Choose a nearby face. These are spatial suggestions, not verified identities.</value></data>
+  <data name="FuseOriginalButton" xml:space="preserve"><value>Original</value></data>
+  <data name="FuseReplacementList" xml:space="preserve"><value>Nearby face replacements</value></data>
+  <data name="FuseFaceAccessible" xml:space="preserve"><value>Replace {0}</value></data>
+  <data name="FuseUnnamedFace" xml:space="preserve"><value>unnamed face</value></data>
+  <data name="FuseChooseFace" xml:space="preserve"><value>Choose a face replacement</value></data>
+  <data name="FuseSaveExit" xml:space="preserve"><value>Save and exit Fuse</value></data>
+  <data name="FuseHint" xml:space="preserve"><value>Select a face in the photo. Click Photo Fuse again to save a new copy.</value></data>
+  <data name="FuseClosed" xml:space="preserve"><value>Photo Fuse closed. No changes were saved.</value></data>
+  <data name="FuseDiscard.Content" xml:space="preserve"><value>Discard and exit</value></data>
+  <data name="FuseStartFailed" xml:space="preserve"><value>Photo Fuse could not start: {0}</value></data>
+  <data name="FuseSaveFailed" xml:space="preserve"><value>Photo Fuse could not save: {0}. Your preview is still here; retry Photo Fuse to save.</value></data>
+  <data name="FuseThumbnailFailed" xml:space="preserve"><value>Could not load replacement face: {0}</value></data>
+  <data name="FuseExitBeforeNavigate" xml:space="preserve"><value>Click Photo Fuse again to save and exit before opening another photo.</value></data>
+  <data name="FuseFailed" xml:space="preserve"><value>Photo Fuse failed: {0}</value></data>
+  <data name="FuseIndexFailed" xml:space="preserve"><value>Photo Fuse copy saved at {0}, but could not be added to the library: {1}</value></data>
+  <data name="VideoEditRotationLabel.Text" xml:space="preserve"><value>Rotation</value></data>
+  <data name="VideoEditRotateLeft.Label" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees counterclockwise</value></data>
+  <data name="VideoEditResetRotation.Label" xml:space="preserve"><value>0°</value></data>
+  <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
+  <data name="VideoEditRotateRight.Label" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees clockwise</value></data>
+  <data name="VideoEditRemoveAudio.Label" xml:space="preserve"><value>Remove audio</value></data>
+  <data name="VideoEditBrightnessLabel.Text" xml:space="preserve"><value>Brightness</value></data>
+  <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video brightness</value></data>
+  <data name="VideoEditContrastLabel.Text" xml:space="preserve"><value>Contrast</value></data>
+  <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video contrast</value></data>
+  <data name="VideoEditPrepare.Label" xml:space="preserve"><value>Retry preview</value></data>
+  <data name="VideoEditExport.Label" xml:space="preserve"><value>Export copy</value></data>
+  <data name="VideoEditExit.Label" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditStabilize.Label" xml:space="preserve"><value>Stabilize</value></data>
+  <data name="VideoEditTrim.Label" xml:space="preserve"><value>Trim</value></data>
+  <data name="VideoEditProgressStatus" xml:space="preserve"><value>{0} {1}</value></data>
+  <data name="VideoEditErrorStatus" xml:space="preserve"><value>{0} — {1}</value></data>
+  <data name="VideoEditReset" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditResetHelp" xml:space="preserve"><value>Discard video edits and return to the original video.</value></data>
+  <data name="VideoEditCancelHelp" xml:space="preserve"><value>Cancel the video preparation or export in progress.</value></data>
+  <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Lighten or darken the video.</value></data>
+  <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Increase or reduce the difference between light and dark areas.</value></data>
+  <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees counterclockwise.</value></data>
+  <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Restore the video's original orientation.</value></data>
+  <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees clockwise.</value></data>
+  <data name="VideoEditRemoveAudio.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Remove the audio track from the exported copy.</value></data>
+  <data name="VideoEditStabilize.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Reduce camera shake in the video.</value></data>
+  <data name="VideoEditTrim.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show the trim bar; drag its left and right handles to choose the part to keep.</value></data>
+  <data name="VideoEditPrepare.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Retry building the preview with the current edits.</value></data>
+  <data name="VideoEditExport.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Save the prepared preview as a new video without changing the original.</value></data>
+  <data name="VideoEditExit.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Discard video edits and return to the original video.</value></data>
+  <data name="VideoStabilizationSettings.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose camera smoothing, cropping, and frame-lock settings.</value></data>
+  <data name="VideoStabilizationSmoothness.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose how strongly camera movement is smoothed.</value></data>
+  <data name="VideoStabilizationAutoCrop.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Crop unstable edges to keep the stabilized frame filled.</value></data>
+  <data name="VideoStabilizationRotation.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Correct small camera roll as well as horizontal and vertical shake.</value></data>
+  <data name="VideoStabilizationLockFrame.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Hold the framing steady like a tripod instead of following camera movement.</value></data>
+  <data name="VideoTrimRange.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Drag the left handle to set the start and the right handle to set the end. Use arrow keys for frame-by-frame adjustment.</value></data>
+  <data name="VideoTrimRange.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video trim start and end frames</value></data>
+  <data name="VideoTrimInTime" xml:space="preserve"><value>In {0}</value></data>
+  <data name="VideoTrimOutTime" xml:space="preserve"><value>Out {0}</value></data>
+  <data name="VideoEditRotationStatus" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
+  <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Edits update the preview automatically. Export copy saves the preview.</value></data>
+  <data name="VideoEditUpdating" xml:space="preserve"><value>Updating video preview...</value></data>
+  <data name="VideoEditInvalidTrim" xml:space="preserve"><value>Choose an in/out range containing at least one video frame.</value></data>
+  <data name="VideoEditInfoFailed" xml:space="preserve"><value>Could not read the video time range: {0}</value></data>
+  <data name="VideoStabilizationSettings.Label" xml:space="preserve"><value>Stabilization options</value></data>
+  <data name="VideoStabilizationSmoothness.Header" xml:space="preserve"><value>Smoothing</value></data>
+  <data name="VideoStabilizationSmoothness.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Stabilization smoothing</value></data>
+  <data name="VideoStabilizationLow.Content" xml:space="preserve"><value>Low</value></data>
+  <data name="VideoStabilizationMedium.Content" xml:space="preserve"><value>Medium</value></data>
+  <data name="VideoStabilizationHigh.Content" xml:space="preserve"><value>High</value></data>
+  <data name="VideoStabilizationAutoCrop.Content" xml:space="preserve"><value>Auto crop</value></data>
+  <data name="VideoStabilizationRotation.Content" xml:space="preserve"><value>Correct rotation</value></data>
+  <data name="VideoStabilizationLockFrame.Content" xml:space="preserve"><value>Lock frame</value></data>
+  <data name="VideoEditCleanupFailed" xml:space="preserve"><value>Could not remove temporary preview at {0}: {1}</value></data>
+  <data name="VideoEditProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preparing or saving edited video</value></data>
+  <data name="VideoEditStatus.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video edit status</value></data>
+  <data name="VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edited video preview</value></data>
+  <data name="VideoEditPreparing" xml:space="preserve"><value>Preparing the edited copy for preview...</value></data>
+  <data name="VideoEditPreviewReady" xml:space="preserve"><value>Preview ready. Export copy saves this exact video.</value></data>
+  <data name="VideoEditPreviewFailed" xml:space="preserve"><value>Windows could not preview this video: {0}</value></data>
+  <data name="VideoEditPreviewOpenFailed" xml:space="preserve"><value>Windows could not open the prepared preview.</value></data>
+  <data name="VideoEditPreviewRequired" xml:space="preserve"><value>Prepare and review the edited preview before exporting.</value></data>
+  <data name="VideoEditExporting" xml:space="preserve"><value>Exporting edited video...</value></data>
+  <data name="VideoEditExportFailed" xml:space="preserve"><value>Could not save edited video: {0}</value></data>
+  <data name="VideoEditCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
+  <data name="VideoEditCanceling" xml:space="preserve"><value>Canceling video edit...</value></data>
+  <data name="VideoEditCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="VideoEditRevealFailed" xml:space="preserve"><value>Copy saved at {0}, but could not be opened in the library: {1}</value></data>
+  <data name="VideoEditOpened" xml:space="preserve"><value>Opened edited copy: {0}</value></data>
+  <data name="ViewerPhotoSurface.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve">
+    <value>Use Left and Right to browse photos. Tab moves to viewer controls and the ribbon.</value>
+  </data>
+  <data name="GridImportButton.Content" xml:space="preserve"><value>Import</value></data>
+  <data name="GridImportButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Import photos from a camera or card</value></data>
+  <data name="GridImportButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Copy photos and videos from a mounted camera or memory card</value></data>
+  <data name="PhotoImportDescription.Text" xml:space="preserve"><value>Import copies supported photos and videos from a mounted filesystem device's DCIM folder. MTP/PTP cameras shown only in File Explorer are not supported. Nothing is copied until you select items and start the import.</value></data>
+  <data name="PhotoImportSourceLabel.Text" xml:space="preserve"><value>Source</value></data>
+  <data name="PhotoImportSourceBox.PlaceholderText" xml:space="preserve"><value>Choose the mounted device root or its DCIM folder</value></data>
+  <data name="PhotoImportSourceBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Camera or card source folder</value></data>
+  <data name="PhotoImportSourceBrowseButton.Content" xml:space="preserve"><value>Browse…</value></data>
+  <data name="PhotoImportSourceBrowseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose camera or card source folder</value></data>
+  <data name="PhotoImportDestinationLabel.Text" xml:space="preserve"><value>Destination</value></data>
+  <data name="PhotoImportDestinationBox.PlaceholderText" xml:space="preserve"><value>Choose an existing library folder outside the source DCIM folder</value></data>
+  <data name="PhotoImportDestinationBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Import destination folder</value></data>
+  <data name="PhotoImportDestinationBrowseButton.Content" xml:space="preserve"><value>Browse…</value></data>
+  <data name="PhotoImportDestinationBrowseButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose destination folder</value></data>
+  <data name="PhotoImportNamingLabel.Text" xml:space="preserve"><value>Name template</value></data>
+  <data name="PhotoImportNamingBox.PlaceholderText" xml:space="preserve"><value>{name}</value></data>
+  <data name="PhotoImportNamingBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Optional destination filename template</value></data>
+  <data name="PhotoImportNamingHelp.Text" xml:space="preserve"><value>Use {name}, {date}, {year}, {month}, {day}, or {counter}. Folder names use capture date (or file date); conflicts get a numbered suffix and are never overwritten.</value></data>
+  <data name="PhotoImportTagsLabel.Text" xml:space="preserve"><value>Import tags</value></data>
+  <data name="PhotoImportTagsBox.PlaceholderText" xml:space="preserve"><value>Comma-separated tags</value></data>
+  <data name="PhotoImportTagsBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Optional tags to add to imported copies</value></data>
+  <data name="PhotoImportDeleteSourceCheck.Content" xml:space="preserve"><value>After copying, offer to delete verified originals from the source device (off by default)</value></data>
+  <data name="PhotoImportDeleteSourceCheck.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Offer to delete verified originals from the source after import</value></data>
+  <data name="PhotoImportScanButton.Content" xml:space="preserve"><value>Scan DCIM</value></data>
+  <data name="PhotoImportSelectAllButton.Content" xml:space="preserve"><value>Select all</value></data>
+  <data name="PhotoImportSelectNoneButton.Content" xml:space="preserve"><value>Select none</value></data>
+  <data name="PhotoImportList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photos and videos found on the device; select items to import</value></data>
+  <data name="PhotoImportSelectionText.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Number of selected import items</value></data>
+  <data name="PhotoImportProgressBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo import progress</value></data>
+  <data name="PhotoImportStatusText.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Photo import status</value></data>
+  <data name="PhotoImportDialogTitle" xml:space="preserve"><value>Import from camera or card</value></data>
+  <data name="PhotoImportListItemName" xml:space="preserve"><value>{0} · {1:N0} bytes</value></data>
+  <data name="PhotoImportCaptureDate" xml:space="preserve"><value>Capture date: {0}</value></data>
+  <data name="PhotoImportFileDate" xml:space="preserve"><value>File date: {0}</value></data>
+  <data name="PhotoImportDestinationPreview" xml:space="preserve"><value>Destination: {0}</value></data>
+  <data name="PhotoImportTemplateInvalid" xml:space="preserve"><value>Invalid template. Use only {name}, {date}, {year}, {month}, {day}, and {counter}.</value></data>
+  <data name="PhotoImportNoSource" xml:space="preserve"><value>Choose the mounted device root or its DCIM folder.</value></data>
+  <data name="PhotoImportNoDestination" xml:space="preserve"><value>Choose an existing destination folder.</value></data>
+  <data name="PhotoImportScanning" xml:space="preserve"><value>Scanning DCIM…</value></data>
+  <data name="PhotoImportScanFound" xml:space="preserve"><value>Found {0:N0} supported item(s). Select the items to import.</value></data>
+  <data name="PhotoImportScanEmpty" xml:space="preserve"><value>No supported photos or videos were found in DCIM.</value></data>
+  <data name="PhotoImportScanWarnings" xml:space="preserve"><value>{0:N0} item(s) were skipped. {1}</value></data>
+  <data name="PhotoImportSelectionCount" xml:space="preserve"><value>{0:N0} of {1:N0} items selected</value></data>
+  <data name="PhotoImportStart" xml:space="preserve"><value>Import selected</value></data>
+  <data name="PhotoImportDone" xml:space="preserve"><value>Done</value></data>
+  <data name="PhotoImportCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PhotoImportClose" xml:space="preserve"><value>Close</value></data>
+  <data name="PhotoImportProgress" xml:space="preserve"><value>Copying {0} · {1:N0}% · {2:N0} of {3:N0} files</value></data>
+  <data name="PhotoImportProgressVerifying" xml:space="preserve"><value>Verifying {0} · {1:N0} of {2:N0} files</value></data>
+  <data name="PhotoImportCanceling" xml:space="preserve"><value>Canceling after the current file is safely completed…</value></data>
+  <data name="PhotoImportSummary" xml:space="preserve"><value>Imported {0:N0} item(s); {1:N0} failed.</value></data>
+  <data name="PhotoImportPickerFailed" xml:space="preserve"><value>Could not open the folder picker: {0}</value></data>
+  <data name="PhotoImportScanFailed" xml:space="preserve"><value>Could not scan the source: {0}</value></data>
+  <data name="PhotoImportNoScan" xml:space="preserve"><value>Scan DCIM before starting the import.</value></data>
+  <data name="PhotoImportNoSelection" xml:space="preserve"><value>Select at least one item to import.</value></data>
+  <data name="PhotoImportOperationFailed" xml:space="preserve"><value>Import could not start or complete: {0}</value></data>
+  <data name="PhotoImportCanceledSummary" xml:space="preserve"><value>Import canceled after {0:N0} completed item(s); remaining items were not copied.</value></data>
+  <data name="PhotoImportItemSucceeded" xml:space="preserve"><value>Imported to {0}</value></data>
+  <data name="PhotoImportItemFailed" xml:space="preserve"><value>Not imported: {0}</value></data>
+  <data name="PhotoImportRefreshFailed" xml:space="preserve"><value>Copies were indexed, but the library view could not refresh: {0}</value></data>
+  <data name="PhotoImportDeviceInfo.Title" xml:space="preserve"><value>Camera or memory card detected</value></data>
+  <data name="PhotoImportDeviceInfo.Message" xml:space="preserve"><value>A mounted device with a DCIM folder is available at {0}. Choose Import to review files; no files are copied automatically.</value></data>
+  <data name="PhotoImportDeviceButton.Content" xml:space="preserve"><value>Import</value></data>
+  <data name="PhotoImportDeviceButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Review photos from the detected device</value></data>
+  <data name="PhotoImportDeviceScanFailed" xml:space="preserve"><value>Could not check removable devices: {0}</value></data>
+  <data name="PhotoImportDeleteConfirmTitle" xml:space="preserve"><value>Delete verified originals from the source?</value></data>
+  <data name="PhotoImportDeleteConfirmContent" xml:space="preserve"><value>{0:N0} imported item(s) passed copy verification and were indexed. Deletion is permanent on most cameras and cards, not sent to the Recycle Bin. The source and destination will be checked again; changed, missing, or unverified files will be preserved.</value></data>
+  <data name="PhotoImportDeleteConfirmButton" xml:space="preserve"><value>Delete verified originals</value></data>
+  <data name="PhotoImportDeleteCanceled" xml:space="preserve"><value>Original files were left on the source.</value></data>
+  <data name="PhotoImportDeleteProgress" xml:space="preserve"><value>Rechecking source and destination for {0} ({1:N0} of {2:N0})…</value></data>
+  <data name="PhotoImportDeleteSummary" xml:space="preserve"><value>Deleted {0:N0} of {1:N0} source photo(s).</value></data>
+  <data name="PhotoImportDeleteResult" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="PhotoImportDeleteSourceUnchanged" xml:space="preserve"><value>Source was preserved because verification or deletion failed: {0}</value></data>
+  <data name="PhotoImportDeviceInfoMessage" xml:space="preserve"><value>A mounted device with a DCIM folder is available at {0}. Choose Import to review files; no files are copied automatically.</value></data>
+  <data name="PhotoImportDeleteResultTitle" xml:space="preserve"><value>Source cleanup results</value></data>
+  <data name="PhotoImportUnverifiedSource" xml:space="preserve"><value>The source was preserved because it could not be verified.</value></data>
+  <data name="PhotoContextUnavailable" xml:space="preserve"><value>No file actions available</value></data>
+  <data name="ViewerPhotoSurface.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Full photo viewer</value></data>
+  <data name="PhotoContextStale" xml:space="preserve"><value>The displayed file has changed. Open the menu again.</value></data>
+  <data name="PhotoContextFailed" xml:space="preserve"><value>{0} failed: {1}</value></data>
+  <data name="PhotoContextWallpaperFailed" xml:space="preserve"><value>Could not set the desktop background.</value></data>
+  <data name="PhotoContextRecycleTitle" xml:space="preserve"><value>Move file to Recycle Bin?</value></data>
+  <data name="PhotoContextRecycle" xml:space="preserve"><value>Move to Recycle Bin</value></data>
+  <data name="PhotoContextCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="PhotoContextCancelled" xml:space="preserve"><value>Delete cancelled. The file was not changed.</value></data>
+  <data name="PhotoContextRecycled" xml:space="preserve"><value>Moved file to the Recycle Bin.</value></data>
+  <data name="PhotoContextNotRecycled" xml:space="preserve"><value>The file was not moved to the Recycle Bin. The operation may have been cancelled or the file may be unavailable.</value></data>
+  <data name="EditCopySettings" xml:space="preserve"><value>Copy edit settings...</value></data>
+  <data name="EditPasteSettings" xml:space="preserve"><value>Paste edit settings...</value></data>
+  <data name="EditSyncSettings" xml:space="preserve"><value>Sync edit settings across selection...</value></data>
+  <data name="EditChooseGroupsTitle" xml:space="preserve"><value>Choose setting groups</value></data>
+  <data name="EditStatusCopied" xml:space="preserve"><value>Copied {0} from {1}.</value></data>
+  <data name="EditStatusCopyUnsupported" xml:space="preserve"><value>Edits can only be copied from photos.</value></data>
+  <data name="EditStatusPasteMissing" xml:space="preserve"><value>Copy edit settings before pasting.</value></data>
+  <data name="EditStatusSyncUnsupported" xml:space="preserve"><value>Edits can only be synced from a photo.</value></data>
+  <data name="EditStatusSkipped" xml:space="preserve"><value>{0}: skipped {1}.</value></data>
+  <data name="EditStatusNoChanges" xml:space="preserve"><value>No selected edit values changed.</value></data>
+  <data name="EditStatusApplyFailed" xml:space="preserve"><value>No selected photo was changed because the grouped edit failed: {0}</value></data>
+  <data name="EditStatusApplied" xml:space="preserve"><value>Applied edits to {0} photo(s).</value></data>
+  <data name="EditStatusSourceChanged" xml:space="preserve"><value>The source photo changed before the operation could use its edit settings.</value></data>
+  <data name="VideoTrimDialog.Title" xml:space="preserve"><value>Trim video</value></data>
+  <data name="VideoTrimDialog.PrimaryButtonText" xml:space="preserve"><value>Export trimmed copy</value></data>
+  <data name="VideoTrimDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
+  <data name="RibbonTrimVideo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Trim video</value></data>
+  <data name="RibbonTrimVideo.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Save an in/out selection as a new video copy</value></data>
+  <data name="RibbonTrimVideoLabel.Text" xml:space="preserve"><value>Trim</value></data>
+  <data name="VideoTrimIntro.Text" xml:space="preserve"><value>Choose where the new clip starts and ends. The source video is never changed.</value></data>
+  <data name="VideoTrimStartLabel.Text" xml:space="preserve"><value>In point</value></data>
+  <data name="VideoTrimEndLabel.Text" xml:space="preserve"><value>Out point</value></data>
+  <data name="VideoTrimStartSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video in point</value></data>
+  <data name="VideoTrimEndSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video out point</value></data>
+  <data name="VideoTrimStartSeconds.Header" xml:space="preserve"><value>In point (seconds)</value></data>
+  <data name="VideoTrimStartSeconds.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video in point in seconds</value></data>
+  <data name="VideoTrimEndSeconds.Header" xml:space="preserve"><value>Out point (seconds)</value></data>
+  <data name="VideoTrimEndSeconds.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video out point in seconds</value></data>
+  <data name="VideoTrimOutput.Header" xml:space="preserve"><value>New MP4 file</value></data>
+  <data name="VideoTrimOutput.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>New trimmed video path</value></data>
+  <data name="VideoTrimChooseFolder.Content" xml:space="preserve"><value>Choose output folder...</value></data>
+  <data name="VideoTrimChooseFolder.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Choose output folder for trimmed copy</value></data>
+  <data name="VideoTrimPolicy.Text" xml:space="preserve"><value>Exports a locally re-encoded H.264/AAC MP4; trim points are rounded to the nearest source video frame. Audio is re-encoded when present. Ratings, tags and descriptive metadata are copied to the new file. Subtitles, extra tracks, HDR fidelity and camera-specific embedded metadata are not preserved. Windows must support the source codecs. Re-encoding removes keyframe-only trim limits. There is no fixed duration limit; processing time and output size depend on clip length and available storage. Existing files are never overwritten.</value></data>
+  <data name="VideoTrimProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Trimming video</value></data>
+  <data name="VideoTrimError.Title" xml:space="preserve"><value>Could not trim video</value></data>
+  <data name="VideoTrimStatus.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video trim status</value></data>
+  <data name="VideoTrimRangeReady" xml:space="preserve"><value>Video duration: {0}. The end point must be after the start point.</value></data>
+  <data name="VideoTrimOpenFailed" xml:space="preserve"><value>Could not read the video: {0}</value></data>
+  <data name="VideoTrimFolderFailed" xml:space="preserve"><value>Could not choose an output folder: {0}</value></data>
+  <data name="VideoTrimRangeUnavailable" xml:space="preserve"><value>Video duration is unavailable. Close this dialog and try again.</value></data>
+  <data name="VideoTrimCancelExport" xml:space="preserve"><value>Cancel export</value></data>
+  <data name="VideoTrimStarting" xml:space="preserve"><value>Preparing trimmed copy...</value></data>
+  <data name="VideoTrimProgressFormat" xml:space="preserve"><value>Exporting trimmed copy: {0:F0}%</value></data>
+  <data name="VideoTrimCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
+  <data name="VideoTrimCanceling" xml:space="preserve"><value>Canceling export...</value></data>
+  <data name="VideoTrimClose" xml:space="preserve"><value>Close</value></data>
+</root>

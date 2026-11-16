@@ -1,8 +1,12 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Data.Sqlite;
 using PhotoLibrarian.Core.Data;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 
 namespace PhotoLibrarian.ViewModels;
@@ -13,14 +17,43 @@ public partial class SettingsViewModel : ObservableObject
     private readonly AutoTaggingSettingsStore _autoTaggingSettingsStore;
     private readonly AutoTagModelManager _autoTagModelManager;
     private readonly AutoTagBenchmarkProcessor _benchmarkProcessor;
+    private readonly LibraryIndexMaintenanceService _indexMaintenanceService;
+    private readonly MapSettingsStore _mapSettingsStore = new();
+    private MapProvider _mapProvider;
     private Dictionary<string, AutoTagQualityStatus> _qualityStatuses = [];
     private bool _isInitializing;
+    private CancellationTokenSource? _modelDownloadCancellation;
+    private CancellationTokenSource? _indexMaintenanceCancellation;
 
     [ObservableProperty]
     public partial bool IsOpen { get; set; }
 
     [ObservableProperty]
     public partial int ThumbnailCacheSizeMB { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsIndexMaintenanceRunning { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsHierarchyTagCleanupRunning { get; set; }
+
+    [ObservableProperty]
+    public partial string HierarchyTagCleanupStatus { get; set; } = "";
+
+    [ObservableProperty]
+    public partial double HierarchyTagCleanupProgress { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsIndexMaintenanceProgressIndeterminate { get; set; }
+
+    [ObservableProperty]
+    public partial double IndexMaintenanceProgress { get; set; }
+
+    [ObservableProperty]
+    public partial string IndexMaintenanceStatus { get; set; } = "";
+
+    [ObservableProperty]
+    public partial string IndexMaintenanceDiagnostics { get; set; } = "";
 
     [ObservableProperty]
     public partial string CacheLocation { get; set; } = "";
@@ -77,6 +110,15 @@ public partial class SettingsViewModel : ObservableObject
     public partial bool IsModelImportRunning { get; set; }
 
     [ObservableProperty]
+    public partial bool IsModelDownloadRunning { get; set; }
+
+    [ObservableProperty]
+    public partial double ModelDownloadProgress { get; set; }
+
+    [ObservableProperty]
+    public partial string ModelDownloadMessage { get; set; } = "";
+
+    [ObservableProperty]
     public partial bool IsAutoTagCleanupRunning { get; set; }
 
     [ObservableProperty]
@@ -103,6 +145,21 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<string> BenchmarkExamples { get; } = [];
 
+    public MapProvider MapProvider
+    {
+        get => _mapProvider;
+        private set => SetProperty(ref _mapProvider, value);
+    }
+
+    public void SetMapProvider(MapProvider provider)
+    {
+        if (provider == MapProvider)
+            return;
+
+        _mapSettingsStore.Save(provider);
+        MapProvider = provider;
+    }
+
     public event EventHandler<AutoTaggingSettingsChangedEventArgs>?
         AutoTaggingSettingsChanged;
 
@@ -110,12 +167,15 @@ public partial class SettingsViewModel : ObservableObject
         CacheDatabase db,
         AutoTaggingSettingsStore autoTaggingSettingsStore,
         AutoTagModelManager autoTagModelManager,
-        AutoTagBenchmarkProcessor benchmarkProcessor)
+        AutoTagBenchmarkProcessor benchmarkProcessor,
+        LibraryIndexMaintenanceService indexMaintenanceService)
     {
         _db = db;
         _autoTaggingSettingsStore = autoTaggingSettingsStore;
         _autoTagModelManager = autoTagModelManager;
         _benchmarkProcessor = benchmarkProcessor;
+        _indexMaintenanceService = indexMaintenanceService;
+        MapProvider = _mapSettingsStore.Load();
 
         _isInitializing = true;
         var settings = _autoTaggingSettingsStore.Load();
@@ -188,24 +248,102 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task RebuildCacheAsync()
+    private async Task RepairLibraryIndexAsync()
     {
-        using var conn = _db.CreateConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM thumbnails";
-        await cmd.ExecuteNonQueryAsync();
+        if (IsIndexMaintenanceRunning)
+        {
+            return;
+        }
 
-        using var vacuum = conn.CreateCommand();
-        vacuum.CommandText = "VACUUM";
-        await vacuum.ExecuteNonQueryAsync();
+        using var cancellation = new CancellationTokenSource();
+        _indexMaintenanceCancellation = cancellation;
+        IsIndexMaintenanceRunning = true;
+        IsIndexMaintenanceProgressIndeterminate = true;
+        IndexMaintenanceProgress = 0;
+        IndexMaintenanceDiagnostics = "";
+        IndexMaintenanceStatus =
+            LibraryIndexMaintenanceStrings.Get("IndexMaintenanceStarting");
+        try
+        {
+            var progress = new Progress<LibraryIndexMaintenanceProgress>(
+                update =>
+                {
+                    IsIndexMaintenanceProgressIndeterminate =
+                        update.Stage is
+                            LibraryIndexMaintenanceStage.ScanningFolders or
+                            LibraryIndexMaintenanceStage.VerifyingMoves;
+                    IndexMaintenanceProgress = update.Total > 0
+                        ? 100d * update.Current / update.Total
+                        : 0;
+                    IndexMaintenanceStatus =
+                        LibraryIndexMaintenanceStrings.Format(
+                            "IndexMaintenanceProgress",
+                            LibraryIndexMaintenanceStrings.GetStageName(
+                                update.Stage),
+                            update.Current,
+                            update.Total,
+                            update.Path);
+                });
+            var result = await Task.Run(
+                () => _indexMaintenanceService.ReconcileAsync(
+                    progress,
+                    cancellation.Token));
+            var diagnostics = result.Issues.Take(10).Select(
+                LibraryIndexMaintenanceStrings.FormatIssue).ToList();
+            if (result.Issues.Count > diagnostics.Count)
+            {
+                diagnostics.Add(
+                    LibraryIndexMaintenanceStrings.Format(
+                        "IndexMaintenanceAdditionalDiagnostics",
+                        result.Issues.Count - diagnostics.Count));
+            }
+            IndexMaintenanceDiagnostics = string.Join(
+                Environment.NewLine,
+                diagnostics);
 
-        LoadSettings();
+            var resultKey = result.Cancelled
+                ? "IndexMaintenanceCancelled"
+                : result.Succeeded
+                    ? "IndexMaintenanceCompleted"
+                    : "IndexMaintenanceCompletedWithIssues";
+            IndexMaintenanceStatus =
+                LibraryIndexMaintenanceStrings.Format(
+                    resultKey,
+                    result.UpdatedFiles,
+                    result.RepairedMoves,
+                    result.ConfirmedMissingFiles,
+                    result.Issues.Count,
+                    result.RemovedFiles);
+        }
+        catch (Exception exception)
+        {
+            PhotoLibrarian.Core.Diagnostics.DebugLog.WriteLine(
+                $"Library index maintenance failed: {exception}");
+            IndexMaintenanceStatus =
+                LibraryIndexMaintenanceStrings.Format(
+                    "IndexMaintenanceFailed",
+                    exception.Message);
+        }
+        finally
+        {
+            _indexMaintenanceCancellation = null;
+            IsIndexMaintenanceRunning = false;
+            IsIndexMaintenanceProgressIndeterminate = false;
+            LoadSettings();
+        }
+    }
+
+    [RelayCommand]
+    private void CancelIndexMaintenance()
+    {
+        _indexMaintenanceCancellation?.Cancel();
     }
 
     public void SelectProfile(string profileId)
     {
         if (IsBenchmarkRunning ||
             IsModelImportRunning ||
+            IsModelDownloadRunning ||
             profileId == SelectedProfileId ||
             !AutoTagModelCatalog.TryGet(profileId, out var definition))
         {
@@ -269,11 +407,10 @@ public partial class SettingsViewModel : ObservableObject
         string sourceDirectory,
         CancellationToken cancellationToken = default)
     {
-        if (!SelectedProfile.RequiresLocalImport)
+        if (IsModelImportRunning ||
+            IsModelDownloadRunning ||
+            IsBenchmarkRunning)
         {
-            ModelImportHasError = true;
-            ModelImportMessage =
-                "The selected profile downloads its assets automatically.";
             return false;
         }
 
@@ -317,6 +454,80 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    public async Task<bool> DownloadSelectedModelAssetsAsync()
+    {
+        if (IsModelDownloadRunning ||
+            IsModelImportRunning ||
+            IsBenchmarkRunning)
+        {
+            return false;
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        _modelDownloadCancellation = cancellation;
+        IsModelDownloadRunning = true;
+        ModelImportHasError = false;
+        ModelDownloadProgress = 0;
+        ModelDownloadMessage =
+            $"Preparing {SelectedProfile.DisplayName} download…";
+
+        var progress = new Progress<AutoTagModelDownloadProgress>(
+            UpdateModelDownloadProgress);
+        try
+        {
+            await _autoTagModelManager.DownloadProfileAssetsAsync(
+                SelectedProfileId,
+                GetCustomModelDirectory(),
+                progress,
+                cancellation.Token);
+            ModelDownloadProgress = 100;
+            RefreshSelectedProfileDetails();
+            ModelDownloadMessage =
+                $"{SelectedProfile.DisplayName} assets were downloaded and SHA-256 verified.";
+            return true;
+        }
+        catch (OperationCanceledException)
+            when (cancellation.IsCancellationRequested)
+        {
+            RefreshSelectedProfileDetails();
+            ModelDownloadMessage =
+                "Download canceled. The partial file was kept so you can resume later.";
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            RefreshSelectedProfileDetails();
+            ModelImportHasError = true;
+            ModelDownloadMessage =
+                "Model download timed out after two hours. The partial file was kept so you can retry.";
+            ModelImportMessage = ModelDownloadMessage;
+            return false;
+        }
+        catch (Exception exception)
+            when (exception is HttpRequestException or
+                IOException or
+                InvalidDataException or
+                InvalidOperationException or
+                UnauthorizedAccessException or
+                ArgumentException)
+        {
+            RefreshSelectedProfileDetails();
+            ModelImportHasError = true;
+            ModelDownloadMessage =
+                $"Model download failed: {exception.Message} You can retry or import compatible files instead.";
+            ModelImportMessage = ModelDownloadMessage;
+            return false;
+        }
+        finally
+        {
+            _modelDownloadCancellation = null;
+            IsModelDownloadRunning = false;
+        }
+    }
+
+    public void CancelModelDownload() =>
+        _modelDownloadCancellation?.Cancel();
+
     public async Task DeleteSelectedModelAssetsAsync()
     {
         try
@@ -354,6 +565,13 @@ public partial class SettingsViewModel : ObservableObject
         string folderPath,
         CancellationToken cancellationToken = default)
     {
+        if (IsBenchmarkRunning ||
+            IsModelImportRunning ||
+            IsModelDownloadRunning)
+        {
+            return;
+        }
+
         var definition = SelectedProfile;
         IsBenchmarkRunning = true;
         HasBenchmarkResults = false;
@@ -541,12 +759,44 @@ public partial class SettingsViewModel : ObservableObject
     private void SetModelImportGuidance()
     {
         ModelImportHasError = false;
-        ModelImportMessage = SelectedProfile.RequiresLocalImport
-            ? $"{SelectedProfile.DisplayName} is not distributed by PhotoLibrarian. Select a folder " +
-              $"containing '{SelectedProfile.ModelAsset.FileName}' and " +
-              $"'{SelectedProfile.LabelsAsset.FileName}'. Source files are " +
-              "verified, copied, and never modified."
-            : string.Empty;
+        ModelDownloadMessage = string.Empty;
+        ModelDownloadProgress = 0;
+        var profile = SelectedProfile;
+        if (profile.ManifestUri is not null)
+        {
+            ModelImportMessage =
+                $"Download the verified {profile.DisplayName} bundle or select a folder containing " +
+                $"'{profile.ModelAsset.FileName}' and '{profile.LabelsAsset.FileName}'. " +
+                "Imported source files are verified, copied, and never modified.";
+        }
+        else if (profile.RequiresLocalImport)
+        {
+            ModelImportMessage =
+                $"{profile.DisplayName} is not distributed by PhotoLibrarian yet. Select a folder " +
+                $"containing '{profile.ModelAsset.FileName}' and " +
+                $"'{profile.LabelsAsset.FileName}'. Source files are verified, copied, and never modified.";
+        }
+        else
+        {
+            ModelImportMessage = string.Empty;
+        }
+    }
+
+    private void UpdateModelDownloadProgress(
+        AutoTagModelDownloadProgress progress)
+    {
+        if (progress.TotalBytes > 0)
+        {
+            ModelDownloadProgress = Math.Clamp(
+                100d * progress.BytesDownloaded / progress.TotalBytes,
+                0,
+                100);
+        }
+
+        ModelDownloadMessage =
+            $"Downloading {progress.FileName}: " +
+            $"{FormatByteSize(progress.BytesDownloaded)} of " +
+            $"{FormatByteSize(progress.TotalBytes)}";
     }
 
     private AutoTaggingSettings CreateSettings() => new(

@@ -1,0 +1,123 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+using CommunityToolkit.Mvvm.ComponentModel;
+using PhotoLibrarian.Core.Data;
+using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Diagnostics;
+
+namespace PhotoLibrarian.ViewModels;
+
+public partial class LibrarySearchViewModel : ObservableObject
+{
+    private readonly ImageGridViewModel _grid;
+    private readonly ImageViewerViewModel _viewer;
+    private CancellationTokenSource? _suggestionsCts;
+    private readonly SemaphoreSlim _submitGate = new(1, 1);
+
+    public LibrarySearchViewModel(ImageGridViewModel grid, ImageViewerViewModel viewer)
+    {
+        _grid = grid;
+        _viewer = viewer;
+        grid.ResultsChanged += OnResultsChanged;
+    }
+
+    private void OnResultsChanged(object? sender, EventArgs args)
+    {
+        _suggestionsCts?.Cancel();
+        Suggestions = [];
+    }
+
+    [ObservableProperty]
+    public partial IReadOnlyList<ImageEntry> Suggestions { get; set; } = [];
+
+    [ObservableProperty]
+    public partial string ErrorMessage { get; set; } = "";
+
+    [ObservableProperty]
+    public partial bool IsError { get; set; }
+
+    public async Task UpdateSuggestionsAsync(string text)
+    {
+        _suggestionsCts?.Cancel();
+        _suggestionsCts?.Dispose();
+        var cts = _suggestionsCts = new CancellationTokenSource();
+        var token = cts.Token;
+        Suggestions = [];
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            ErrorMessage = "";
+            IsError = false;
+            await SubmitAsync("");
+            return;
+        }
+
+        var syntaxError = ImageSearchRepository.GetQuerySyntaxError(text);
+        if (syntaxError is not null)
+        {
+            ErrorMessage = syntaxError;
+            IsError = true;
+            return;
+        }
+
+        ErrorMessage = "";
+        IsError = false;
+        try
+        {
+            await Task.Delay(250, token);
+            var matches = await _grid.GetSearchSuggestionsAsync(text, token);
+            if (!token.IsCancellationRequested)
+            {
+                Suggestions = matches;
+                IsError = false;
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            if (!token.IsCancellationRequested) ReportError(exception);
+        }
+    }
+
+    public async Task SubmitAsync(string text)
+    {
+        _suggestionsCts?.Cancel();
+        Suggestions = [];
+        var syntaxError = ImageSearchRepository.GetQuerySyntaxError(text);
+        if (syntaxError is not null)
+        {
+            ErrorMessage = syntaxError;
+            IsError = true;
+            return;
+        }
+
+        await _submitGate.WaitAsync();
+        try
+        {
+            ErrorMessage = "";
+            IsError = false;
+            _viewer.CloseCommand.Execute(null);
+            await _grid.ApplySearchAsync(text);
+        }
+        catch (Exception exception)
+        {
+            ReportError(exception);
+        }
+        finally
+        {
+            _submitGate.Release();
+        }
+    }
+
+    private void ReportError(Exception exception)
+    {
+        DebugLog.WriteLine($"Library search failed: {exception}");
+        ErrorMessage = $"Search failed: {exception.Message}";
+        IsError = true;
+    }
+
+    public void Cleanup()
+    {
+        _grid.ResultsChanged -= OnResultsChanged;
+        _suggestionsCts?.Cancel();
+        _suggestionsCts?.Dispose();
+    }
+}

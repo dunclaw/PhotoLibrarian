@@ -1,11 +1,13 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Data.Sqlite;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.Core.Data;
 
 /// <summary>
-/// Manages the SQLite cache database. This is a performance cache only —
-/// all authoritative data lives in image file metadata (EXIF/XMP/IPTC).
-/// The database can be safely deleted and rebuilt by re-scanning.
+/// Manages the SQLite index/cache. Authoritative library information belongs in
+/// the media and associated metadata, not here. Unique user decisions must be
+/// persisted by their writers before updating this cache.
 /// </summary>
 public sealed class CacheDatabase : IDisposable
 {
@@ -35,6 +37,7 @@ public sealed class CacheDatabase : IDisposable
         // Keep one connection open to hold the shared cache alive
         _initConnection = new SqliteConnection(_connectionString);
         await _initConnection.OpenAsync();
+        RegisterFunctions(_initConnection);
 
         // WAL mode for concurrent reads during writes
         await ExecutePragmaAsync(_initConnection, "PRAGMA journal_mode=WAL;");
@@ -80,7 +83,9 @@ public sealed class CacheDatabase : IDisposable
                 iso             INTEGER,
                 gps_latitude    REAL,
                 gps_longitude   REAL,
+                place_name      TEXT,
                 rating          INTEGER,
+                color_label     TEXT,
                 orientation     INTEGER NOT NULL DEFAULT 1,
                 media_type      INTEGER NOT NULL DEFAULT 0,
                 video_duration  REAL,
@@ -94,8 +99,25 @@ public sealed class CacheDatabase : IDisposable
                 face_metadata_export_required INTEGER NOT NULL DEFAULT 0
             );
 
+            CREATE VIEW IF NOT EXISTS watched_images AS
+                SELECT i.* FROM images i
+                WHERE EXISTS (
+                    SELECT 1 FROM watched_folders w
+                    WHERE is_watched_file(i.file_path, w.path, w.include_sub)
+                );
+
             -- Note: thumbnails table removed - we now use Windows thumbnail cache instead
             -- This eliminates storage duplication and leverages OS-level optimization
+
+            CREATE TABLE IF NOT EXISTS duplicate_hash_cache (
+                image_id INTEGER PRIMARY KEY,
+                file_size INTEGER NOT NULL,
+                modified_ticks INTEGER NOT NULL,
+                sha256 TEXT,
+                perceptual_hash TEXT,
+                hash_version INTEGER NOT NULL,
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
 
             CREATE TABLE IF NOT EXISTS tags (
                 image_id    INTEGER NOT NULL,
@@ -162,7 +184,84 @@ public sealed class CacheDatabase : IDisposable
         }
 
         await MigrateAsync(conn);
+        await InitializeTagHierarchyAsync(conn);
+        await ImageSearchRepository.InitializeAsync(conn);
     }
+
+    private static async Task InitializeTagHierarchyAsync(SqliteConnection connection)
+    {
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE name = 'tag_path_memberships' AND type = 'table'
+            """;
+        var needsBackfill = Convert.ToInt64(await command.ExecuteScalarAsync()) == 0;
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS tag_path_memberships (
+                image_id INTEGER NOT NULL,
+                explicit_tag TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (image_id, explicit_tag, tag),
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_tag_paths_tag_image
+                ON tag_path_memberships(tag, image_id);
+            CREATE VIEW IF NOT EXISTS tag_hierarchy AS
+                SELECT DISTINCT image_id, tag FROM tag_path_memberships;
+            CREATE TRIGGER IF NOT EXISTS tag_paths_delete AFTER DELETE ON tags BEGIN
+                DELETE FROM tag_path_memberships
+                WHERE image_id = OLD.image_id AND explicit_tag = OLD.tag;
+            END;
+            """;
+        await command.ExecuteNonQueryAsync();
+
+        foreach (var operation in new[] { "INSERT", "UPDATE" })
+        {
+            var eventClause = operation == "UPDATE" ? "UPDATE OF image_id, tag" : operation;
+            var removeOld = operation == "UPDATE"
+                ? "DELETE FROM tag_path_memberships WHERE image_id = OLD.image_id AND explicit_tag = OLD.tag;"
+                : "";
+            command.CommandText = $"""
+                CREATE TRIGGER IF NOT EXISTS tag_paths_{operation}
+                AFTER {eventClause} ON tags BEGIN
+                    {removeOld}
+                    {CreateTagPathInsertSql("WHERE image_id = NEW.image_id AND tag = NEW.tag")}
+                END;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // Old explicit rows are ambiguous: index them without deleting any cached or file values.
+        if (needsBackfill)
+        {
+            command.CommandText = CreateTagPathInsertSql("");
+            await command.ExecuteNonQueryAsync();
+        }
+        transaction.Commit();
+    }
+
+    private static string CreateTagPathInsertSql(string scope) => $"""
+        INSERT OR IGNORE INTO tag_path_memberships(image_id, explicit_tag, tag)
+        SELECT image_id, explicit_tag, tag FROM (
+            WITH RECURSIVE paths(image_id, explicit_tag, tag, remaining) AS (
+                SELECT image_id, tag, '', tag || '/' FROM tags {scope}
+                UNION ALL
+                SELECT image_id, explicit_tag,
+                    CASE
+                        WHEN instr(remaining, '/') = 1 THEN tag
+                        WHEN tag = '' THEN substr(remaining, 1, instr(remaining, '/') - 1)
+                        ELSE tag || '/' || substr(remaining, 1, instr(remaining, '/') - 1)
+                    END,
+                    substr(remaining, instr(remaining, '/') + 1)
+                FROM paths WHERE remaining != ''
+            )
+            SELECT image_id, explicit_tag, tag FROM paths WHERE tag != ''
+            UNION
+            SELECT image_id, tag, tag FROM tags {scope}
+        );
+        """;
 
     /// <summary>
     /// Applies additive schema changes to databases created by older versions of the app.
@@ -170,9 +269,22 @@ public sealed class CacheDatabase : IDisposable
     /// </summary>
     private static async Task MigrateAsync(SqliteConnection conn)
     {
+        await AddColumnIfMissingAsync(conn, "images", "caption", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "title", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "place_name", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "search_metadata_indexed", "INTEGER NOT NULL DEFAULT 0");
         await AddColumnIfMissingAsync(conn, "images", "is_flagged", "INTEGER NOT NULL DEFAULT 0");
+        if (await AddColumnIfMissingAsync(conn, "images", "color_label", "TEXT"))
+        {
+            using var backfill = conn.CreateCommand();
+            backfill.CommandText = "UPDATE images SET search_metadata_indexed = 0";
+            await backfill.ExecuteNonQueryAsync();
+        }
         await AddColumnIfMissingAsync(conn, "images", "face_scan_version", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "auto_tag_scan_version", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "source_identity", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "metadata_stamp", "TEXT");
+        await AddColumnIfMissingAsync(conn, "images", "metadata_hash", "TEXT");
         await AddColumnIfMissingAsync(
             conn,
             "images",
@@ -270,11 +382,16 @@ public sealed class CacheDatabase : IDisposable
     {
         var conn = new SqliteConnection(_connectionString);
         conn.Open();
+        RegisterFunctions(conn);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "PRAGMA foreign_keys=ON;";
         cmd.ExecuteNonQuery();
         return conn;
     }
+
+    private static void RegisterFunctions(SqliteConnection connection) =>
+        connection.CreateFunction<string, string, bool, bool>(
+            "is_watched_file", WatchedFolderScope.ContainsFile, isDeterministic: true);
 
     /// <summary>
     /// Returns the shared connection for backward compatibility.

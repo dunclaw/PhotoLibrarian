@@ -1,13 +1,81 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\native\Dependencies.props" />
   <PropertyGroup>
     <RootNamespace>PhotoLibrarian.Core</RootNamespace>
     <Platforms>x64;ARM64;x86</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="PhotoLibrarian.Tests" />
     <PackageReference Include="MetadataExtractor" />
     <PackageReference Include="XmpCore" />
+    <PackageReference Include="Vortice.MediaFoundation" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <NativePlatform Condition="'$(Platform)' == 'x86'">Win32</NativePlatform>
+    <NativePlatform Condition="'$(NativePlatform)' == ''">$(Platform)</NativePlatform>
+    <RawDecoderBuildDirectory>$(MSBuildProjectDirectory)\..\..\native\obj\sources\notices</RawDecoderBuildDirectory>
+    <PanoramaBuildDirectory>$(MSBuildProjectDirectory)\..\..\native\bin\$(NativePlatform)\$(Configuration)</PanoramaBuildDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.RawDecoder\PhotoLibrarian.RawDecoder.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+      <GlobalPropertiesToRemove>WindowsPackageType;EnableMsixTooling;PublishDir;RuntimeIdentifier;SelfContained;WindowsAppSDKSelfContained;PublishTrimmed;PublishReadyToRun</GlobalPropertiesToRemove>
+    </ProjectReference>
+    <ProjectReference Include="..\..\native\PhotoLibrarian.Panorama\PhotoLibrarian.Panorama.vcxproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true">
+      <SetPlatform>Platform=$(NativePlatform)</SetPlatform>
+      <GlobalPropertiesToRemove>WindowsPackageType;EnableMsixTooling;PublishDir;RuntimeIdentifier;SelfContained;WindowsAppSDKSelfContained;PublishTrimmed;PublishReadyToRun</GlobalPropertiesToRemove>
+    </ProjectReference>
+    <Content Include="$(PanoramaBuildDirectory)\PhotoLibrarian.Panorama.dll"
+             Link="PhotoLibrarian.Panorama.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(PanoramaBuildDirectory)\ThirdPartyNotices.Panorama.txt"
+             Link="ThirdPartyNotices\Panorama.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(PanoramaBuildDirectory)\PhotoLibrarian.RawDecoder.dll"
+             Link="PhotoLibrarian.RawDecoder.dll"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\ThirdPartyNotices.RawDecoder.txt"
+             Link="ThirdPartyNotices\RawDecoder.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-LICENSE.CDDL.txt"
+             Link="ThirdPartyNotices\LibRaw-LICENSE.CDDL.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-COPYRIGHT.txt"
+             Link="ThirdPartyNotices\LibRaw-COPYRIGHT.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-DCB-FBDD-BSD-LICENSE.txt"
+             Link="ThirdPartyNotices\LibRaw-DCB-FBDD-BSD-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-X3F-BSD-LICENSE.txt"
+             Link="ThirdPartyNotices\LibRaw-X3F-BSD-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\LibRaw-Adobe-DNG-SDK-MIT-LICENSE.txt"
+             Link="ThirdPartyNotices\LibRaw-Adobe-DNG-SDK-MIT-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(RawDecoderBuildDirectory)\zlib-LICENSE.txt"
+             Link="ThirdPartyNotices\zlib-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(MSBuildProjectDirectory)\..\..\native\obj\sources\LibRaw-$(LibRawVersion).tar.gz"
+             Link="ThirdPartySources\LibRaw-$(LibRawVersion)-source.tar.gz"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

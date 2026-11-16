@@ -1,8 +1,12 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
 using MetadataExtractor.Formats.Iptc;
+using MetadataExtractor.Formats.Jpeg;
+using MetadataExtractor.Formats.Png;
 using MetadataExtractor.Formats.Xmp;
 using PhotoLibrarian.Core.Models;
+using XmpCore;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -30,8 +34,12 @@ public sealed class MetadataReaderService
         {
             var directories = ImageMetadataReader.ReadMetadata(filePath);
             ReadExifData(directories, entry);
+            ReadRasterData(directories, entry);
             ReadIptcData(directories, entry);
-            ReadXmpData(directories, entry);
+            if (FaceMetadataStore.ReadEmbeddedXmp(filePath) is { } embeddedXmp)
+                ReadXmpData(embeddedXmp, entry, replaceText: true);
+            else
+                ReadXmpData(directories, entry);
         }
         catch (Exception)
         {
@@ -42,7 +50,44 @@ public sealed class MetadataReaderService
         if (!entry.IsFlagged && MetadataWriterService.ReadFlagFromSidecar(filePath) == true)
             entry.IsFlagged = true;
 
+        ReadSidecarText(entry);
+        ReadSidecarColorLabel(entry);
+        entry.PlaceName ??= "";
         return entry;
+    }
+
+    private static void ReadSidecarColorLabel(ImageEntry entry)
+    {
+        var path = MetadataSidecarLocator.ResolveReadPath(entry.FilePath, MetadataSidecarLocator.OwnsColorLabel);
+        if (path is null) return;
+        try
+        {
+            var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(path));
+            if (MetadataSidecarLocator.OwnsColorLabel(xmp))
+                entry.ColorLabel = xmp.GetPropertyString("http://ns.adobe.com/xap/1.0/", "xmp:Label");
+        }
+        catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
+        {
+            Diagnostics.DebugLog.WriteLine($"Could not read color label from {path}: {exception.Message}");
+        }
+    }
+
+    private static void ReadSidecarText(ImageEntry entry)
+    {
+        // Only sidecars attributable to this photo are read, most authoritative first, so a
+        // RAW companion's shared filename.xmp cannot leak into the JPEG of a RAW+JPEG pair.
+        foreach (var sidecarPath in MetadataSidecarLocator.GetOwnedSidecarPaths(entry.FilePath))
+        {
+            try
+            {
+                var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+                ReadXmpData(xmp, entry, replaceText: false);
+            }
+            catch (Exception exception) when (exception is XmpException or IOException or UnauthorizedAccessException)
+            {
+                Diagnostics.DebugLog.WriteLine($"Could not read search metadata from {sidecarPath}: {exception.Message}");
+            }
+        }
     }
 
     private static void ReadExifData(IReadOnlyList<MetadataExtractor.Directory> directories, ImageEntry entry)
@@ -53,6 +98,9 @@ public sealed class MetadataReaderService
         {
             entry.CameraMake = ifd0.GetDescription(ExifDirectoryBase.TagMake)?.Trim();
             entry.CameraModel = ifd0.GetDescription(ExifDirectoryBase.TagModel)?.Trim();
+            entry.Title = ifd0.GetDescription(0x9C9B)?.Trim(); // XPTitle (System.Title)
+            entry.Caption = ifd0.GetDescription(0x9C9C)?.Trim()
+                ?? ifd0.GetDescription(ExifDirectoryBase.TagImageDescription)?.Trim();
             if (ifd0.TryGetInt32(ExifDirectoryBase.TagOrientation, out var orientation))
                 entry.Orientation = orientation;
         }
@@ -104,11 +152,44 @@ public sealed class MetadataReaderService
         }
     }
 
+    private static void ReadRasterData(IReadOnlyList<MetadataExtractor.Directory> directories, ImageEntry entry)
+    {
+        var jpeg = directories.OfType<JpegDirectory>().FirstOrDefault();
+        if (jpeg is not null)
+        {
+            if (jpeg.TryGetInt32(JpegDirectory.TagImageWidth, out var width))
+                entry.Width = width;
+            if (jpeg.TryGetInt32(JpegDirectory.TagImageHeight, out var height))
+                entry.Height = height;
+        }
+
+        foreach (var png in directories.OfType<PngDirectory>())
+        {
+            if (png.TryGetInt32(PngDirectory.TagImageWidth, out var width))
+                entry.Width = width;
+            if (png.TryGetInt32(PngDirectory.TagImageHeight, out var height))
+                entry.Height = height;
+            if (png.GetObject(PngDirectory.TagTextualData) is not IEnumerable<MetadataExtractor.KeyValuePair> text)
+                continue;
+            foreach (var pair in text)
+            {
+                if (pair.Key == "Title") entry.Title ??= pair.Value.ToString();
+                if (pair.Key is "Comment" or "Description") entry.Caption ??= pair.Value.ToString();
+            }
+        }
+    }
+
     private static void ReadIptcData(IReadOnlyList<MetadataExtractor.Directory> directories, ImageEntry entry)
     {
         var iptc = directories.OfType<IptcDirectory>().FirstOrDefault();
         if (iptc is null) return;
 
+        entry.Title ??= iptc.GetDescription(IptcDirectory.TagObjectName);
+        entry.Caption ??= iptc.GetDescription(IptcDirectory.TagCaption);
+        entry.PlaceName ??= FormatPlaceName(
+            iptc.GetDescription(IptcDirectory.TagCity),
+            iptc.GetDescription(IptcDirectory.TagProvinceOrState),
+            iptc.GetDescription(IptcDirectory.TagCountryOrPrimaryLocationName));
         if (iptc.TryGetInt32(IptcDirectory.TagUrgency, out var rating))
             entry.Rating ??= Math.Clamp(rating, 0, 5);
     }
@@ -117,21 +198,89 @@ public sealed class MetadataReaderService
     {
         var xmp = directories.OfType<XmpDirectory>().FirstOrDefault();
         if (xmp?.XmpMeta is null) return;
+        ReadXmpData(xmp.XmpMeta, entry, replaceText: true);
+    }
 
-        // Read rating from XMP if not already set
+    private static void ReadXmpData(IXmpMeta xmp, ImageEntry entry, bool replaceText)
+    {
+
+        const string dcNs = "http://purl.org/dc/elements/1.1/";
+        const string tiffNs = "http://ns.adobe.com/tiff/1.0/";
+        const string exifNs = "http://ns.adobe.com/exif/1.0/";
         const string xapNs = "http://ns.adobe.com/xap/1.0/";
-        if (xmp.XmpMeta.DoesPropertyExist(xapNs, "xmp:Rating"))
+        const string iptcCoreNs = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+        if (replaceText && xmp.DoesPropertyExist(xapNs, "xmp:Label"))
+            entry.ColorLabel = xmp.GetPropertyString(xapNs, "xmp:Label");
+        entry.CameraMake ??= xmp.GetPropertyString(tiffNs, "Make");
+        entry.CameraModel ??= xmp.GetPropertyString(tiffNs, "Model");
+        entry.PlaceName ??= FormatPlaceName(
+            xmp.GetPropertyString(iptcCoreNs, "City"),
+            xmp.GetPropertyString(iptcCoreNs, "State"),
+            xmp.GetPropertyString(iptcCoreNs, "CountryName"));
+        if (entry.Width == 0 && xmp.DoesPropertyExist(tiffNs, "ImageWidth"))
+            entry.Width = xmp.GetPropertyInteger(tiffNs, "ImageWidth");
+        if (entry.Height == 0 && xmp.DoesPropertyExist(tiffNs, "ImageLength"))
+            entry.Height = xmp.GetPropertyInteger(tiffNs, "ImageLength");
+        if (!entry.DateTaken.HasValue)
         {
-            var ratingProp = xmp.XmpMeta.GetPropertyInteger(xapNs, "xmp:Rating");
+            var date = xmp.GetPropertyString(exifNs, "DateTimeOriginal")
+                ?? xmp.GetPropertyString(xapNs, "CreateDate");
+            if (DateTime.TryParse(date, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var dateTaken))
+                entry.DateTaken = dateTaken;
+        }
+        if (replaceText || string.IsNullOrWhiteSpace(entry.Title))
+            entry.Title = xmp.GetLocalizedText(dcNs, "dc:title", "", "x-default")?.Value ?? entry.Title;
+        if (replaceText || string.IsNullOrWhiteSpace(entry.Caption))
+            entry.Caption = xmp.GetLocalizedText(dcNs, "dc:description", "", "x-default")?.Value
+                ?? xmp.GetLocalizedText(exifNs, "UserComment", "", "x-default")?.Value
+                ?? entry.Caption;
+        entry.GpsLatitude ??= ReadCoordinate(xmp.GetPropertyString(exifNs, "GPSLatitude"));
+        entry.GpsLongitude ??= ReadCoordinate(xmp.GetPropertyString(exifNs, "GPSLongitude"));
+        // Read rating from XMP if not already set
+        if (xmp.DoesPropertyExist(xapNs, "xmp:Rating"))
+        {
+            var ratingProp = xmp.GetPropertyInteger(xapNs, "xmp:Rating");
             entry.Rating ??= Math.Clamp(ratingProp, 0, 5);
         }
 
         // PhotoLibrarian user flag (custom namespace — see MetadataWriterService)
-        if (xmp.XmpMeta.DoesPropertyExist(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged"))
+        if (xmp.DoesPropertyExist(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged"))
         {
-            var flag = xmp.XmpMeta.GetPropertyString(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged");
+            var flag = xmp.GetPropertyString(MetadataWriterService.PhotoLibrarianNamespace, "plib:Flagged");
             entry.IsFlagged = string.Equals(flag, "True", StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    private static string? FormatPlaceName(params string?[] components)
+    {
+        var placeName = string.Join(
+            ", ",
+            components
+                .Where(component => !string.IsNullOrWhiteSpace(component))
+                .Select(component => component!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+        return placeName.Length == 0 ? null : placeName;
+    }
+
+    private static double? ReadCoordinate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var direction = char.ToUpperInvariant(value[^1]);
+        if (direction is not ('N' or 'S' or 'E' or 'W')) return null;
+        var parts = value[..^1].Split(',');
+        if (parts.Length is not (2 or 3)) return null;
+        double coordinate = 0;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (!double.TryParse(parts[i], System.Globalization.CultureInfo.InvariantCulture, out var part) ||
+                !double.IsFinite(part) || part < 0 || (i > 0 && part >= 60))
+                return null;
+            coordinate += part / Math.Pow(60, i);
+        }
+        return coordinate <= (direction is 'N' or 'S' ? 90 : 180)
+            ? (direction is 'S' or 'W' ? -coordinate : coordinate)
+            : null;
     }
 
     /// <summary>
@@ -144,20 +293,90 @@ public sealed class MetadataReaderService
         {
             var directories = ImageMetadataReader.ReadMetadata(filePath);
             var xmp = directories.OfType<XmpDirectory>().FirstOrDefault();
-            if (xmp?.XmpMeta is null) return tags;
-
-            const string dcNs = "http://purl.org/dc/elements/1.1/";
-            int count = xmp.XmpMeta.CountArrayItems(dcNs, "dc:subject");
-            for (int i = 1; i <= count; i++)
+            if (xmp?.XmpMeta is not null)
             {
-                var tag = xmp.XmpMeta.GetArrayItem(dcNs, "dc:subject", i)?.Value;
-                if (!string.IsNullOrWhiteSpace(tag))
-                    tags.Add(tag);
+                const string dcNs = "http://purl.org/dc/elements/1.1/";
+                int count = xmp.XmpMeta.CountArrayItems(dcNs, "dc:subject");
+                for (int i = 1; i <= count; i++)
+                {
+                    var tag = xmp.XmpMeta.GetArrayItem(dcNs, "dc:subject", i)?.Value;
+                    if (!string.IsNullOrWhiteSpace(tag))
+                        tags.Add(tag);
+                }
             }
         }
         catch { /* File may not have XMP */ }
 
+        foreach (var tag in TagWriterService.ReadTagsFromSidecar(filePath))
+        {
+            if (!tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+                tags.Add(tag);
+        }
         return tags;
+    }
+
+    /// <summary>
+    /// Reads PhotoLibrarian tag source, confidence, and automatic scan version data
+    /// from an explicit portable sidecar packet, or otherwise embedded XMP.
+    /// </summary>
+    public PortableImageTagMetadata? ReadPortableTagMetadata(string filePath)
+    {
+        var sidecar = ReadPortableTagSidecarMetadata(filePath);
+        if (sidecar is not null)
+            return sidecar;
+
+        try
+        {
+            var directories = ImageMetadataReader.ReadMetadata(filePath);
+            var xmp = directories.OfType<XmpDirectory>().FirstOrDefault()?.XmpMeta;
+            var embedded = ReadPortableTagMetadata(xmp);
+            if (embedded is not null)
+                return embedded;
+        }
+        catch (Exception exception)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read embedded tag provenance from {filePath}: {exception.Message}");
+        }
+        return null;
+    }
+
+    internal PortableImageTagMetadata? ReadPortableTagSidecarMetadata(string filePath)
+    {
+        var sidecarPath = MetadataSidecarLocator.ResolveReadPath(filePath, MetadataSidecarLocator.OwnsTags);
+        if (sidecarPath is null)
+            return null;
+
+        try
+        {
+            var xmp = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+            return ReadPortableTagMetadata(xmp);
+        }
+        catch (Exception exception) when (
+            exception is XmpException or IOException or UnauthorizedAccessException)
+        {
+            Diagnostics.DebugLog.WriteLine(
+                $"Could not read tag provenance from {sidecarPath}: {exception.Message}");
+            return null;
+        }
+    }
+
+    internal static PortableImageTagMetadata? ReadPortableTagMetadata(IXmpMeta? xmp)
+    {
+        if (xmp is null ||
+            !xmp.DoesPropertyExist(
+                MetadataWriterService.PhotoLibrarianNamespace,
+                EmbeddedMetadataWriter.PhotoTagMetadataPropertyName))
+        {
+            return null;
+        }
+
+        var json = xmp.GetPropertyString(
+            MetadataWriterService.PhotoLibrarianNamespace,
+            EmbeddedMetadataWriter.PhotoTagMetadataPropertyName);
+        return PortableImageTagMetadataSerializer.TryDeserialize(json, out var metadata)
+            ? metadata
+            : null;
     }
 
     /// <summary>

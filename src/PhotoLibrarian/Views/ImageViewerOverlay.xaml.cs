@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -11,14 +13,17 @@ using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Services;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
 
 namespace PhotoLibrarian.Views;
 
 public sealed partial class ImageViewerOverlay : UserControl
 {
-    private ImageViewerViewModel? ViewModel => App.ViewModel?.ImageViewer;
+    private readonly ImageViewerViewModel? _providedViewModel;
+    private ImageViewerViewModel? ViewModel => _providedViewModel ?? App.ViewModel?.ImageViewer;
     private ImageZoomPanController? _zoomPan;
     private uint _currentImagePixelWidth;
     private uint _currentImagePixelHeight;
@@ -32,14 +37,21 @@ public sealed partial class ImageViewerOverlay : UserControl
     private bool _isRedEyeRemoving;
     private bool _isDrawingRedEye;
     private Point _redEyeStart;
+    private VideoPlaybackSource? _videoSource;
+    private int _playbackVersion;
+    private bool _isVideoEditing;
+    private CancellationTokenSource? _gifCancellation;
+    private WriteableBitmap? _gifBitmap;
     public bool IsCropping { get; private set; }
     public bool IsStraightening { get; private set; }
     public bool IsRedEyeRemoving => _isRedEyeRemoving;
+    public bool IsManualFaceTagging => _isManualFaceTagging || _pendingManualFaceTagging;
     public event EventHandler? CropExited;
     public event EventHandler? CropApplyRequested;
     public event EventHandler? CropCancelRequested;
     public event EventHandler? StraightenApplyRequested;
     public event EventHandler? StraightenCancelRequested;
+    public event EventHandler? VideoEditCancelRequested;
     public event EventHandler<RedEyeBounds>? RedEyeSelectionCompleted;
 
     public CropOverlay CropOverlay => CropOverlayView;
@@ -49,10 +61,12 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterRedEyeMode()
     {
+        StopMotionPlayback();
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsCropping) ExitCropMode();
         if (IsStraightening) ExitStraightenMode();
         _isRedEyeRemoving = true;
+        ZoomActualSizeButton.IsEnabled = false;
         PreviousButton.Visibility = Visibility.Collapsed;
         NextButton.Visibility = Visibility.Collapsed;
         RedEyeRectangle.Visibility = Visibility.Collapsed;
@@ -62,6 +76,7 @@ public sealed partial class ImageViewerOverlay : UserControl
     public void ExitRedEyeMode()
     {
         _isRedEyeRemoving = false;
+        SetZoomControlsEnabled(true);
         _isDrawingRedEye = false;
         RedEyeRectangle.Visibility = Visibility.Collapsed;
         RedEyeOverlay.Visibility = Visibility.Collapsed;
@@ -75,11 +90,13 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterCropMode()
     {
+        StopMotionPlayback();
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsStraightening) ExitStraightenMode();
         if (IsRedEyeRemoving) ExitRedEyeMode();
 
         IsCropping = true;
+        ZoomActualSizeButton.IsEnabled = false;
 
         // The prev/next buttons sit exactly where the E/W handles land and would swallow
         // the pointer presses meant for them, so they go away for the duration of the crop.
@@ -108,6 +125,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
         CropOverlayView.Visibility = Visibility.Collapsed;
         IsCropping = false;
+        SetZoomControlsEnabled(true);
 
         PreviousButton.Visibility = Visibility.Visible;
         NextButton.Visibility = Visibility.Visible;
@@ -120,6 +138,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterStraightenMode()
     {
+        StopMotionPlayback();
         if (_currentImagePixelWidth == 0 || _currentImagePixelHeight == 0) return;
         if (IsCropping) ExitCropMode();
         if (IsRedEyeRemoving) ExitRedEyeMode();
@@ -146,6 +165,17 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     public void EnterManualFaceTagging()
     {
+        if (IsPhotoFusing)
+        {
+            if (_fuse!.IsBusy)
+            {
+                _fuse.Status = PhotoFuseStrings.Get("FuseWaitForSearch");
+                return;
+            }
+            _fuse.ReleaseForManualFace();
+            FuseFaceOverlay.Visibility = Visibility.Collapsed;
+        }
+        StopMotionPlayback();
         if (ViewModel?.CurrentEntry?.MediaType != MediaType.Image) return;
         if (ViewModel.CurrentImage is null ||
             _currentImagePixelWidth == 0 ||
@@ -189,6 +219,12 @@ public sealed partial class ImageViewerOverlay : UserControl
         SetZoomControlsEnabled(true);
         ProtectedCursor = null;
         ManualFaceTagFlyout.Hide();
+        if (IsPhotoFusing)
+        {
+            PreviousButton.Visibility = Visibility.Collapsed;
+            NextButton.Visibility = Visibility.Collapsed;
+            DrawFuseFaces();
+        }
         if (wasActive) ManualFaceTaggingExited?.Invoke(this, EventArgs.Empty);
     }
 
@@ -217,12 +253,25 @@ public sealed partial class ImageViewerOverlay : UserControl
     public ImageViewerOverlay()
     {
         this.InitializeComponent();
+        InitializeMotionPhotos();
         this.Loaded += OnLoaded;
+        this.Unloaded += OnUnloaded;
         ImageHost.SizeChanged += (_, _) =>
         {
             if (IsStraightening)
                 UpdateStraightenClip();
         };
+    }
+
+    internal ImageViewerOverlay(ImageViewerViewModel viewModel) : this()
+    {
+        _providedViewModel = viewModel;
+    }
+
+    internal ImageViewerOverlay(ImageViewerViewModel viewModel, PhotoPresetStore presetStore)
+        : this(viewModel)
+    {
+        _presetStoreOverride = presetStore ?? throw new ArgumentNullException(nameof(presetStore));
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -235,19 +284,112 @@ public sealed partial class ImageViewerOverlay : UserControl
             return;
         }
 
-        _zoomPan = new ImageZoomPanController(ImageScrollViewer, ScrollContent, ImageHost, FullImage);
-        DebugLog.WriteLine("ImageViewerOverlay: ZoomPanController created");
-        
-        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
-        
-        // Wire up mouse wheel to root grid for capture (handles all wheel events including over ScrollViewer)
-        RootGrid.AddHandler(UIElement.PointerWheelChangedEvent,
-            new PointerEventHandler(OnPointerWheelChanged), true);
-        DebugLog.WriteLine("ImageViewerOverlay: Wheel handler attached to RootGrid");
+        if (_zoomPan is null)
+        {
+            _zoomPan = new ImageZoomPanController(ImageScrollViewer, ScrollContent, ImageHost, FullImage);
+            if (XamlRoot is { } root) root.Changed += OnXamlRootChanged;
+            DebugLog.WriteLine("ImageViewerOverlay: ZoomPanController created");
+
+            ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+            // Wire up mouse wheel to root grid for capture (handles all wheel events including over ScrollViewer)
+            RootGrid.AddHandler(UIElement.PointerWheelChangedEvent,
+                new PointerEventHandler(OnPointerWheelChanged), true);
+            DebugLog.WriteLine("ImageViewerOverlay: Wheel handler attached to RootGrid");
+
+            // handledEventsToo: the zoom/pan controller marks image presses as handled.
+            RootGrid.AddHandler(UIElement.PointerPressedEvent,
+                new PointerEventHandler(OnRootPointerPressed), true);
+        }
+
+        if (ViewModel.IsOpen && ViewModel.IsAnimatedGif && ViewModel.CurrentEntry is { } current)
+            StartAnimatedGif(current.FilePath);
+    }
+
+    private static readonly TimeSpan FocusGuardInterval = TimeSpan.FromMilliseconds(50);
+    private const int FocusGuardTicks = 20;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _focusGuardTimer;
+    private int _focusGuardTicksRemaining;
+
+    /// <summary>
+    /// Moves keyboard focus into the viewer. Focus requested in the tick the overlay becomes
+    /// visible can fail before layout, and the grid underneath can take focus back while it
+    /// syncs its selection, so keep reclaiming focus for a short period after opening.
+    /// </summary>
+    public void FocusViewer()
+    {
+        TryFocusViewer();
+        _focusGuardTicksRemaining = FocusGuardTicks;
+        if (_focusGuardTimer is null)
+        {
+            _focusGuardTimer = DispatcherQueue.CreateTimer();
+            _focusGuardTimer.Interval = FocusGuardInterval;
+            _focusGuardTimer.IsRepeating = true;
+            _focusGuardTimer.Tick += OnFocusGuardTick;
+        }
+        _focusGuardTimer.Start();
+    }
+
+    /// <summary>Stops reclaiming focus, e.g. once the user deliberately clicks elsewhere.</summary>
+    public void StopFocusGuard() => _focusGuardTimer?.Stop();
+
+    private void OnFocusGuardTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    {
+        if (--_focusGuardTicksRemaining <= 0 || ViewModel?.IsOpen != true)
+        {
+            sender.Stop();
+            return;
+        }
+        TryFocusViewer();
+    }
+
+    private void TryFocusViewer()
+    {
+        if (App.ViewModel?.ImageEditor.IsOpen == true) return;
+        if (ViewModel?.IsOpen != true || Visibility != Visibility.Visible) return;
+        if (HasFocusWithin()) return;
+        Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>True when focus is inside the viewer itself (including its controls).</summary>
+    public bool HasFocusWithin()
+    {
+        if (XamlRoot is null) return false;
+        return FocusManager.GetFocusedElement(XamlRoot) is DependencyObject focused
+            && IsWithinViewer(focused);
+    }
+
+    private bool IsWithinViewer(DependencyObject element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, this)) return true;
+        }
+        return false;
+    }
+
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsInteractiveControl(e.OriginalSource as DependencyObject)) return;
+        Focus(FocusState.Pointer);
+    }
+
+    private bool IsInteractiveControl(DependencyObject? element)
+    {
+        for (var current = element;
+             current is not null && !ReferenceEquals(current, this);
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is Control { IsTabStop: true, IsEnabled: true })
+                return true;
+        }
+        return false;
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        var preserveViewer = e.PropertyName == nameof(ImageViewerViewModel.CurrentImage) &&
+            ViewModel?.IsEffectImageUpdate == true;
         DispatcherQueue.TryEnqueue(() =>
         {
             if (ViewModel is null) return;
@@ -255,38 +397,70 @@ public sealed partial class ImageViewerOverlay : UserControl
             switch (e.PropertyName)
             {
                 case nameof(ImageViewerViewModel.IsOpen):
+                    if (!ViewModel.IsOpen) EffectsFlyout.Hide();
                     Visibility = ViewModel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
-                    if (ViewModel.IsOpen) Focus(FocusState.Programmatic);
-                    if (!ViewModel.IsOpen) StopVideo();
+                    if (ViewModel.IsOpen) FocusViewer();
+                    if (!ViewModel.IsOpen)
+                    {
+                        StopVideo();
+                        StopAnimatedGif();
+                    }
                     break;
                 case nameof(ImageViewerViewModel.CurrentImage):
+                    if (IsPhotoFusing) break;
+                    if (preserveViewer && ViewModel.CurrentImage is not null && _currentImagePixelWidth > 0)
+                    {
+                        FullImage.Source = ViewModel.CurrentImage;
+                        break;
+                    }
+                    EffectsFlyout.Hide();
                     // Cancel any in-progress edit mode when navigating to a different image.
                     if (IsCropping) ExitCropMode();
                     if (IsStraightening) ExitStraightenMode();
                     if (_isManualFaceTagging) ExitManualFaceTagging();
+                    _currentImagePixelWidth = 0;
+                    _currentImagePixelHeight = 0;
+                    _zoomPan?.SetImageSize(0, 0);
+                    SetZoomControlsEnabled(false);
                     // Attach handler BEFORE setting source (in case image is cached and fires immediately)
+                    FullImage.ImageOpened -= OnImageOpened;
                     FullImage.ImageOpened += OnImageOpened;
-                    FullImage.Source = ViewModel.CurrentImage;
+                    FullImage.Source = ViewModel.IsAnimatedGif ? null : ViewModel.CurrentImage;
                     
                     // If image is already loaded (cached), manually trigger setup
                     if (ViewModel.CurrentImage is BitmapImage bmp && bmp.PixelWidth > 0)
                     {
+                        FullImage.ImageOpened -= OnImageOpened;
                         DebugLog.WriteLine($"ImageViewerOverlay: Image already loaded, setting up manually");
                         _currentImagePixelWidth = (uint)bmp.PixelWidth;
                         _currentImagePixelHeight = (uint)bmp.PixelHeight;
                         _zoomPan?.SetImageSize(bmp.PixelWidth, bmp.PixelHeight);
                         _zoomPan?.ApplyBestFit();
+                        SetZoomControlsEnabled(true);
                         if (_pendingManualFaceTagging) EnterManualFaceTagging();
                     }
                     break;
+                case nameof(ImageViewerViewModel.IsAnimatedGif):
+                    if (ViewModel.IsAnimatedGif && ViewModel.CurrentEntry is { } gifEntry)
+                        StartAnimatedGif(gifEntry.FilePath);
+                    else
+                        StopAnimatedGif();
+                    break;
                 case nameof(ImageViewerViewModel.IsVideo):
+                    ZoomOutButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomFitButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomInButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
+                    ZoomActualSizeButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     VideoPlayer.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
-                    if (!ViewModel.IsVideo) StopVideo();
+                    if (ViewModel.IsVideo)
+                        StopAnimatedGif();
+                    else
+                        StopVideo();
                     break;
                 case nameof(ImageViewerViewModel.VideoPath):
                     if (ViewModel.VideoPath is not null)
-                        PlayVideo(ViewModel.VideoPath);
+                        _ = PlayVideoAsync(ViewModel.VideoPath);
                     break;
                 case nameof(ImageViewerViewModel.Title):
                     TitleText.Text = ViewModel.Title;
@@ -298,26 +472,293 @@ public sealed partial class ImageViewerOverlay : UserControl
         });
     }
 
-    private async void PlayVideo(string path)
+    private async Task PlayVideoAsync(
+        string path, TimeSpan resumePosition = default, bool isRetry = false,
+        bool isEditPreview = false, bool shouldPlay = true, string? expectedSourcePath = null)
     {
+        if (expectedSourcePath is not null &&
+            (ViewModel?.IsOpen != true ||
+             !string.Equals(ViewModel.VideoPath, expectedSourcePath, StringComparison.OrdinalIgnoreCase)))
+            return;
+        StopVideo();
+        int version = _playbackVersion;
         try
         {
-            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
-            var source = Windows.Media.Core.MediaSource.CreateFromStorageFile(file);
-            VideoPlayer.Source = source;
+            if (version != _playbackVersion || ViewModel?.IsOpen != true ||
+                (!isEditPreview && !string.Equals(ViewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase)) ||
+                (expectedSourcePath is not null &&
+                 !string.Equals(ViewModel.VideoPath, expectedSourcePath, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            var info = new System.IO.FileInfo(path);
+            _playback = new PlaybackDiagnostics(path, version, info.Length, info.LastWriteTimeUtc,
+                DateTime.UtcNow, resumePosition, isRetry, isEditPreview, shouldPlay);
+            DebugLog.WriteLine($"Video: opening {path} ({info.Length:N0} bytes, last written " +
+                $"{info.LastWriteTime:HH:mm:ss.fff}){(isRetry ? $", retry resuming at {resumePosition}" : "")}");
+
+            var playbackSource = await Task.Run(() => VideoPlaybackSource.Open(path));
+            if (version != _playbackVersion ||
+                (expectedSourcePath is not null &&
+                 !string.Equals(ViewModel?.VideoPath, expectedSourcePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                playbackSource.Dispose();
+                return;
+            }
+            playbackSource.Source.OpenOperationCompleted += OnVideoSourceOpenCompleted;
+            _videoSource = playbackSource;
+            VideoPlayer.Source = playbackSource.Source;
+            ObserveMediaPlayer(VideoPlayer.MediaPlayer);
+            if (_playback is { } playback)
+                _playback = playback with { ExpectedSourcePath = expectedSourcePath };
         }
-        catch { }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not open video {path}: {ex}");
+            if (App.ViewModel is { } main) main.StatusText = $"Could not open video: {ex.Message}";
+        }
+    }
+
+    /// <summary>What was opened, so a later failure can be logged against the file's state at open time.</summary>
+    private sealed record PlaybackDiagnostics(
+        string Path, int Version, long Length, DateTime LastWriteUtc, DateTime OpenedUtc,
+        TimeSpan ResumePosition, bool IsRetry, bool IsEditPreview, bool ShouldPlay,
+        string? ExpectedSourcePath = null)
+    {
+        public int FailureReported;
+    }
+
+    private PlaybackDiagnostics? _playback;
+    private Windows.Media.Playback.MediaPlayer? _observedPlayer;
+
+    private void ObserveMediaPlayer(Windows.Media.Playback.MediaPlayer? player)
+    {
+        if (player is null || ReferenceEquals(player, _observedPlayer)) return;
+        if (_observedPlayer is { } previous)
+        {
+            previous.MediaOpened -= OnMediaOpened;
+            previous.MediaFailed -= OnMediaFailed;
+            previous.PlaybackSession.PlaybackStateChanged -= OnPlaybackStateChanged;
+        }
+        _observedPlayer = player;
+        player.MediaOpened += OnMediaOpened;
+        player.MediaFailed += OnMediaFailed;
+        player.PlaybackSession.PlaybackStateChanged += OnPlaybackStateChanged;
+    }
+
+    private void OnVideoSourceOpenCompleted(Windows.Media.Core.MediaSource sender,
+        Windows.Media.Core.MediaSourceOpenOperationCompletedEventArgs args)
+    {
+        if (args.Error is { } error)
+            DebugLog.WriteLine($"Video: source open failed 0x{error.ExtendedError?.HResult:X8} {error.ExtendedError?.Message}");
+    }
+
+    private void OnMediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
+    {
+        var playback = _playback;
+        if (playback is null || playback.Version != _playbackVersion ||
+            !ReferenceEquals(sender.Source, _videoSource?.Source))
+            return;
+        var session = sender.PlaybackSession;
+        DebugLog.WriteLine($"Video: opened {System.IO.Path.GetFileName(playback?.Path)} " +
+            $"{session.NaturalVideoWidth}x{session.NaturalVideoHeight}, duration {session.NaturalDuration}");
+        if (playback is { ResumePosition: var resume } && resume > TimeSpan.Zero && resume < session.NaturalDuration)
+            session.Position = resume;
+        if (playback is { ShouldPlay: false })
+            sender.Pause();
+    }
+
+    private void OnPlaybackStateChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
+    {
+        DebugLog.WriteLine($"Video: {sender.PlaybackState} at {sender.Position}");
+    }
+
+    private void OnMediaFailed(Windows.Media.Playback.MediaPlayer sender,
+        Windows.Media.Playback.MediaPlayerFailedEventArgs args)
+    {
+        var playback = _playback;
+        // Detaching the old source while reopening can raise a failure for it; ignore that, and
+        // report each playback attempt's failure only once.
+        if (playback is null || !ReferenceEquals(sender.Source, _videoSource?.Source) ||
+            Interlocked.Exchange(ref playback.FailureReported, 1) != 0) return;
+        var position = sender.PlaybackSession.Position;
+        var details = new System.Text.StringBuilder();
+        details.Append($"Video: playback FAILED {args.Error} 0x{args.ExtendedErrorCode?.HResult:X8} ");
+        details.Append($"\"{args.ErrorMessage}\" {args.ExtendedErrorCode?.Message} at {position}");
+        if (playback is not null)
+        {
+            var info = new System.IO.FileInfo(playback.Path);
+            details.Append($"; {(DateTime.UtcNow - playback.OpenedUtc).TotalSeconds:F1}s after open");
+            details.Append(info.Exists
+                ? $"; file now {info.Length:N0} bytes (was {playback.Length:N0}), last written " +
+                  $"{info.LastWriteTime:HH:mm:ss.fff} (changed: {info.LastWriteTimeUtc != playback.LastWriteUtc})"
+                : "; file no longer exists");
+        }
+        DebugLog.WriteLine(details.ToString());
+
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (playback is null || playback.Version != _playbackVersion) return;
+            if (playback.IsRetry || !System.IO.File.Exists(playback.Path))
+            {
+                if (App.ViewModel is { } main)
+                    main.StatusText = $"Could not play video: {args.ErrorMessage} (0x{args.ExtendedErrorCode?.HResult:X8})";
+                return;
+            }
+            // A reopen has always succeeded when this happens, so retry once from where it stopped.
+            await Task.Delay(500);
+            if (playback.Version != _playbackVersion) return;
+            DebugLog.WriteLine($"Video: reopening {playback.Path} after playback failure");
+            await PlayVideoAsync(playback.Path, position, isRetry: true,
+                isEditPreview: playback.IsEditPreview, shouldPlay: playback.ShouldPlay,
+                expectedSourcePath: playback.ExpectedSourcePath);
+        });
+    }
+
+    public void PauseVideo() => VideoPlayer.MediaPlayer?.Pause();
+
+    public TimeSpan VideoPosition => VideoPlayer.MediaPlayer?.PlaybackSession.Position ?? TimeSpan.Zero;
+    public bool IsVideoPlaying =>
+        VideoPlayer.MediaPlayer?.PlaybackSession.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing;
+
+    public void SetVideoEditingMode(bool editing)
+    {
+        _isVideoEditing = editing;
+        var navigationVisibility = editing || IsCropping || IsStraightening ||
+            IsRedEyeRemoving || IsManualFaceTagging ? Visibility.Collapsed : Visibility.Visible;
+        PreviousButton.Visibility = navigationVisibility;
+        NextButton.Visibility = navigationVisibility;
+    }
+
+    public async Task<bool> ShowVideoEditPreviewAsync(string sourcePath, string path)
+    {
+        if (ViewModel is not { IsOpen: true } viewModel ||
+            !string.Equals(viewModel.VideoPath, sourcePath, StringComparison.OrdinalIgnoreCase))
+            return false;
+        await PlayVideoAsync(path, isEditPreview: true, expectedSourcePath: sourcePath);
+        return _playback is { IsEditPreview: true } playback &&
+            string.Equals(playback.Path, path, StringComparison.OrdinalIgnoreCase) &&
+            ReferenceEquals(VideoPlayer.Source, _videoSource?.Source);
+    }
+
+    public void StopVideoEditPreview(string path)
+    {
+        if (_playback is { IsEditPreview: true } playback &&
+            string.Equals(playback.Path, path, StringComparison.OrdinalIgnoreCase))
+            StopVideo();
+    }
+
+    public Task RestoreVideoPlaybackAsync(string path, TimeSpan position, bool shouldPlay)
+    {
+        if (ViewModel is not { IsOpen: true } viewModel ||
+            !string.Equals(viewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase))
+            return Task.CompletedTask;
+        return PlayVideoAsync(path, position, shouldPlay: shouldPlay);
     }
 
     private void StopVideo()
     {
-        if (VideoPlayer.Source is not null)
+        _playbackVersion++;
+        _playback = null;
+        VideoPlayer.MediaPlayer?.Pause();
+        VideoPlayer.Source = null;
+        if (_videoSource is { } source) source.Source.OpenOperationCompleted -= OnVideoSourceOpenCompleted;
+        _videoSource?.Dispose();
+        _videoSource = null;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) => StopAnimatedGif();
+
+    private void StartAnimatedGif(string path)
+    {
+        StopAnimatedGif();
+        FullImage.Source = null;
+        var cancellation = new CancellationTokenSource();
+        _gifCancellation = cancellation;
+        _ = PlayAnimatedGifAsync(path, cancellation);
+    }
+
+    private void StopAnimatedGif()
+    {
+        _gifBitmap = null;
+        _gifCancellation?.Cancel();
+        FullImage.Source = null;
+    }
+
+    private async Task PlayAnimatedGifAsync(string path, CancellationTokenSource lifetime)
+    {
+        var token = lifetime.Token;
+        try
         {
-            VideoPlayer.Source = null;
+            var decoder = await Task.Run(
+                async () => await GifAnimationDecoder.OpenAsync(path, token), token);
+            token.ThrowIfCancellationRequested();
+            if (!IsCurrentAnimatedGif(path, lifetime))
+                return;
+
+            var bitmap = new WriteableBitmap(decoder.Width, decoder.Height);
+            _gifBitmap = bitmap;
+            FullImage.Source = bitmap;
+            _currentImagePixelWidth = (uint)decoder.Width;
+            _currentImagePixelHeight = (uint)decoder.Height;
+            _zoomPan?.SetImageSize(decoder.Width, decoder.Height);
+            _zoomPan?.ApplyBestFit();
+            SetZoomControlsEnabled(true);
+
+            int completedRepeats = 0;
+            while (true)
+            {
+                var frame = await Task.Run(() => decoder.ReadNextFrame(token), token);
+                token.ThrowIfCancellationRequested();
+                if (frame is null)
+                {
+                    if (!decoder.ShouldRepeat(completedRepeats))
+                        break;
+                    completedRepeats++;
+                    decoder.Reset();
+                    continue;
+                }
+
+                if (!IsCurrentAnimatedGif(path, lifetime))
+                    return;
+                using (var pixels = bitmap.PixelBuffer.AsStream())
+                {
+                    pixels.Position = 0;
+                    pixels.Write(frame.Value.Pixels.Span);
+                }
+                bitmap.Invalidate();
+                await Task.Delay(frame.Value.Delay, token);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not play animated GIF '{path}': {ex}");
+            if (IsCurrentAnimatedGif(path, lifetime) && App.ViewModel is { } main)
+                main.StatusText = $"Could not play animated GIF: {ex.Message}";
+        }
+        finally
+        {
+            if (ReferenceEquals(_gifCancellation, lifetime))
+            {
+                _gifCancellation = null;
+                _gifBitmap = null;
+            }
+            lifetime.Dispose();
         }
     }
 
-    private void OnClose(object sender, RoutedEventArgs e) => ViewModel?.CloseCommand.Execute(null);
+    private bool IsCurrentAnimatedGif(string path, CancellationTokenSource lifetime) =>
+        ReferenceEquals(_gifCancellation, lifetime) && !lifetime.IsCancellationRequested &&
+        ViewModel is { IsOpen: true, IsAnimatedGif: true, CurrentEntry: { } entry } &&
+        string.Equals(entry.FilePath, path, StringComparison.OrdinalIgnoreCase);
+
+    private void OnClose(object sender, RoutedEventArgs e)
+    {
+        if (IsPhotoFusing) PhotoFuseExitRequested?.Invoke(this, EventArgs.Empty);
+        else ViewModel?.CloseCommand.Execute(null);
+    }
     private async void OnNext(object sender, RoutedEventArgs e) =>
         await (ViewModel?.NextImageCommand.ExecuteAsync(null) ?? Task.CompletedTask);
     private async void OnPrevious(object sender, RoutedEventArgs e) =>
@@ -339,6 +780,15 @@ public sealed partial class ImageViewerOverlay : UserControl
         if (IsStraightening) return;
         _zoomPan?.ApplyBestFit();
     }
+
+    private void OnZoomActualSize(object sender, RoutedEventArgs e)
+    {
+        if (ZoomActualSizeButton.IsEnabled && ViewModel?.IsVideo == false)
+            _zoomPan?.ApplyActualSize();
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) =>
+        _zoomPan?.HandleRasterizationScaleChanged();
 
     private void OnImageOpened(object sender, RoutedEventArgs e)
     {
@@ -374,6 +824,7 @@ public sealed partial class ImageViewerOverlay : UserControl
         _zoomPan.ApplyBestFit();
         _currentImagePixelWidth = (uint)width;
         _currentImagePixelHeight = (uint)height;
+        SetZoomControlsEnabled(true);
         DebugLog.WriteLine("ImageViewerOverlay: Applied best fit");
         if (_pendingManualFaceTagging) EnterManualFaceTagging();
     }
@@ -398,7 +849,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
-        if (IsCropping || IsStraightening) return;
+        if (IsCropping || IsStraightening || _motionPlayer is not null) return;
         DebugLog.WriteLine($"ImageViewerOverlay: Wheel changed, delta={e.GetCurrentPoint(RootGrid).Properties.MouseWheelDelta}");
         _zoomPan?.HandlePointerWheelChanged(e);
     }
@@ -441,76 +892,145 @@ public sealed partial class ImageViewerOverlay : UserControl
         // Kept for backwards compatibility, but not used with new zoom controller
     }
 
-    private async void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (ViewModel is null) return;
+        if (!ShouldHandleShortcut(e.Key, IsInteractiveControl(e.OriginalSource as DependencyObject),
+            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging || _isVideoEditing))
+            return;
+        if (HandleViewerKey(e.Key)) e.Handled = true;
+    }
+
+    internal static bool ShouldHandleShortcut(
+        Windows.System.VirtualKey key, bool isInteractiveControl, bool isEditingMode)
+    {
+        // Child controls own their input; the viewer only keeps Escape as a way out.
+        if (isInteractiveControl) return key == Windows.System.VirtualKey.Escape;
+        if (isEditingMode)
+            return key is Windows.System.VirtualKey.Escape or Windows.System.VirtualKey.Enter
+                or Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right;
+        return key is Windows.System.VirtualKey.Escape
+            or Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right
+            or Windows.System.VirtualKey.Add or Windows.System.VirtualKey.Subtract
+            or Windows.System.VirtualKey.A or Windows.System.VirtualKey.I or Windows.System.VirtualKey.F;
+    }
+
+    /// <summary>
+    /// Handles a viewer keyboard shortcut. Returns true when the key was consumed. Exposed so the
+    /// window can route keys here when focus is not (yet) inside the viewer.
+    /// </summary>
+    public bool HandleViewerKey(Windows.System.VirtualKey key)
+    {
+        if (IsPhotoFusing && key is Windows.System.VirtualKey.Escape or
+            Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)
+        {
+            if (key == Windows.System.VirtualKey.Escape)
+            {
+                if (IsManualFaceTagging) ExitManualFaceTagging();
+                else PhotoFuseExitRequested?.Invoke(this, EventArgs.Empty);
+            }
+            return true;
+        }
+        if (!ShouldHandleShortcut(key, false,
+            IsCropping || IsStraightening || IsRedEyeRemoving || _isManualFaceTagging || _isVideoEditing))
+            return false;
+        if (ViewModel is null) return false;
+        if (_isPhotoContextMenuOpen) return false;
+
+        if (key is Windows.System.VirtualKey.A or Windows.System.VirtualKey.I &&
+            (IsKeyDown(Windows.System.VirtualKey.Control) || IsKeyDown(Windows.System.VirtualKey.Menu)))
+            return false;
 
         if (IsCropping)
         {
             // Swallow viewer navigation while cropping so arrow keys don't silently
             // discard the in-progress crop by moving to another photo.
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 CropCancelRequested?.Invoke(this, EventArgs.Empty);
-            else if (e.Key == Windows.System.VirtualKey.Enter)
+            else if (key == Windows.System.VirtualKey.Enter)
                 CropApplyRequested?.Invoke(this, EventArgs.Empty);
-            e.Handled = true;
-            return;
+            return true;
         }
 
         if (IsStraightening)
         {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 StraightenCancelRequested?.Invoke(this, EventArgs.Empty);
-            else if (e.Key == Windows.System.VirtualKey.Enter)
+            else if (key == Windows.System.VirtualKey.Enter)
                 StraightenApplyRequested?.Invoke(this, EventArgs.Empty);
-            e.Handled = true;
-            return;
+            return true;
         }
 
         if (IsRedEyeRemoving)
         {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 ExitRedEyeMode();
-            e.Handled = true;
-            return;
+            return true;
         }
 
         if (_isManualFaceTagging)
         {
-            if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
                 ExitManualFaceTagging();
-            e.Handled = true;
-            return;
+            return true;
         }
 
-        switch (e.Key)
+        if (_isVideoEditing)
+        {
+            if (key == Windows.System.VirtualKey.Escape)
+                VideoEditCancelRequested?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+
+        switch (key)
         {
             case Windows.System.VirtualKey.Escape:
                 ViewModel.CloseCommand.Execute(null);
-                e.Handled = true;
-                break;
+                return true;
             case Windows.System.VirtualKey.Right:
-                await ViewModel.NextImageCommand.ExecuteAsync(null);
-                e.Handled = true;
-                break;
+                RunKeyCommand(() => ViewModel.NextImageCommand.ExecuteAsync(null));
+                return true;
             case Windows.System.VirtualKey.Left:
-                await ViewModel.PreviousImageCommand.ExecuteAsync(null);
-                e.Handled = true;
-                break;
+                RunKeyCommand(() => ViewModel.PreviousImageCommand.ExecuteAsync(null));
+                return true;
             case Windows.System.VirtualKey.Add:
-                ViewModel.ZoomInCommand.Execute(null);
-                e.Handled = true;
-                break;
+                if (ZoomInButton.IsEnabled && !ViewModel.IsVideo) _zoomPan?.ZoomIn();
+                return true;
             case Windows.System.VirtualKey.Subtract:
-                ViewModel.ZoomOutCommand.Execute(null);
-                e.Handled = true;
-                break;
+                if (ZoomOutButton.IsEnabled && !ViewModel.IsVideo) _zoomPan?.ZoomOut();
+                return true;
+            case Windows.System.VirtualKey.Number0 or Windows.System.VirtualKey.NumberPad0
+                when IsKeyDown(Windows.System.VirtualKey.Control):
+                if (ZoomFitButton.IsEnabled) OnZoomFit(this, new RoutedEventArgs());
+                return true;
+            case Windows.System.VirtualKey.A:
+                OnZoomActualSize(this, new RoutedEventArgs());
+                return true;
+            case Windows.System.VirtualKey.I:
+                ViewModel.ToggleInformationPaneCommand.Execute(null);
+                return true;
             case Windows.System.VirtualKey.F:
-                await ToggleFlagAsync();
-                e.Handled = true;
-                break;
+                RunKeyCommand(ToggleFlagAsync);
+                return true;
+            default:
+                return false;
         }
     }
+
+    private static async void RunKeyCommand(Func<Task> command)
+    {
+        try
+        {
+            await command();
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"ImageViewerOverlay: keyboard command failed: {ex}");
+        }
+    }
+
+    private static bool IsKeyDown(Windows.System.VirtualKey key) =>
+        (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+            & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
     /// <summary>Toggles the flag on the image currently shown in the viewer (F shortcut).</summary>
     private async Task ToggleFlagAsync()
@@ -671,9 +1191,11 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void SetZoomControlsEnabled(bool isEnabled)
     {
+        isEnabled = isEnabled && _motionPlayer is null && _currentImagePixelWidth > 0 && _currentImagePixelHeight > 0;
         ZoomOutButton.IsEnabled = isEnabled;
         ZoomFitButton.IsEnabled = isEnabled;
         ZoomInButton.IsEnabled = isEnabled;
+        ZoomActualSizeButton.IsEnabled = isEnabled && !IsCropping && !IsRedEyeRemoving;
     }
 
     private void OnCancelManualFaceTagging(object sender, RoutedEventArgs e) =>
