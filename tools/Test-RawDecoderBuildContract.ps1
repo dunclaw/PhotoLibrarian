@@ -56,11 +56,14 @@ try {
 
     $longNativeRoot = Join-Path $temporaryRoot (('long-worktree-name-' * 8) + '\native\')
     $otherNativeRoot = Join-Path $temporaryRoot (('long-worktree-name-' * 8) + '-other\native\')
-    $cacheBase = Join-Path $temporaryRoot 'cv'
-    $longTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$longNativeRoot" "/p:OpenCvCacheBase=$cacheBase" /getProperty:OpenCvBuildDirectory
-    if ($LASTEXITCODE -ne 0) { throw 'Could not evaluate the long-worktree OpenCV build tree.' }
-    $otherTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$otherNativeRoot" "/p:OpenCvCacheBase=$cacheBase" /getProperty:OpenCvBuildDirectory
-    if ($LASTEXITCODE -ne 0 -or $longTree -eq $otherTree) {
+    # Evaluation only; no files are created at this short synthetic cache path.
+    $cacheBase = Join-Path ([IO.Path]::GetPathRoot($temporaryRoot)) 'cv-contract'
+    $shortOutputArguments = @("/p:OutDir=$cacheBase\bin\", "/p:IntDir=$cacheBase\obj\")
+    $longTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$longNativeRoot" "/p:OpenCvCacheBase=$cacheBase" @shortOutputArguments /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Could not evaluate the long-worktree OpenCV build tree.`n$($longTree -join "`n")" }
+    $otherTree = & $msbuild $openCvProject /nologo /p:Platform=x64 "/p:NativeRoot=$otherNativeRoot" "/p:OpenCvCacheBase=$cacheBase" @shortOutputArguments /getProperty:OpenCvBuildDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Could not evaluate the other worktree's OpenCV build tree.`n$($otherTree -join "`n")" }
+    if ($longTree -eq $otherTree) {
         throw 'Different worktrees must select different OpenCV build trees.'
     }
     $statePath = Join-Path $longTree.Trim() 'tlog\opencv_features2d_AVX512_SKX\Release\opencv_features2d_AVX512_SKX.lastbuildstate'
