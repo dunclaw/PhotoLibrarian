@@ -42,7 +42,7 @@ public sealed class VideoStabilizationService
                     ? null
                     : new ScaledProgress(progress, AnalysisShare, 1 - AnalysisShare / 100);
                 using (var input = new WindowsStabilizedVideoSource(
-                           sourcePath, inputProfile, properties.Duration, stabilizer, corrections, cancellationToken))
+                           sourcePath, profile, properties.Duration, stabilizer, corrections, cancellationToken))
                 using (var file = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
                 using (var output = file.AsRandomAccessStream())
                 {
@@ -98,13 +98,14 @@ public sealed class VideoStabilizationService
     /// First pass: decodes every frame once to measure camera motion, then plans a smooth
     /// camera path for the whole clip. Only small analysis images are kept in memory.
     /// </summary>
-    private static VideoFrameStabilizer.Correction[] AnalyzeCameraPath(
+    internal static VideoFrameStabilizer.Correction[] AnalyzeCameraPath(
         string sourcePath, MediaEncodingProfile inputProfile, TimeSpan duration, VideoFrameStabilizer stabilizer,
         IProgress<double>? progress, CancellationToken cancellationToken)
     {
         var motions = new List<VideoFrameStabilizer.Motion?>();
         using (var reader = new MediaFoundationFrameReader(sourcePath,
-                   checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height), includeAudio: false))
+                   checked((int)inputProfile.Video.Width), checked((int)inputProfile.Video.Height),
+                   includeAudio: false, cancellationToken))
         {
             double lastReported = -1;
             while (reader.Read(video: true, cancellationToken) is { } frame)

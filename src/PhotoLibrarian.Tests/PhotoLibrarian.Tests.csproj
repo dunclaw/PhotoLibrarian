@@ -51,6 +51,9 @@
     <None Include="..\PhotoLibrarian\MainWindow.xaml.cs"
           Link="TestAssets\MainWindow.xaml.cs"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\MainWindow.VideoEditing.cs"
+          Link="TestAssets\MainWindow.VideoEditing.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageGridView.xaml"
           Link="TestAssets\ImageGridView.xaml"
           CopyToOutputDirectory="PreserveNewest" />
@@ -99,14 +102,8 @@
     <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml"
           Link="TestAssets\TopRibbon.xaml"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\PhotoLibrarian\Views\VideoStabilizationDialog.xaml"
-          Link="TestAssets\VideoStabilizationDialog.xaml"
-          CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\PhotoLibrarian\Views\VideoEditDialog.xaml"
-          Link="TestAssets\VideoEditDialog.xaml"
-          CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\PhotoLibrarian\Views\VideoTrimDialog.xaml"
-          Link="TestAssets\VideoTrimDialog.xaml"
+    <None Include="..\PhotoLibrarian\Views\TopRibbon.xaml.cs"
+          Link="TestAssets\TopRibbon.xaml.cs"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
