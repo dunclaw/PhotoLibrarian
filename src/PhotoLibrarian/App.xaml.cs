@@ -38,8 +38,7 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         // Set up data directory
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var dataDir = Path.Combine(appData, "PhotoLibrarian");
+        var dataDir = AppDataPaths.Root;
         Directory.CreateDirectory(dataDir);
         Core.Diagnostics.DebugLog.EnableFileLogging(Path.Combine(dataDir, "Logs"));
         Diagnostics.DebugLog.WriteLine(
