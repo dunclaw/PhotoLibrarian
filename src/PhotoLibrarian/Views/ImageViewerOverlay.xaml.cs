@@ -268,6 +268,12 @@ public sealed partial class ImageViewerOverlay : UserControl
         _providedViewModel = viewModel;
     }
 
+    internal ImageViewerOverlay(ImageViewerViewModel viewModel, PhotoPresetStore presetStore)
+        : this(viewModel)
+    {
+        _presetStoreOverride = presetStore ?? throw new ArgumentNullException(nameof(presetStore));
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         DebugLog.WriteLine("ImageViewerOverlay: OnLoaded called");

@@ -831,6 +831,64 @@ public sealed partial class ImageGridView : UserControl
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
+        var editViewModel = App.ViewModel;
+        var selectedEntriesForEdit = selected.Select(item => item.Entry).ToArray();
+        bool canEditSelection = selectedEntriesForEdit.Length > 0 &&
+            selectedEntriesForEdit.All(entry => entry.MediaType == MediaType.Image);
+        var copyEdits = new MenuFlyoutItem
+        {
+            Text = PhotoContextMenuStrings.Get("EditCopySettings"),
+            IsEnabled = primary.Entry.MediaType == MediaType.Image
+        };
+        AddAction(copyEdits, async () =>
+        {
+            if (editViewModel is null) return;
+            var groups = await EditSettingGroupDialog.ShowAsync(
+                XamlRoot, ActualTheme,
+                PhotoContextMenuStrings.Get("EditChooseGroupsTitle"),
+                EditSettingGroupDialog.AvailableForPhoto(primary.Entry.FilePath),
+                includeName: false);
+            if (groups is not null)
+                await editViewModel.CopyEditGroupsAsync(primary.Entry, groups.Groups);
+        }, "CopyEditSettings");
+
+        var pasteEdits = new MenuFlyoutItem
+        {
+            Text = PhotoContextMenuStrings.Get("EditPasteSettings"),
+            IsEnabled = editViewModel?.EditClipboard is not null && canEditSelection
+        };
+        AddAction(pasteEdits, async () =>
+        {
+            if (editViewModel?.EditClipboard is not { } clipboard) return;
+            var groups = await EditSettingGroupDialog.ShowAsync(
+                XamlRoot, ActualTheme,
+                PhotoContextMenuStrings.Get("EditChooseGroupsTitle"),
+                clipboard.Groups,
+                includeName: false);
+            if (groups is not null)
+                await editViewModel.PasteEditGroupsAsync(selectedEntriesForEdit, groups.Groups);
+        }, "PasteEditSettings");
+
+        var syncEdits = new MenuFlyoutItem
+        {
+            Text = PhotoContextMenuStrings.Get("EditSyncSettings"),
+            IsEnabled = selectedEntriesForEdit.Length > 1 && canEditSelection &&
+                primary.Entry.MediaType == MediaType.Image
+        };
+        AddAction(syncEdits, async () =>
+        {
+            if (editViewModel is null) return;
+            var groups = await EditSettingGroupDialog.ShowAsync(
+                XamlRoot, ActualTheme,
+                PhotoContextMenuStrings.Get("EditChooseGroupsTitle"),
+                EditSettingGroupDialog.AvailableForPhoto(primary.Entry.FilePath),
+                includeName: false);
+            if (groups is not null)
+                await editViewModel.SyncEditGroupsAsync(primary.Entry, selectedEntriesForEdit, groups.Groups);
+        }, "SyncEditSettings");
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
         // Flag / Unflag — mirrors the F shortcut. A mixed selection is flagged first.
         bool allFlagged = selected.All(vm => vm.Entry.IsFlagged);
         var flagItem = new MenuFlyoutItem
