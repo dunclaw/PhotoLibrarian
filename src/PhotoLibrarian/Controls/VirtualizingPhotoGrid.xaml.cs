@@ -567,8 +567,6 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
         double viewportStart = scrollOffset - BufferZone;
         double viewportEnd = scrollOffset + viewportHeight + BufferZone;
         
-        Debug.WriteLine($"[VIRTUAL] Viewport: {viewportStart:F0} - {viewportEnd:F0}");
-        
         // Calculate which items are visible
         var visibleItems = CalculateVisibleItems(viewportStart, viewportEnd);
         
@@ -585,15 +583,12 @@ public sealed partial class VirtualizingPhotoGrid : UserControl
             PositionItem(item);
         }
         
-        Debug.WriteLine($"[VIRTUAL] Rendered {_activeElements.Count} elements ({toRelease.Count} released, {visibleItems.Count} visible)");
-        
         // Notify listeners of visible photo items (exclude headers)
         var photoItems = visibleItems
             .Where(vi => !vi.isHeader && vi.dataContext is ImageThumbnailViewModel)
             .Select(vi => (ImageThumbnailViewModel)vi.dataContext)
             .ToList();
         
-        Debug.WriteLine($"[VIRTUAL] Notifying {photoItems.Count} visible photos for thumbnail loading");
         VisibleItemsChanged?.Invoke(this, photoItems);
     }
     
