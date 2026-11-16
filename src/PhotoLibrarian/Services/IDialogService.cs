@@ -7,7 +7,8 @@ namespace PhotoLibrarian.Services;
 
 /// <summary>
 /// Shows dialogs on the UI thread using the invoking control's current window.
-/// Callers supply localized text and must act only on <see cref="ContentDialogResult.Primary"/>.
+/// Callers supply display text and must act only on <see cref="ContentDialogResult.Primary"/>.
+/// The service preserves caller text; use localized resources for new dialog labels.
 /// Primary text names the action; confirmation close text is Cancel.
 /// The owner must be attached to a window. Presentation failures propagate to the caller.
 /// Do not use these templates for nested dialogs, progress, or save/discard/cancel forms.
