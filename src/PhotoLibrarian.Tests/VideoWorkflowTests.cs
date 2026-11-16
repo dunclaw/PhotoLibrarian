@@ -147,10 +147,41 @@ public sealed class VideoWorkflowTests
         Assert.Equal("StabilizationSmoothness", (string?)smoothness.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("1", (string?)smoothness.Attribute("SelectedIndex"));
 
-        Assert.Contains(content.Descendants(), element =>
-            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimStartSeconds");
-        Assert.Contains(content.Descendants(), element =>
-            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimEndSeconds");
+        var trimRange = Assert.Single(content.Descendants().Where(element =>
+            element.Name.LocalName == "RangeSelector"));
+        Assert.Equal("VideoTrimRange", (string?)trimRange.Attribute("AutomationProperties.AutomationId"));
+        Assert.Equal("1", (string?)trimRange.Attribute("StepFrequency"));
+        Assert.Equal("OnVideoTrimRangeChanged", (string?)trimRange.Attribute("ValueChanged"));
+        Assert.DoesNotContain(content.Descendants(), element => element.Name.LocalName == "NumberBox");
+    }
+
+    [Fact]
+    public void VideoTooltipsDescribeEachControlInsteadOfSharingPreviewStatus()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var ribbon = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml"));
+        var tools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoEditTools");
+        Assert.Null(tools.Attribute("ToolTipService.ToolTip"));
+        var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"))
+            .Descendants("data").ToDictionary(element => (string)element.Attribute("name")!,
+                element => element.Element("value")!.Value);
+        var descriptions = new HashSet<string>();
+        foreach (var control in tools.Descendants().Where(element =>
+            element.Name.LocalName is "AppBarButton" or "AppBarToggleButton" or "Slider" or
+                "RangeSelector" or "CheckBox" or "ComboBox"))
+        {
+            string uid = (string)control.Attribute(x + "Uid")!;
+            string description = resources[uid + ".[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip"];
+            Assert.False(string.IsNullOrWhiteSpace(description));
+            Assert.DoesNotContain("Preview ready", description, StringComparison.OrdinalIgnoreCase);
+            Assert.True(descriptions.Add(description), $"The tooltip for {uid} should describe that control.");
+        }
+        var code = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml.cs"));
+        Assert.DoesNotContain("SetToolTip(VideoEditTools", code);
+        Assert.Contains("VideoTrimRange.RangeStart / info.FramesPerSecond", code);
+        Assert.Contains("VideoTrimRange.RangeEnd / info.FramesPerSecond", code);
+        Assert.Contains("VideoEditCancelHelp", code);
+        Assert.Contains("VideoEditResetHelp", code);
     }
 
     [Fact]

@@ -20,7 +20,11 @@ Preview preparation runs in the background with percentage progress and cancella
 Changing an edit cancels the obsolete preparation and rebuilds after a short
 pause; it does not require pressing a separate Prepare button. Stabilization
 composes with brightness, contrast, rotation, audio removal and trimming.
-Toggle **Trim** to show in/out seconds directly in the same toolbar row.
+Toggle **Trim** to show a single range bar directly in the same toolbar row.
+Drag its left handle inward to set the start and its right handle inward to set
+the end; read-only in/out time labels show the selected boundaries. The handles
+move in source-frame steps, including keyboard arrow adjustments. Control
+tooltips describe the individual action; progress stays in the status bar.
 Trim boundaries are frame-aligned, with decoded PCM audio cut to the same range.
 A completed copy is published only after encoding succeeds; originals and
 existing output files are never overwritten. The suggested name is

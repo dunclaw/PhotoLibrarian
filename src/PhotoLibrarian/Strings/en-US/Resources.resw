@@ -516,15 +516,33 @@ Backup: {3}
   <data name="VideoEditProgressStatus" xml:space="preserve"><value>{0} {1}</value></data>
   <data name="VideoEditErrorStatus" xml:space="preserve"><value>{0} — {1}</value></data>
   <data name="VideoEditReset" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditResetHelp" xml:space="preserve"><value>Discard video edits and return to the original video.</value></data>
+  <data name="VideoEditCancelHelp" xml:space="preserve"><value>Cancel the video preparation or export in progress.</value></data>
+  <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Lighten or darken the video.</value></data>
+  <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Increase or reduce the difference between light and dark areas.</value></data>
+  <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees counterclockwise.</value></data>
+  <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Restore the video's original orientation.</value></data>
+  <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees clockwise.</value></data>
+  <data name="VideoEditRemoveAudio.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Remove the audio track from the exported copy.</value></data>
+  <data name="VideoEditStabilize.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Reduce camera shake in the video.</value></data>
+  <data name="VideoEditTrim.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show the trim bar; drag its left and right handles to choose the part to keep.</value></data>
+  <data name="VideoEditPrepare.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Retry building the preview with the current edits.</value></data>
+  <data name="VideoEditExport.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Save the prepared preview as a new video without changing the original.</value></data>
+  <data name="VideoEditExit.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Discard video edits and return to the original video.</value></data>
+  <data name="VideoStabilizationSettings.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose camera smoothing, cropping, and frame-lock settings.</value></data>
+  <data name="VideoStabilizationSmoothness.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose how strongly camera movement is smoothed.</value></data>
+  <data name="VideoStabilizationAutoCrop.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Crop unstable edges to keep the stabilized frame filled.</value></data>
+  <data name="VideoStabilizationRotation.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Correct small camera roll as well as horizontal and vertical shake.</value></data>
+  <data name="VideoStabilizationLockFrame.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Hold the framing steady like a tripod instead of following camera movement.</value></data>
+  <data name="VideoTrimRange.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Drag the left handle to set the start and the right handle to set the end. Use arrow keys for frame-by-frame adjustment.</value></data>
+  <data name="VideoTrimRange.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video trim start and end frames</value></data>
+  <data name="VideoTrimInTime" xml:space="preserve"><value>In {0}</value></data>
+  <data name="VideoTrimOutTime" xml:space="preserve"><value>Out {0}</value></data>
   <data name="VideoEditRotationStatus" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
   <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Edits update the preview automatically. Export copy saves the preview.</value></data>
   <data name="VideoEditUpdating" xml:space="preserve"><value>Updating video preview...</value></data>
   <data name="VideoEditInvalidTrim" xml:space="preserve"><value>Choose an in/out range containing at least one video frame.</value></data>
   <data name="VideoEditInfoFailed" xml:space="preserve"><value>Could not read the video time range: {0}</value></data>
-  <data name="VideoTrimInlineStart.Header" xml:space="preserve"><value>In (seconds)</value></data>
-  <data name="VideoTrimInlineStart.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video in point in seconds</value></data>
-  <data name="VideoTrimInlineEnd.Header" xml:space="preserve"><value>Out (seconds)</value></data>
-  <data name="VideoTrimInlineEnd.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video out point in seconds</value></data>
   <data name="VideoStabilizationSettings.Label" xml:space="preserve"><value>Stabilization options</value></data>
   <data name="VideoStabilizationSmoothness.Header" xml:space="preserve"><value>Smoothing</value></data>
   <data name="VideoStabilizationSmoothness.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Stabilization smoothing</value></data>

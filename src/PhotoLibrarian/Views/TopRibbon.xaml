@@ -1,7 +1,8 @@
 <UserControl
     x:Class="PhotoLibrarian.Views.TopRibbon"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls">
 
     <UserControl.Resources>
         <!-- Icon-above-label command button, the Photo Gallery ribbon idiom. -->
@@ -250,18 +251,19 @@
                                     Value="100" ValueChanged="OnVideoEditSliderChanged"
                                     AutomationProperties.AutomationId="VideoEditContrast" />
                         </StackPanel>
-                        <StackPanel x:Name="VideoTrimControls" Orientation="Horizontal" Spacing="8"
+                        <StackPanel x:Name="VideoTrimControls" Width="256"
                                     Visibility="Collapsed">
-                            <NumberBox x:Name="VideoTrimStartSeconds" x:Uid="VideoTrimInlineStart"
-                                       Width="128" Minimum="0" SmallChange="0.03"
-                                       SpinButtonPlacementMode="Compact"
-                                       ValueChanged="OnVideoTrimSecondsChanged"
-                                       AutomationProperties.AutomationId="VideoTrimStartSeconds" />
-                            <NumberBox x:Name="VideoTrimEndSeconds" x:Uid="VideoTrimInlineEnd"
-                                       Width="128" Minimum="0" SmallChange="0.03"
-                                       SpinButtonPlacementMode="Compact"
-                                       ValueChanged="OnVideoTrimSecondsChanged"
-                                       AutomationProperties.AutomationId="VideoTrimEndSeconds" />
+                            <Grid>
+                                <TextBlock x:Name="VideoTrimStartTime"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="VideoTrimEndTime" HorizontalAlignment="Right"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </Grid>
+                            <controls:RangeSelector x:Name="VideoTrimRange" x:Uid="VideoTrimRange"
+                                                    Minimum="0" Maximum="1" StepFrequency="1"
+                                                    RangeStart="0" RangeEnd="1"
+                                                    ValueChanged="OnVideoTrimRangeChanged"
+                                                    AutomationProperties.AutomationId="VideoTrimRange" />
                         </StackPanel>
                         <ProgressRing x:Name="VideoEditProgressRing" x:Uid="VideoEditProgress"
                                       Width="20" Height="20" IsActive="False"

@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Core.Models;
 using System;
 using System.Globalization;
+using CommunityToolkit.WinUI.Controls;
 
 namespace PhotoLibrarian.Views;
 
@@ -143,8 +144,7 @@ public sealed partial class TopRibbon : UserControl
         VideoTrimControls.Visibility = Visibility.Collapsed;
         if (_videoTrimInfo is { } info)
         {
-            VideoTrimStartSeconds.Value = 0;
-            VideoTrimEndSeconds.Value = info.Duration.TotalSeconds;
+            ResetVideoTrimRange(info);
         }
         _syncingVideoEditOptions = false;
         UpdateVideoEditLabels();
@@ -168,11 +168,7 @@ public sealed partial class TopRibbon : UserControl
         TrimVideoButton.IsEnabled = info is not null;
         if (info is { } video)
         {
-            VideoTrimStartSeconds.Maximum = video.Duration.TotalSeconds;
-            VideoTrimEndSeconds.Maximum = video.Duration.TotalSeconds;
-            VideoTrimStartSeconds.SmallChange = VideoTrimEndSeconds.SmallChange = 1 / video.FramesPerSecond;
-            VideoTrimStartSeconds.Value = 0;
-            VideoTrimEndSeconds.Value = video.Duration.TotalSeconds;
+            ResetVideoTrimRange(video);
         }
         _syncingVideoEditOptions = false;
     }
@@ -187,9 +183,10 @@ public sealed partial class TopRibbon : UserControl
         options = new(_videoRotationQuarterTurns, RemoveAudioBox.IsChecked == true,
             (int)BrightnessSlider.Value, (int)ContrastSlider.Value, stabilization);
         if (TrimVideoButton.IsChecked != true) return true;
-        double start = VideoTrimStartSeconds.Value;
-        double end = VideoTrimEndSeconds.Value;
-        if (_videoTrimInfo is not { } info || !double.IsFinite(start) || !double.IsFinite(end) ||
+        if (_videoTrimInfo is not { } info) return false;
+        double start = VideoTrimRange.RangeStart / info.FramesPerSecond;
+        double end = VideoTrimRange.RangeEnd / info.FramesPerSecond;
+        if (!double.IsFinite(start) || !double.IsFinite(end) ||
             start < 0 || end > info.Duration.TotalSeconds ||
             end - start < 1 / info.FramesPerSecond - 0.0000001)
             return false;
@@ -211,8 +208,7 @@ public sealed partial class TopRibbon : UserControl
         VideoCorrectRotationBox.IsEnabled = editable;
         VideoLockFrameBox.IsEnabled = editable;
         TrimVideoButton.IsEnabled = editable && _videoTrimInfo is not null;
-        VideoTrimStartSeconds.IsEnabled = editable;
-        VideoTrimEndSeconds.IsEnabled = editable;
+        VideoTrimRange.IsEnabled = editable;
         BrightnessSlider.IsEnabled = editable;
         ContrastSlider.IsEnabled = editable;
         RotateVideoLeftButton.IsEnabled = editable;
@@ -225,11 +221,12 @@ public sealed partial class TopRibbon : UserControl
         string exitLabel = VideoEditStrings.Get("VideoEditReset");
         CancelVideoEditButton.Label = busy ? VideoEditStrings.Get("VideoEditCancel") : exitLabel;
         AutomationProperties.SetName(CancelVideoEditButton, CancelVideoEditButton.Label);
+        ToolTipService.SetToolTip(CancelVideoEditButton,
+            VideoEditStrings.Get(busy ? "VideoEditCancelHelp" : "VideoEditResetHelp"));
         VideoEditProgressRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         VideoEditProgressRing.IsActive = busy;
         _videoEditStatus = error is null
             ? status : VideoEditStrings.Format("VideoEditErrorStatus", error, status);
-        ToolTipService.SetToolTip(VideoEditTools, _videoEditStatus);
         if (busy && preparing)
             SetVideoEditProgress(progress);
         else
@@ -257,8 +254,34 @@ public sealed partial class TopRibbon : UserControl
         NotifyVideoEditOptionsChanged();
     }
 
-    private void OnVideoTrimSecondsChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
+    private void OnVideoTrimRangeChanged(object sender, RangeChangedEventArgs args) =>
         NotifyVideoEditOptionsChanged();
+
+    private void ResetVideoTrimRange(VideoTrimInfo info)
+    {
+        // Integer frame positions keep both handles aligned to the export timebase.
+        VideoTrimRange.RangeStart = 0;
+        VideoTrimRange.RangeEnd = 0;
+        VideoTrimRange.Maximum = Math.Max(1, Math.Floor(info.Duration.TotalSeconds * info.FramesPerSecond + 1e-9));
+        VideoTrimRange.RangeEnd = VideoTrimRange.Maximum;
+        UpdateVideoTrimLabels();
+    }
+
+    private void UpdateVideoTrimLabels()
+    {
+        if (_videoTrimInfo is not { } info) return;
+        VideoTrimStartTime.Text = VideoEditStrings.Format("VideoTrimInTime",
+            FormatVideoTrimTime(VideoTrimRange.RangeStart / info.FramesPerSecond));
+        VideoTrimEndTime.Text = VideoEditStrings.Format("VideoTrimOutTime",
+            FormatVideoTrimTime(VideoTrimRange.RangeEnd / info.FramesPerSecond));
+    }
+
+    private static string FormatVideoTrimTime(double seconds)
+    {
+        var time = TimeSpan.FromSeconds(seconds);
+        return string.Format(CultureInfo.CurrentCulture, "{0:00}:{1:00}:{2:00}.{3:000}",
+            (long)time.TotalHours, time.Minutes, time.Seconds, time.Milliseconds);
+    }
 
     private void OnVideoSmoothnessChanged(object sender, SelectionChangedEventArgs args) =>
         NotifyVideoEditOptionsChanged();
@@ -297,6 +320,7 @@ public sealed partial class TopRibbon : UserControl
         ContrastValue.Text = ((int)ContrastSlider.Value).ToString("0", culture) +
             culture.NumberFormat.PercentSymbol;
         int rotationDegrees = _videoRotationQuarterTurns * 90;
+        UpdateVideoTrimLabels();
         ResetRotationButton.Label = rotationDegrees.ToString(culture) + "°";
         AutomationProperties.SetName(ResetRotationButton,
             VideoEditStrings.Format(
@@ -313,7 +337,6 @@ public sealed partial class TopRibbon : UserControl
         bool valid = TryGetVideoEditOptions(out _);
         PrepareVideoEditButton.IsEnabled = !_videoEditBusy && HasVideoEditChanges && valid;
         _videoEditStatus = VideoEditStrings.Get(valid ? "VideoEditUpdating" : "VideoEditInvalidTrim");
-        ToolTipService.SetToolTip(VideoEditTools, _videoEditStatus);
         VideoEditStatusChanged?.Invoke(this, _videoEditStatus);
         VideoEditOptionsChanged?.Invoke(this, EventArgs.Empty);
     }
