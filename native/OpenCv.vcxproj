@@ -8,8 +8,12 @@
   <Import Project="Native.props" />
   <Import Project="OpenCv.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <Target Name="ConfigureOpenCv" Condition="'$(DesignTimeBuild)' != 'true'">
-    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(NativeRoot)..\tools\Prepare-OpenCv.ps1&quot; -Architecture &quot;$(Platform)&quot; -BuildDirectory &quot;$(OpenCvBuildDirectory.TrimEnd('\'))&quot; -VisualStudioDirectory &quot;$(VSInstallDir.TrimEnd('\'))&quot; -VisualStudioVersion &quot;$(VisualStudioVersion)&quot; -PlatformToolset &quot;$(PlatformToolset)&quot; -VCToolsVersion &quot;$(VCToolsVersion)&quot;" />
+  <Target Name="ValidateOpenCvWorkspace" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="'$(LOCALAPPDATA)' == '' and '$(OpenCvCacheBase)' == '\PhotoLibrarian\OpenCv'" Text="LOCALAPPDATA is not set; specify a short, writable OpenCvCacheBase for the OpenCV build." />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(NativeRoot)..\tools\Initialize-OpenCvWorkspace.ps1&quot; -WorkspaceRoot &quot;$(OpenCvWorkspaceRoot.TrimEnd('\'))&quot; -RepositoryRoot &quot;$(NativeRoot)..&quot;" />
+  </Target>
+  <Target Name="ConfigureOpenCv" DependsOnTargets="ValidateOpenCvWorkspace" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(NativeRoot)..\tools\Prepare-OpenCv.ps1&quot; -Architecture &quot;$(Platform)&quot; -BuildDirectory &quot;$(OpenCvBuildDirectory.TrimEnd('\'))&quot; -WorkspaceRoot &quot;$(OpenCvWorkspaceRoot.TrimEnd('\'))&quot; -VisualStudioDirectory &quot;$(VSInstallDir.TrimEnd('\'))&quot; -VisualStudioVersion &quot;$(VisualStudioVersion)&quot; -PlatformToolset &quot;$(PlatformToolset)&quot; -VCToolsVersion &quot;$(VCToolsVersion)&quot;" />
   </Target>
   <Target Name="BuildOpenCv" BeforeTargets="Build" DependsOnTargets="ConfigureOpenCv" Condition="'$(DesignTimeBuild)' != 'true'">
     <MSBuild Projects="$(OpenCvProject)" Targets="Build"
@@ -18,7 +22,7 @@
              BuildInParallel="true" />
     <Copy SourceFiles="$(OpenCvBuildDirectory)ThirdPartyNotices.Panorama.txt" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
-  <Target Name="CleanOpenCv" BeforeTargets="Clean" Condition="Exists('$(OpenCvProject)')">
+  <Target Name="CleanOpenCv" BeforeTargets="Clean" DependsOnTargets="ValidateOpenCvWorkspace" Condition="'$(DesignTimeBuild)' != 'true' and Exists('$(OpenCvProject)')">
     <MSBuild Projects="$(OpenCvProject)" Targets="Clean"
              Properties="Configuration=$(Configuration);Platform=$(Platform);BuildProjectReferences=true"
              RemoveProperties="BuildingInsideVisualStudio;BuildingSolutionFile;SolutionDir;SolutionPath" />
