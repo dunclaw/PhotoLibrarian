@@ -17,7 +17,8 @@ internal sealed class MediaFoundationFrameReader : IDisposable
     private readonly IMFSourceReader _reader;
     private readonly int _width, _height;
     private int _bufferWidth, _bufferHeight, _stride, _cropX, _cropY;
-    private bool _hasVideoFormat;
+    private bool _hasVideoSample;
+    private DecodedSample? _pendingVideoSample;
     private bool _disposed;
 
     public uint AudioRate { get; }
@@ -25,7 +26,8 @@ internal sealed class MediaFoundationFrameReader : IDisposable
     public uint SourceVideoNominalRange { get; private set; }
     public uint VideoNominalRange { get; private set; }
 
-    public MediaFoundationFrameReader(string sourcePath, int width, int height, bool includeAudio)
+    public MediaFoundationFrameReader(string sourcePath, int width, int height, bool includeAudio,
+        CancellationToken cancellationToken = default)
     {
         if (width < 2 || height < 2 || (width & 1) != 0 || (height & 1) != 0)
             throw new NotSupportedException("This video's decoded dimensions or pixel layout are not supported.");
@@ -65,6 +67,9 @@ internal sealed class MediaFoundationFrameReader : IDisposable
                 AudioChannels = audio.GetUInt32(MediaTypeAttributeKeys.AudioNumChannels);
             }
             _reader = reader;
+            // Some decoders (including HEVC) publish the actual range/aperture only when
+            // reading the first sample. Negotiate before consumers create their encoder type.
+            _pendingVideoSample = ReadCore(video: true, cancellationToken);
         }
         catch
         {
@@ -78,6 +83,17 @@ internal sealed class MediaFoundationFrameReader : IDisposable
     public DecodedSample? Read(bool video, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (video && _pendingVideoSample is { } pending)
+        {
+            _pendingVideoSample = null;
+            return pending;
+        }
+        return ReadCore(video, cancellationToken);
+    }
+
+    private DecodedSample? ReadCore(bool video, CancellationToken cancellationToken)
+    {
         var stream = video ? SourceReaderIndex.FirstVideoStream : SourceReaderIndex.FirstAudioStream;
         while (true)
         {
@@ -97,6 +113,7 @@ internal sealed class MediaFoundationFrameReader : IDisposable
             if (sample is null) continue;
 
             byte[] data = video ? CopyVideo(sample) : CopyAudio(sample);
+            if (video) _hasVideoSample = true;
             return new DecodedSample(data, timestamp, sample.SampleDuration);
         }
     }
@@ -152,10 +169,9 @@ internal sealed class MediaFoundationFrameReader : IDisposable
         // source's explicit range through; treat untagged input as standard limited-range video.
         if (nominalRange == 0)
             nominalRange = SourceVideoNominalRange != 0 ? SourceVideoNominalRange : 2;
-        if (_hasVideoFormat && nominalRange != VideoNominalRange)
+        if (_hasVideoSample && nominalRange != VideoNominalRange)
             throw new NotSupportedException("The decoded video changes its nominal luma range.");
         VideoNominalRange = nominalRange;
-        _hasVideoFormat = true;
 
         MFGetAttributeSize(type, MediaTypeAttributeKeys.FrameSize, out uint width, out uint height).CheckError();
         _bufferWidth = checked((int)width);

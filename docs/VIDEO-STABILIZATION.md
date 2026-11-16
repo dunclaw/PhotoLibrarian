@@ -1,8 +1,11 @@
 # Video stabilization
 
-Open a video, select **Stabilize** in the top editing ribbon, choose a new MP4 filename and
-settings, then select **Export stabilized copy**. There is no tool to find, configure or install,
-and no runtime downloads. Everything runs locally inside PhotoLibrarian.
+Open a video and toggle **Stabilize** in the single top editing toolbar. The
+prepared video automatically opens in the existing player; **Export copy** saves
+those exact bytes as a new `-edited.mp4`. There is no modal stabilization dialog.
+The toolbar's More menu contains a compact **Stabilization options** flyout.
+There is no tool to find, configure or install, and no runtime downloads.
+Everything runs locally inside PhotoLibrarian.
 
 ## Settings
 
@@ -13,20 +16,22 @@ and no runtime downloads. Everything runs locally inside PhotoLibrarian.
 | Correct rotation (camera roll) | On | Off corrects only horizontal and vertical shake. |
 | Lock frame | Off | Holds the view still like a tripod instead of smoothing camera moves. Best when the camera stays on one subject. The view stays perfectly still while the camera stays within about 60% of the crop margin; when the camera drifts or is re-aimed further, the view glides at a constant speed only as far as needed, with gently rounded starts and stops. Smoothness is not used. |
 
-Export runs in the background with percentage progress and cancellation.
-The dialog stays open until cancellation stops the export and removes its
-temporary output. A completed copy is published only after encoding succeeds;
-originals and existing output files are never overwritten. The suggested name
-is `<name>-stabilized.mp4`, or the first free `<name>-stabilized (1).mp4`,
-`(2)`, ... when that video or its metadata sidecar already exists. The completed copy
-is indexed and revealed in the grid before playback, even when exported outside
-watched folders. Closing the viewer leaves the copy selected and scrolled into view;
+Preview preparation runs in the background with percentage progress and cancellation.
+Changing an edit cancels the obsolete preparation and rebuilds after a short
+pause; it does not require pressing a separate Prepare button. Stabilization
+composes with brightness, contrast, rotation, audio removal and trimming.
+Toggle **Trim** to show in/out seconds directly in the same toolbar row.
+Trim boundaries are frame-aligned, with decoded PCM audio cut to the same range.
+A completed copy is published only after encoding succeeds; originals and
+existing output files are never overwritten. The suggested name is
+`<name>-edited.mp4`, or the first free `<name>-edited (1).mp4`, `(2)`, ... when
+that video or its metadata sidecar already exists. The completed copy is
+indexed and revealed in the grid before playback. Closing the viewer leaves the copy selected and scrolled into view;
 no manual refresh is needed. If the copy is outside the current filters, it stays
 visible alongside the filtered results until you change the browsing filters or search.
-Before publication, the export waits until the completed file can be opened and parsed, plus a short settle delay,
-so the player does not read a file that is still being finalized. On success the dialog
-closes and the copy opens immediately in the existing player, even when saved
-outside watched folders. If indexing fails, the saved copy is kept and its path and
+The preview file is finalized and checked before it opens in the player.
+Export copies this prepared file instead of encoding a second time.
+If indexing fails, the saved copy is kept and its path and
 the error are shown in the status bar; the original remains open. The video ribbon shows video
 editing tools only; photo-only commands and image zoom controls are hidden.
 
@@ -236,6 +241,15 @@ bridging short tracking dropouts, and preserving linear pans at clip ends. Workf
 cover the separate video ribbon, descriptive metadata policy, immediate single-file
 indexing, grid reveal/selection after closing playback, refresh and navigation,
 and an export outside the current folder/search.
+
+An opt-in `VideoFileRegressionTests` case accepts a local camera clip through
+`PHOTOLIBRARIAN_VIDEO_FIXTURE`. It exercises decoding, tone/rotation preparation,
+stabilization and trimming, verifies the source hash, timestamp and sidecar, and
+places all outputs in a temporary directory. This catches codecs that negotiate
+their actual nominal range only with the first decoded sample (for example,
+full-range HEVC initially advertised as limited range). The reader primes that
+sample before constructing encoder descriptors and retains it for delivery;
+genuine range changes after decoded samples begin remain unsupported errors.
 
 Library refreshes retain thumbnails for unchanged files instead of clearing all
 video previews after an export. Thumbnail provider and UI-decode waits honor

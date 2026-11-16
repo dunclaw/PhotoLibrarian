@@ -10,7 +10,10 @@ public sealed record VideoEditOptions(
     int ClockwiseQuarterTurns = 0,
     bool RemoveAudio = false,
     int Brightness = 0,
-    int Contrast = 100);
+    int Contrast = 100,
+    StabilizationOptions? Stabilization = null,
+    TimeSpan? TrimStart = null,
+    TimeSpan? TrimEnd = null);
 
 /// <summary>Prepares one local MP4; preview and save use those exact bytes.</summary>
 public sealed class VideoEditingService : IDisposable
@@ -19,6 +22,7 @@ public sealed class VideoEditingService : IDisposable
     private readonly StorageFile _source;
     private readonly MediaEncodingProfile _profile;
     private readonly VideoEditOptions _options;
+    private readonly TimeSpan _sourceDuration;
     private readonly string _stagingPath = Path.Combine(Path.GetTempPath(), $"photolibrarian-edit-{Guid.NewGuid():N}.mp4");
     private string? _metadata;
     private bool _disposed;
@@ -31,7 +35,8 @@ public sealed class VideoEditingService : IDisposable
         StorageFile source, TimeSpan duration, MediaEncodingProfile profile, VideoEditOptions options)
     {
         _source = source;
-        Duration = duration;
+        _sourceDuration = duration;
+        Duration = (options.TrimEnd ?? duration) - (options.TrimStart ?? TimeSpan.Zero);
         _profile = profile;
         _options = options;
     }
@@ -51,6 +56,14 @@ public sealed class VideoEditingService : IDisposable
         var input = await MediaEncodingProfile.CreateFromFileAsync(source).AsTask(token);
         var profile = VideoStabilizationService.CreateOutputProfile(input);
         var properties = await source.Properties.GetVideoPropertiesAsync().AsTask(token);
+        if (options.TrimStart is not null || options.TrimEnd is not null)
+        {
+            double framesPerSecond = input.Video.FrameRate.Numerator / (double)input.Video.FrameRate.Denominator;
+            var selection = VideoTrimmingService.NormalizeSelection(
+                options.TrimStart ?? TimeSpan.Zero, options.TrimEnd ?? properties.Duration,
+                properties.Duration, framesPerSecond);
+            options = options with { TrimStart = selection.Start, TrimEnd = selection.End };
+        }
         // MP4 rotation is standard track metadata, not a resampling of the source pixels.
         // Keep encoded dimensions and aspect ratio; compose with the existing orientation.
         profile.Video.Properties[RotationKey] = ((uint)properties.Orientation + (uint)options.ClockwiseQuarterTurns * 90) % 360;
@@ -70,11 +83,23 @@ public sealed class VideoEditingService : IDisposable
         bool preparedSuccessfully = false;
         try
         {
+            VideoFrameStabilizer? stabilizer = null;
+            VideoFrameStabilizer.Correction[] corrections = [];
+            IProgress<double>? encodeProgress = progress;
+            if (_options.Stabilization is { } stabilization)
+            {
+                stabilizer = new VideoFrameStabilizer(
+                    checked((int)_profile.Video.Width), checked((int)_profile.Video.Height), stabilization);
+                corrections = VideoStabilizationService.AnalyzeCameraPath(
+                    _source.Path, _profile, _sourceDuration, stabilizer, progress, token);
+                if (progress is not null) encodeProgress = new EncodingProgress(progress);
+            }
             // Decode to an orientation-free stream. File-to-file transcoding may bake in the
             // input rotation and swap dimensions depending on the requested output rotation.
             using (var input = new WindowsStabilizedVideoSource(
-                       _source.Path, _profile, Duration, null, [], token,
-                       _options.Brightness, _options.Contrast))
+                       _source.Path, _profile, _sourceDuration, stabilizer, corrections, token,
+                       _options.Brightness, _options.Contrast,
+                       _options.TrimStart ?? TimeSpan.Zero, _options.TrimEnd))
             using (var fileStream = new FileStream(_stagingPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
                 _ownsStagingFile = true;
@@ -86,12 +111,12 @@ public sealed class VideoEditingService : IDisposable
                     throw new InvalidOperationException($"Windows could not edit this video ({prepared.FailureReason}).");
                 try
                 {
-                    await prepared.TranscodeAsync().AsTask(token, progress);
+                    await prepared.TranscodeAsync().AsTask(token, encodeProgress);
                 }
                 catch (Exception) when (input.Failure is not null)
                 {
                     token.ThrowIfCancellationRequested();
-                    throw new InvalidOperationException("Windows could not decode this video.", input.Failure);
+                    throw new InvalidOperationException($"Windows could not decode this video: {input.Failure.Message}", input.Failure);
                 }
                 await output.FlushAsync().AsTask(token);
             }
@@ -131,6 +156,11 @@ public sealed class VideoEditingService : IDisposable
             }
         }
     }, token);
+
+    private sealed class EncodingProgress(IProgress<double> progress) : IProgress<double>
+    {
+        public void Report(double value) => progress.Report(30 + Math.Clamp(value, 0, 100) * 0.7);
+    }
 
     public async Task ExportAsync(string destinationPath, CancellationToken token = default)
     {

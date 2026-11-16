@@ -175,6 +175,46 @@ public sealed class VideoEditingTests : IDisposable
     }
 
     [Fact]
+    public async Task CombinedToneRotationStabilizationAndTrimUseTheExactPreparedFile()
+    {
+        await CreateFixtureAsync(90, withAudio: true);
+        byte[] sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(Source, Token));
+        using var editing = await VideoEditingService.CreateAsync(Source,
+            new(ClockwiseQuarterTurns: 1, Brightness: 20, Contrast: 120,
+                Stabilization: StabilizationOptions.Default,
+                TrimStart: TimeSpan.FromSeconds(0.5), TrimEnd: TimeSpan.FromSeconds(1.5)), Token);
+        await editing.PreparePreviewAsync(token: Token);
+        byte[] previewHash = SHA256.HashData(await File.ReadAllBytesAsync(editing.PreviewPath!, Token));
+        await editing.ExportAsync(Output, Token);
+        Assert.Equal(previewHash, SHA256.HashData(await File.ReadAllBytesAsync(Output, Token)));
+        var properties = await (await StorageFile.GetFileFromPathAsync(Output)).Properties.GetVideoPropertiesAsync();
+        Assert.Equal(180u, (uint)properties.Orientation);
+        Assert.InRange(properties.Duration.TotalSeconds, 0.95, 1.05);
+        using var reader = new MediaFoundationFrameReader(Output, 192, 128, includeAudio: true);
+        int frames = 0;
+        long first = -1;
+        long lastEnd = 0;
+        while (reader.Read(video: true, Token) is { } frame)
+        {
+            if (frames++ == 0) first = frame.Timestamp;
+            lastEnd = frame.Timestamp + frame.Duration;
+        }
+        Assert.Equal(24, frames);
+        Assert.InRange(first, 0, TimeSpan.TicksPerSecond / 24);
+        Assert.InRange(lastEnd, TimeSpan.FromSeconds(0.95).Ticks, TimeSpan.FromSeconds(1.05).Ticks);
+        long firstAudio = -1;
+        long lastAudioEnd = 0;
+        while (reader.Read(video: false, Token) is { } audio)
+        {
+            if (firstAudio < 0) firstAudio = audio.Timestamp;
+            lastAudioEnd = audio.Timestamp + audio.Duration;
+        }
+        Assert.InRange(firstAudio, 0, TimeSpan.FromMilliseconds(30).Ticks);
+        Assert.InRange(lastAudioEnd, TimeSpan.FromSeconds(0.95).Ticks, TimeSpan.FromSeconds(1.05).Ticks);
+        Assert.Equal(sourceHash, SHA256.HashData(await File.ReadAllBytesAsync(Source, Token)));
+    }
+
+    [Fact]
     public async Task FullRangeSourceRangeIsPreservedForAdjustment()
     {
         await CreateFixtureAsync(0, withAudio: false, videoNominalRange: 1);

@@ -219,7 +219,8 @@
 
             <CommandBar x:Name="VideoEditTools" Grid.ColumnSpan="3"
                         AutomationProperties.AutomationId="VideoEditToolbar"
-                        Background="Transparent" DefaultLabelPosition="Right"
+                        Background="Transparent" DefaultLabelPosition="Bottom"
+                        HorizontalAlignment="Left"
                         IsDynamicOverflowEnabled="True" MinHeight="64"
                         Visibility="Collapsed">
                 <CommandBar.Content>
@@ -249,6 +250,19 @@
                                     Value="100" ValueChanged="OnVideoEditSliderChanged"
                                     AutomationProperties.AutomationId="VideoEditContrast" />
                         </StackPanel>
+                        <StackPanel x:Name="VideoTrimControls" Orientation="Horizontal" Spacing="8"
+                                    Visibility="Collapsed">
+                            <NumberBox x:Name="VideoTrimStartSeconds" x:Uid="VideoTrimInlineStart"
+                                       Width="128" Minimum="0" SmallChange="0.03"
+                                       SpinButtonPlacementMode="Compact"
+                                       ValueChanged="OnVideoTrimSecondsChanged"
+                                       AutomationProperties.AutomationId="VideoTrimStartSeconds" />
+                            <NumberBox x:Name="VideoTrimEndSeconds" x:Uid="VideoTrimInlineEnd"
+                                       Width="128" Minimum="0" SmallChange="0.03"
+                                       SpinButtonPlacementMode="Compact"
+                                       ValueChanged="OnVideoTrimSecondsChanged"
+                                       AutomationProperties.AutomationId="VideoTrimEndSeconds" />
+                        </StackPanel>
                         <ProgressRing x:Name="VideoEditProgressRing" x:Uid="VideoEditProgress"
                                       Width="20" Height="20" IsActive="False"
                                       Visibility="Collapsed" />
@@ -267,6 +281,14 @@
                                     Icon="Mute" Checked="OnVideoEditAudioChanged"
                                     Unchecked="OnVideoEditAudioChanged"
                                     AutomationProperties.AutomationId="VideoEditRemoveAudio" />
+                <AppBarToggleButton x:Name="StabilizeVideoButton" x:Uid="VideoEditStabilize"
+                                    Checked="OnVideoEditAudioChanged" Unchecked="OnVideoEditAudioChanged"
+                                    Icon="Video"
+                                    AutomationProperties.AutomationId="RibbonStabilizeVideo" />
+                <AppBarToggleButton x:Name="TrimVideoButton" x:Uid="VideoEditTrim"
+                                    Checked="OnVideoTrimChanged" Unchecked="OnVideoTrimChanged"
+                                    Icon="Trim" IsEnabled="False"
+                                    AutomationProperties.AutomationId="RibbonTrimVideo" />
                 <AppBarSeparator />
                 <AppBarButton x:Name="PrepareVideoEditButton" x:Uid="VideoEditPrepare"
                               Click="OnVideoEditPrepareClick" Icon="Play"
@@ -277,13 +299,36 @@
                 <AppBarButton x:Name="CancelVideoEditButton" x:Uid="VideoEditExit"
                               Click="OnVideoEditCancelClick" Icon="Cancel"
                               AutomationProperties.AutomationId="VideoEditCancel" />
-                <AppBarSeparator />
-                <AppBarButton x:Name="StabilizeVideoButton" x:Uid="VideoEditStabilize"
-                              Click="OnStabilizeVideoClick" Icon="Video"
-                              AutomationProperties.AutomationId="RibbonStabilizeVideo" />
-                <AppBarButton x:Name="TrimVideoButton" x:Uid="VideoEditTrim"
-                              Click="OnTrimVideoClick" Icon="Trim"
-                              AutomationProperties.AutomationId="RibbonTrimVideo" />
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="StabilizationSettingsButton" x:Uid="VideoStabilizationSettings"
+                                  Icon="Setting"
+                                  AutomationProperties.AutomationId="VideoStabilizationSettings">
+                        <AppBarButton.Flyout>
+                            <Flyout>
+                                <StackPanel Spacing="8">
+                                    <ComboBox x:Name="VideoSmoothnessBox" x:Uid="VideoStabilizationSmoothness"
+                                              SelectedIndex="1" SelectionChanged="OnVideoSmoothnessChanged"
+                                              AutomationProperties.AutomationId="StabilizationSmoothness">
+                                        <ComboBoxItem x:Uid="VideoStabilizationLow" />
+                                        <ComboBoxItem x:Uid="VideoStabilizationMedium" />
+                                        <ComboBoxItem x:Uid="VideoStabilizationHigh" />
+                                    </ComboBox>
+                                    <CheckBox x:Name="VideoAutoCropBox" x:Uid="VideoStabilizationAutoCrop"
+                                              IsChecked="True" Checked="OnVideoEditAudioChanged"
+                                              Unchecked="OnVideoEditAudioChanged"
+                                              AutomationProperties.AutomationId="StabilizationAutoCrop" />
+                                    <CheckBox x:Name="VideoCorrectRotationBox" x:Uid="VideoStabilizationRotation"
+                                              IsChecked="True" Checked="OnVideoEditAudioChanged"
+                                              Unchecked="OnVideoEditAudioChanged"
+                                              AutomationProperties.AutomationId="StabilizationRotation" />
+                                    <CheckBox x:Name="VideoLockFrameBox" x:Uid="VideoStabilizationLockFrame"
+                                              Checked="OnVideoEditAudioChanged" Unchecked="OnVideoEditAudioChanged"
+                                              AutomationProperties.AutomationId="StabilizationLockFrame" />
+                                </StackPanel>
+                            </Flyout>
+                        </AppBarButton.Flyout>
+                    </AppBarButton>
+                </CommandBar.SecondaryCommands>
             </CommandBar>
 
             <!-- ===== Crop sub-mode (replaces ViewerTools when crop is active) ===== -->

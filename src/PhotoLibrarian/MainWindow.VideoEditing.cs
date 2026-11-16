@@ -17,6 +17,10 @@ public sealed partial class MainWindow
     private bool _videoEditSourceWasPlaying;
     private bool _videoEditExitInProgress;
     private string? _videoToolbarSourcePath;
+    private CancellationTokenSource? _videoPreviewDelay;
+    private Task _videoPreviewUpdateTask = Task.CompletedTask;
+    private int _videoOptionsVersion;
+    private bool _videoExporting;
 
     private void BeginVideoEditing()
     {
@@ -26,29 +30,83 @@ public sealed partial class MainWindow
         _videoEditSourcePath = entry.FilePath;
         _videoEditSourcePosition = ViewerOverlay.VideoPosition;
         _videoEditSourceWasPlaying = ViewerOverlay.IsVideoPlaying;
-        ViewerOverlay.PauseVideo();
         ViewerOverlay.SetVideoEditingMode(true);
     }
 
     private async void OnVideoEditOptionsChanged(object? sender, EventArgs args)
     {
-        if (_videoEditCancellation is not null || _videoEditExitInProgress) return;
+        if (_videoExporting || _videoEditExitInProgress) return;
         BeginVideoEditing();
-        bool restoreSource = _videoEditing?.PreviewPath is not null;
-        string? cleanupError = await ReleaseVideoEditPreviewAsync(restoreSource);
-        if (cleanupError is not null)
-            TopRibbon.SetVideoEditState(false, preparing: false, hasPreview: false, progress: 0,
-                VideoEditStrings.Get("VideoEditPreparePrompt"), cleanupError);
+        _videoPreviewDelay?.Cancel();
+        _videoEditCancellation?.Cancel();
+        int version = ++_videoOptionsVersion;
+        var delay = new CancellationTokenSource();
+        _videoPreviewDelay = delay;
+        Task previous = _videoPreviewUpdateTask;
+        var update = UpdateVideoPreviewAsync(previous, version, delay.Token);
+        _videoPreviewUpdateTask = update;
+        try { await update; }
+        finally
+        {
+            if (ReferenceEquals(_videoPreviewDelay, delay)) _videoPreviewDelay = null;
+            if (ReferenceEquals(_videoPreviewUpdateTask, update)) _videoPreviewUpdateTask = Task.CompletedTask;
+            delay.Dispose();
+        }
     }
 
-    private async void OnVideoEditPrepareClicked(object? sender, EventArgs args) =>
-        await StartVideoEditOperationAsync(PrepareVideoEditPreviewAsync);
+    private async Task UpdateVideoPreviewAsync(Task previous, int version, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(350, token);
+            await previous;
+            token.ThrowIfCancellationRequested();
+            if (version != _videoOptionsVersion || _videoEditExitInProgress || _videoEditSourcePath is null)
+                return;
+            if (!TopRibbon.TryGetVideoEditOptions(out _))
+            {
+                string? error = await ReleaseVideoEditPreviewAsync(restoreSource: true);
+                TopRibbon.SetVideoEditState(false, false, false, 0,
+                    VideoEditStrings.Get("VideoEditInvalidTrim"), error);
+                return;
+            }
+            if (!TopRibbon.HasVideoEditChanges)
+            {
+                string? error = await ReleaseVideoEditPreviewAsync(restoreSource: true);
+                TopRibbon.SetVideoEditState(false, false, false, 0,
+                    VideoEditStrings.Get("VideoEditPreparePrompt"), error);
+                return;
+            }
+            await StartVideoEditOperationAsync(PrepareVideoEditPreviewAsync);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded gestures never publish an obsolete preview.
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not update video preview: {ex}");
+            if (version == _videoOptionsVersion)
+                TopRibbon.SetVideoEditState(false, false, false, 0,
+                    VideoEditStrings.Get("VideoEditPreparePrompt"), ex.Message);
+        }
+    }
 
-    private async void OnVideoEditExportClicked(object? sender, EventArgs args) =>
-        await StartVideoEditOperationAsync(ExportVideoEditAsync);
+    private void OnVideoEditPrepareClicked(object? sender, EventArgs args) =>
+        OnVideoEditOptionsChanged(sender, args);
+
+    private async void OnVideoEditExportClicked(object? sender, EventArgs args)
+    {
+        if (_videoPreviewDelay is not null || _videoEditCancellation is not null) return;
+        _videoExporting = true;
+        try { await StartVideoEditOperationAsync(ExportVideoEditAsync); }
+        finally { _videoExporting = false; }
+    }
 
     private async void OnVideoEditCancelClicked(object? sender, EventArgs args)
     {
+        _videoPreviewDelay?.Cancel();
+        ++_videoOptionsVersion;
         if (_videoEditCancellation is { } cancellation)
         {
             TopRibbon.SetVideoEditState(true, preparing: false, hasPreview: TopRibbon.HasVideoEditPreview,
@@ -99,6 +157,11 @@ public sealed partial class MainWindow
     private async Task PrepareVideoEditPreviewAsync(CancellationToken token)
     {
         string sourcePath = _videoEditSourcePath!;
+        if (!TopRibbon.TryGetVideoEditOptions(out var options))
+        {
+            TopRibbon.SetVideoEditState(false, false, false, 0, VideoEditStrings.Get("VideoEditInvalidTrim"));
+            return;
+        }
         TopRibbon.SetVideoEditState(true, preparing: true, hasPreview: false, progress: 0,
             VideoEditStrings.Get("VideoEditPreparing"));
 
@@ -110,7 +173,7 @@ public sealed partial class MainWindow
                 throw new InvalidOperationException(cleanupError);
 
             var editing = await VideoEditingService.CreateAsync(
-                sourcePath, TopRibbon.GetVideoEditOptions(), token);
+                sourcePath, options, token);
             _videoEditing = editing;
             EnsureVideoEditSourceIsCurrent(sourcePath, token);
 
@@ -125,6 +188,7 @@ public sealed partial class MainWindow
             if (editing.PreviewPath is not { } previewPath ||
                 !await ViewerOverlay.ShowVideoEditPreviewAsync(sourcePath, previewPath))
                 throw new InvalidOperationException(VideoEditStrings.Get("VideoEditPreviewOpenFailed"));
+            token.ThrowIfCancellationRequested();
 
             TopRibbon.SetVideoEditState(false, preparing: false, hasPreview: true, progress: 100,
                 VideoEditStrings.Get("VideoEditPreviewReady"));
@@ -241,6 +305,8 @@ public sealed partial class MainWindow
 
     private async Task ExitVideoEditAsync(bool restoreSource)
     {
+        _videoPreviewDelay?.Cancel();
+        ++_videoOptionsVersion;
         if (_videoEditExitInProgress || (_videoEditSourcePath is null && _videoEditing is null)) return;
         _videoEditExitInProgress = true;
         try
@@ -284,8 +350,23 @@ public sealed partial class MainWindow
             return;
 
         _videoToolbarSourcePath = sourcePath;
+        TopRibbon.SetVideoTrimInfo(null);
         await ExitVideoEditAsync(restoreSource: false);
         if (sourcePath is not null && IsCurrentVideoEditSource(sourcePath))
+        {
             TopRibbon.EnterVideoEditMode();
+            try
+            {
+                var info = await new VideoTrimmingService().GetVideoInfoAsync(sourcePath);
+                if (IsCurrentVideoEditSource(sourcePath))
+                    TopRibbon.SetVideoTrimInfo(info);
+            }
+            catch (Exception ex)
+            {
+                DebugLog.WriteLine($"Could not read video trim range: {ex}");
+                if (IsCurrentVideoEditSource(sourcePath))
+                    ViewModel.StatusText = VideoEditStrings.Format("VideoEditInfoFailed", ex.Message);
+            }
+        }
     }
 }

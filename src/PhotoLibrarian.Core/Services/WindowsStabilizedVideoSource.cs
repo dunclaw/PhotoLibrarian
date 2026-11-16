@@ -21,6 +21,9 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
     private readonly int _contrast;
     private readonly int _width;
     private readonly int _height;
+    private readonly long _trimStart;
+    private readonly long _trimEnd;
+    private readonly bool _isTrimming;
     private int _frameIndex;
     private bool _disposed;
 
@@ -30,17 +33,22 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
     public WindowsStabilizedVideoSource(
         string sourcePath, MediaEncodingProfile profile, TimeSpan duration,
         VideoFrameStabilizer? stabilizer, IReadOnlyList<VideoFrameStabilizer.Correction> corrections,
-        CancellationToken cancellationToken, int brightness = 0, int contrast = 100)
+        CancellationToken cancellationToken, int brightness = 0, int contrast = 100,
+        TimeSpan trimStart = default, TimeSpan? trimEnd = null)
     {
         _cancellationToken = cancellationToken;
         _stabilizer = stabilizer;
         _corrections = corrections;
         _brightness = brightness;
         _contrast = contrast;
+        _trimStart = trimStart.Ticks;
+        _trimEnd = trimEnd?.Ticks ?? long.MaxValue;
+        _isTrimming = trimEnd is not null || trimStart != TimeSpan.Zero;
         int width = checked((int)profile.Video.Width), height = checked((int)profile.Video.Height);
         _width = width;
         _height = height;
-        _reader = new MediaFoundationFrameReader(sourcePath, width, height, includeAudio: profile.Audio is not null);
+        _reader = new MediaFoundationFrameReader(sourcePath, width, height,
+            includeAudio: profile.Audio is not null, cancellationToken);
         try
         {
             var video = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Nv12, (uint)width, (uint)height);
@@ -64,7 +72,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                 StreamSource = new MediaStreamSource(videoDescriptor);
             }
             StreamSource.BufferTime = TimeSpan.Zero;
-            StreamSource.Duration = duration;
+            StreamSource.Duration = (trimEnd ?? duration) - trimStart;
             StreamSource.Starting += OnStarting;
             StreamSource.SampleRequested += OnSampleRequested;
         }
@@ -87,17 +95,53 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
             {
                 _cancellationToken.ThrowIfCancellationRequested();
                 bool isVideo = args.Request.StreamDescriptor is VideoStreamDescriptor;
-                if (_reader.Read(isVideo, _cancellationToken) is not { } sample) return;
-
+                DecodedSample sample;
+                VideoFrameStabilizer.Correction correction = default;
+                while (true)
+                {
+                    if (_reader.Read(isVideo, _cancellationToken) is not { } decoded) return;
+                    if (isVideo)
+                    {
+                        if (_corrections.Count > 0)
+                            correction = _corrections[Math.Min(_frameIndex, _corrections.Count - 1)];
+                        _frameIndex++;
+                    }
+                    if (!_isTrimming)
+                    {
+                        sample = decoded;
+                        break;
+                    }
+                    if (decoded.Timestamp >= _trimEnd) return;
+                    if (isVideo)
+                    {
+                        if (decoded.Timestamp < _trimStart) continue;
+                        sample = decoded with
+                        {
+                            Timestamp = decoded.Timestamp - _trimStart,
+                            Duration = Math.Min(decoded.Duration, _trimEnd - decoded.Timestamp)
+                        };
+                    }
+                    else
+                    {
+                        int blockSize = checked((int)_reader.AudioChannels * 2);
+                        int sampleCount = decoded.Data.Length / blockSize;
+                        double ticksPerSample = (double)TimeSpan.TicksPerSecond / _reader.AudioRate;
+                        int first = (int)Math.Clamp(Math.Ceiling((_trimStart - decoded.Timestamp) / ticksPerSample),
+                            0, sampleCount);
+                        int last = (int)Math.Clamp(Math.Ceiling((_trimEnd - decoded.Timestamp) / ticksPerSample),
+                            0, sampleCount);
+                        if (last <= first) continue;
+                        byte[] audio = first == 0 && last == sampleCount
+                            ? decoded.Data : decoded.Data.AsSpan(first * blockSize, (last - first) * blockSize).ToArray();
+                        sample = new DecodedSample(audio,
+                            Math.Max(0, decoded.Timestamp + (long)Math.Round(first * ticksPerSample) - _trimStart),
+                            (long)Math.Round((last - first) * ticksPerSample));
+                    }
+                    break;
+                }
                 byte[] data = sample.Data;
                 if (isVideo && _stabilizer is not null)
                 {
-                    // The analysis pass decodes the same frames in the same order; any extra frame
-                    // beyond the plan (not expected) reuses the last planned correction.
-                    var correction = _corrections.Count == 0
-                        ? default
-                        : _corrections[Math.Min(_frameIndex, _corrections.Count - 1)];
-                    _frameIndex++;
                     data = _stabilizer.Render(data, correction, _cancellationToken);
                 }
                 if (isVideo && (_brightness != 0 || _contrast != 100))

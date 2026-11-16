@@ -39,8 +39,6 @@ public sealed partial class ImageViewerOverlay : UserControl
     private Point _redEyeStart;
     private VideoPlaybackSource? _videoSource;
     private int _playbackVersion;
-    private bool _isStabilizationOpen;
-    private bool _isVideoTrimOpen;
     private bool _isVideoEditing;
     private CancellationTokenSource? _gifCancellation;
     private WriteableBitmap? _gifBitmap;
@@ -649,74 +647,6 @@ public sealed partial class ImageViewerOverlay : UserControl
             !string.Equals(viewModel.VideoPath, path, StringComparison.OrdinalIgnoreCase))
             return Task.CompletedTask;
         return PlayVideoAsync(path, position, shouldPlay: shouldPlay);
-    }
-
-    public async Task StabilizeVideoAsync()
-    {
-        if (_isStabilizationOpen || ViewModel?.CurrentEntry is not { MediaType: MediaType.Video } entry) return;
-        _isStabilizationOpen = true;
-        try
-        {
-            PauseVideo();
-            var dialog = new VideoStabilizationDialog(entry.FilePath) { XamlRoot = XamlRoot };
-            await dialog.ShowAsync();
-            if (dialog.ExportedPath is { } exportedPath)
-            {
-                try
-                {
-                    await App.ViewModel!.OpenStabilizedVideoAsync(exportedPath);
-                }
-                catch (Exception ex)
-                {
-                    DebugLog.WriteLine($"Could not add stabilized copy to the library: {ex}");
-                    App.ViewModel!.StatusText =
-                        $"Saved stabilized copy at {exportedPath}, but could not show it in the library: {ex.Message}";
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            DebugLog.WriteLine($"Could not open video stabilization: {ex}");
-            if (App.ViewModel is { } main) main.StatusText = $"Could not open video stabilization: {ex.Message}";
-        }
-        finally
-        {
-            _isStabilizationOpen = false;
-        }
-    }
-
-    public async Task TrimVideoAsync()
-    {
-        if (_isVideoTrimOpen || ViewModel?.CurrentEntry is not { MediaType: MediaType.Video } entry) return;
-        _isVideoTrimOpen = true;
-        try
-        {
-            PauseVideo();
-            var dialog = new VideoTrimDialog(entry.FilePath) { XamlRoot = XamlRoot };
-            await dialog.ShowAsync();
-            if (dialog.ExportedPath is { } exportedPath)
-            {
-                try
-                {
-                    await App.ViewModel!.OpenTrimmedVideoAsync(exportedPath);
-                }
-                catch (Exception ex)
-                {
-                    DebugLog.WriteLine($"Could not add trimmed copy to the library: {ex}");
-                    App.ViewModel!.StatusText =
-                        $"Saved trimmed copy at {exportedPath}, but could not show it in the library: {ex.Message}";
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            DebugLog.WriteLine($"Could not open video trim: {ex}");
-            if (App.ViewModel is { } main) main.StatusText = $"Could not open video trim: {ex.Message}";
-        }
-        finally
-        {
-            _isVideoTrimOpen = false;
-        }
     }
 
     private void StopVideo()

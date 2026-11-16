@@ -87,15 +87,16 @@ public sealed class VideoWorkflowTests
         Assert.Null(videoTools.Attribute("Grid.Row"));
         Assert.Equal("3", (string?)videoTools.Attribute("Grid.ColumnSpan"));
         Assert.Equal("True", (string?)videoTools.Attribute("IsDynamicOverflowEnabled"));
+        Assert.Equal("Left", (string?)videoTools.Attribute("HorizontalAlignment"));
         Assert.Empty(videoTools.Parent!.Elements(presentation + "Grid.RowDefinitions"));
         Assert.Equal("64", (string?)videoTools.Parent.Attribute("MinHeight"));
         var buttons = videoTools.Descendants().Where(element => element.Name.LocalName == "AppBarButton").ToList();
-        var stabilize = Assert.Single(buttons.Where(button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick"));
-        Assert.Equal("OnStabilizeVideoClick", (string?)stabilize.Attribute("Click"));
         Assert.DoesNotContain(ribbon.Descendants(), element =>
             (string?)element.Attribute("AutomationProperties.AutomationId") == "RibbonEditVideo");
-        Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick");
-        Assert.Contains(buttons, button => (string?)button.Attribute("Click") == "OnTrimVideoClick");
+        Assert.Contains(videoTools.Descendants(presentation + "AppBarToggleButton"), button =>
+            (string?)button.Attribute("AutomationProperties.AutomationId") == "RibbonStabilizeVideo");
+        Assert.Contains(videoTools.Descendants(presentation + "AppBarToggleButton"), button =>
+            (string?)button.Attribute("AutomationProperties.AutomationId") == "RibbonTrimVideo");
 
         var editTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoEditTools");
         var editControls = editTools.Descendants()
@@ -137,24 +138,18 @@ public sealed class VideoWorkflowTests
         Assert.Contains("editing.ExportAsync(destinationPath, token)", editWorkflow);
         Assert.Contains("VideoEditPreviewOpenFailed", editWorkflow);
 
-        var dialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoStabilizationDialog.xaml"));
-        var checkBoxes = dialog.Descendants(presentation + "CheckBox")
+        var checkBoxes = videoTools.Descendants(presentation + "CheckBox")
             .ToDictionary(element => (string?)element.Attribute("AutomationProperties.AutomationId") ?? "");
         Assert.Equal("True", (string?)checkBoxes["StabilizationAutoCrop"].Attribute("IsChecked"));
         Assert.Equal("True", (string?)checkBoxes["StabilizationRotation"].Attribute("IsChecked"));
         Assert.Null(checkBoxes["StabilizationLockFrame"].Attribute("IsChecked"));
-        var smoothness = Assert.Single(dialog.Descendants(presentation + "ComboBox"));
+        var smoothness = Assert.Single(videoTools.Descendants(presentation + "ComboBox"));
         Assert.Equal("StabilizationSmoothness", (string?)smoothness.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("1", (string?)smoothness.Attribute("SelectedIndex"));
 
-        var trimDialog = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "VideoTrimDialog.xaml"));
-        Assert.Contains(trimDialog.Descendants(), element =>
-            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimStartSlider");
-        Assert.Contains(trimDialog.Descendants(), element =>
-            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimEndSlider");
-        Assert.Contains(trimDialog.Descendants(), element =>
+        Assert.Contains(content.Descendants(), element =>
             (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimStartSeconds");
-        Assert.Contains(trimDialog.Descendants(), element =>
+        Assert.Contains(content.Descendants(), element =>
             (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoTrimEndSeconds");
     }
 
@@ -173,6 +168,13 @@ public sealed class VideoWorkflowTests
         Assert.Contains("TopRibbon.VideoEditStatusChanged +=", windowCode);
         var workflow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.VideoEditing.cs"));
         Assert.DoesNotContain("VideoEditDialog", workflow);
+        Assert.DoesNotContain("VideoTrimDialog", File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml.cs")));
+        Assert.DoesNotContain("VideoStabilizationDialog", File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml.cs")));
+        Assert.Contains("await Task.Delay(350, token)", workflow);
+        Assert.Contains("_videoEditCancellation?.Cancel()", workflow);
+        Assert.Contains("await previous", workflow);
         Assert.Contains("UpdateVideoToolbarAsync", windowCode);
         var ribbonCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml.cs"));
         Assert.Contains("if (isVideo && _hasPhoto && !_editorActive && !_videoEditActive)", ribbonCode);

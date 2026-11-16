@@ -460,8 +460,6 @@ public sealed partial class MainWindow : Window
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.SlideshowThemeChanged += (_, theme) => _slideshowTheme = theme;
-        TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
-        TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;

@@ -27,6 +27,7 @@ public sealed partial class TopRibbon : UserControl
     private bool _videoEditPreviewReady;
     private string _videoEditStatus = "";
     private int _videoRotationQuarterTurns;
+    private VideoTrimInfo? _videoTrimInfo;
     private bool _quickEditsAvailable;
     private Button? _historyFocus;
     public event EventHandler? CropClicked;
@@ -43,14 +44,12 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? RedEyeClicked;
     public event EventHandler? SlideshowClicked;
     public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
-    public event EventHandler? StabilizeVideoClicked;
     public event EventHandler? PhotoFuseClicked;
     public event EventHandler? VideoEditOptionsChanged;
     public event EventHandler? VideoEditPrepareClicked;
     public event EventHandler? VideoEditExportClicked;
     public event EventHandler? VideoEditCancelClicked;
     public event EventHandler<string>? VideoEditStatusChanged;
-    public event EventHandler? TrimVideoClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
     public event EventHandler? ApplyStraightenClicked;
@@ -139,6 +138,14 @@ public sealed partial class TopRibbon : UserControl
         BrightnessSlider.Value = 0;
         ContrastSlider.Value = 100;
         RemoveAudioBox.IsChecked = false;
+        StabilizeVideoButton.IsChecked = false;
+        TrimVideoButton.IsChecked = false;
+        VideoTrimControls.Visibility = Visibility.Collapsed;
+        if (_videoTrimInfo is { } info)
+        {
+            VideoTrimStartSeconds.Value = 0;
+            VideoTrimEndSeconds.Value = info.Duration.TotalSeconds;
+        }
         _syncingVideoEditOptions = false;
         UpdateVideoEditLabels();
         SetVideoMode(_isVideo);
@@ -154,9 +161,41 @@ public sealed partial class TopRibbon : UserControl
         SetVideoMode(_isVideo);
     }
 
-    public VideoEditOptions GetVideoEditOptions() =>
-        new(_videoRotationQuarterTurns, RemoveAudioBox.IsChecked == true,
-            (int)BrightnessSlider.Value, (int)ContrastSlider.Value);
+    public void SetVideoTrimInfo(VideoTrimInfo? info)
+    {
+        _syncingVideoEditOptions = true;
+        _videoTrimInfo = info;
+        TrimVideoButton.IsEnabled = info is not null;
+        if (info is { } video)
+        {
+            VideoTrimStartSeconds.Maximum = video.Duration.TotalSeconds;
+            VideoTrimEndSeconds.Maximum = video.Duration.TotalSeconds;
+            VideoTrimStartSeconds.SmallChange = VideoTrimEndSeconds.SmallChange = 1 / video.FramesPerSecond;
+            VideoTrimStartSeconds.Value = 0;
+            VideoTrimEndSeconds.Value = video.Duration.TotalSeconds;
+        }
+        _syncingVideoEditOptions = false;
+    }
+
+    public bool TryGetVideoEditOptions(out VideoEditOptions options)
+    {
+        StabilizationOptions? stabilization = StabilizeVideoButton.IsChecked == true
+            ? new(VideoAutoCropBox.IsChecked == true,
+                (StabilizationSmoothness)Math.Clamp(VideoSmoothnessBox.SelectedIndex, 0, 2),
+                VideoCorrectRotationBox.IsChecked == true, VideoLockFrameBox.IsChecked == true)
+            : null;
+        options = new(_videoRotationQuarterTurns, RemoveAudioBox.IsChecked == true,
+            (int)BrightnessSlider.Value, (int)ContrastSlider.Value, stabilization);
+        if (TrimVideoButton.IsChecked != true) return true;
+        double start = VideoTrimStartSeconds.Value;
+        double end = VideoTrimEndSeconds.Value;
+        if (_videoTrimInfo is not { } info || !double.IsFinite(start) || !double.IsFinite(end) ||
+            start < 0 || end > info.Duration.TotalSeconds ||
+            end - start < 1 / info.FramesPerSecond - 0.0000001)
+            return false;
+        options = options with { TrimStart = TimeSpan.FromSeconds(start), TrimEnd = TimeSpan.FromSeconds(end) };
+        return true;
+    }
 
     public void SetVideoEditState(
         bool busy, bool preparing, bool hasPreview, double progress, string status, string? error = null)
@@ -164,14 +203,23 @@ public sealed partial class TopRibbon : UserControl
         if (!_videoEditActive) return;
         _videoEditBusy = busy;
         _videoEditPreviewReady = hasPreview;
-        SetVideoDerivativeCommandsEnabled(!busy && !HasVideoEditChanges());
-        BrightnessSlider.IsEnabled = !busy;
-        ContrastSlider.IsEnabled = !busy;
-        RotateVideoLeftButton.IsEnabled = !busy;
-        ResetRotationButton.IsEnabled = !busy;
-        RotateVideoRightButton.IsEnabled = !busy;
-        RemoveAudioBox.IsEnabled = !busy;
-        PrepareVideoEditButton.IsEnabled = !busy && HasVideoEditChanges();
+        bool editable = !busy || preparing;
+        StabilizeVideoButton.IsEnabled = editable;
+        StabilizationSettingsButton.IsEnabled = editable;
+        VideoSmoothnessBox.IsEnabled = editable && VideoLockFrameBox.IsChecked != true;
+        VideoAutoCropBox.IsEnabled = editable;
+        VideoCorrectRotationBox.IsEnabled = editable;
+        VideoLockFrameBox.IsEnabled = editable;
+        TrimVideoButton.IsEnabled = editable && _videoTrimInfo is not null;
+        VideoTrimStartSeconds.IsEnabled = editable;
+        VideoTrimEndSeconds.IsEnabled = editable;
+        BrightnessSlider.IsEnabled = editable;
+        ContrastSlider.IsEnabled = editable;
+        RotateVideoLeftButton.IsEnabled = editable;
+        ResetRotationButton.IsEnabled = editable;
+        RotateVideoRightButton.IsEnabled = editable;
+        RemoveAudioBox.IsEnabled = editable;
+        PrepareVideoEditButton.IsEnabled = !busy && HasVideoEditChanges && TryGetVideoEditOptions(out _);
         ExportVideoEditButton.IsEnabled = !busy && hasPreview;
         CancelVideoEditButton.IsEnabled = true;
         string exitLabel = VideoEditStrings.Get("VideoEditReset");
@@ -197,9 +245,23 @@ public sealed partial class TopRibbon : UserControl
             VideoEditStrings.Format("VideoEditProgressStatus", _videoEditStatus, value));
     }
 
-    private bool HasVideoEditChanges() =>
+    public bool HasVideoEditChanges =>
         _videoRotationQuarterTurns != 0 || RemoveAudioBox.IsChecked == true ||
-        BrightnessSlider.Value != 0 || ContrastSlider.Value != 100;
+        BrightnessSlider.Value != 0 || ContrastSlider.Value != 100 ||
+        StabilizeVideoButton.IsChecked == true || TrimVideoButton.IsChecked == true;
+
+    private void OnVideoTrimChanged(object sender, RoutedEventArgs args)
+    {
+        if (!_videoEditActive || _syncingVideoEditOptions) return;
+        VideoTrimControls.Visibility = TrimVideoButton.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        NotifyVideoEditOptionsChanged();
+    }
+
+    private void OnVideoTrimSecondsChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
+        NotifyVideoEditOptionsChanged();
+
+    private void OnVideoSmoothnessChanged(object sender, SelectionChangedEventArgs args) =>
+        NotifyVideoEditOptionsChanged();
 
     private void OnVideoEditSliderChanged(object sender, RangeBaseValueChangedEventArgs args) =>
         NotifyVideoEditOptionsChanged();
@@ -248,18 +310,12 @@ public sealed partial class TopRibbon : UserControl
         UpdateVideoEditLabels();
         _videoEditPreviewReady = false;
         ExportVideoEditButton.IsEnabled = false;
-        PrepareVideoEditButton.IsEnabled = !_videoEditBusy && HasVideoEditChanges();
-        _videoEditStatus = VideoEditStrings.Get("VideoEditPreparePrompt");
+        bool valid = TryGetVideoEditOptions(out _);
+        PrepareVideoEditButton.IsEnabled = !_videoEditBusy && HasVideoEditChanges && valid;
+        _videoEditStatus = VideoEditStrings.Get(valid ? "VideoEditUpdating" : "VideoEditInvalidTrim");
         ToolTipService.SetToolTip(VideoEditTools, _videoEditStatus);
         VideoEditStatusChanged?.Invoke(this, _videoEditStatus);
-        SetVideoDerivativeCommandsEnabled(!HasVideoEditChanges());
         VideoEditOptionsChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void SetVideoDerivativeCommandsEnabled(bool enabled)
-    {
-        StabilizeVideoButton.IsEnabled = enabled;
-        TrimVideoButton.IsEnabled = enabled;
     }
 
     public void SetPhotoFuseMode(bool active)
@@ -407,16 +463,12 @@ public sealed partial class TopRibbon : UserControl
         SlideshowTheme.Sepia => "Sepia",
         _ => throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown slideshow theme.")
     };
-    private void OnStabilizeVideoClick(object sender, RoutedEventArgs e) =>
-        StabilizeVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnVideoEditPrepareClick(object sender, RoutedEventArgs e) =>
         VideoEditPrepareClicked?.Invoke(this, EventArgs.Empty);
     private void OnVideoEditExportClick(object sender, RoutedEventArgs e) =>
         VideoEditExportClicked?.Invoke(this, EventArgs.Empty);
     private void OnVideoEditCancelClick(object sender, RoutedEventArgs e) =>
         VideoEditCancelClicked?.Invoke(this, EventArgs.Empty);
-    private void OnTrimVideoClick(object sender, RoutedEventArgs e) =>
-        TrimVideoClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyCropClick(object sender, RoutedEventArgs e) => ApplyCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnCancelCropClick(object sender, RoutedEventArgs e) => CancelCropClicked?.Invoke(this, EventArgs.Empty);
     private void OnApplyStraightenClick(object sender, RoutedEventArgs e) =>
