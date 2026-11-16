@@ -82,8 +82,14 @@ public sealed class VideoWorkflowTests
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
         XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         var ribbon = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml"));
-        var videoTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoTools");
-        var buttons = videoTools.Descendants().Where(element => element.Name.LocalName == "Button").ToList();
+        var videoTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoEditTools");
+        Assert.Equal(presentation + "CommandBar", videoTools.Name);
+        Assert.Null(videoTools.Attribute("Grid.Row"));
+        Assert.Equal("3", (string?)videoTools.Attribute("Grid.ColumnSpan"));
+        Assert.Equal("True", (string?)videoTools.Attribute("IsDynamicOverflowEnabled"));
+        Assert.Empty(videoTools.Parent!.Elements(presentation + "Grid.RowDefinitions"));
+        Assert.Equal("64", (string?)videoTools.Parent.Attribute("MinHeight"));
+        var buttons = videoTools.Descendants().Where(element => element.Name.LocalName == "AppBarButton").ToList();
         var stabilize = Assert.Single(buttons.Where(button => (string?)button.Attribute("Click") == "OnStabilizeVideoClick"));
         Assert.Equal("OnStabilizeVideoClick", (string?)stabilize.Attribute("Click"));
         Assert.DoesNotContain(ribbon.Descendants(), element =>
@@ -93,7 +99,7 @@ public sealed class VideoWorkflowTests
 
         var editTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoEditTools");
         var editControls = editTools.Descendants()
-            .Where(element => element.Name.LocalName is "Button" or "CheckBox" or "Slider").ToList();
+            .Where(element => element.Name.LocalName is "AppBarButton" or "AppBarToggleButton" or "Slider").ToList();
         var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"))
             .Descendants("data").Select(element => (string)element.Attribute("name")!).ToHashSet();
         foreach (var control in editControls)
@@ -101,6 +107,11 @@ public sealed class VideoWorkflowTests
             Assert.False(string.IsNullOrWhiteSpace((string?)control.Attribute("AutomationProperties.AutomationId")));
             string uid = (string)control.Attribute(x + "Uid")!;
             Assert.Contains(resources, key => key.StartsWith(uid + ".", StringComparison.Ordinal));
+            if (control.Name.LocalName is "AppBarButton" or "AppBarToggleButton")
+            {
+                Assert.Contains(uid + ".Label", resources);
+                Assert.DoesNotContain(uid + ".Content", resources);
+            }
         }
         Assert.Contains(editTools.Descendants(), element =>
             (string?)element.Attribute("Click") == "OnVideoRotateLeftClick");
@@ -108,11 +119,13 @@ public sealed class VideoWorkflowTests
             (string?)element.Attribute("Click") == "OnVideoRotateRightClick");
         Assert.Contains(editTools.Descendants(), element =>
             (string?)element.Attribute("Click") == "OnVideoResetRotationClick");
-        var options = editTools.Descendants().Single(element =>
-            (string?)element.Attribute(x + "Name") == "VideoEditOptionsPanel");
-        var optionControls = options.Elements(presentation + "StackPanel").Single();
-        Assert.DoesNotContain(optionControls.Descendants(), element =>
+        var content = videoTools.Element(presentation + "CommandBar.Content")!;
+        Assert.DoesNotContain(content.Descendants(), element =>
             (string?)element.Attribute(x + "Name") == "CancelVideoEditButton");
+        Assert.Equal(2, content.Descendants(presentation + "Slider").Count());
+        Assert.Single(editTools.Descendants(presentation + "ProgressRing"));
+        Assert.DoesNotContain(editTools.Descendants(), element =>
+            element.Name.LocalName is "InfoBar" or "Grid.RowDefinitions");
 
         var viewer = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
         Assert.DoesNotContain(viewer.Descendants(), element => (string?)element.Attribute("Click") == "OnStabilizeVideo");
@@ -157,6 +170,7 @@ public sealed class VideoWorkflowTests
         Assert.Contains("TopRibbon.VideoEditPrepareClicked += OnVideoEditPrepareClicked", windowCode);
         Assert.Contains("TopRibbon.VideoEditExportClicked += OnVideoEditExportClicked", windowCode);
         Assert.Contains("TopRibbon.VideoEditCancelClicked += OnVideoEditCancelClicked", windowCode);
+        Assert.Contains("TopRibbon.VideoEditStatusChanged +=", windowCode);
         var workflow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.VideoEditing.cs"));
         Assert.DoesNotContain("VideoEditDialog", workflow);
         Assert.Contains("UpdateVideoToolbarAsync", windowCode);

@@ -25,6 +25,7 @@ public sealed partial class TopRibbon : UserControl
     private bool _syncingVideoEditOptions;
     private bool _videoEditBusy;
     private bool _videoEditPreviewReady;
+    private string _videoEditStatus = "";
     private int _videoRotationQuarterTurns;
     private bool _quickEditsAvailable;
     private Button? _historyFocus;
@@ -48,6 +49,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler? VideoEditPrepareClicked;
     public event EventHandler? VideoEditExportClicked;
     public event EventHandler? VideoEditCancelClicked;
+    public event EventHandler<string>? VideoEditStatusChanged;
     public event EventHandler? TrimVideoClicked;
     public event EventHandler? ApplyCropClicked;
     public event EventHandler? CancelCropClicked;
@@ -120,8 +122,8 @@ public sealed partial class TopRibbon : UserControl
         if (!isVideo)
             _videoEditActive = false;
         ViewerTools.Visibility = _hasPhoto && !_editorActive && !isVideo ? Visibility.Visible : Visibility.Collapsed;
-        VideoTools.Visibility = _hasPhoto && !_editorActive && isVideo
-            ? Visibility.Visible : Visibility.Collapsed;
+        HistoryTools.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
+        ContextTools.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
         VideoEditTools.Visibility = _hasPhoto && !_editorActive && isVideo
             ? Visibility.Visible : Visibility.Collapsed;
         CropTools.Visibility = Visibility.Collapsed;
@@ -173,20 +175,27 @@ public sealed partial class TopRibbon : UserControl
         ExportVideoEditButton.IsEnabled = !busy && hasPreview;
         CancelVideoEditButton.IsEnabled = true;
         string exitLabel = VideoEditStrings.Get("VideoEditReset");
-        CancelVideoEditButton.Content = busy ? VideoEditStrings.Get("VideoEditCancel") : exitLabel;
-        AutomationProperties.SetName(CancelVideoEditButton, CancelVideoEditButton.Content?.ToString() ?? "");
-        VideoEditProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-        VideoEditProgressBar.IsIndeterminate = busy && !preparing;
-        VideoEditProgressBar.Value = Math.Clamp(progress, 0, 100);
-        VideoEditStatusText.Text = status;
-        VideoEditErrorBar.Message = error ?? "";
-        VideoEditErrorBar.IsOpen = error is not null;
+        CancelVideoEditButton.Label = busy ? VideoEditStrings.Get("VideoEditCancel") : exitLabel;
+        AutomationProperties.SetName(CancelVideoEditButton, CancelVideoEditButton.Label);
+        VideoEditProgressRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        VideoEditProgressRing.IsActive = busy;
+        _videoEditStatus = error is null
+            ? status : VideoEditStrings.Format("VideoEditErrorStatus", error, status);
+        ToolTipService.SetToolTip(VideoEditTools, _videoEditStatus);
+        if (busy && preparing)
+            SetVideoEditProgress(progress);
+        else
+            VideoEditStatusChanged?.Invoke(this, _videoEditStatus);
     }
 
     public bool HasVideoEditPreview => _videoEditPreviewReady;
 
-    public void SetVideoEditProgress(double progress) =>
-        VideoEditProgressBar.Value = Math.Clamp(progress, 0, 100);
+    public void SetVideoEditProgress(double progress)
+    {
+        string value = (Math.Clamp(progress, 0, 100) / 100).ToString("P0", CultureInfo.CurrentCulture);
+        VideoEditStatusChanged?.Invoke(this,
+            VideoEditStrings.Format("VideoEditProgressStatus", _videoEditStatus, value));
+    }
 
     private bool HasVideoEditChanges() =>
         _videoRotationQuarterTurns != 0 || RemoveAudioBox.IsChecked == true ||
@@ -226,7 +235,7 @@ public sealed partial class TopRibbon : UserControl
         ContrastValue.Text = ((int)ContrastSlider.Value).ToString("0", culture) +
             culture.NumberFormat.PercentSymbol;
         int rotationDegrees = _videoRotationQuarterTurns * 90;
-        ResetRotationButton.Content = rotationDegrees.ToString(culture) + "°";
+        ResetRotationButton.Label = rotationDegrees.ToString(culture) + "°";
         AutomationProperties.SetName(ResetRotationButton,
             VideoEditStrings.Format(
                 "VideoEditRotationStatus",
@@ -240,16 +249,17 @@ public sealed partial class TopRibbon : UserControl
         _videoEditPreviewReady = false;
         ExportVideoEditButton.IsEnabled = false;
         PrepareVideoEditButton.IsEnabled = !_videoEditBusy && HasVideoEditChanges();
-        VideoEditErrorBar.IsOpen = false;
-        VideoEditStatusText.Text = VideoEditStrings.Get("VideoEditPreparePrompt");
+        _videoEditStatus = VideoEditStrings.Get("VideoEditPreparePrompt");
+        ToolTipService.SetToolTip(VideoEditTools, _videoEditStatus);
+        VideoEditStatusChanged?.Invoke(this, _videoEditStatus);
         SetVideoDerivativeCommandsEnabled(!HasVideoEditChanges());
         VideoEditOptionsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void SetVideoDerivativeCommandsEnabled(bool enabled)
     {
-        foreach (var button in VideoTools.Children.OfType<Button>())
-            button.IsEnabled = enabled;
+        StabilizeVideoButton.IsEnabled = enabled;
+        TrimVideoButton.IsEnabled = enabled;
     }
 
     public void SetPhotoFuseMode(bool active)

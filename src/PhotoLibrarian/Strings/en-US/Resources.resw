@@ -497,20 +497,24 @@ Backup: {3}
   <data name="FuseFailed" xml:space="preserve"><value>Photo Fuse failed: {0}</value></data>
   <data name="FuseIndexFailed" xml:space="preserve"><value>Photo Fuse copy saved at {0}, but could not be added to the library: {1}</value></data>
   <data name="VideoEditRotationLabel.Text" xml:space="preserve"><value>Rotation</value></data>
-  <data name="VideoEditRotateLeft.Content" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="VideoEditRotateLeft.Label" xml:space="preserve"><value>Rotate left</value></data>
   <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees counterclockwise</value></data>
-  <data name="VideoEditResetRotation.Content" xml:space="preserve"><value>0°</value></data>
+  <data name="VideoEditResetRotation.Label" xml:space="preserve"><value>0°</value></data>
   <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
-  <data name="VideoEditRotateRight.Content" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="VideoEditRotateRight.Label" xml:space="preserve"><value>Rotate right</value></data>
   <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees clockwise</value></data>
-  <data name="VideoEditRemoveAudio.Content" xml:space="preserve"><value>Remove audio track</value></data>
-  <data name="VideoEditBrightnessLabel.Text" xml:space="preserve"><value>Brightness (-100 to 100)</value></data>
+  <data name="VideoEditRemoveAudio.Label" xml:space="preserve"><value>Remove audio</value></data>
+  <data name="VideoEditBrightnessLabel.Text" xml:space="preserve"><value>Brightness</value></data>
   <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video brightness</value></data>
-  <data name="VideoEditContrastLabel.Text" xml:space="preserve"><value>Contrast (0-200%)</value></data>
+  <data name="VideoEditContrastLabel.Text" xml:space="preserve"><value>Contrast</value></data>
   <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video contrast</value></data>
-  <data name="VideoEditPrepare.Content" xml:space="preserve"><value>Prepare preview</value></data>
-  <data name="VideoEditExport.Content" xml:space="preserve"><value>Export copy</value></data>
-  <data name="VideoEditExit.Content" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditPrepare.Label" xml:space="preserve"><value>Prepare preview</value></data>
+  <data name="VideoEditExport.Label" xml:space="preserve"><value>Export copy</value></data>
+  <data name="VideoEditExit.Label" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditStabilize.Label" xml:space="preserve"><value>Stabilize</value></data>
+  <data name="VideoEditTrim.Label" xml:space="preserve"><value>Trim</value></data>
+  <data name="VideoEditProgressStatus" xml:space="preserve"><value>{0} {1}</value></data>
+  <data name="VideoEditErrorStatus" xml:space="preserve"><value>{0} — {1}</value></data>
   <data name="VideoEditReset" xml:space="preserve"><value>Reset edits</value></data>
   <data name="VideoEditRotationStatus" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
   <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Adjust brightness, contrast, rotation, or audio, then prepare the preview before saving.</value></data>

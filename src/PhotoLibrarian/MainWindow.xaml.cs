@@ -455,6 +455,7 @@ public sealed partial class MainWindow : Window
         TopRibbon.VideoEditPrepareClicked += OnVideoEditPrepareClicked;
         TopRibbon.VideoEditExportClicked += OnVideoEditExportClicked;
         TopRibbon.VideoEditCancelClicked += OnVideoEditCancelClicked;
+        TopRibbon.VideoEditStatusChanged += (_, status) => ViewModel.StatusText = status;
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);

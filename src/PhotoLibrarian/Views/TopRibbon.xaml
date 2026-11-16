@@ -34,10 +34,6 @@
             BorderThickness="0,0,0,1"
             Background="{ThemeResource LayerFillColorDefaultBrush}">
         <Grid Padding="8,0" MinHeight="64" ColumnSpacing="8" RowSpacing="0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -45,7 +41,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- ===== Viewer mode (default) ===== -->
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <StackPanel x:Name="HistoryTools" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="UndoButton" x:Uid="RibbonUndoButton" Click="OnUndoClick"
                         Style="{StaticResource RibbonCommandStyle}" IsEnabled="False"
                         AutomationProperties.AutomationId="RibbonUndo">
@@ -221,134 +217,74 @@
                 </SplitButton>
             </StackPanel>
 
-            <StackPanel x:Name="VideoTools" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+            <CommandBar x:Name="VideoEditTools" Grid.ColumnSpan="3"
+                        AutomationProperties.AutomationId="VideoEditToolbar"
+                        Background="Transparent" DefaultLabelPosition="Right"
+                        IsDynamicOverflowEnabled="True" MinHeight="64"
                         Visibility="Collapsed">
-                <Button Click="OnStabilizeVideoClick"
-                        Style="{StaticResource RibbonCommandStyle}"
-                        AutomationProperties.AutomationId="RibbonStabilizeVideo"
-                        AutomationProperties.Name="Stabilize video"
-                        ToolTipService.ToolTip="Export a stabilized copy of this video">
-                    <StackPanel Spacing="4">
-                        <FontIcon Glyph="&#xE714;" Style="{StaticResource RibbonIconStyle}" />
-                        <TextBlock Text="Stabilize" Style="{StaticResource RibbonCaptionStyle}" />
-                    </StackPanel>
-                </Button>
-                <Button Click="OnTrimVideoClick"
-                        Style="{StaticResource RibbonCommandStyle}"
-                        AutomationProperties.AutomationId="RibbonTrimVideo"
-                        x:Uid="RibbonTrimVideo">
-                    <StackPanel Spacing="4">
-                        <FontIcon Glyph="&#xE7C3;" Style="{StaticResource RibbonIconStyle}" />
-                        <TextBlock x:Uid="RibbonTrimVideoLabel"
-                                   Style="{StaticResource RibbonCaptionStyle}" />
-                    </StackPanel>
-                </Button>
-            </StackPanel>
-
-            <Border x:Name="VideoEditTools" Grid.Row="1" Grid.ColumnSpan="3"
-                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                    BorderThickness="0,1,0,0"
-                    Background="{ThemeResource LayerFillColorDefaultBrush}"
-                    Padding="12,8"
-                    Visibility="Collapsed">
-                <Grid RowSpacing="4">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid x:Name="VideoEditOptionsPanel" ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                        <StackPanel Spacing="4" VerticalAlignment="Center">
-                            <TextBlock x:Uid="VideoEditBrightnessLabel"
-                                       Style="{StaticResource CaptionTextBlockStyle}" />
-                            <Grid Width="192" ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Slider x:Name="BrightnessSlider" x:Uid="VideoEditBrightnessSlider"
-                                        Minimum="-100" Maximum="100" StepFrequency="1" SmallChange="1"
-                                        Value="0" ValueChanged="OnVideoEditSliderChanged"
-                                        AutomationProperties.AutomationId="VideoEditBrightness" />
-                                <TextBlock x:Name="BrightnessValue" Grid.Column="1"
-                                           VerticalAlignment="Center" MinWidth="32" />
+                <CommandBar.Content>
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="4,0,12,0"
+                                VerticalAlignment="Center">
+                        <StackPanel Width="160">
+                            <Grid>
+                                <TextBlock x:Uid="VideoEditBrightnessLabel"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="BrightnessValue" HorizontalAlignment="Right"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
                             </Grid>
+                            <Slider x:Name="BrightnessSlider" x:Uid="VideoEditBrightnessSlider"
+                                    Minimum="-100" Maximum="100" StepFrequency="1" SmallChange="1"
+                                    Value="0" ValueChanged="OnVideoEditSliderChanged"
+                                    AutomationProperties.AutomationId="VideoEditBrightness" />
                         </StackPanel>
-                        <StackPanel Spacing="4" VerticalAlignment="Center">
-                            <TextBlock x:Uid="VideoEditContrastLabel"
-                                       Style="{StaticResource CaptionTextBlockStyle}" />
-                            <Grid Width="192" ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Slider x:Name="ContrastSlider" x:Uid="VideoEditContrastSlider"
-                                        Minimum="0" Maximum="200" StepFrequency="1" SmallChange="1"
-                                        Value="100" ValueChanged="OnVideoEditSliderChanged"
-                                        AutomationProperties.AutomationId="VideoEditContrast" />
-                                <TextBlock x:Name="ContrastValue" Grid.Column="1"
-                                           VerticalAlignment="Center" MinWidth="40" />
+                        <StackPanel Width="160">
+                            <Grid>
+                                <TextBlock x:Uid="VideoEditContrastLabel"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                                <TextBlock x:Name="ContrastValue" HorizontalAlignment="Right"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
                             </Grid>
+                            <Slider x:Name="ContrastSlider" x:Uid="VideoEditContrastSlider"
+                                    Minimum="0" Maximum="200" StepFrequency="1" SmallChange="1"
+                                    Value="100" ValueChanged="OnVideoEditSliderChanged"
+                                    AutomationProperties.AutomationId="VideoEditContrast" />
                         </StackPanel>
-                        <StackPanel Spacing="4" VerticalAlignment="Center">
-                            <TextBlock x:Uid="VideoEditRotationLabel"
-                                       Style="{StaticResource CaptionTextBlockStyle}" />
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Button x:Name="RotateVideoLeftButton" x:Uid="VideoEditRotateLeft"
-                                        Click="OnVideoRotateLeftClick"
-                                        Padding="8,4"
-                                        AutomationProperties.AutomationId="VideoEditRotateLeft" />
-                                <Button x:Name="ResetRotationButton" x:Uid="VideoEditResetRotation"
-                                        Click="OnVideoResetRotationClick" Padding="8,4"
-                                        AutomationProperties.AutomationId="VideoEditResetRotation" />
-                                <Button x:Name="RotateVideoRightButton" x:Uid="VideoEditRotateRight"
-                                        Click="OnVideoRotateRightClick"
-                                        Padding="8,4"
-                                        AutomationProperties.AutomationId="VideoEditRotateRight" />
-                            </StackPanel>
-                        </StackPanel>
-                        <CheckBox x:Name="RemoveAudioBox" x:Uid="VideoEditRemoveAudio"
-                                  Checked="OnVideoEditAudioChanged" Unchecked="OnVideoEditAudioChanged"
-                                  VerticalAlignment="Center"
-                                  AutomationProperties.AutomationId="VideoEditRemoveAudio" />
-                        <Button x:Name="PrepareVideoEditButton" x:Uid="VideoEditPrepare"
-                                Click="OnVideoEditPrepareClick" VerticalAlignment="Center"
-                                AutomationProperties.AutomationId="VideoEditPrepare" />
-                        <Button x:Name="ExportVideoEditButton" x:Uid="VideoEditExport"
-                                Click="OnVideoEditExportClick" IsEnabled="False"
-                                Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center"
-                                AutomationProperties.AutomationId="VideoEditExport" />
+                        <ProgressRing x:Name="VideoEditProgressRing" x:Uid="VideoEditProgress"
+                                      Width="20" Height="20" IsActive="False"
+                                      Visibility="Collapsed" />
                     </StackPanel>
-                        <Button x:Name="CancelVideoEditButton" x:Uid="VideoEditExit"
-                                Grid.Column="1" Click="OnVideoEditCancelClick"
-                                VerticalAlignment="Center"
-                                AutomationProperties.AutomationId="VideoEditCancel" />
-                    </Grid>
-                    <Grid Grid.Row="1" ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <ProgressBar x:Name="VideoEditProgressBar" x:Uid="VideoEditProgress"
-                                     Width="120" Minimum="0" Maximum="100"
-                                     Visibility="Collapsed" />
-                        <TextBlock x:Name="VideoEditStatusText" x:Uid="VideoEditStatus" Grid.Column="1"
-                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                   VerticalAlignment="Center"
-                                   AutomationProperties.AutomationId="VideoEditStatus"
-                                   AutomationProperties.LiveSetting="Polite" />
-                        <InfoBar x:Name="VideoEditErrorBar" Grid.Column="2"
-                                 IsOpen="False" IsClosable="False" Severity="Error"
-                                 MaxWidth="420"
-                                 AutomationProperties.AutomationId="VideoEditError" />
-                    </Grid>
-                </Grid>
-            </Border>
+                </CommandBar.Content>
+                <AppBarButton x:Name="RotateVideoLeftButton" x:Uid="VideoEditRotateLeft"
+                              Click="OnVideoRotateLeftClick" Icon="Rotate"
+                              AutomationProperties.AutomationId="VideoEditRotateLeft" />
+                <AppBarButton x:Name="ResetRotationButton" x:Uid="VideoEditResetRotation"
+                              Click="OnVideoResetRotationClick" Icon="Refresh"
+                              AutomationProperties.AutomationId="VideoEditResetRotation" />
+                <AppBarButton x:Name="RotateVideoRightButton" x:Uid="VideoEditRotateRight"
+                              Click="OnVideoRotateRightClick" Icon="Rotate"
+                              AutomationProperties.AutomationId="VideoEditRotateRight" />
+                <AppBarToggleButton x:Name="RemoveAudioBox" x:Uid="VideoEditRemoveAudio"
+                                    Icon="Mute" Checked="OnVideoEditAudioChanged"
+                                    Unchecked="OnVideoEditAudioChanged"
+                                    AutomationProperties.AutomationId="VideoEditRemoveAudio" />
+                <AppBarSeparator />
+                <AppBarButton x:Name="PrepareVideoEditButton" x:Uid="VideoEditPrepare"
+                              Click="OnVideoEditPrepareClick" Icon="Play"
+                              AutomationProperties.AutomationId="VideoEditPrepare" />
+                <AppBarButton x:Name="ExportVideoEditButton" x:Uid="VideoEditExport"
+                              Click="OnVideoEditExportClick" Icon="Save" IsEnabled="False"
+                              AutomationProperties.AutomationId="VideoEditExport" />
+                <AppBarButton x:Name="CancelVideoEditButton" x:Uid="VideoEditExit"
+                              Click="OnVideoEditCancelClick" Icon="Cancel"
+                              AutomationProperties.AutomationId="VideoEditCancel" />
+                <AppBarSeparator />
+                <AppBarButton x:Name="StabilizeVideoButton" x:Uid="VideoEditStabilize"
+                              Click="OnStabilizeVideoClick" Icon="Video"
+                              AutomationProperties.AutomationId="RibbonStabilizeVideo" />
+                <AppBarButton x:Name="TrimVideoButton" x:Uid="VideoEditTrim"
+                              Click="OnTrimVideoClick" Icon="Trim"
+                              AutomationProperties.AutomationId="RibbonTrimVideo" />
+            </CommandBar>
 
             <!-- ===== Crop sub-mode (replaces ViewerTools when crop is active) ===== -->
             <StackPanel x:Name="CropTools" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
@@ -438,7 +374,7 @@
             </StackPanel>
 
             <!-- Centre: current file name plus a mode hint -->
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
+            <StackPanel x:Name="ContextTools" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="2">
                 <TextBlock x:Name="ContextLabel"
                            HorizontalAlignment="Center"
                            TextTrimming="CharacterEllipsis"
