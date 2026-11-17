@@ -356,8 +356,9 @@ quality/render-parity gates, and the #119 model-free comparison results.
 
 Use `IDialogService` (`DialogService.Instance`) for simple confirmations and error summaries.
 Pass the invoking, loaded control on every call; the service resolves its current `XamlRoot`
-and theme rather than retaining a window. Prefer localized labels: primary names the action,
-confirmation close means Cancel, and destructive confirmations always default to Cancel.
+and theme rather than retaining a window. Pass caught exceptions to its error overload to show
+their message through the same presentation path. Prefer localized labels: primary names the
+action, confirmation close means Cancel, and destructive confirmations always default to Cancel.
 Only `ContentDialogResult.Primary` authorizes an action; handle presentation failures in the
 caller's existing error surface. Progress, nested dialogs and save/discard/cancel forms remain
 separate until their cancellation and validation semantics can be migrated intact.
