@@ -26,6 +26,7 @@ public sealed class ResourceStringsTests
 
             var importResult = PhotoImportStrings.Format("PhotoImportScanFound", 1234);
             var shareResult = ShareStrings.Format("ShareProgress", 1234, 5678, "photo.jpg");
+            var autoTagResult = AutoTagReviewStrings.Format("AutoTagReviewIssuesSummary", 1234);
 
             Assert.Equal(
                 $"Found {1234.ToString("N0", culture)} supported item(s). Select the items to import.",
@@ -33,6 +34,9 @@ public sealed class ResourceStringsTests
             Assert.Equal(
                 $"Preparing {1234.ToString("N0", culture)} of {5678.ToString("N0", culture)}: photo.jpg",
                 shareResult);
+            Assert.Equal(
+                $"{1234.ToString("N0", culture)} photo(s) need attention. See the messages on each photo.",
+                autoTagResult);
         }
         finally
         {
