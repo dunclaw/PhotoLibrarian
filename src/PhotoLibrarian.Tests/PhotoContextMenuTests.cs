@@ -196,13 +196,32 @@ public sealed class PhotoContextMenuTests
         Assert.Contains("if (!isViewer)", source);
         Assert.Contains("viewerTarget.IsCurrent(App.ViewModel.ImageViewer.CurrentEntry)", source);
         Assert.Contains("BuildOpenWithSubMenu(menu, primary, selected, CanExecute,", source);
-        Assert.Contains("DefaultButton = ContentDialogButton.Close", source);
         Assert.Contains("viewerTarget.ExecuteConfirmedAsync(", source);
         Assert.Contains("ops.DeleteToRecycleBinAsync(", source);
         Assert.Contains("RunPhotoEditAsync(", source);
         Assert.Contains("RenameEntriesAsync(selectedEntries)", source);
         Assert.Contains("ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;",
             File.ReadAllText(Asset("MainWindow.xaml.cs")));
+    }
+
+    [Fact]
+    public void RecycleConfirmationUsesSharedDestructiveDialogAndOnlyPrimaryProceeds()
+    {
+        var source = File.ReadAllText(Asset("ImageGridView.xaml.cs"));
+        var start = source.IndexOf("async Task<bool> ConfirmAsync()", StringComparison.Ordinal);
+        var end = source.IndexOf(
+            "var result = await viewerTarget.ExecuteConfirmedAsync(",
+            start,
+            StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+
+        var confirmation = source[start..end];
+        Assert.Contains("DialogService.Instance.ConfirmDestructiveAsync(", confirmation);
+        Assert.Contains("PhotoContextMenuStrings.Get(\"PhotoContextRecycleTitle\")", confirmation);
+        Assert.Contains("PhotoContextMenuStrings.Get(\"PhotoContextRecycle\")", confirmation);
+        Assert.Contains("PhotoContextMenuStrings.Get(\"PhotoContextCancel\")", confirmation);
+        Assert.Contains("return result == ContentDialogResult.Primary;", confirmation);
+        Assert.DoesNotContain("new ContentDialog", confirmation);
     }
 
     [Fact]
