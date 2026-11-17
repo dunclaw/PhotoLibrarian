@@ -34,6 +34,75 @@ public sealed class ImageViewerOverlayFocusTests
     }
 
     [Fact]
+    public void TopBarActions_UseSharedToolbarStylesWithoutChangingOrderOrCommands()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        var overlay = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
+        var topBar = overlay.Descendants().Single(e => (string?)e.Attribute(x + "Name") == "TopBar");
+        var toolbar = topBar.Elements().Single(e => (string?)e.Attribute("Grid.Column") == "1");
+        var actions = toolbar.Elements().ToList();
+
+        Assert.Equal("StackPanel", toolbar.Name.LocalName);
+        Assert.Equal("Horizontal", (string?)toolbar.Attribute("Orientation"));
+        Assert.Equal(
+            new[]
+            {
+                "ViewerMotionPhoto",
+                "ViewerZoomOut",
+                "ViewerZoomFit",
+                "ViewerZoomIn",
+                "ViewerActualSize",
+                "ViewerInformationPane",
+                "CancelManualFaceTagging",
+                "ViewerClose"
+            },
+            actions.Select(e => (string?)e.Attribute("AutomationProperties.AutomationId")));
+        Assert.Equal(
+            new[]
+            {
+                "OnMotionPhotoClick",
+                "OnZoomOut",
+                "OnZoomFit",
+                "OnZoomIn",
+                "OnZoomActualSize",
+                null,
+                "OnCancelManualFaceTagging",
+                "OnClose"
+            },
+            actions.Select(e => (string?)e.Attribute("Click")));
+
+        foreach (var action in actions.Where(e => e.Name.LocalName == "Button"))
+        {
+            Assert.Equal(
+                "{StaticResource ToolbarIconButtonStyle}",
+                (string?)action.Attribute("Style"));
+        }
+
+        foreach (var icon in actions.SelectMany(action => action.Descendants(presentation + "FontIcon")))
+        {
+            Assert.Equal(
+                "{StaticResource ToolbarIconStyle}",
+                (string?)icon.Attribute("Style"));
+        }
+
+        var information = actions.Single(e =>
+            (string?)e.Attribute("AutomationProperties.AutomationId") == "ViewerInformationPane");
+        Assert.Contains("ToggleInformationPaneCommand", (string?)information.Attribute("Command"));
+        Assert.Equal("8", (string?)information.Attribute("Padding"));
+        Assert.Equal("Collapsed", (string?)actions[0].Attribute("Visibility"));
+        Assert.Equal("Collapsed", (string?)actions[6].Attribute("Visibility"));
+
+        var app = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "App.xaml"));
+        var styleKeys = app.Descendants()
+            .Select(e => (string?)e.Attribute(x + "Key"))
+            .Where(key => key is not null)
+            .ToHashSet();
+        Assert.Contains("ToolbarIconButtonStyle", styleKeys);
+        Assert.Contains("ToolbarIconStyle", styleKeys);
+    }
+
+    [Fact]
     public void OverlayCanReceiveFocusForKeyboardNavigation()
     {
         var xamlPath = Path.Combine(

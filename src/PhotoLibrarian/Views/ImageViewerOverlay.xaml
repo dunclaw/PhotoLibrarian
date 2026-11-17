@@ -241,27 +241,31 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
                 <Button x:Name="MotionPhotoButton"
                         AutomationProperties.AutomationId="ViewerMotionPhoto"
-                        Visibility="Collapsed" Padding="8"
+                        Visibility="Collapsed"
+                        Style="{StaticResource ToolbarIconButtonStyle}"
                         Click="OnMotionPhotoClick">
-                    <FontIcon x:Name="MotionPhotoIcon" Glyph="&#xE768;" FontSize="14" />
+                    <FontIcon x:Name="MotionPhotoIcon" Glyph="&#xE768;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button x:Name="ZoomOutButton"
                         AutomationProperties.AutomationId="ViewerZoomOut"
                         AutomationProperties.Name="Zoom out"
-                        Click="OnZoomOut" ToolTipService.ToolTip="Zoom out" Padding="8">
-                    <FontIcon Glyph="&#xE71F;" FontSize="14" />
+                        Click="OnZoomOut" ToolTipService.ToolTip="Zoom out"
+                        Style="{StaticResource ToolbarIconButtonStyle}">
+                    <FontIcon Glyph="&#xE71F;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button x:Name="ZoomFitButton"
                         AutomationProperties.AutomationId="ViewerZoomFit"
                         AutomationProperties.Name="Fit to window"
-                        Click="OnZoomFit" ToolTipService.ToolTip="Fit to window" Padding="8">
-                    <FontIcon Glyph="&#xE9A6;" FontSize="14" />
+                        Click="OnZoomFit" ToolTipService.ToolTip="Fit to window"
+                        Style="{StaticResource ToolbarIconButtonStyle}">
+                    <FontIcon Glyph="&#xE9A6;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button x:Name="ZoomInButton"
                         AutomationProperties.AutomationId="ViewerZoomIn"
                         AutomationProperties.Name="Zoom in"
-                        Click="OnZoomIn" ToolTipService.ToolTip="Zoom in" Padding="8">
-                    <FontIcon Glyph="&#xE8A3;" FontSize="14" />
+                        Click="OnZoomIn" ToolTipService.ToolTip="Zoom in"
+                        Style="{StaticResource ToolbarIconButtonStyle}">
+                    <FontIcon Glyph="&#xE8A3;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button x:Name="ZoomActualSizeButton"
                         x:Uid="ViewerActualSize"
@@ -271,7 +275,7 @@
                         Content="1:1"
                         Click="OnZoomActualSize"
                         ToolTipService.ToolTip="Actual size (A)"
-                        Padding="8" />
+                        Style="{StaticResource ToolbarIconButtonStyle}" />
                 <ToggleButton x:Name="InformationPaneButton"
                               x:Uid="ViewerInformationPane"
                               AutomationProperties.AutomationId="ViewerInformationPane"
@@ -280,22 +284,23 @@
                               Command="{x:Bind ViewModel.ToggleInformationPaneCommand}"
                               ToolTipService.ToolTip="Show or hide information pane (I)"
                               Padding="8">
-                    <FontIcon Glyph="&#xE946;" FontSize="14" />
+                    <FontIcon Glyph="&#xE946;" Style="{StaticResource ToolbarIconStyle}" />
                 </ToggleButton>
                 <Button x:Name="CancelManualFaceTaggingButton"
                         AutomationProperties.AutomationId="CancelManualFaceTagging"
                         AutomationProperties.Name="Cancel adding a people tag"
                         Click="OnCancelManualFaceTagging"
                         ToolTipService.ToolTip="Cancel adding a people tag (Escape)"
-                        Padding="8"
+                        Style="{StaticResource ToolbarIconButtonStyle}"
                         Visibility="Collapsed">
-                    <FontIcon Glyph="&#xE711;" FontSize="14" />
+                    <FontIcon Glyph="&#xE711;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
                 <Button AutomationProperties.AutomationId="ViewerClose"
                         AutomationProperties.Name="Close viewer"
-                        Click="OnClose" ToolTipService.ToolTip="Close (Escape)" Padding="8"
+                        Click="OnClose" ToolTipService.ToolTip="Close (Escape)"
+                        Style="{StaticResource ToolbarIconButtonStyle}"
                         Margin="12,0,0,0">
-                    <FontIcon Glyph="&#xE711;" FontSize="14" />
+                    <FontIcon Glyph="&#xE711;" Style="{StaticResource ToolbarIconStyle}" />
                 </Button>
             </StackPanel>
         </Grid>
