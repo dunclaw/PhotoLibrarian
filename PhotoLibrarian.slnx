@@ -58,4 +58,11 @@
       <Platform Solution="*|x86" Project="x64" />
     </Project>
   </Folder>
+  <Folder Name="/Website/">
+    <File Path="website/index.html" />
+    <File Path="website/privacy.html" />
+    <File Path="website/staticwebapp.config.json" />
+    <File Path="website/styles.css" />
+    <File Path="website/Test-ReleaseSite.ps1" />
+  </Folder>
 </Solution>

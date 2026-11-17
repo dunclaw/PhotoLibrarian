@@ -7,8 +7,15 @@
     CloseButtonText="Cancel"
     DefaultButton="Primary"
     PrimaryButtonClick="OnExportClick">
+    <ContentDialog.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Controls/FormLayout.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </ContentDialog.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="16" MinWidth="320">
+        <StackPanel Style="{StaticResource FormSection}" MinWidth="320">
             <TextBlock x:Name="SelectionText" TextWrapping="Wrap" />
             <ComboBox x:Name="ResizeModeBox"
                       AutomationProperties.AutomationId="ExportResizeMode"
@@ -26,11 +33,13 @@
                        AutomationProperties.AutomationId="ExportQuality"
                        Header="JPEG quality (1-100)" Minimum="1" Maximum="100" Value="90"
                        SpinButtonPlacementMode="Compact" />
-            <TextBox x:Name="FolderBox"
-                     AutomationProperties.AutomationId="ExportOutputFolder"
-                     Header="Output folder" />
-            <Button AutomationProperties.AutomationId="ExportBrowseFolder"
-                    Content="Browse..." Click="OnBrowseClick" />
+            <StackPanel Style="{StaticResource SettingRow}" Spacing="16">
+                <TextBox x:Name="FolderBox"
+                         AutomationProperties.AutomationId="ExportOutputFolder"
+                         Header="Output folder" />
+                <Button AutomationProperties.AutomationId="ExportBrowseFolder"
+                        Content="Browse..." Click="OnBrowseClick" />
+            </StackPanel>
             <CheckBox x:Name="StripMetadataBox"
                       AutomationProperties.AutomationId="ExportStripMetadata"
                       Content="Strip metadata from exported copies" />

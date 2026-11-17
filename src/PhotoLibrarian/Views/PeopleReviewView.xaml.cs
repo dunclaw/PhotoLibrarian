@@ -24,6 +24,7 @@ public sealed partial class PeopleReviewView : UserControl
     private CancellationTokenSource? _suggestionThumbnailLoads;
     private CancellationTokenSource? _personThumbnailLoads;
     private CancellationTokenSource? _excludedThumbnailLoads;
+    private bool _focusInitialControlOnLoad;
 
     public PeopleReviewViewModel ViewModel => App.ViewModel.PeopleReview;
 
@@ -39,10 +40,33 @@ public sealed partial class PeopleReviewView : UserControl
     {
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         RefreshDisplay();
+        if (_focusInitialControlOnLoad)
+        {
+            _focusInitialControlOnLoad = false;
+            FocusInitialControlIfOpen();
+        }
         if (!IsReviewMode)
         {
             await LoadPeopleManagementAsync();
         }
+    }
+
+    internal void FocusInitialControl()
+    {
+        if (!IsLoaded)
+        {
+            _focusInitialControlOnLoad = true;
+            return;
+        }
+
+        FocusInitialControlIfOpen();
+    }
+
+    private void FocusInitialControlIfOpen()
+    {
+        if (!ViewModel.IsOpen) return;
+        if (!ModeSelector.Focus(FocusState.Programmatic))
+            CloseButton.Focus(FocusState.Programmatic);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)

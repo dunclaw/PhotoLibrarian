@@ -237,25 +237,47 @@ public sealed class LibraryIndexMaintenanceService
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var entry = removable[index];
-                    // ID and path must still identify the scanned row, not a repaired move.
+                    // The photo is absent, so portable copies cannot be verified.
+                    // Check current state under the cleanup transaction, not the scan snapshot.
                     command.CommandText = """
-                        DELETE FROM images WHERE id = $id AND file_path = $path
+                        SELECT is_flagged != 0 OR rating IS NOT NULL
+                            OR NULLIF(color_label, '') IS NOT NULL
+                            OR NULLIF(caption, '') IS NOT NULL OR NULLIF(title, '') IS NOT NULL
+                            OR NULLIF(place_name, '') IS NOT NULL OR face_metadata_export_required != 0
+                            OR NULLIF(face_sidecar_path, '') IS NOT NULL
+                            OR EXISTS (SELECT 1 FROM tags WHERE image_id = images.id)
+                            OR EXISTS (SELECT 1 FROM tag_path_memberships WHERE image_id = images.id)
+                            OR EXISTS (SELECT 1 FROM face_regions WHERE image_id = images.id)
+                        FROM images WHERE id = $id AND file_path = $path
                         AND id IN (SELECT id FROM watched_images)
                         """;
                     command.Parameters.Clear();
                     command.Parameters.AddWithValue("$id", entry.Id);
                     command.Parameters.AddWithValue("$path", entry.FilePath);
-                    removed += await command.ExecuteNonQueryAsync(cancellationToken);
+                    var hasMetadata = await command.ExecuteScalarAsync(cancellationToken);
+                    if (hasMetadata is long and not 0)
+                    {
+                        issues.Add(new LibraryIndexMaintenanceIssue(
+                            LibraryIndexMaintenanceIssueKind.MissingMetadataRetained,
+                            entry.FilePath,
+                            "The photo is confirmed missing, but its cached metadata was retained because portable copies cannot be verified. Restore the photo and associated sidecars, then retry repair."));
+                    }
+                    else if (hasMetadata is long)
+                    {
+                        // ID and path must still identify the scanned row, not a repaired move.
+                        command.CommandText = """
+                            DELETE FROM images WHERE id = $id AND file_path = $path
+                            AND id IN (SELECT id FROM watched_images)
+                            """;
+                        command.Parameters.Clear();
+                        command.Parameters.AddWithValue("$id", entry.Id);
+                        command.Parameters.AddWithValue("$path", entry.FilePath);
+                        removed += await command.ExecuteNonQueryAsync(cancellationToken);
+                    }
                     progress?.Report(new LibraryIndexMaintenanceProgress(
                         LibraryIndexMaintenanceStage.RemovingMissingFiles,
                         index + 1, removable.Count, entry.FilePath));
                 }
-                command.Parameters.Clear();
-                command.CommandText = """
-                    UPDATE persons SET face_count =
-                        (SELECT COUNT(*) FROM face_regions WHERE person_id = persons.id)
-                    """;
-                await command.ExecuteNonQueryAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 transaction.Commit();
                 removedFiles = removed;
@@ -765,5 +787,6 @@ public enum LibraryIndexMaintenanceIssueKind
     FileIndexFailed,
     PendingMetadataExport,
     ReparsePointSkipped,
-    CleanupFailed
+    CleanupFailed,
+    MissingMetadataRetained
 }

@@ -445,7 +445,7 @@ Backup: {3}
   <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
   <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>
   <data name="IndexMaintenanceConfirmTitle" xml:space="preserve"><value>Repair the library index?</value></data>
-  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes entries verified missing by repeated folder scans. Offline or unreadable locations are retained. No photos or sidecars are modified or deleted.</value></data>
+  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes metadata-free entries verified missing by repeated folder scans. Offline or unreadable locations and missing photos with cached metadata are retained. No photos or sidecars are modified or deleted.</value></data>
   <data name="IndexMaintenanceConfirmPrimary" xml:space="preserve"><value>Repair index</value></data>
   <data name="IndexMaintenanceStarting" xml:space="preserve"><value>Preparing a safe library index scan…</value></data>
   <data name="IndexMaintenanceProgress" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} — {3}</value></data>
@@ -458,6 +458,7 @@ Backup: {3}
   <data name="IndexMaintenanceStageIndexing" xml:space="preserve"><value>Indexing files</value></data>
   <data name="IndexMaintenanceStageRemoving" xml:space="preserve"><value>Removing verified missing index entries</value></data>
   <data name="IndexMaintenanceIssueCleanupFailed" xml:space="preserve"><value>Missing-entry cleanup failed; no entries were removed by this cleanup batch</value></data>
+  <data name="IndexMaintenanceIssueMissingMetadataRetained" xml:space="preserve"><value>Missing photo retained to preserve cached metadata</value></data>
   <data name="IndexMaintenanceStageComplete" xml:space="preserve"><value>Complete</value></data>
   <data name="IndexMaintenanceIssue" xml:space="preserve"><value>{0} — {1}: {2}</value></data>
   <data name="IndexMaintenanceIssueNoWatchedFolders" xml:space="preserve"><value>No watched folders</value></data>

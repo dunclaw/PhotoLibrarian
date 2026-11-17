@@ -843,6 +843,7 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Show / hide viewer information pane | I or the information toggle |
 | Reset viewer zoom to fit | Ctrl+0 |
 | Next / previous in viewer | ←  →  arrow keys |
+| Close viewer | Esc |
 | Previous / next while editing | Left / Right arrows (outside input controls); Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
@@ -864,6 +865,17 @@ toggle hides the right-hand pane and its splitter while viewing, restoring its r
 width when shown again. The choice is remembered only until the app closes; closing
 the viewer always restores the normal grid's information pane. Both controls support
 Tab and Enter/Space; A and I apply when viewer focus is outside text inputs.
+
+Opening a photo from the grid transfers keyboard focus to the viewer, so Left,
+Right and Escape work without clicking a navigation button. Clicking the image
+or its title restores viewer focus; input controls keep their own keyboard behavior.
+To check these paths without a live library, build
+`src\PhotoLibrarian.AccessibilityTests\PhotoLibrarian.AccessibilityTests.csproj`
+with Visual Studio MSBuild (`/p:Platform=x64 /restore`), then run
+`.\tools\Test-PhotoGridAccessibility.ps1 -SkipBuild -ViewerFocus`.
+The isolated host double-clicks generated grid photos and sends native keyboard
+and mouse input, saving results and `viewer-focus.png` in its `AppX` output folder.
+It tests the real grid/viewer controls, not the main window's other overlays.
 
 Start a slideshow with F11, the **Slideshow** button at the left of the grid toolbar or in
 the viewer ribbon, or **Slideshow** in a photo's right-click menu. Photos play in the order

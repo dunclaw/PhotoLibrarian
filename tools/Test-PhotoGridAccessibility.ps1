@@ -9,6 +9,7 @@ param(
     [switch]$Dialogs,
     [switch]$Slideshow,
     [switch]$ViewerContextMenu,
+    [switch]$ViewerFocus,
     [switch]$MotionPhoto,
     [switch]$EditHistory,
     [switch]$Comparison,
@@ -18,6 +19,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($ViewerFocus -and ($Preview -or $ViewerPreview -or $Dialogs -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $EditHistory -or $Comparison -or $EditorComparison -or $EditorClipping)) {
+    throw '-ViewerFocus cannot be combined with another suite or preview.'
+}
 if ($EditorClipping -and ($EditorComparison -or $Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs)) {
     throw '-EditorClipping cannot be combined with another suite.'
 }
@@ -89,6 +93,7 @@ try {
     elseif ($Slideshow) { $arguments += @('--args', '--slideshow') }
     elseif ($Preview) { $arguments += @('--args', '--preview') }
     elseif ($ViewerContextMenu) { $arguments += @('--args', '--viewer-context-menu') }
+    elseif ($ViewerFocus) { $arguments += @('--args', '--viewer-focus') }
     elseif ($ViewerPreview) { $arguments += @('--args', '--viewer-preview') }
     & winapp @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Accessibility test host failed to run.' }
@@ -97,7 +102,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($EditorClipping) { 'editor clipping' } elseif ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Dialogs) { 'dialog service' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
+        $suite = if ($ViewerFocus) { 'viewer keyboard focus' } elseif ($EditorClipping) { 'editor clipping' } elseif ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Dialogs) { 'dialog service' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }

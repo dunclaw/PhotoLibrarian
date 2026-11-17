@@ -1,5 +1,4 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
-using Microsoft.UI.Xaml;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.Views;
@@ -21,13 +20,8 @@ public sealed partial class MainWindow
         _comparison = new PhotoComparisonView();
         _comparison.Closed += OnComparisonClosed;
         ComparisonOverlay.Content = _comparison;
-        ComparisonOverlay.Visibility = Visibility.Visible;
-        MainLayout.Visibility = Visibility.Collapsed;
-        TopRibbon.Visibility = Visibility.Collapsed;
-        FooterNotifications.Visibility = Visibility.Collapsed;
-        StatusBar.Visibility = Visibility.Collapsed;
         _comparison.Open(entries);
-        _comparison.FocusWorkspace();
+        UpdateSurfaceNavigation();
     }
 
     private void OnComparisonClosed(object? sender, EventArgs args)
@@ -36,12 +30,7 @@ public sealed partial class MainWindow
         _comparison.Closed -= OnComparisonClosed;
         _comparison = null;
         ComparisonOverlay.Content = null;
-        ComparisonOverlay.Visibility = Visibility.Collapsed;
-        if (_isClosing) return;
-        MainLayout.Visibility = Visibility.Visible;
-        FooterNotifications.Visibility = Visibility.Visible;
-        StatusBar.Visibility = Visibility.Visible;
-        UpdateRibbonVisibility();
-        ImageGridPanel.FocusGrid();
+        if (!_isClosing)
+            UpdateSurfaceNavigation();
     }
 }
