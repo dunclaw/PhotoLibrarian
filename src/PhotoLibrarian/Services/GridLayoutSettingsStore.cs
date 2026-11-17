@@ -2,7 +2,6 @@
 
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Core.Services;
-using PhotoLibrarian.ViewModels;
 using System.Text.Json;
 
 namespace PhotoLibrarian.Services;
