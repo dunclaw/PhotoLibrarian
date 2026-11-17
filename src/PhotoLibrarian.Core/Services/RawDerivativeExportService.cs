@@ -10,6 +10,9 @@ public enum RawDerivativeFormat { Png, Jpeg }
 
 public sealed record RawDerivativeResult(string FilePath, int Width, int Height);
 
+internal sealed record PhotoVersionRawExportResult(
+    PhotoVersionRecipeStatus Status, RawDerivativeResult? Result = null);
+
 /// <summary>Publishes one opaque, source-resolution, 8-bit sRGB derivative. Never rewrites RAW.</summary>
 public static class RawDerivativeExportService
 {
@@ -23,6 +26,62 @@ public static class RawDerivativeExportService
         RawDerivativeFormat format, EditParameters parameters,
         Func<string, EditParameters, CancellationToken, Task<RawSdrImage>> render,
         CancellationToken cancellationToken = default)
+    {
+        var result = await ExportCoreAsync(sourcePath, outputFolder, format, parameters, render,
+            async (snapshot, token) =>
+            {
+                await ImageEditService.SaveRawPreviewRecipeAsync(sourcePath, snapshot, token);
+                return PhotoVersionRecipeStatus.Success;
+            }, null, cancellationToken);
+        return result.Result!;
+    }
+
+    internal static Task<PhotoVersionRawExportResult> ExportVersionAsync(
+        IPhotoVersionRecipeStore store, PhotoVersionSnapshot expected, string versionName, string outputFolder,
+        RawDerivativeFormat format, CancellationToken cancellationToken = default) =>
+        ExportVersionAsync(store, expected, versionName, outputFolder, format, DevelopAsync, cancellationToken);
+
+    internal static async Task<PhotoVersionRawExportResult> ExportVersionAsync(
+        IPhotoVersionRecipeStore store, PhotoVersionSnapshot expected, string versionName, string outputFolder,
+        RawDerivativeFormat format, Func<string, EditParameters, CancellationToken, Task<RawSdrImage>> render,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(expected);
+        if (string.IsNullOrWhiteSpace(versionName))
+            return new(PhotoVersionRecipeStatus.InvalidMetadata);
+        var current = await store.ReadAsync(expected.Target, cancellationToken);
+        var status = MatchSnapshot(expected, current);
+        if (status != PhotoVersionRecipeStatus.Success)
+            return new(status);
+        status = PhotoVersionRecipePacket.TryRead(expected.RecipeXmp, isRaw: true, out var parameters);
+        if (status != PhotoVersionRecipeStatus.Success)
+            return new(status);
+
+        return await ExportCoreAsync(expected.Target.SourcePath, outputFolder, format, parameters!, render,
+            async (_, token) => MatchSnapshot(expected, await store.ReadAsync(expected.Target, token)),
+            versionName, cancellationToken);
+    }
+
+    private static PhotoVersionRecipeStatus MatchSnapshot(
+        PhotoVersionSnapshot expected, PhotoVersionRecipeResult current)
+    {
+        if (current.Status != PhotoVersionRecipeStatus.Success)
+            return current.Status;
+        var actual = current.Snapshot;
+        return actual is not null && actual.Target == expected.Target &&
+            actual.DocumentRevision == expected.DocumentRevision &&
+            string.Equals(actual.InputIdentity, expected.InputIdentity, StringComparison.Ordinal) &&
+            string.Equals(actual.RecipeXmp, expected.RecipeXmp, StringComparison.Ordinal)
+                ? PhotoVersionRecipeStatus.Success : PhotoVersionRecipeStatus.Conflict;
+    }
+
+    private static async Task<PhotoVersionRawExportResult> ExportCoreAsync(string sourcePath, string outputFolder,
+        RawDerivativeFormat format, EditParameters parameters,
+        Func<string, EditParameters, CancellationToken, Task<RawSdrImage>> render,
+        Func<EditParameters, CancellationToken, Task<PhotoVersionRecipeStatus>> beforePublish,
+        string? versionName,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(render);
         ArgumentNullException.ThrowIfNull(parameters);
@@ -66,14 +125,14 @@ public static class RawDerivativeExportService
             }, cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
-            // Retain the exact snapshot beside the source, including dormant raster edits.
-            // A recipe write failure means the derivative is not published.
-            await ImageEditService.SaveRawPreviewRecipeAsync(sourcePath, snapshot, cancellationToken);
+            var status = await beforePublish(snapshot, cancellationToken);
+            if (status != PhotoVersionRecipeStatus.Success)
+                return new(status);
             cancellationToken.ThrowIfCancellationRequested();
             var path = await Task.Run(
-                () => Publish(tagged, sourcePath, outputFolder, format, cancellationToken), cancellationToken);
+                () => Publish(tagged, sourcePath, outputFolder, format, versionName, cancellationToken), cancellationToken);
             taggedCreated = false;
-            return new(path, image.Width, image.Height);
+            return new(PhotoVersionRecipeStatus.Success, new(path, image.Width, image.Height));
         }
         finally
         {
@@ -115,9 +174,17 @@ public static class RawDerivativeExportService
     }
 
     private static string Publish(string stagingPath, string sourcePath, string folder,
-        RawDerivativeFormat format, CancellationToken token)
+        RawDerivativeFormat format, string? versionName, CancellationToken token)
     {
         var stem = Path.GetFileNameWithoutExtension(sourcePath);
+        if (versionName is not null)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            var safeName = new string(versionName.Select(character =>
+                invalid.Contains(character) ? '_' : character).ToArray()).Trim().TrimEnd('.');
+            if (safeName.Length == 0) safeName = "Version";
+            stem += " - " + safeName;
+        }
         var extension = format == RawDerivativeFormat.Png ? ".png" : ".jpg";
         for (var number = 1; ; number++)
         {

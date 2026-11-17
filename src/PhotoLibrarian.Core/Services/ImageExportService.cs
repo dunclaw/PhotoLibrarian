@@ -62,7 +62,7 @@ public static class ImageExportService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                 COMException or ArgumentException or NotSupportedException or InvalidOperationException or
-                XmpCore.XmpException or MetadataExtractor.ImageProcessingException)
+                InvalidDataException or XmpCore.XmpException or MetadataExtractor.ImageProcessingException)
             {
                 System.Diagnostics.Debug.WriteLine($"[EXPORT] {sourcePath}: {ex}");
                 var message = string.IsNullOrWhiteSpace(ex.Message)

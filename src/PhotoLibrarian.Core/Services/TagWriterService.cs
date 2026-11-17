@@ -135,7 +135,10 @@ public static class TagWriterService
         {
             var sidecarPath = GetTagSidecarTargetPath(imagePath);
             EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
+            var snapshot = CaptureSidecarSnapshotAt(sidecarPath);
             var xmp = LoadSidecar(sidecarPath);
+            if (CaptureSidecarSnapshotAt(sidecarPath) != snapshot)
+                throw new IOException("The XMP sidecar changed while tags were being read.");
             xmp.DeleteProperty(DcNamespace, "dc:subject");
             xmp.SetProperty(DcNamespace, "dc:subject", null,
                 new XmpCore.Options.PropertyOptions { IsArray = true, IsArrayOrdered = false });
@@ -152,7 +155,8 @@ public static class TagWriterService
             }
 
             var serialized = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
-            WriteSidecarAtomically(imagePath, sidecarPath, serialized, expectedSidecarSnapshot);
+            EnsureSidecarSnapshot(imagePath, expectedSidecarSnapshot);
+            WriteSidecarAtomically(imagePath, sidecarPath, serialized, snapshot);
         });
 
     /// <summary>
@@ -286,13 +290,13 @@ public static class TagWriterService
         }
     }
 
-    private static void WriteOwnedSidecarAtomically(
+    internal static void WriteOwnedSidecarAtomically(
         string sidecarPath,
         string contents,
         TagMetadataSidecarSnapshot expected)
     {
         if (CaptureSidecarSnapshotAt(sidecarPath) != expected)
-            throw new IOException("The XMP sidecar changed while tags were being migrated.");
+            throw new IOException("The XMP sidecar changed during metadata editing.");
         var directory = Path.GetDirectoryName(sidecarPath)
             ?? throw new InvalidOperationException("The XMP sidecar path has no parent directory.");
         var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(sidecarPath)}.{Guid.NewGuid():N}.tmp");
@@ -300,8 +304,8 @@ public static class TagWriterService
         {
             File.WriteAllText(temporaryPath, contents);
             if (CaptureSidecarSnapshotAt(sidecarPath) != expected)
-                throw new IOException("The XMP sidecar changed while tags were being migrated.");
-            File.Move(temporaryPath, sidecarPath, overwrite: true);
+                throw new IOException("The XMP sidecar changed during metadata editing.");
+            File.Move(temporaryPath, sidecarPath, overwrite: expected.Exists);
         }
         finally
         {

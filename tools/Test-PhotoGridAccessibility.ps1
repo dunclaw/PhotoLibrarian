@@ -11,10 +11,14 @@ param(
     [switch]$Comparison,
     [switch]$EditorComparison,
     [switch]$EditorClipping,
+    [switch]$Recovery,
     [string]$MotionPhotoValidationPath
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Recovery -and ($EditorClipping -or $EditorComparison -or $Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview)) {
+    throw '-Recovery cannot be combined with another suite.'
+}
 if ($EditorClipping -and ($EditorComparison -or $Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview)) {
     throw '-EditorClipping cannot be combined with another suite.'
 }
@@ -67,6 +71,9 @@ try {
         }
         $arguments += @('--args', $testArguments)
     }
+    elseif ($Recovery) {
+        $arguments += @('--args', $(if ($Preview) { '--recovery --preview' } else { '--recovery' }))
+    }
     elseif ($EditorClipping) {
         $arguments += @('--args', $(if ($Preview) { '--editor-clipping --preview' } else { '--editor-clipping' }))
     }
@@ -90,7 +97,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($EditorClipping) { 'editor clipping' } elseif ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
+        $suite = if ($Recovery) { 'edit recovery' } elseif ($EditorClipping) { 'editor clipping' } elseif ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }

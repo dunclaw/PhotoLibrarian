@@ -39,6 +39,7 @@ public sealed class ImageEditService
         string filePath, EditParameters parameters, PixelRenderer renderer)
     {
         ArgumentNullException.ThrowIfNull(renderer);
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
         if (RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("Overwriting RAW originals is not supported. Use Export SDR derivative.");
 
@@ -54,6 +55,7 @@ public sealed class ImageEditService
     /// </summary>
     public async Task SaveEditParametersAsync(string filePath, EditParameters parameters)
     {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
         // Backup original first
         await _backupService.BackupOriginalAsync(filePath);
         await SavePendingRecipeAtomicallyAsync(filePath, parameters);
@@ -69,6 +71,7 @@ public sealed class ImageEditService
     {
         if (!RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("A RAW preview recipe requires a RAW source.");
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath, cancellationToken);
         RawToneMappingService.ValidateRecipe(parameters);
         await SavePendingRecipeAtomicallyAsync(filePath, parameters, cancellationToken);
     }
@@ -76,6 +79,7 @@ public sealed class ImageEditService
     private static async Task SavePendingRecipeAtomicallyAsync(string filePath, EditParameters parameters,
         CancellationToken cancellationToken = default)
     {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath, cancellationToken);
         var snapshot = parameters.Clone();
         await RawRecipeWrites.WaitAsync(cancellationToken);
         try
@@ -104,18 +108,22 @@ public sealed class ImageEditService
     /// Strips PhotoLibrarian's edit properties from the embedded packet or owned sidecars, leaving
     /// any unrelated XMP content (a Lightroom sidecar, for example) alone.
     /// </summary>
-    public static Task ClearPendingEditParametersAsync(string filePath) =>
-        MetadataWriterService.WriteUsingPolicyAsync(
+    public static Task ClearPendingEditParametersAsync(string filePath)
+    {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
+        return MetadataWriterService.WriteUsingPolicyAsync(
             filePath,
             MetadataWriteProperty.PendingEditRecipe,
             () => Task.Run(() => ClearEmbeddedRecipe(filePath)),
             () => Task.Run(() => ClearSidecarRecipe(filePath)));
+    }
 
     /// <summary>
     /// Reads pending edit parameters from the photo when supported, otherwise from its owned sidecar.
     /// </summary>
     public static EditParameters ReadEditParameters(string filePath)
     {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
         var sidecar = MetadataSidecarLocator.ResolveReadPath(
             filePath, MetadataSidecarLocator.OwnsPendingEditRecipe);
         var xmp = sidecar is not null
