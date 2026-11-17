@@ -186,7 +186,7 @@ public sealed class PhotoVersionRecipeStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UnintegratedMonochromeCopyIsUnavailableWithoutSubstitutingMain()
+    public async Task MonochromeCopyIsReadFromItsOwnVersionRecipe()
     {
         var path = Path.Combine(_directory, "source.cr3");
         await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
@@ -216,12 +216,14 @@ public sealed class PhotoVersionRecipeStoreTests : IDisposable
         var listed = await store.ListAsync(path);
         Assert.Equal(PhotoVersionRecipeStatus.Success, listed.Status);
         Assert.Equal(PhotoVersionRecipeStatus.Success, listed.Records![0].Status);
-        Assert.Equal(PhotoVersionRecipeStatus.Unsupported, listed.Records[1].Status);
-        Assert.Null(listed.Records[1].Snapshot);
+        Assert.Equal(PhotoVersionRecipeStatus.Success, listed.Records[1].Status);
+        Assert.NotNull(listed.Records[1].Snapshot);
         Assert.Equal(mainPacket, (await store.ReadAsync(new(path, sourceId, mainId))).Snapshot!.RecipeXmp);
         var copy = await store.ReadAsync(new(path, sourceId, copyId));
-        Assert.Equal(PhotoVersionRecipeStatus.Unsupported, copy.Status);
-        Assert.Null(copy.Snapshot);
+        Assert.Equal(PhotoVersionRecipeStatus.Success, copy.Status);
+        Assert.Equal(PhotoVersionRecipeStatus.Success,
+            PhotoVersionRecipePacket.TryRead(copy.Snapshot!.RecipeXmp, true, out var copyRecipe));
+        Assert.Equal(0.5, copyRecipe!.MonochromeMix.LuminanceBands[0]);
         Assert.Equal(before, await File.ReadAllBytesAsync(sidecar, TestContext.Current.CancellationToken));
     }
 

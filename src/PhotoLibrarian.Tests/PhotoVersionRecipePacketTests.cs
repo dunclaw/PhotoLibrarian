@@ -94,11 +94,33 @@ public sealed class PhotoVersionRecipePacketTests
         Assert.Null(updated);
     }
 
+    [Fact]
+    public void MonochromeRecipeRoundTripsWithTheCompleteVersionPacket()
+    {
+        var xmp = XmpMetaFactory.Create();
+        var parameters = new EditParameters { Exposure = 0.25 };
+        parameters.MonochromeMix.LuminanceBands[5] = 0.5;
+        EditParametersSerializer.WriteToXmp(xmp, parameters);
+        var packet = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
+
+        Assert.Equal(PhotoVersionRecipeStatus.Success,
+            PhotoVersionRecipePacket.TryRead(packet, false, out var recipe));
+        Assert.Equal(0.5, recipe!.MonochromeMix.LuminanceBands[5]);
+        recipe.Exposure = -0.5;
+        Assert.Equal(PhotoVersionRecipeStatus.Success,
+            PhotoVersionRecipePacket.TryUpdate(packet, false, recipe, out var updated));
+        Assert.Equal(PhotoVersionRecipeStatus.Success,
+            PhotoVersionRecipePacket.TryRead(updated!, false, out var result));
+        Assert.Equal(-0.5, result!.Exposure);
+        Assert.Equal(0.5, result.MonochromeMix.LuminanceBands[5]);
+    }
+
     [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public void UnintegratedMonochromeRecipeCannotRenderAsNeutral(bool hasVersion, bool hasData)
+    [InlineData(true, false, PhotoVersionRecipeStatus.InvalidMetadata)]
+    [InlineData(false, true, PhotoVersionRecipeStatus.InvalidMetadata)]
+    [InlineData(true, true, PhotoVersionRecipeStatus.Success)]
+    public void MonochromeVersionAndDataMustBePaired(
+        bool hasVersion, bool hasData, PhotoVersionRecipeStatus expectedStatus)
     {
         var xmp = XmpMetaFactory.Create();
         EditParametersSerializer.WriteToXmp(xmp, new EditParameters());
@@ -109,9 +131,48 @@ public sealed class PhotoVersionRecipePacketTests
                 """{"LuminanceBands":[0.5,0,0,0,0,0,0,0]}""");
         var packet = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
 
+        Assert.Equal(expectedStatus,
+            PhotoVersionRecipePacket.TryRead(packet, false, out _));
+        Assert.Equal(expectedStatus,
+            PhotoVersionRecipePacket.TryUpdate(packet, false, new EditParameters(), out _));
+    }
+
+    [Fact]
+    public void UnknownMonochromeVersionAndJsonFieldsAreUnsupported()
+    {
+        var xmp = XmpMetaFactory.Create();
+        EditParametersSerializer.WriteToXmp(xmp, new EditParameters());
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion", "2");
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixV1",
+            """{"LuminanceBands":[0,0,0,0,0,0,0,0]}""");
+        var packet = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
+        Assert.Equal(PhotoVersionRecipeStatus.Unsupported,
+            PhotoVersionRecipePacket.TryRead(packet, false, out _));
+
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion", "1");
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixV1",
+            """{"LuminanceBands":[0,0,0,0,0,0,0,0],"FutureAdjustment":0.2}""");
+        packet = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
         Assert.Equal(PhotoVersionRecipeStatus.Unsupported,
             PhotoVersionRecipePacket.TryRead(packet, false, out _));
         Assert.Equal(PhotoVersionRecipeStatus.Unsupported,
+            PhotoVersionRecipePacket.TryUpdate(packet, false, new EditParameters(), out var updated));
+        Assert.Null(updated);
+    }
+
+    [Fact]
+    public void DuplicateMonochromeFieldsAreInvalidMetadata()
+    {
+        var xmp = XmpMetaFactory.Create();
+        EditParametersSerializer.WriteToXmp(xmp, new EditParameters());
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion", "1");
+        xmp.SetProperty(EditParameters.XmpNamespace, "pledit:MonochromeMixV1",
+            """{"LuminanceBands":[0,0,0,0,0,0,0,0],"LuminanceBands":[0,0,0,0,0,0,0,0]}""");
+        var packet = XmpMetaFactory.SerializeToString(xmp, new XmpCore.Options.SerializeOptions());
+
+        Assert.Equal(PhotoVersionRecipeStatus.InvalidMetadata,
+            PhotoVersionRecipePacket.TryRead(packet, false, out _));
+        Assert.Equal(PhotoVersionRecipeStatus.InvalidMetadata,
             PhotoVersionRecipePacket.TryUpdate(packet, false, new EditParameters(), out _));
     }
 

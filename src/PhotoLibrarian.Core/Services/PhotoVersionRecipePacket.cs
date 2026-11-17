@@ -29,6 +29,7 @@ internal static class PhotoVersionRecipePacket
         if (parameters.ToneCurves is null || parameters.ColorAdjustments is null ||
             parameters.ColorAdjustments.MixerBands is null ||
             parameters.ColorAdjustments.MixerBands.Any(band => band is null) ||
+            parameters.MonochromeMix is null ||
             parameters.RetouchStrokes is null ||
             !HasFiniteValues(parameters) ||
             !Enum.IsDefined(parameters.Effect) || !Enum.IsDefined(parameters.SharpeningMode))
@@ -84,11 +85,7 @@ internal static class PhotoVersionRecipePacket
         try
         {
             var parsed = XmpMetaFactory.ParseFromString(packet.TrimStart('\uFEFF'));
-            // Until these serializers are integrated, do not render their recipes
-            // as if the unknown adjustments were neutral.
-            if (parsed.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:MonochromeMixVersion") ||
-                parsed.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:MonochromeMixV1") ||
-                parsed.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:GeometryVersion") ||
+            if (parsed.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:GeometryVersion") ||
                 parsed.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:GeometryV1"))
                 return PhotoVersionRecipeStatus.Unsupported;
             var opaqueOnly = parsed.Clone();
@@ -101,6 +98,9 @@ internal static class PhotoVersionRecipePacket
                     !opaqueOnly.DoesPropertyExist(property.Namespace, property.Path))
                     return PhotoVersionRecipeStatus.Unsupported;
             }
+            var monochromeStatus = InspectMonochromeMix(parsed);
+            if (monochromeStatus != PhotoVersionRecipeStatus.Success)
+                return monochromeStatus;
             if ((parsed.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:RawToneMapping") &&
                   parsed.GetPropertyString(EditParameters.XmpNamespace, "pledit:RawToneMapping") != RawToneMappingService.RecipeVersion) ||
                  (parsed.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:RawDevelopment") &&
@@ -157,6 +157,31 @@ internal static class PhotoVersionRecipePacket
         {
             return PhotoVersionRecipeStatus.InvalidMetadata;
         }
+    }
+
+    private static PhotoVersionRecipeStatus InspectMonochromeMix(IXmpMeta xmp)
+    {
+        const string versionProperty = "pledit:MonochromeMixVersion";
+        const string recipeProperty = "pledit:MonochromeMixV1";
+        var hasVersion = xmp.DoesPropertyExist(EditParameters.XmpNamespace, versionProperty);
+        var hasRecipe = xmp.DoesPropertyExist(EditParameters.XmpNamespace, recipeProperty);
+        if (hasVersion && xmp.GetPropertyString(EditParameters.XmpNamespace, versionProperty) != "1")
+            return PhotoVersionRecipeStatus.Unsupported;
+        if (hasVersion != hasRecipe)
+            return PhotoVersionRecipeStatus.InvalidMetadata;
+        if (!hasRecipe)
+            return PhotoVersionRecipeStatus.Success;
+
+        using var document = JsonDocument.Parse(
+            xmp.GetPropertyString(EditParameters.XmpNamespace, recipeProperty));
+        if (HasDuplicateProperties(document.RootElement))
+            return PhotoVersionRecipeStatus.InvalidMetadata;
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            return PhotoVersionRecipeStatus.InvalidMetadata;
+        return document.RootElement.EnumerateObject().Any(property =>
+            property.Name != nameof(MonochromeMix.LuminanceBands))
+                ? PhotoVersionRecipeStatus.Unsupported
+                : PhotoVersionRecipeStatus.Success;
     }
 
     private static bool HasFiniteValues(EditParameters recipe)
