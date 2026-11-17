@@ -75,6 +75,12 @@
     <None Include="..\PhotoLibrarian\Views\SettingsPanel.xaml"
           Link="TestAssets\SettingsPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\PeopleReviewView.xaml"
+          Link="TestAssets\PeopleReviewView.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\DuplicateReviewView.xaml"
+          Link="TestAssets\DuplicateReviewView.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\SidecarMigrationPanel.xaml"
           Link="TestAssets\SidecarMigrationPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />

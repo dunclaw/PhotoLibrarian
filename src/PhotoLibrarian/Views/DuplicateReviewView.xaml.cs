@@ -13,6 +13,8 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class DuplicateReviewView : UserControl
 {
+    private bool _focusInitialControlOnLoad;
+
     public Visibility BoolToVisibility(bool value) =>
         value ? Visibility.Visible : Visibility.Collapsed;
 
@@ -44,6 +46,29 @@ public sealed partial class DuplicateReviewView : UserControl
             RecycleButton,
             DuplicateReviewStrings.Get("DuplicateRecycleButtonName"));
         RefreshDisplay();
+        if (_focusInitialControlOnLoad)
+        {
+            _focusInitialControlOnLoad = false;
+            FocusInitialControlIfOpen();
+        }
+    }
+
+    internal void FocusInitialControl()
+    {
+        if (!IsLoaded)
+        {
+            _focusInitialControlOnLoad = true;
+            return;
+        }
+
+        FocusInitialControlIfOpen();
+    }
+
+    private void FocusInitialControlIfOpen()
+    {
+        if (!ViewModel.IsOpen) return;
+        if (!ScanButton.Focus(FocusState.Programmatic))
+            CloseButton.Focus(FocusState.Programmatic);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
