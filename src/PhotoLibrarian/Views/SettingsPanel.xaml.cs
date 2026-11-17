@@ -577,6 +577,16 @@ public sealed partial class SettingsPanel : UserControl
         }
     }
 
+    private async void OnRunImageBenchmark(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (App.ViewModel is not null)
+        {
+            await App.ViewModel.RunBenchmarkCommand.ExecuteAsync(null);
+        }
+    }
+
     private void OnApproveProfile(
         object sender,
         RoutedEventArgs e)
