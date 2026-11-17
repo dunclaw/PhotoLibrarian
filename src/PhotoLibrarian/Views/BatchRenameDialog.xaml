@@ -6,16 +6,25 @@
     PrimaryButtonText="Rename"
     CloseButtonText="Cancel"
     DefaultButton="Primary">
-    <StackPanel MinWidth="400" Spacing="12">
-        <TextBox x:Name="PatternBox"
-                 AutomationProperties.AutomationId="BatchRenamePattern"
-                 Header="Filename pattern"
-                 Text="Trip_{####}" />
-        <TextBlock TextWrapping="Wrap">
-            <Run Text="Tokens: {####} = sequence starting at 1; {original} = original name; {yyyy}, {MM}, {dd}, {HH}, {mm}, {ss} = date taken (modified date if unavailable)." />
-            <LineBreak />
-            <Run Text="Extensions are kept. Sequence follows selection order. Existing destinations are not overwritten." />
-        </TextBlock>
+    <ContentDialog.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Controls/FormLayout.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </ContentDialog.Resources>
+    <StackPanel Style="{StaticResource FormSection}" MinWidth="400" Spacing="12">
+        <StackPanel Style="{StaticResource SettingRow}">
+            <TextBox x:Name="PatternBox"
+                     AutomationProperties.AutomationId="BatchRenamePattern"
+                     Header="Filename pattern"
+                     Text="Trip_{####}" />
+            <TextBlock TextWrapping="Wrap">
+                <Run Text="Tokens: {####} = sequence starting at 1; {original} = original name; {yyyy}, {MM}, {dd}, {HH}, {mm}, {ss} = date taken (modified date if unavailable)." />
+                <LineBreak />
+                <Run Text="Extensions are kept. Sequence follows selection order. Existing destinations are not overwritten." />
+            </TextBlock>
+        </StackPanel>
         <Grid ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
