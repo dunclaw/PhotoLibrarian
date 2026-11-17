@@ -36,6 +36,7 @@ public sealed class RecentPeopleStoreTests
         finally
         {
             File.Delete(settingsPath);
+            File.Delete(settingsPath + ".bak");
             File.Delete(settingsPath + ".tmp");
         }
     }

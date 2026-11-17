@@ -348,8 +348,7 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
             <CommandBar Grid.Column="1"
-                        Background="Transparent"
-                        DefaultLabelPosition="Right">
+                        Style="{StaticResource ToolbarCommandBarStyle}">
                 <AppBarButton x:Name="ReviewUndoTagButton"
                               AutomationProperties.AutomationId="ReviewUndoTagButton"
                               Icon="Undo"
@@ -430,8 +429,7 @@
                            VerticalAlignment="Center" />
             </StackPanel>
             <CommandBar Grid.Column="1"
-                        Background="Transparent"
-                        DefaultLabelPosition="Right">
+                        Style="{StaticResource ToolbarCommandBarStyle}">
                 <AppBarButton x:Name="PeopleUndoTagButton"
                               AutomationProperties.AutomationId="PeopleUndoTagButton"
                               Icon="Undo"
@@ -487,8 +485,7 @@
                            VerticalAlignment="Center" />
             </StackPanel>
             <CommandBar Grid.Column="1"
-                        Background="Transparent"
-                        DefaultLabelPosition="Right">
+                        Style="{StaticResource ToolbarCommandBarStyle}">
                 <AppBarButton x:Name="ExcludedUndoTagButton"
                               AutomationProperties.AutomationId="ExcludedUndoTagButton"
                               Icon="Undo"

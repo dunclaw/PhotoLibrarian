@@ -4,15 +4,15 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Folder Name="/native/">
-    <Project Path="native/LibRaw.vcxproj" Id="324cbde0-fd60-434a-b8c5-29e68ef480da" />
-    <Project Path="native/OpenCv.vcxproj" Id="1130dd95-4670-4b48-91cf-cad9e56f8290" />
-    <Project Path="native/PhotoLibrarian.NativeSources.vcxproj" Id="693c7478-6a52-493c-924a-0c77256ee020" />
-    <Project Path="native/PhotoLibrarian.Panorama/PhotoLibrarian.Panorama.vcxproj" Id="cefe5a7e-a543-40a6-9870-6a76d5e3f7df" />
-    <Project Path="native/PhotoLibrarian.RawDecoder/PhotoLibrarian.RawDecoder.vcxproj" Id="92ef6045-bf74-4052-b99a-a05f16ba7fd3" />
-    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.CodecMemoryProbe.vcxproj" Id="e6e3214f-341b-4da5-af33-9b851f884a81" />
-    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.TileCodecProbe.vcxproj" Id="6370dceb-486c-4a9c-b8e8-c40cfb3d6aaf" />
-    <Project Path="native/zlib.vcxproj" Id="655e986a-8a9f-4bc2-8a77-b4d3402a2501" />
+  <Folder Name="/NativeDependencies/" Id="2f2ba0b1-8447-348e-8da4-622f0257d38b">
+    <Project Path="native/LibRaw.vcxproj" />
+    <Project Path="native/OpenCv.vcxproj" />
+    <Project Path="native/PhotoLibrarian.NativeSources.vcxproj" />
+    <Project Path="native/PhotoLibrarian.Panorama/PhotoLibrarian.Panorama.vcxproj" />
+    <Project Path="native/PhotoLibrarian.RawDecoder/PhotoLibrarian.RawDecoder.vcxproj" />
+    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.CodecMemoryProbe.vcxproj" />
+    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.TileCodecProbe.vcxproj" />
+    <Project Path="native/zlib.vcxproj" />
   </Folder>
   <Folder Name="/Packaging/">
     <File Path="packaging/Package.appxmanifest" />

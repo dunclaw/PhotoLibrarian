@@ -4,33 +4,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CommunityToolkit.WinUI.Controls">
 
-    <UserControl.Resources>
-        <!-- Icon-above-label command button, the Photo Gallery ribbon idiom. -->
-        <Style x:Key="RibbonCommandStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="12,4" />
-            <Setter Property="MinWidth" Value="64" />
-            <Setter Property="MinHeight" Value="56" />
-            <Setter Property="VerticalAlignment" Value="Stretch" />
-        </Style>
-
-        <Style x:Key="RibbonIconStyle" TargetType="FontIcon">
-            <Setter Property="FontSize" Value="18" />
-            <Setter Property="HorizontalAlignment" Value="Center" />
-        </Style>
-
-        <Style x:Key="RibbonCaptionStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
-            <Setter Property="HorizontalAlignment" Value="Center" />
-        </Style>
-
-        <Style x:Key="RibbonSeparatorStyle" TargetType="Rectangle">
-            <Setter Property="Width" Value="1" />
-            <Setter Property="Margin" Value="8,12" />
-            <Setter Property="Fill" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
-        </Style>
-    </UserControl.Resources>
-
     <Border BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="0,0,0,1"
             Background="{ThemeResource LayerFillColorDefaultBrush}">
@@ -219,10 +192,10 @@
             </StackPanel>
 
             <CommandBar x:Name="VideoEditTools" Grid.ColumnSpan="3"
+                        Style="{StaticResource ToolbarCommandBarStyle}"
                         AutomationProperties.AutomationId="VideoEditToolbar"
-                        Background="Transparent" DefaultLabelPosition="Bottom"
                         HorizontalAlignment="Left"
-                        IsDynamicOverflowEnabled="True" MinHeight="64"
+                        MinHeight="64"
                         Visibility="Collapsed">
                 <CommandBar.Content>
                     <StackPanel Orientation="Horizontal" Spacing="12" Margin="4,0,12,0"

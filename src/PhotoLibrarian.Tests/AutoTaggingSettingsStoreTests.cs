@@ -234,6 +234,7 @@ public sealed class AutoTaggingSettingsStoreTests
     private static void DeleteSettingsFiles(string settingsPath)
     {
         File.Delete(settingsPath);
+        File.Delete(settingsPath + ".bak");
         File.Delete(settingsPath + ".tmp");
     }
 }

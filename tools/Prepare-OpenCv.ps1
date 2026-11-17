@@ -5,6 +5,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$BuildDirectory,
     [Parameter(Mandatory = $true)]
+    [string]$WorkspaceRoot,
+    [Parameter(Mandatory = $true)]
     [string]$VisualStudioDirectory,
     [Parameter(Mandatory = $true)]
     [string]$VisualStudioVersion,
@@ -36,7 +38,7 @@ try {
     $dependencies = ([xml](Get-Content (Join-Path $repoRoot 'native\Dependencies.props') -Raw)).Project.PropertyGroup
     $buildRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BuildDirectory)
     $outputRoot = $buildRoot
-    $archive = Join-Path $repoRoot "native\obj\sources\opencv-$($dependencies.OpenCvVersion).tar.gz"
+    $archive = Join-Path $WorkspaceRoot "sources\opencv-$($dependencies.OpenCvVersion).tar.gz"
     $expectedHash = $dependencies.OpenCvSha512
     New-Item $buildRoot, $outputRoot, (Split-Path $archive) -ItemType Directory -Force | Out-Null
     $nativeFiles = @(

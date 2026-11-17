@@ -1,9 +1,14 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\Configurations.props" />
-  <PropertyGroup Label="Globals"><ProjectGuid>{CEFE5A7E-A543-40A6-9870-6A76D5E3F7DF}</ProjectGuid></PropertyGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{D5EAAB4B-7ABF-A0DC-6AFC-9F7B56DDF39E}</ProjectGuid>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="..\Toolset.props" />
-  <PropertyGroup Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)' == 'Debug'">true</UseDebugLibraries></PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)' == 'Debug'">true</UseDebugLibraries>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="..\Native.props" />
   <Import Project="..\OpenCv.props" />
@@ -19,7 +24,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Panorama.cpp" />
-    <ProjectReference Include="..\OpenCv.vcxproj"><Project>{1130DD95-4670-4B48-91CF-CAD9E56F8290}</Project><LinkLibraryDependencies>false</LinkLibraryDependencies></ProjectReference>
+    <ProjectReference Include="..\OpenCv.vcxproj">
+      <Project>{1130DD95-4670-4B48-91CF-CAD9E56F8290}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
