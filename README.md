@@ -352,6 +352,20 @@ quality/render-parity gates, and the #119 model-free comparison results.
 | `src/PhotoLibrarian.Tests` | xUnit + Moq test suite. |
 | `tools/PhotoLibrarian.ModelBench` | Standalone ONNX model comparison and scoring utility. |
 
+### Dialog conventions
+
+Use `IDialogService` (`DialogService.Instance`) for simple confirmations and error summaries.
+Pass the invoking, loaded control on every call; the service resolves its current `XamlRoot`
+and theme rather than retaining a window. Prefer localized labels: primary names the action,
+confirmation close means Cancel, and destructive confirmations always default to Cancel.
+Only `ContentDialogResult.Primary` authorizes an action; handle presentation failures in the
+caller's existing error surface. Progress, nested dialogs and save/discard/cancel forms remain
+separate until their cancellation and validation semantics can be migrated intact.
+This first migration preserves existing text, including the geotag error summary's English
+title and Close label; resource-backed geotag error text remains a localization follow-up.
+The isolated accessibility host's `--dialogs` suite checks native keyboard cancellation,
+results, scrollable error content, and moving the same owner between windows.
+
 ---
 
 ## Metadata-handling philosophy

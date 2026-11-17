@@ -116,26 +116,21 @@ public sealed partial class DuplicateReviewView : UserControl
         var warning = group.Source.Kind == Core.Models.DuplicateMatchKind.Near
             ? DuplicateReviewStrings.Get("DuplicateNearRecycleWarning")
             : DuplicateReviewStrings.Get("DuplicateExactRecycleWarning");
-        var dialog = new ContentDialog
-        {
-            Title = DuplicateReviewStrings.Get("DuplicateRecycleDialogTitle"),
-            Content = DuplicateReviewStrings.Format(
-                "DuplicateRecycleDialogContent",
-                warning,
-                keeper.FileName,
-                count),
-            PrimaryButtonText = DuplicateReviewStrings.Format(
-                "DuplicateRecycleDialogPrimary",
-                count),
-            CloseButtonText = DuplicateReviewStrings.Get("DuplicateRecycleDialogCancel"),
-            DefaultButton = ContentDialogButton.None,
-            XamlRoot = XamlRoot
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-            return;
-
         try
         {
+            var result = await DialogService.Instance.ConfirmDestructiveAsync(
+                this,
+                DuplicateReviewStrings.Get("DuplicateRecycleDialogTitle"),
+                DuplicateReviewStrings.Format(
+                    "DuplicateRecycleDialogContent",
+                    warning,
+                    keeper.FileName,
+                    count),
+                DuplicateReviewStrings.Format("DuplicateRecycleDialogPrimary", count),
+                DuplicateReviewStrings.Get("DuplicateRecycleDialogCancel"));
+            if (result != ContentDialogResult.Primary)
+                return;
+
             await ViewModel.RemoveNonKeeperFilesAsync();
             await App.ViewModel.ImageGrid.LoadImagesAsync();
         }
