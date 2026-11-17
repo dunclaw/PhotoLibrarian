@@ -26,7 +26,7 @@ internal enum MetadataWriteProperty
 /// Embedded writes are verified before matching owned sidecar values are removed. This keeps edits
 /// portable with the photo while preserving unrelated XMP and legacy metadata.
 /// </summary>
-public static class MetadataWriterService
+public static partial class MetadataWriterService
 {
     /// <summary>Raised after an unexpected sidecar fallback has been saved successfully.</summary>
     public static event EventHandler<MetadataWriteFallbackEventArgs>? SidecarFallback;

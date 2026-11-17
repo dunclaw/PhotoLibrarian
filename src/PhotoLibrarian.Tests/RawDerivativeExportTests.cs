@@ -147,8 +147,8 @@ public sealed class RawDerivativeExportTests : IDisposable
         Assert.Equal(expected, reopenedBitmap.GetPixelBytes());
         var managed = await ReopenAsync(result.FilePath, colorManage: true);
         Assert.Equal(expected.Length, managed.Length);
-        // WIC's ICC-to-system-sRGB conversion is separately quantized; the app's byte decoder
-        // deliberately uses DoNotColorManage, whose lossless equality is asserted above.
+        // WIC's ICC-to-system-sRGB conversion is separately quantized. The editor recognizes
+        // the app's exact sRGB profile and preserves these already-working-space bytes above.
         Assert.InRange(expected.Zip(managed, (a, b) => Math.Abs(a - b)).Max(), 0, 3);
         Assert.All(managed.Where((_, index) => index % 4 == 3), alpha => Assert.Equal(255, alpha));
         Assert.Equal(original, await File.ReadAllBytesAsync(source));
