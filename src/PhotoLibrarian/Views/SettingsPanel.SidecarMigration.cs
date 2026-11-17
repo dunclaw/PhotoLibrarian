@@ -14,7 +14,7 @@ public sealed partial class SettingsPanel
         button.IsEnabled = false;
         try
         {
-            var folder = await PickFolderAsync();
+            var folder = await App.FolderPickerService.PickFolderAsync();
             if (folder is null) return;
             var panel = new SidecarMigrationPanel();
             var model = panel.ViewModel;

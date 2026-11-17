@@ -84,9 +84,9 @@ public sealed class VideoWorkflowTests
         var ribbon = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "TopRibbon.xaml"));
         var videoTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoEditTools");
         Assert.Equal(presentation + "CommandBar", videoTools.Name);
+        Assert.Equal("{StaticResource ToolbarCommandBarStyle}", (string?)videoTools.Attribute("Style"));
         Assert.Null(videoTools.Attribute("Grid.Row"));
         Assert.Equal("3", (string?)videoTools.Attribute("Grid.ColumnSpan"));
-        Assert.Equal("True", (string?)videoTools.Attribute("IsDynamicOverflowEnabled"));
         Assert.Equal("Left", (string?)videoTools.Attribute("HorizontalAlignment"));
         Assert.Empty(videoTools.Parent!.Elements(presentation + "Grid.RowDefinitions"));
         Assert.Equal("64", (string?)videoTools.Parent.Attribute("MinHeight"));

@@ -414,16 +414,17 @@ no compiler executable path or MSVC minor version is checked in.
 The RAW wrapper, thread-safe LibRaw, zlib, Panorama wrapper and test-only codec
 probes are explicit `.vcxproj` projects with build-order references, architecture
 mapping, static CRT, and normal MSBuild incremental/clean/rebuild tracking.
-Sources and notices are acquired into `native\obj\sources`; dependency versions
-and checksums are centralized in `native\Dependencies.props`. The first build
-requires HTTPS access; cached builds and the installed app need no network.
+LibRaw and zlib sources and notices are acquired into `native\obj\sources`;
+dependency versions and checksums are centralized in `native\Dependencies.props`.
+The first build requires HTTPS access; cached builds and the installed app need no network.
 `Prepare-RawSources.ps1` only verifies/extracts sources and assembles required
 licenses. LibRaw and zlib have no CMake or vcpkg build dependency.
 
 OpenCV's upstream CMake remains solely for configuration/code generation of its
 selected modules. `Prepare-OpenCv.ps1` downloads/verifies the source and generates
-VC projects; `OpenCv.vcxproj` compiles them using MSBuild. Its build tree is
-isolated by architecture, platform toolset and discovered MSVC version, and its
+VC projects; `OpenCv.vcxproj` compiles them using MSBuild. Its short cache path
+is under `%LOCALAPPDATA%\PhotoLibrarian\OpenCv`, isolated per worktree,
+architecture, platform toolset and discovered MSVC version, and its
 configuration fingerprint includes the active Visual Studio instance. This
 avoids stale NMake/Ninja compiler caches after toolset updates. None of our
 wrappers is compiled by a script.
