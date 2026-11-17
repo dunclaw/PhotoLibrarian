@@ -32,7 +32,7 @@ PhotoLibrarian is designed to handle real photo libraries (tens of thousands of 
 - 🖼️ **Make a copy before editing** from the viewer to keep the original and editable variant as separate library items.
 - **Simple video stabilization** in the video editing ribbon exports a separate H.264/AAC MP4 and opens it immediately in the player, with no downloads or additional installs. The integrated stabilizer reduces small shakes and rotations with mirrored edges, using Windows' video codecs. Progress and cancellation are available; originals are never overwritten. See [usage, limitations and open-source options](docs/VIDEO-STABILIZATION.md).
 - **Photo Fuse** works inside the full-photo viewer: click its top-ribbon command, choose a detected face, and preview independently aligned replacements from nearby group photos. Reuses local face scans and the existing right-rail add-face UI; searches a capture-time window without a four-photo cap. Click again to save a new copy in the original format and exit, leaving originals unchanged. Supports opaque JPEG/8-bit PNG with adaptive, conservatively validated seams. Output is at most 1600 pixels; source tags, GPS and people identities are not copied. See [workflow, safety and visual-review limits](docs/PHOTO-FUSE.md).
-- **Rotate / remove video audio** in the video ribbon prepares a local H.264/AAC MP4 preview, then saves those exact bytes as a new `-edited.mp4` copy and opens it in the library. Choose clockwise/counterclockwise quarter turns or 180 degrees, optionally remove the audio track, then **Prepare preview**, play it, and **Export edited copy**. Rotation composes with the source's orientation using standard MP4 rotation metadata (players must honor it); it does not bake rotation into the pixels. Preparation re-encodes the whole clip and supports cancellation and progress; it needs temporary disk space plus space for the saved copy, with dimensions up to 4096 pixels each. The source and its sidecars remain untouched. Descriptive tags/ratings/captions are copied into a new XMP sidecar, not geometry or face regions. Extra tracks, subtitles, HDR fidelity and camera-specific metadata are not preserved. No external tools, downloads, cloud processing, slow-motion interpolation, color effects, face tracking or music mixing are involved.
+- **Edit video brightness, contrast, rotation, and audio** directly in the single, left-aligned main toolbar row shown whenever a video opens, alongside Stabilize and Trim; commands overflow into the toolbar's More menu at narrower widths. There are no modal video editing, stabilization or trimming dialogs. Edits automatically rebuild a local H.264/AAC preview after a short pause; changing an edit cancels obsolete work. Progress and errors appear in the existing status bar; each control's tooltip explains its own action. Toggle **Stabilize** to include stabilization; its options are in a compact nonmodal flyout. Toggle **Trim** to show a single bar with draggable start/end handles and read-only time labels in the same toolbar row. Tone, rotation, audio removal, stabilization and trimming compose into one prepared file. **Reset edits** restores neutral controls and source playback. Explicit full-range and limited-range metadata is honored, including decoders that establish the range with their first sample; untagged clips are treated as standard limited-range video. **Export copy** saves the exact prepared preview bytes as a new `-edited.mp4` copy. Rotation composes with the source's orientation using standard MP4 rotation metadata (players must honor it); it does not bake rotation into the pixels. Preparation re-encodes the clip and supports cancellation and progress; it needs temporary disk space plus space for the saved copy. Windows reports unsupported dimensions, codecs, or resource failures rather than an application-defined size limit. The source and its sidecars remain untouched. Descriptive tags/ratings/captions are copied into a new XMP sidecar, not geometry or face regions. Extra tracks, subtitles, HDR fidelity and camera-specific metadata are not preserved. No external tools, downloads, cloud processing, slow-motion interpolation, AI effects, face tracking or music mixing are involved.
 - **Pixel motion photos** automatically loop in the full-photo viewer for supported JPEG Microvideo/Motion Photo v1 embedded MP4 layouts. Pause using the small header play/pause control or click the playing image to display the original still. Playback is local and read-only, with bounded in-memory loading and still fallback. Apple Live Photo pairs and HEIC/AVIF motion containers are not supported; see [formats, limits, and generated tests](docs/MOTION-PHOTOS.md).
 - **Synchronized photo navigation** follows the grid's current filters, sort, and grouping. Returning from full view selects and reveals the displayed item. If a filter removes it, full view moves to the first matching item (or closes when no items match).
 - **Copy photo names and paths** using the copy buttons beside Filename (including extension), Folder, and Path (folder plus filename) in the information pane for a single selected item. Right-click a single grid item or the full-photo viewer and choose **Copy full path** to copy its path as plain text. The viewer menu also opens with Shift+F10 or the Menu key; detail buttons support Tab and Enter/Space. This does not copy or modify photo files; the existing grid **Copy** command still copies files.
@@ -352,6 +352,21 @@ quality/render-parity gates, and the #119 model-free comparison results.
 | `src/PhotoLibrarian.Tests` | xUnit + Moq test suite. |
 | `tools/PhotoLibrarian.ModelBench` | Standalone ONNX model comparison and scoring utility. |
 
+### Dialog conventions
+
+Use `IDialogService` (`DialogService.Instance`) for simple confirmations and error summaries.
+Pass the invoking, loaded control on every call; the service resolves its current `XamlRoot`
+and theme rather than retaining a window. Pass caught exceptions to its error overload to show
+their message through the same presentation path. Prefer localized labels: primary names the
+action, confirmation close means Cancel, and destructive confirmations always default to Cancel.
+Only `ContentDialogResult.Primary` authorizes an action; handle presentation failures in the
+caller's existing error surface. Progress, nested dialogs and save/discard/cancel forms remain
+separate until their cancellation and validation semantics can be migrated intact.
+This first migration preserves existing text, including the geotag error summary's English
+title and Close label; resource-backed geotag error text remains a localization follow-up.
+The isolated accessibility host's `--dialogs` suite checks native keyboard cancellation,
+results, scrollable error content, and moving the same owner between windows.
+
 ---
 
 ## Metadata-handling philosophy
@@ -399,16 +414,17 @@ no compiler executable path or MSVC minor version is checked in.
 The RAW wrapper, thread-safe LibRaw, zlib, Panorama wrapper and test-only codec
 probes are explicit `.vcxproj` projects with build-order references, architecture
 mapping, static CRT, and normal MSBuild incremental/clean/rebuild tracking.
-Sources and notices are acquired into `native\obj\sources`; dependency versions
-and checksums are centralized in `native\Dependencies.props`. The first build
-requires HTTPS access; cached builds and the installed app need no network.
+LibRaw and zlib sources and notices are acquired into `native\obj\sources`;
+dependency versions and checksums are centralized in `native\Dependencies.props`.
+The first build requires HTTPS access; cached builds and the installed app need no network.
 `Prepare-RawSources.ps1` only verifies/extracts sources and assembles required
 licenses. LibRaw and zlib have no CMake or vcpkg build dependency.
 
 OpenCV's upstream CMake remains solely for configuration/code generation of its
 selected modules. `Prepare-OpenCv.ps1` downloads/verifies the source and generates
-VC projects; `OpenCv.vcxproj` compiles them using MSBuild. Its build tree is
-isolated by architecture, platform toolset and discovered MSVC version, and its
+VC projects; `OpenCv.vcxproj` compiles them using MSBuild. Its short cache path
+is under `%LOCALAPPDATA%\PhotoLibrarian\OpenCv`, isolated per worktree,
+architecture, platform toolset and discovered MSVC version, and its
 configuration fingerprint includes the active Visual Studio instance. This
 avoids stale NMake/Ninja compiler caches after toolset updates. None of our
 wrappers is compiled by a script.
@@ -827,6 +843,7 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Show / hide viewer information pane | I or the information toggle |
 | Reset viewer zoom to fit | Ctrl+0 |
 | Next / previous in viewer | ←  →  arrow keys |
+| Close viewer | Esc |
 | Previous / next while editing | Left / Right arrows (outside input controls); Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
@@ -848,6 +865,17 @@ toggle hides the right-hand pane and its splitter while viewing, restoring its r
 width when shown again. The choice is remembered only until the app closes; closing
 the viewer always restores the normal grid's information pane. Both controls support
 Tab and Enter/Space; A and I apply when viewer focus is outside text inputs.
+
+Opening a photo from the grid transfers keyboard focus to the viewer, so Left,
+Right and Escape work without clicking a navigation button. Clicking the image
+or its title restores viewer focus; input controls keep their own keyboard behavior.
+To check these paths without a live library, build
+`src\PhotoLibrarian.AccessibilityTests\PhotoLibrarian.AccessibilityTests.csproj`
+with Visual Studio MSBuild (`/p:Platform=x64 /restore`), then run
+`.\tools\Test-PhotoGridAccessibility.ps1 -SkipBuild -ViewerFocus`.
+The isolated host double-clicks generated grid photos and sends native keyboard
+and mouse input, saving results and `viewer-focus.png` in its `AppX` output folder.
+It tests the real grid/viewer controls, not the main window's other overlays.
 
 Start a slideshow with F11, the **Slideshow** button at the left of the grid toolbar or in
 the viewer ribbon, or **Slideshow** in a photo's right-click menu. Photos play in the order

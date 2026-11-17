@@ -1,4 +1,7 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using System.Text.Json;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.ML.Services;
 
@@ -9,10 +12,7 @@ public sealed class AutoTaggingSettingsStore
 
     public AutoTaggingSettingsStore(string? settingsPath = null)
     {
-        _settingsPath = settingsPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PhotoLibrarian",
-            "auto-tagging.json");
+        _settingsPath = settingsPath ?? AppDataPaths.SettingsFile("auto-tagging.json");
     }
 
     public AutoTaggingSettings Load()
@@ -63,29 +63,11 @@ public sealed class AutoTaggingSettingsStore
         lock (_sync)
         {
             var normalized = Normalize(settings);
-            var directory = Path.GetDirectoryName(_settingsPath);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            var temporaryPath = _settingsPath + ".tmp";
-            try
-            {
-                File.WriteAllText(
-                    temporaryPath,
-                    JsonSerializer.Serialize(
-                        normalized,
-                        new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(temporaryPath, _settingsPath, true);
-            }
-            finally
-            {
-                if (File.Exists(temporaryPath))
-                {
-                    File.Delete(temporaryPath);
-                }
-            }
+            AppSettingsFile.WriteAllText(
+                _settingsPath,
+                JsonSerializer.Serialize(
+                    normalized,
+                    new JsonSerializerOptions { WriteIndented = true }));
         }
     }
 

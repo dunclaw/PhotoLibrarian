@@ -17,6 +17,7 @@ public sealed partial class SettingsPanel : UserControl
         App.ViewModel?.Settings;
     private bool _isUpdatingDisplay;
     private bool _isBenchmarkVisible;
+    private bool _focusInitialControlOnLoad;
 
     public SettingsPanel()
     {
@@ -38,6 +39,29 @@ public sealed partial class SettingsPanel : UserControl
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         UpdateDisplay();
+        if (_focusInitialControlOnLoad)
+        {
+            _focusInitialControlOnLoad = false;
+            FocusInitialControlIfOpen();
+        }
+    }
+
+    internal void FocusInitialControl()
+    {
+        if (!IsLoaded)
+        {
+            _focusInitialControlOnLoad = true;
+            return;
+        }
+
+        FocusInitialControlIfOpen();
+    }
+
+    private void FocusInitialControlIfOpen()
+    {
+        if (ViewModel?.IsOpen != true) return;
+        if (!MapProviderCombo.Focus(FocusState.Programmatic))
+            CloseSettingsButton.Focus(FocusState.Programmatic);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -437,7 +461,7 @@ public sealed partial class SettingsPanel : UserControl
         object sender,
         RoutedEventArgs e)
     {
-        var folder = await PickFolderAsync();
+        var folder = await App.FolderPickerService.PickFolderAsync();
         if (folder is not null)
         {
             ViewModel?.SetModelDirectory(folder.Path);
@@ -455,7 +479,7 @@ public sealed partial class SettingsPanel : UserControl
         object sender,
         RoutedEventArgs e)
     {
-        var folder = await PickFolderAsync(
+        var folder = await App.FolderPickerService.PickFolderAsync(
             Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary);
         if (folder is not null && ViewModel is not null)
         {
@@ -546,7 +570,7 @@ public sealed partial class SettingsPanel : UserControl
         object sender,
         RoutedEventArgs e)
     {
-        var folder = await PickFolderAsync();
+        var folder = await App.FolderPickerService.PickFolderAsync();
         if (folder is not null && ViewModel is not null)
         {
             await ViewModel.RunBenchmarkAsync(folder.Path);
@@ -558,21 +582,6 @@ public sealed partial class SettingsPanel : UserControl
         RoutedEventArgs e)
     {
         ViewModel?.ApproveSelectedProfile();
-    }
-
-    private static async Task<Windows.Storage.StorageFolder?> PickFolderAsync(
-        Windows.Storage.Pickers.PickerLocationId startLocation =
-            Windows.Storage.Pickers.PickerLocationId.PicturesLibrary)
-    {
-        var picker = new Windows.Storage.Pickers.FolderPicker
-        {
-            SuggestedStartLocation = startLocation
-        };
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(
-            App.MainWindow);
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-        return await picker.PickSingleFolderAsync();
     }
 
     private async Task<bool> ConfirmAsync(

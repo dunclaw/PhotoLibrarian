@@ -14,35 +14,6 @@ using System.Runtime.InteropServices.WindowsRuntime;
 namespace PhotoLibrarian.ViewModels;
 
 /// <summary>
-/// Options for grouping photos in the grid
-/// </summary>
-public enum GroupByOption
-{
-    None,           // No grouping (flat list - current behavior)
-    FileType,       // Group by file extension: CR3, JPG, PNG, MP4, MOV, etc.
-    MediaType,      // Group by media type: Images, Videos
-    YearTaken,      // Group by year taken: 2024, 2023, etc.
-    MonthTaken,     // Group by month taken: January 2024, February 2024, etc.
-    FileSize,       // Group by file size: Large (>10MB), Medium (1-10MB), Small (<1MB)
-    ImageSize,      // Group by resolution: 4K+ (>8MP), Full HD (2-8MP), HD (<2MP)
-    Rating,         // Group by rating: 5 stars, 4 stars, Unrated, etc.
-    Camera          // Group by camera model: Canon EOS R5, Sony A7III, etc.
-}
-
-/// <summary>
-/// Options for sorting photos within groups
-/// </summary>
-public enum SortByOption
-{
-    FileName,       // Alphabetical by file name
-    DateTaken,      // Chronological by date taken (newest first by default)
-    DateModified,   // By file system modified date
-    FileSize,       // By file size (largest first by default)
-    Rating,         // By rating (highest first)
-    Random
-}
-
-/// <summary>
 /// Represents a group of photos with a header
 /// </summary>
 public partial class PhotoGroup : ObservableObject
@@ -1333,48 +1304,19 @@ public partial class ImageGridViewModel : ObservableObject
         {
             try
             {
-                if (currentGroupBy == GroupByOption.None)
-                {
-                    // No grouping - single flat group. Still apply sort so dates/ratings reorder
-                    // after edits without requiring a full DB reload.
-                    var sortedFlat = SortItems(imageSnapshot, item => item.Entry, currentSortBy, currentSortDesc, randomSeed).ToList();
-                    return new List<PhotoGroup>
+                return ImageGridGroupingService.CreateGroups(
+                        imageSnapshot,
+                        item => item.Entry,
+                        currentGroupBy,
+                        currentSortBy,
+                        currentSortDesc,
+                        randomSeed)
+                    .Select(group => new PhotoGroup
                     {
-                        new PhotoGroup
-                        {
-                            Header = $"All Photos ({sortedFlat.Count:N0})",
-                            Items = new ObservableCollection<ImageThumbnailViewModel>(sortedFlat)
-                        }
-                    };
-                }
-                
-                // Group images based on GroupBy option
-                var groupedData = currentGroupBy switch
-                {
-                    GroupByOption.FileType => GroupByFileType(imageSnapshot),
-                    GroupByOption.MediaType => GroupByMediaType(imageSnapshot),
-                    GroupByOption.YearTaken => GroupByYearTaken(imageSnapshot),
-                    GroupByOption.MonthTaken => GroupByMonthTaken(imageSnapshot),
-                    GroupByOption.FileSize => GroupByFileSize(imageSnapshot),
-                    GroupByOption.ImageSize => GroupByImageSize(imageSnapshot),
-                    GroupByOption.Rating => GroupByRating(imageSnapshot),
-                    GroupByOption.Camera => GroupByCamera(imageSnapshot),
-                    _ => new List<(string header, List<ImageThumbnailViewModel> items)>()
-                };
-                
-                // Sort items within each group and create PhotoGroup objects
-                var result = new List<PhotoGroup>();
-                foreach (var group in groupedData)
-                {
-                    var sortedItems = SortItems(group.items, item => item.Entry, currentSortBy, currentSortDesc, randomSeed).ToList();
-                    result.Add(new PhotoGroup
-                    {
-                        Header = $"{group.header} ({group.items.Count:N0})",
-                        Items = new ObservableCollection<ImageThumbnailViewModel>(sortedItems)
-                    });
-                }
-                
-                return result;
+                        Header = group.Header,
+                        Items = new ObservableCollection<ImageThumbnailViewModel>(group.Items)
+                    })
+                    .ToList();
             }
             catch (Exception ex)
             {
@@ -1419,142 +1361,6 @@ public partial class ImageGridViewModel : ObservableObject
         ResultsChanged?.Invoke(this, EventArgs.Empty);
     }
     
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByFileType(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm => Path.GetExtension(vm.Entry.FilePath).ToUpperInvariant())
-            .OrderBy(g => g.Key)
-            .Select(g => (g.Key.TrimStart('.') + " Files", g.ToList()))
-            .ToList();
-    }
-    
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByMediaType(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm => vm.Entry.MediaType)
-            .OrderBy(g => g.Key)
-            .Select(g => (g.Key == MediaType.Video ? "Videos" : "Images", g.ToList()))
-            .ToList();
-    }
-    
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByYearTaken(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm => vm.Entry.DateTaken?.Year ?? 0)
-            .OrderByDescending(g => g.Key)
-            .Select(g => (g.Key == 0 ? "Unknown Date" : g.Key.ToString(), g.ToList()))
-            .ToList();
-    }
-    
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByMonthTaken(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm => vm.Entry.DateTaken != null 
-                ? new DateTime(vm.Entry.DateTaken.Value.Year, vm.Entry.DateTaken.Value.Month, 1)
-                : DateTime.MinValue)
-            .OrderByDescending(g => g.Key)
-            .Select(g => (g.Key == DateTime.MinValue ? "Unknown Date" : g.Key.ToString("MMMM yyyy"), g.ToList()))
-            .ToList();
-    }
-    
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByFileSize(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm =>
-            {
-                var sizeMB = vm.Entry.FileSize / (1024.0 * 1024.0);
-                return sizeMB switch
-                {
-                    > 10 => (0, "Large (>10 MB)"),
-                    > 1 => (1, "Medium (1-10 MB)"),
-                    _ => (2, "Small (<1 MB)")
-                };
-            })
-            .OrderBy(g => g.Key.Item1)
-            .Select(g => (g.Key.Item2, g.ToList()))
-            .ToList();
-    }
-    
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByImageSize(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm =>
-            {
-                var megapixels = (vm.Entry.Width * vm.Entry.Height) / 1_000_000.0;
-                return megapixels switch
-                {
-                    > 8 => (0, "4K+ (>8 MP)"),
-                    > 2 => (1, "Full HD (2-8 MP)"),
-                    _ => (2, "HD (<2 MP)")
-                };
-            })
-            .OrderBy(g => g.Key.Item1)
-            .Select(g => (g.Key.Item2, g.ToList()))
-            .ToList();
-    }
-    
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByRating(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm => vm.Entry.Rating ?? 0)
-            .OrderByDescending(g => g.Key)
-            .Select(g => (g.Key == 0 ? "Unrated" : $"{g.Key} Stars", g.ToList()))
-            .ToList();
-    }
-    
-    private List<(string header, List<ImageThumbnailViewModel> items)> GroupByCamera(List<ImageThumbnailViewModel> items)
-    {
-        return items
-            .GroupBy(vm => string.IsNullOrWhiteSpace(vm.Entry.CameraModel) 
-                ? "Unknown Camera" 
-                : vm.Entry.CameraModel)
-            .OrderBy(g => g.Key)
-            .Select(g => (g.Key, g.ToList()))
-            .ToList();
-    }
-    
-    private static List<ImageThumbnailViewModel> ApplySortToGroup(List<ImageThumbnailViewModel> items, SortByOption sortBy, bool sortDescending)
-        => SortItems(items, item => item.Entry, sortBy, sortDescending).ToList();
-
-    private static IEnumerable<T> SortItems<T>(
-        IEnumerable<T> items, Func<T, ImageEntry> entry, SortByOption sortBy, bool sortDescending, int randomSeed = 0)
-    {
-        if (sortBy == SortByOption.Random)
-            return items.OrderBy(item => RandomKey(entry(item).FilePath, randomSeed))
-                .ThenBy(item => entry(item).FilePath, StringComparer.OrdinalIgnoreCase);
-
-        var sorted = sortBy switch
-        {
-            SortByOption.FileName => items.OrderBy(item => entry(item).FileName),
-            SortByOption.DateTaken => items.OrderBy(item => entry(item).DateTaken ?? DateTime.MaxValue),
-            SortByOption.DateModified => items.OrderBy(item => entry(item).DateModified),
-            SortByOption.FileSize => items.OrderBy(item => entry(item).FileSize),
-            SortByOption.Rating => items.OrderBy(item => entry(item).Rating ?? 0),
-            _ => items.AsEnumerable()
-        };
-        
-        if (sortDescending)
-            sorted = sorted.Reverse();
-            
-        return sorted;
-    }
-
-    internal static ulong RandomKey(string path, int seed)
-    {
-        ulong hash = 14695981039346656037UL ^ (uint)seed;
-        foreach (var character in path.ToUpperInvariant())
-        {
-            hash ^= character;
-            hash *= 1099511628211UL;
-        }
-        hash ^= hash >> 30;
-        hash *= 0xbf58476d1ce4e5b9UL;
-        hash ^= hash >> 27;
-        hash *= 0x94d049bb133111ebUL;
-        hash ^= hash >> 31;
-        return hash;
-    }
-
     public async Task ReshuffleAsync()
     {
         int nextSeed;
@@ -1605,7 +1411,7 @@ public partial class ImageGridViewModel : ObservableObject
         var descending = SortDescending;
         var randomSeed = _randomSeed;
         return Task.Run(() => _searchRepo.FilterAsync(text,
-            SortItems(scope, image => image, sortBy, descending, randomSeed).ToList(),
+            ImageGridGroupingService.SortItems(scope, image => image, sortBy, descending, randomSeed).ToList(),
             8, cancellationToken), cancellationToken);
     }
 

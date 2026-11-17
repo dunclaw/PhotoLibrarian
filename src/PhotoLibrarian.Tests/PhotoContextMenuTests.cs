@@ -205,6 +205,19 @@ public sealed class PhotoContextMenuTests
             File.ReadAllText(Asset("MainWindow.xaml.cs")));
     }
 
+    [Fact]
+    public void SelectiveEditCommandsHaveStableIdsAndInvokeTheGroupWorkflows()
+    {
+        var source = File.ReadAllText(Asset("ImageGridView.xaml.cs"));
+        foreach (var id in new[] { "CopyEditSettings", "PasteEditSettings", "SyncEditSettings" })
+            Assert.Contains($"\"{id}\");", source);
+        Assert.Contains("CopyEditGroupsAsync(primary.Entry, groups.Groups)", source);
+        Assert.Contains("PasteEditGroupsAsync(selectedEntriesForEdit, groups.Groups)", source);
+        Assert.Contains("SyncEditGroupsAsync(primary.Entry, selectedEntriesForEdit, groups.Groups)", source);
+        Assert.Contains("clipboard.Groups", source);
+        Assert.Contains("EditSettingGroupDialog.ShowAsync(", source);
+    }
+
     private static string Asset(string name) => Path.Combine(AppContext.BaseDirectory, "TestAssets", name);
     private static ImageEntry Photo(string name) => new()
     {

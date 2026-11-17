@@ -132,6 +132,48 @@
   <data name="EditorEffectsFailed" xml:space="preserve"><value>Effect previews could not be loaded: {0}</value></data>
   <data name="EditorEffectsRawUnavailable" xml:space="preserve"><value>Effects require a supported raster photo. For RAW, export an SDR derivative and edit that copy.</value></data>
   <data name="EditorEffectsApplyFailed" xml:space="preserve"><value>The photo effect could not be applied: {0}</value></data>
+  <data name="EditorPresetsHeading.Text" xml:space="preserve"><value>Presets</value></data>
+  <data name="EditorPresetAmountLabel.Text" xml:space="preserve"><value>Amount</value></data>
+  <data name="EditorSavePresetButton.Content" xml:space="preserve"><value>Save preset...</value></data>
+  <data name="EditorSavePresetButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Save a preset from selected setting groups</value></data>
+  <data name="EditorApplyPresetButton.Content" xml:space="preserve"><value>Apply preset</value></data>
+  <data name="EditorApplyPresetButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Apply the selected preset at the chosen amount</value></data>
+  <data name="EditorPresetGallery.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Saved photo presets</value></data>
+  <data name="EditorPresetAmountSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preset amount, percent</value></data>
+  <data name="EditorPresetAmountSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Set the preset strength from 0 to 200 percent.</value></data>
+  <data name="EditorPresetPreviewImage.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preset amount preview</value></data>
+  <data name="EditorPresetFavorite.Content" xml:space="preserve"><value>Favorite</value></data>
+  <data name="EditorPresetFavorite.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Toggle preset favorite</value></data>
+  <data name="EditorPresetDelete.Content" xml:space="preserve"><value>Delete</value></data>
+  <data name="EditorPresetDelete.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Delete preset</value></data>
+  <data name="EditPresetName" xml:space="preserve"><value>Preset name</value></data>
+  <data name="EditPresetNamePlaceholder" xml:space="preserve"><value>Enter a name</value></data>
+  <data name="EditPresetSave" xml:space="preserve"><value>Save preset</value></data>
+  <data name="EditPresetContinue" xml:space="preserve"><value>Continue</value></data>
+  <data name="EditPresetCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="EditPresetSaveTitle" xml:space="preserve"><value>Save preset</value></data>
+  <data name="EditPresetDeleteTitle" xml:space="preserve"><value>Delete preset?</value></data>
+  <data name="EditPresetDeleteMessage" xml:space="preserve"><value>Delete "{0}"? This does not change any photos.</value></data>
+  <data name="EditPresetDelete" xml:space="preserve"><value>Delete preset</value></data>
+  <data name="EditPresetGroupsRequired" xml:space="preserve"><value>Select at least one setting group.</value></data>
+  <data name="EditPresetNameRequired" xml:space="preserve"><value>Enter a preset name.</value></data>
+  <data name="EditGroupTone" xml:space="preserve"><value>Tone</value></data>
+  <data name="EditGroupColor" xml:space="preserve"><value>Color</value></data>
+  <data name="EditGroupEffect" xml:space="preserve"><value>Effect</value></data>
+  <data name="EditGroupDetail" xml:space="preserve"><value>Detail</value></data>
+  <data name="EditGroupToneCurves" xml:space="preserve"><value>Tone curves</value></data>
+  <data name="EditGroupColorAdjustments" xml:space="preserve"><value>Color adjustments</value></data>
+  <data name="EditGroupGeometry" xml:space="preserve"><value>Geometry and crop</value></data>
+  <data name="EditGroupRetouch" xml:space="preserve"><value>Retouch (same photo only)</value></data>
+  <data name="EditGroupRawDevelopment" xml:space="preserve"><value>RAW development</value></data>
+  <data name="EditPresetsUnavailable" xml:space="preserve"><value>Presets are unavailable.</value></data>
+  <data name="EditPresetsEmpty" xml:space="preserve"><value>No presets saved yet.</value></data>
+  <data name="EditPresetsCount" xml:space="preserve"><value>{0} preset(s). Favorites appear first.</value></data>
+  <data name="EditPresetPreviewReady" xml:space="preserve"><value>Preview is based on the photo's current edits. Applying changes the photo and adds one undoable edit.</value></data>
+  <data name="EditPresetPreviewSkipped" xml:space="preserve"><value>Preview ready. These groups will be skipped for this photo: {0}.</value></data>
+  <data name="EditPresetPreviewFailed" xml:space="preserve"><value>Preset preview could not be rendered: {0}</value></data>
+  <data name="EditPresetSaved" xml:space="preserve"><value>Saved preset "{0}".</value></data>
+  <data name="EditPresetOperationFailed" xml:space="preserve"><value>Preset operation failed: {0}</value></data>
   <data name="MigrationPreviewButton.Content" xml:space="preserve"><value>Migrate XMP sidecars...</value></data>
   <data name="MigrationTitle" xml:space="preserve"><value>Migrate XMP sidecars</value></data>
   <data name="MigrationConfirm" xml:space="preserve"><value>Migrate ready files</value></data>
@@ -420,7 +462,7 @@ Backup: {3}
   <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
   <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>
   <data name="IndexMaintenanceConfirmTitle" xml:space="preserve"><value>Repair the library index?</value></data>
-  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes entries verified missing by repeated folder scans. Offline or unreadable locations are retained. No photos or sidecars are modified or deleted.</value></data>
+  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes metadata-free entries verified missing by repeated folder scans. Offline or unreadable locations and missing photos with cached metadata are retained. No photos or sidecars are modified or deleted.</value></data>
   <data name="IndexMaintenanceConfirmPrimary" xml:space="preserve"><value>Repair index</value></data>
   <data name="IndexMaintenanceStarting" xml:space="preserve"><value>Preparing a safe library index scan…</value></data>
   <data name="IndexMaintenanceProgress" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} — {3}</value></data>
@@ -433,6 +475,7 @@ Backup: {3}
   <data name="IndexMaintenanceStageIndexing" xml:space="preserve"><value>Indexing files</value></data>
   <data name="IndexMaintenanceStageRemoving" xml:space="preserve"><value>Removing verified missing index entries</value></data>
   <data name="IndexMaintenanceIssueCleanupFailed" xml:space="preserve"><value>Missing-entry cleanup failed; no entries were removed by this cleanup batch</value></data>
+  <data name="IndexMaintenanceIssueMissingMetadataRetained" xml:space="preserve"><value>Missing photo retained to preserve cached metadata</value></data>
   <data name="IndexMaintenanceStageComplete" xml:space="preserve"><value>Complete</value></data>
   <data name="IndexMaintenanceIssue" xml:space="preserve"><value>{0} — {1}: {2}</value></data>
   <data name="IndexMaintenanceIssueNoWatchedFolders" xml:space="preserve"><value>No watched folders</value></data>
@@ -537,36 +580,77 @@ Backup: {3}
   <data name="FuseExitBeforeNavigate" xml:space="preserve"><value>Click Photo Fuse again to save and exit before opening another photo.</value></data>
   <data name="FuseFailed" xml:space="preserve"><value>Photo Fuse failed: {0}</value></data>
   <data name="FuseIndexFailed" xml:space="preserve"><value>Photo Fuse copy saved at {0}, but could not be added to the library: {1}</value></data>
-  <data name="VideoEditDialog.Title" xml:space="preserve"><value>Rotate / remove audio</value></data>
-  <data name="VideoEditDialog.PrimaryButtonText" xml:space="preserve"><value>Export edited copy</value></data>
-  <data name="VideoEditDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>
-  <data name="VideoEditRotation.Header" xml:space="preserve"><value>Rotate from current orientation</value></data>
-  <data name="VideoEditRotationNone.Content" xml:space="preserve"><value>No rotation</value></data>
-  <data name="VideoEditRotation90.Content" xml:space="preserve"><value>90 degrees clockwise</value></data>
-  <data name="VideoEditRotation180.Content" xml:space="preserve"><value>180 degrees</value></data>
-  <data name="VideoEditRotation270.Content" xml:space="preserve"><value>90 degrees counterclockwise</value></data>
-  <data name="VideoEditRemoveAudio.Content" xml:space="preserve"><value>Remove audio track</value></data>
-  <data name="VideoEditOutput.Header" xml:space="preserve"><value>New MP4 file</value></data>
-  <data name="VideoEditChooseFolder.Content" xml:space="preserve"><value>Choose output folder...</value></data>
-  <data name="VideoEditNotice.Text" xml:space="preserve"><value>Prepare creates a temporary H.264/AAC MP4 of the whole clip locally, then you can play it before saving that exact copy. This can take time and requires free space for the preview and saved copy. Rotation uses standard MP4 orientation metadata; players must honor it. Up to 4096 pixels per dimension. The source and its sidecars are never changed. Tags, ratings and descriptions travel in a new XMP sidecar; face regions, HDR fidelity, subtitles, extra tracks and camera-specific metadata are not preserved. No slow motion, interpolation, face tracking, color effects or music mixing is applied.</value></data>
-  <data name="VideoEditPrepare.Content" xml:space="preserve"><value>Prepare preview</value></data>
-  <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Choose an edit, then prepare the preview before saving.</value></data>
+  <data name="VideoEditRotationLabel.Text" xml:space="preserve"><value>Rotation</value></data>
+  <data name="VideoEditRotateLeft.Label" xml:space="preserve"><value>Rotate left</value></data>
+  <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees counterclockwise</value></data>
+  <data name="VideoEditResetRotation.Label" xml:space="preserve"><value>0°</value></data>
+  <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
+  <data name="VideoEditRotateRight.Label" xml:space="preserve"><value>Rotate right</value></data>
+  <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees clockwise</value></data>
+  <data name="VideoEditRemoveAudio.Label" xml:space="preserve"><value>Remove audio</value></data>
+  <data name="VideoEditBrightnessLabel.Text" xml:space="preserve"><value>Brightness</value></data>
+  <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video brightness</value></data>
+  <data name="VideoEditContrastLabel.Text" xml:space="preserve"><value>Contrast</value></data>
+  <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video contrast</value></data>
+  <data name="VideoEditPrepare.Label" xml:space="preserve"><value>Retry preview</value></data>
+  <data name="VideoEditExport.Label" xml:space="preserve"><value>Export copy</value></data>
+  <data name="VideoEditExit.Label" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditStabilize.Label" xml:space="preserve"><value>Stabilize</value></data>
+  <data name="VideoEditTrim.Label" xml:space="preserve"><value>Trim</value></data>
+  <data name="VideoEditProgressStatus" xml:space="preserve"><value>{0} {1}</value></data>
+  <data name="VideoEditErrorStatus" xml:space="preserve"><value>{0} — {1}</value></data>
+  <data name="VideoEditReset" xml:space="preserve"><value>Reset edits</value></data>
+  <data name="VideoEditResetHelp" xml:space="preserve"><value>Discard video edits and return to the original video.</value></data>
+  <data name="VideoEditCancelHelp" xml:space="preserve"><value>Cancel the video preparation or export in progress.</value></data>
+  <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Lighten or darken the video.</value></data>
+  <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Increase or reduce the difference between light and dark areas.</value></data>
+  <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees counterclockwise.</value></data>
+  <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Restore the video's original orientation.</value></data>
+  <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees clockwise.</value></data>
+  <data name="VideoEditRemoveAudio.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Remove the audio track from the exported copy.</value></data>
+  <data name="VideoEditStabilize.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Reduce camera shake in the video.</value></data>
+  <data name="VideoEditTrim.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show the trim bar; drag its left and right handles to choose the part to keep.</value></data>
+  <data name="VideoEditPrepare.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Retry building the preview with the current edits.</value></data>
+  <data name="VideoEditExport.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Save the prepared preview as a new video without changing the original.</value></data>
+  <data name="VideoEditExit.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Discard video edits and return to the original video.</value></data>
+  <data name="VideoStabilizationSettings.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose camera smoothing, cropping, and frame-lock settings.</value></data>
+  <data name="VideoStabilizationSmoothness.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose how strongly camera movement is smoothed.</value></data>
+  <data name="VideoStabilizationAutoCrop.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Crop unstable edges to keep the stabilized frame filled.</value></data>
+  <data name="VideoStabilizationRotation.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Correct small camera roll as well as horizontal and vertical shake.</value></data>
+  <data name="VideoStabilizationLockFrame.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Hold the framing steady like a tripod instead of following camera movement.</value></data>
+  <data name="VideoTrimRange.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Drag the left handle to set the start and the right handle to set the end. Use arrow keys for frame-by-frame adjustment.</value></data>
+  <data name="VideoTrimRange.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video trim start and end frames</value></data>
+  <data name="VideoTrimInTime" xml:space="preserve"><value>In {0}</value></data>
+  <data name="VideoTrimOutTime" xml:space="preserve"><value>Out {0}</value></data>
+  <data name="VideoEditRotationStatus" xml:space="preserve"><value>Reset rotation; currently {0} degrees</value></data>
+  <data name="VideoEditPreparePrompt" xml:space="preserve"><value>Edits update the preview automatically. Export copy saves the preview.</value></data>
+  <data name="VideoEditUpdating" xml:space="preserve"><value>Updating video preview...</value></data>
+  <data name="VideoEditInvalidTrim" xml:space="preserve"><value>Choose an in/out range containing at least one video frame.</value></data>
+  <data name="VideoEditInfoFailed" xml:space="preserve"><value>Could not read the video time range: {0}</value></data>
+  <data name="VideoStabilizationSettings.Label" xml:space="preserve"><value>Stabilization options</value></data>
+  <data name="VideoStabilizationSmoothness.Header" xml:space="preserve"><value>Smoothing</value></data>
+  <data name="VideoStabilizationSmoothness.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Stabilization smoothing</value></data>
+  <data name="VideoStabilizationLow.Content" xml:space="preserve"><value>Low</value></data>
+  <data name="VideoStabilizationMedium.Content" xml:space="preserve"><value>Medium</value></data>
+  <data name="VideoStabilizationHigh.Content" xml:space="preserve"><value>High</value></data>
+  <data name="VideoStabilizationAutoCrop.Content" xml:space="preserve"><value>Auto crop</value></data>
+  <data name="VideoStabilizationRotation.Content" xml:space="preserve"><value>Correct rotation</value></data>
+  <data name="VideoStabilizationLockFrame.Content" xml:space="preserve"><value>Lock frame</value></data>
   <data name="VideoEditCleanupFailed" xml:space="preserve"><value>Could not remove temporary preview at {0}: {1}</value></data>
   <data name="VideoEditProgress.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preparing or saving edited video</value></data>
+  <data name="VideoEditStatus.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video edit status</value></data>
   <data name="VideoEditPreview.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Edited video preview</value></data>
-  <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate video or remove audio</value></data>
-  <data name="VideoEditRibbon.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Preview rotation and audio removal, then export a new copy</value></data>
-  <data name="VideoEditRibbonCaption.Text" xml:space="preserve"><value>Rotate / Audio</value></data>
   <data name="VideoEditPreparing" xml:space="preserve"><value>Preparing the edited copy for preview...</value></data>
-  <data name="VideoEditPreviewReady" xml:space="preserve"><value>Play the edited copy to review it, then export to save it. Changing an edit requires preparing a new preview.</value></data>
+  <data name="VideoEditPreviewReady" xml:space="preserve"><value>Preview ready. Export copy saves this exact video.</value></data>
   <data name="VideoEditPreviewFailed" xml:space="preserve"><value>Windows could not preview this video: {0}</value></data>
+  <data name="VideoEditPreviewOpenFailed" xml:space="preserve"><value>Windows could not open the prepared preview.</value></data>
+  <data name="VideoEditPreviewRequired" xml:space="preserve"><value>Prepare and review the edited preview before exporting.</value></data>
   <data name="VideoEditExporting" xml:space="preserve"><value>Exporting edited video...</value></data>
+  <data name="VideoEditExportFailed" xml:space="preserve"><value>Could not save edited video: {0}</value></data>
   <data name="VideoEditCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
-  <data name="VideoEditCanceling" xml:space="preserve"><value>Canceling export...</value></data>
+  <data name="VideoEditCanceling" xml:space="preserve"><value>Canceling video edit...</value></data>
   <data name="VideoEditCancel" xml:space="preserve"><value>Cancel</value></data>
-  <data name="VideoEditClose" xml:space="preserve"><value>Close</value></data>
   <data name="VideoEditRevealFailed" xml:space="preserve"><value>Copy saved at {0}, but could not be opened in the library: {1}</value></data>
-  <data name="VideoEditOpenFailed" xml:space="preserve"><value>Could not open video editing: {0}</value></data>
   <data name="VideoEditOpened" xml:space="preserve"><value>Opened edited copy: {0}</value></data>
   <data name="ViewerPhotoSurface.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.HelpText" xml:space="preserve">
     <value>Use Left and Right to browse photos. Tab moves to viewer controls and the ribbon.</value>
@@ -658,6 +742,19 @@ Backup: {3}
   <data name="PhotoContextCancelled" xml:space="preserve"><value>Delete cancelled. The file was not changed.</value></data>
   <data name="PhotoContextRecycled" xml:space="preserve"><value>Moved file to the Recycle Bin.</value></data>
   <data name="PhotoContextNotRecycled" xml:space="preserve"><value>The file was not moved to the Recycle Bin. The operation may have been cancelled or the file may be unavailable.</value></data>
+  <data name="EditCopySettings" xml:space="preserve"><value>Copy edit settings...</value></data>
+  <data name="EditPasteSettings" xml:space="preserve"><value>Paste edit settings...</value></data>
+  <data name="EditSyncSettings" xml:space="preserve"><value>Sync edit settings across selection...</value></data>
+  <data name="EditChooseGroupsTitle" xml:space="preserve"><value>Choose setting groups</value></data>
+  <data name="EditStatusCopied" xml:space="preserve"><value>Copied {0} from {1}.</value></data>
+  <data name="EditStatusCopyUnsupported" xml:space="preserve"><value>Edits can only be copied from photos.</value></data>
+  <data name="EditStatusPasteMissing" xml:space="preserve"><value>Copy edit settings before pasting.</value></data>
+  <data name="EditStatusSyncUnsupported" xml:space="preserve"><value>Edits can only be synced from a photo.</value></data>
+  <data name="EditStatusSkipped" xml:space="preserve"><value>{0}: skipped {1}.</value></data>
+  <data name="EditStatusNoChanges" xml:space="preserve"><value>No selected edit values changed.</value></data>
+  <data name="EditStatusApplyFailed" xml:space="preserve"><value>No selected photo was changed because the grouped edit failed: {0}</value></data>
+  <data name="EditStatusApplied" xml:space="preserve"><value>Applied edits to {0} photo(s).</value></data>
+  <data name="EditStatusSourceChanged" xml:space="preserve"><value>The source photo changed before the operation could use its edit settings.</value></data>
   <data name="VideoTrimDialog.Title" xml:space="preserve"><value>Trim video</value></data>
   <data name="VideoTrimDialog.PrimaryButtonText" xml:space="preserve"><value>Export trimmed copy</value></data>
   <data name="VideoTrimDialog.CloseButtonText" xml:space="preserve"><value>Close</value></data>

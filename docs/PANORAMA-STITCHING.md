@@ -18,13 +18,22 @@ Per-channel exposure compensation, gradient-aware graph-cut seam selection, and 
 
 ## Native build and distribution
 
+OpenCV's sources and generated projects are cached outside the worktree in
+`%LOCALAPPDATA%\PhotoLibrarian\OpenCv`, with an ownership check preventing
+different worktrees from sharing a cache directory. This keeps upstream source,
+intermediate and tracking paths short without changing Windows settings. The
+cache can be removed after builds finish; it will be recreated on the next build.
+If the profile path itself is too long or unavailable, set the MSBuild property
+`OpenCvCacheBase` to a short, writable directory. Other project files still need
+to fit the path limits of the installed build tools.
+
 Generated OpenCV VC projects keep tracking logs in `tlog\<project>\<configuration>`
 below their build root. This avoids the deeply nested default tracking paths that
 can fail Visual Studio's classic Windows path handling in long worktree directories.
 Configuration regenerates existing projects automatically when this setting changes;
 no manual cache deletion is required.
 
-`native\PhotoLibrarian.Panorama\PhotoLibrarian.Panorama.vcxproj` builds the wrapper directly through Visual C++ and references `OpenCv.vcxproj`. Only upstream OpenCV configuration/code generation uses CMake; `tools\Prepare-OpenCv.ps1` acquires its pinned source and generates VC projects, which MSBuild compiles. The first build downloads the pinned OpenCV 4.12.0 source archive (95,254,890 bytes) over HTTPS and verifies its SHA-512 in both PowerShell and CMake. Pins live in `native\Dependencies.props`. Generated build trees are isolated by architecture and selected toolset/version, with an active Visual Studio instance fingerprint. Native incremental/clean/rebuild operations use MSBuild rather than a source-only script stamp. The archive is a build-time dependency, **not** an additional 91 MB payload in the app. RAW and codec probes no longer need CMake.
+`native\PhotoLibrarian.Panorama\PhotoLibrarian.Panorama.vcxproj` builds the wrapper directly through Visual C++ and references `OpenCv.vcxproj`. Only upstream OpenCV configuration/code generation uses CMake; `tools\Prepare-OpenCv.ps1` acquires its pinned source and generates VC projects, which MSBuild compiles. The first build per worktree downloads the pinned OpenCV 4.12.0 source archive (95,254,890 bytes) over HTTPS and verifies its SHA-512 in both PowerShell and CMake. Pins live in `native\Dependencies.props`. Generated build trees are isolated by architecture and selected toolset/version, with an active Visual Studio instance fingerprint. Native incremental/clean/rebuild operations use MSBuild rather than a source-only script stamp. The archive is a build-time dependency, **not** an additional 91 MB payload in the app. RAW and codec probes no longer need CMake.
 
 Only `core`, `imgproc`, `features2d`, `calib3d`, `flann`, and `stitching` are statically linked into `PhotoLibrarian.Panorama.dll`, with the static Microsoft runtime. OpenCV media codecs, video/camera input, UI, Python, DNN, GPU backends, IPP, and non-free algorithms are not included. Windows x64 and ARM64 cross-builds were verified; ARM64 execution still requires an ARM64 machine. Measured release-compiled DLL sizes are approximately **5.6 MiB x64** and **3.8 MiB ARM64**, plus approximately 272 KiB of license notices. The x64 DLL imports only `KERNEL32.dll`; users do not need an OpenCV or Visual C++ runtime installation. MSBuild copies the matching DLL and `ThirdPartyNotices\Panorama.txt` through app/test/publish outputs and into MSIX packages.
 

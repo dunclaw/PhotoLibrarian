@@ -140,7 +140,7 @@ public sealed class ImageEditService
             xmp.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:RawDevelopment") &&
             xmp.GetPropertyString(EditParameters.XmpNamespace, "pledit:RawDevelopment") != RawDevelopmentService.RecipeVersion)
             throw new NotSupportedException("The RAW recipe uses an unsupported development version.");
-        var parameters = EditParametersSerializer.ReadFromXmp(xmp);
+        var parameters = EditParametersSerializer.ReadFromXmp(xmp, rejectUnsupportedProperties: true);
         if (RawToneMappingService.IsRaw(filePath)) RawToneMappingService.ValidateRecipe(parameters);
         return parameters;
     }
@@ -149,6 +149,7 @@ public sealed class ImageEditService
     {
         var sidecars = LoadOwnedRecipeSidecars(filePath);
         var xmp = LoadEmbeddedXmp(filePath) ?? XmpMetaFactory.Create();
+        _ = EditParametersSerializer.ReadFromXmp(xmp, rejectUnsupportedProperties: true);
         EditParametersSerializer.WriteToXmp(xmp, parameters);
         var packet = XmpMetaFactory.SerializeToString(
             xmp, new XmpCore.Options.SerializeOptions()).TrimStart('\uFEFF');
@@ -157,7 +158,8 @@ public sealed class ImageEditService
 
         var written = LoadEmbeddedXmp(filePath)
             ?? throw new IOException("The embedded edit recipe could not be read after writing.");
-        if (!RecipesMatch(parameters, EditParametersSerializer.ReadFromXmp(written)))
+        if (!RecipesMatch(parameters,
+            EditParametersSerializer.ReadFromXmp(written, rejectUnsupportedProperties: true)))
             throw new IOException("The embedded edit recipe could not be verified after writing.");
 
         foreach (var (path, sidecar) in sidecars)
@@ -173,6 +175,7 @@ public sealed class ImageEditService
         bool keepBackup = false)
     {
         var xmp = LoadOrCreateRecipeSidecar(filePath);
+        _ = EditParametersSerializer.ReadFromXmp(xmp, rejectUnsupportedProperties: true);
         EditParametersSerializer.WriteToXmp(xmp, parameters);
         SaveRecipeSidecar(GetRecipeSidecarPath(filePath), xmp, keepBackup);
     }

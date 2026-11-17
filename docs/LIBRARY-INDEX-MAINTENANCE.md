@@ -15,9 +15,14 @@ embeddings are derived caches. Always move associated sidecars with the photos.
 Repair removes stale entries for files verified missing from accessible watched
 folders, after attempting exact-identity move repair and indexing available
 files. A second folder scan confirms that candidates are still absent and
-storage is still accessible. The image rows and related tag, face, and hash
-cache rows are removed in one transaction; person face counts and representative
-references are updated consistently. No photos or sidecars are deleted.
+storage is still accessible. Eligible image rows and derived hash cache rows
+are removed in one transaction only when no cached tags, tag-path memberships,
+face regions, flags, rating, nonempty color label, caption, title, place name,
+pending people export, or sidecar association remain. For missing photos, portable copies of
+these values cannot be verified, so repair conservatively retains the image row
+and its associated state and reports the full path as an unresolved issue.
+Restore the photo and associated sidecars and retry repair; there is no automatic
+metadata-discard action. No photos or sidecars are deleted.
 
 Entries on unavailable storage, in unreadable directories, or outside the
 watched scan scope remain indexed. A false filesystem existence check alone is
@@ -29,12 +34,12 @@ cache entry still matches the indexed file size and modification time, and
 exactly one newly found file has the same full content hash. Ambiguous matches,
 stale hashes, and files with sidecar state that cannot be verified are not
 treated as moves. Available destination files are indexed independently, and
-the old missing paths are eligible for cleanup. No filename-only matching is
-used.
+the old missing paths are eligible for cleanup only if they hold no protected
+metadata. No filename-only matching is used.
 
 Canceling or encountering an error keeps already completed per-file indexing
 and relocation work. Cancellation or failure during missing-entry cleanup rolls
-back the entire cleanup batch, including cascaded rows and person updates.
+back the entire cleanup batch, including cascaded rows.
 The result reports only committed removal counts and includes any cleanup
 failure. Retrying scans the same watched folders and safely resumes; incomplete
 or unavailable locations are reported rather than presented as a successful
@@ -45,10 +50,13 @@ loss must not empty the library.
 The maintenance action never modifies or deletes photo originals or writes
 sidecars. Files with a pending people-metadata export are reported and skipped
 so maintenance cannot cause a sidecar write. A unique exact-hash move retains
-the image ID and its associated cache rows. Confirmed deletions remove cache
-rows regardless of whether an old development database contains unexported
-values. There is no legacy-export prerequisite or automatic whole-cache backup
-for this cleanup.
+the image ID and its associated cache rows. Confirmed deletions retain potentially
+unexported values, including those in old development databases. The retention
+check reads current database state inside the cleanup transaction, so metadata
+added after the scan is also protected. Edit files, sidecars, and session edit
+history are not modified. There is no automatic whole-cache backup for this
+incremental cleanup; a destructive rebuild and its recovery design remain out
+of scope.
 
 ## Incremental recognition
 

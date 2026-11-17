@@ -44,6 +44,12 @@ public partial class App : Application
         string? failure = null;
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--dialogs"))
+            {
+                await RunDialogServiceTestsAsync();
+                await FinishAsync(null);
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--recovery"))
             {
                 if (Environment.GetCommandLineArgs().Contains("--preview"))
@@ -115,7 +121,16 @@ public partial class App : Application
                 _window = await RetouchEditorFixture.OpenAsync(this);
                 return;
             }
-            if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
+            if (Environment.GetCommandLineArgs().Contains("--edit-presets"))
+            {
+                await RunEditPresetsTestsAsync();
+                return;
+            }
+            if (Environment.GetCommandLineArgs().Contains("--viewer-focus"))
+            {
+                await RunViewerFocusTestsAsync();
+            }
+            else if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
             {
                 await RunViewerContextMenuTestsAsync();
             }

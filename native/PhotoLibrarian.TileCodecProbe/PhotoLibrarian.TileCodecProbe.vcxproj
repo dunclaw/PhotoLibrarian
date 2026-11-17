@@ -1,15 +1,27 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\Configurations.props" />
-  <PropertyGroup Label="Globals"><ProjectGuid>{6370DCEB-486C-4A9C-B8E8-C40CFB3D6AAF}</ProjectGuid></PropertyGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{F4B4EBC2-25FD-204C-3D24-4369096B6C7F}</ProjectGuid>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="..\Toolset.props" />
-  <PropertyGroup Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><UseDebugLibraries Condition="'$(Configuration)' == 'Debug'">true</UseDebugLibraries></PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)' == 'Debug'">true</UseDebugLibraries>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="..\Native.props" />
   <ItemDefinitionGroup>
-    <ClCompile><PreprocessorDefinitions>TILE_CODEC_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalDependencies>windowscodecs.lib;ole32.lib;oleaut32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <ClCompile>
+      <PreprocessorDefinitions>TILE_CODEC_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>windowscodecs.lib;ole32.lib;oleaut32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="TileCodec.cpp" /><ClInclude Include="TileCodec.h" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="TileCodec.cpp" />
+    <ClInclude Include="TileCodec.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
