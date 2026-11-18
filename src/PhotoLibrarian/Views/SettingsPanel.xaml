@@ -387,6 +387,24 @@
                 <Border Height="1"
                         Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
+                <StackPanel x:Name="DiagnosticsSection"
+                            AutomationProperties.AutomationId="DiagnosticsSection"
+                            Spacing="8">
+                    <TextBlock x:Uid="DiagnosticsTitle"
+                               Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Uid="DiagnosticsBenchmarkDescription"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <Button x:Name="DiagnosticsBenchmarkButton"
+                            x:Uid="DiagnosticsBenchmarkButton"
+                            AutomationProperties.AutomationId="DiagnosticsBenchmarkButton"
+                            HorizontalAlignment="Left"
+                            Click="OnRunImageBenchmark" />
+                </StackPanel>
+
+                <Border Height="1"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
                 <StackPanel Spacing="4">
                     <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}"
                                Text="About" />

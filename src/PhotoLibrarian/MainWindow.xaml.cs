@@ -1636,9 +1636,4 @@ public sealed partial class MainWindow : Window
     {
         await ViewModel.DuplicateReview.OpenForImagesAsync(ViewModel.ImageGrid.DisplayedEntries);
     }
-
-    private async void OnBenchmarkClick(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.RunBenchmarkCommand.ExecuteAsync(null);
-    }
 }

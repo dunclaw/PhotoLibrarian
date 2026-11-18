@@ -456,6 +456,11 @@ Backup: {3}
   <data name="PanoramaSaveFailedTitle" xml:space="preserve"><value>Could not save panorama</value></data>
   <data name="PanoramaSaveFailed" xml:space="preserve"><value>Could not save panorama: {0}</value></data>
   <data name="PanoramaCreatedStatus" xml:space="preserve"><value>Created panorama {0}</value></data>
+  <data name="DiagnosticsTitle.Text" xml:space="preserve"><value>Diagnostics</value></data>
+  <data name="DiagnosticsBenchmarkDescription.Text" xml:space="preserve"><value>Runs the existing WIC image benchmark. Timing details are written to the debug output.</value></data>
+  <data name="DiagnosticsBenchmarkButton.Content" xml:space="preserve"><value>Run benchmark</value></data>
+  <data name="DiagnosticsBenchmarkButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Run image benchmark</value></data>
+  <data name="DiagnosticsBenchmarkButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Run the WIC image benchmark and write timing details to the debug output.</value></data>
   <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
   <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Repair moves and remove stale index entries for files verified missing from accessible watched folders. Unavailable locations are retained. Photos and sidecars are never changed. This repairs the existing index, not a clean rebuild.</value></data>
   <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>
