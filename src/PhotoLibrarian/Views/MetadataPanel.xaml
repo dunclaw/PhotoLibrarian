@@ -6,24 +6,19 @@
     xmlns:views="using:PhotoLibrarian.Views">
 
     <UserControl.Resources>
-        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock"
+               BasedOn="{StaticResource BodyStrongTextBlockStyle}">
             <Setter Property="Margin" Value="0,12,0,2" />
         </Style>
-        <Style x:Key="PlaceholderStyle" TargetType="TextBlock">
+        <Style x:Key="PlaceholderStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-            <Setter Property="FontSize" Value="13" />
         </Style>
-        <Style x:Key="InfoLabelStyle" TargetType="TextBlock">
+        <Style x:Key="InfoLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-            <Setter Property="FontSize" Value="13" />
             <Setter Property="Width" Value="90" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <Style x:Key="InfoValueStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="13" />
+        <Style x:Key="InfoValueStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -56,7 +51,7 @@
                             Background="{ThemeResource AccentFillColorTertiaryBrush}"
                             Padding="8,6" CornerRadius="4" Margin="0,8,0,0">
                         <TextBlock x:Name="MultiSelectText"
-                                   FontWeight="SemiBold" FontSize="13" />
+                                   Style="{StaticResource BodyStrongTextBlockStyle}" />
                     </Border>
 
                     <TextBlock Text="People tags" Style="{StaticResource SectionHeaderStyle}" />
@@ -83,8 +78,7 @@
                                     </Ellipse>
                                     <TextBlock Grid.Column="1"
                                                Text="{x:Bind Name, Mode=OneWay}"
-                                               VerticalAlignment="Center"
-                                               FontSize="13" />
+                                               VerticalAlignment="Center" />
                                     <Button Grid.Column="2"
                                             Tag="{x:Bind FaceId, Mode=OneWay}"
                                             AutomationProperties.AutomationId="RemovePeopleTagButton"
@@ -134,7 +128,8 @@
                              LostFocus="OnCaptionLostFocus" />
                     <TextBlock x:Name="CaptionMixedHint" Visibility="Collapsed"
                                Text="Multiple captions — typing here replaces all"
-                               FontStyle="Italic" FontSize="11"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               FontStyle="Italic"
                                Foreground="{ThemeResource SystemAccentColorLight2}"
                                Margin="0,2,0,0" />
 
@@ -167,10 +162,10 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding Tag}" FontSize="13"
+                                    <TextBlock Grid.Column="0" Text="{Binding Tag}"
                                                VerticalAlignment="Center" />
                                     <TextBlock Grid.Column="1" Text="{Binding CountDisplay}"
-                                               FontSize="11"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                VerticalAlignment="Center" Margin="4,0,0,0" />
                                     <Button Grid.Column="2" Padding="4,2"
@@ -192,8 +187,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBox x:Name="NewTagBox" Grid.Column="0"
                                  PlaceholderText="Add descriptive tags"
-                                 KeyDown="OnNewTagKeyDown"
-                                 FontSize="13" />
+                                 KeyDown="OnNewTagKeyDown" />
                         <Button Grid.Column="1" Click="OnAddTagClick" Padding="6,4"
                                 ToolTipService.ToolTip="Add tag to all selected">
                             <FontIcon Glyph="&#xE109;" FontSize="12" />
@@ -214,7 +208,6 @@
                                            Width="Auto" />
                                 <TextBox x:Name="DateTakenBox" Grid.Column="1"
                                          PlaceholderText="M/d/yyyy h:mm tt"
-                                         FontSize="13"
                                          VerticalAlignment="Center"
                                          LostFocus="OnDateTakenBoxLostFocus"
                                          KeyDown="OnDateTakenBoxKeyDown" />
@@ -242,18 +235,20 @@
                             </Grid>
                             <TextBlock x:Name="DateMixedHint" Visibility="Collapsed"
                                        Text="Multiple dates — typing here sets all selected to the same date"
-                                       FontStyle="Italic" FontSize="11"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       FontStyle="Italic"
                                        TextWrapping="Wrap"
                                        Margin="86,0,0,0"
                                        Foreground="{ThemeResource SystemAccentColorLight2}" />
                             <TextBlock x:Name="DateMultiHint" Visibility="Collapsed"
                                        Text="Editing applies to all selected images"
-                                       FontStyle="Italic" FontSize="11"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       FontStyle="Italic"
                                        Margin="86,0,0,0"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <TextBlock x:Name="DateParseError" Visibility="Collapsed"
                                        Text="Couldn't parse — try format like M/d/yyyy h:mm tt"
-                                       FontSize="11"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
                                        Margin="86,0,0,0"
                                        Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                             <HyperlinkButton x:Name="SwitchToShiftBtn"
@@ -261,12 +256,12 @@
                                              Visibility="Collapsed"
                                              Click="OnSwitchToShift"
                                              Margin="80,0,0,0"
-                                             Padding="6,0" FontSize="12" />
+                                             Padding="6,0" />
                         </StackPanel>
                         <StackPanel x:Name="DateShiftMode" Spacing="4" Visibility="Collapsed">
                             <TextBlock x:Name="ShiftHeaderText"
                                        Text="Shift each capture date by:"
-                                       FontSize="12"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Grid ColumnSpacing="4">
                                 <Grid.ColumnDefinitions>
@@ -276,7 +271,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Days" FontSize="11"
+                                    <TextBlock Text="Days" Style="{StaticResource CaptionTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <NumberBox x:Name="ShiftDaysBox" Value="0"
                                                SpinButtonPlacementMode="Compact"
@@ -284,7 +279,7 @@
                                                ValueChanged="OnShiftValueChanged" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1">
-                                    <TextBlock Text="Hours" FontSize="11"
+                                    <TextBlock Text="Hours" Style="{StaticResource CaptionTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <NumberBox x:Name="ShiftHoursBox" Value="0"
                                                SpinButtonPlacementMode="Compact"
@@ -292,7 +287,7 @@
                                                ValueChanged="OnShiftValueChanged" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Min" FontSize="11"
+                                    <TextBlock Text="Min" Style="{StaticResource CaptionTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <NumberBox x:Name="ShiftMinutesBox" Value="0"
                                                SpinButtonPlacementMode="Compact"
@@ -300,7 +295,7 @@
                                                ValueChanged="OnShiftValueChanged" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="3">
-                                    <TextBlock Text="Sec" FontSize="11"
+                                    <TextBlock Text="Sec" Style="{StaticResource CaptionTextBlockStyle}"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <NumberBox x:Name="ShiftSecondsBox" Value="0"
                                                SpinButtonPlacementMode="Compact"
@@ -309,7 +304,7 @@
                                 </StackPanel>
                             </Grid>
                             <TextBlock x:Name="ShiftPreviewText"
-                                       FontSize="11"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
                                        TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Grid ColumnSpacing="4">
@@ -321,8 +316,7 @@
                                         x:Name="ApplyShiftButton"
                                         Content="Apply shift" HorizontalAlignment="Stretch" />
                                 <HyperlinkButton Grid.Column="1" Click="OnSwitchToAbsolute"
-                                                 Content="Cancel"
-                                                 FontSize="12" />
+                                                 Content="Cancel" />
                             </Grid>
                         </StackPanel>
                     </StackPanel>
@@ -513,7 +507,7 @@
                             <HyperlinkButton Grid.Column="1" x:Name="InfoLatitudeLink"
                                              x:Uid="MapLatitudeLink"
                                              AutomationProperties.AutomationId="MapLatitudeLink"
-                                             Padding="0" FontSize="13" Visibility="Collapsed"
+                                             Padding="0" Visibility="Collapsed"
                                              Click="OnMapCoordinatesClick" />
                         </Grid>
                         <Grid x:Name="InfoLonRow">
@@ -523,7 +517,7 @@
                             <HyperlinkButton Grid.Column="1" x:Name="InfoLongitudeLink"
                                              x:Uid="MapLongitudeLink"
                                              AutomationProperties.AutomationId="MapLongitudeLink"
-                                             Padding="0" FontSize="13" Visibility="Collapsed"
+                                             Padding="0" Visibility="Collapsed"
                                              Click="OnMapCoordinatesClick" />
                         </Grid>
                         <Grid x:Name="InfoPlaceNameRow">
@@ -536,7 +530,7 @@
                             <TextBlock Grid.Column="0" Text="Path:" Style="{StaticResource InfoLabelStyle}"
                                        VerticalAlignment="Top" />
                             <TextBlock Grid.Column="1" x:Name="InfoFilePath" Style="{StaticResource InfoValueStyle}"
-                                       FontSize="11" IsTextSelectionEnabled="True"
+                                       IsTextSelectionEnabled="True"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Button x:Name="CopyFullPathButton" Grid.Column="2"
                                     AutomationProperties.AutomationId="CopyFullPath"

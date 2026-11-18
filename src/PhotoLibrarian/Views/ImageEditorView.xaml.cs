@@ -293,6 +293,11 @@ public sealed partial class ImageEditorView : UserControl
                     break;
                 case nameof(ImageEditorViewModel.IsRawPreview):
                     UpdateHistoryControls();
+                    UpdateMonochromeMixAvailability();
+                    break;
+                case nameof(ImageEditorViewModel.Effect):
+                case nameof(ImageEditorViewModel.CanEditMonochromeMix):
+                    UpdateMonochromeMixAvailability();
                     break;
                 case nameof(ImageEditorViewModel.Title):
                     TitleText.Text = ViewModel.Title;
@@ -339,7 +344,7 @@ public sealed partial class ImageEditorView : UserControl
         AdjustmentsColumn.Width = new GridLength(fullWidthRetouch ? 0 : 300);
         AdjustmentsPanel.Visibility = fullWidthRetouch ? Visibility.Collapsed : Visibility.Visible;
         RetouchHistoryTools.Visibility = fullWidthRetouch ? Visibility.Visible : Visibility.Collapsed;
-        SaveBtn.IsEnabled = ViewModel?.CanSavePixels == true;
+        SaveBtn.IsEnabled = ViewModel?.CanSavePixels == true && _sourceBitmap is not null;
         ToolTipService.SetToolTip(SaveBtn, isRaw ? ViewModel!.SaveDisabledReason : "Save edits");
         RawPreviewPanel.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
         RasterAdjustmentsPanel.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
@@ -841,7 +846,16 @@ public sealed partial class ImageEditorView : UserControl
             }
             else
             {
-                bitmap = await ImageEditRenderer.LoadOrientedAsync(EditCanvas, path);
+                var loaded = await ImageEditRenderer.TryLoadOrientedAsync(EditCanvas, path, token);
+                if (loaded.Bitmap is null)
+                {
+                    ReleaseSourceBitmap();
+                    ShowRetouchError(loaded.Profile.Message ?? "The embedded color profile cannot be rendered.");
+                    UpdateHistoryControls();
+                    EditCanvas.Invalidate();
+                    return;
+                }
+                bitmap = loaded.Bitmap;
                 if (token.IsCancellationRequested)
                 {
                     bitmap.Dispose();
@@ -1022,6 +1036,8 @@ public sealed partial class ImageEditorView : UserControl
 
         // A percentage of ±180° would swallow small straightening angles, so rotation snaps within 1°.
         AddCenterSnap(RotationSlider, 0, 1);
+        foreach (var slider in MonochromeMixSliders)
+            AddCenterSnap(slider, 0, SliderSnap.ThresholdFor(slider.Minimum, slider.Maximum));
     }
 
     private void AddCenterSnap(Slider slider, double neutral, double threshold)
@@ -1039,6 +1055,7 @@ public sealed partial class ImageEditorView : UserControl
             UnsharpMaskThresholdSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider,
             RotationSlider, RawExposureSlider, RawWhitePointSlider,
             ColorMixerHueSlider, ColorMixerSaturationSlider, ColorMixerLuminanceSlider,
+            .. MonochromeMixSliders,
             ShadowAmountSlider, MidtoneAmountSlider, HighlightAmountSlider,
             ColorGradingBlendingSlider, ColorGradingBalanceSlider
         ];
@@ -1056,6 +1073,7 @@ public sealed partial class ImageEditorView : UserControl
                     "UnsharpMaskAmount" => "Unsharp-mask amount",
                     "UnsharpMaskRadius" => "Unsharp-mask radius",
                     "UnsharpMaskThreshold" => "Unsharp-mask threshold",
+                    var name when name.StartsWith("Monochrome", StringComparison.Ordinal) => "Black and white mix",
                     var label => label
                 });
             }), true);
@@ -1136,6 +1154,41 @@ public sealed partial class ImageEditorView : UserControl
         // SelectedIndex in XAML raises this during InitializeComponent, before the band sliders exist.
         if (_suppressSliderEvents) return;
         SyncColorAdjustmentsFromViewModel();
+    }
+
+    private Slider[] MonochromeMixSliders =>
+    [
+        MonochromeRedSlider, MonochromeOrangeSlider, MonochromeYellowSlider, MonochromeGreenSlider,
+        MonochromeAquaSlider, MonochromeBlueSlider, MonochromePurpleSlider, MonochromeMagentaSlider
+    ];
+
+    private void OnMonochromeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSliderEvents || ViewModel is null) return;
+        ViewModel.SetMonochromeEnabled(MonochromeToggle.IsOn);
+    }
+
+    private void OnResetMonochromeMix(object sender, RoutedEventArgs e) =>
+        ViewModel?.ResetMonochromeMix();
+
+    private void OnMonochromeMixSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_suppressSliderEvents || ViewModel?.CanEditMonochromeMix != true || sender is not Slider slider) return;
+        var index = Array.IndexOf(MonochromeMixSliders, slider);
+        if (index < 0) return;
+        if (slider == _draggedSlider && _sliderSnaps.TryGetValue(slider, out var snap))
+        {
+            var snapped = SliderSnap.Apply(e.NewValue, snap.Neutral, snap.Threshold);
+            if (snapped != e.NewValue)
+            {
+                slider.Value = snapped;
+                return;
+            }
+        }
+
+        var mix = ViewModel.GetCurrentParameters().MonochromeMix;
+        mix.LuminanceBands[index] = e.NewValue;
+        ViewModel.SetMonochromeMix(mix);
     }
 
     private void OnColorAdjustmentSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -1527,6 +1580,7 @@ public sealed partial class ImageEditorView : UserControl
         MidtonesSlider.Value = ViewModel.Midtones;
         RotationSlider.Value = ViewModel.RotationAngle;
         SyncColorAdjustmentsFromViewModel();
+        SyncMonochromeMixFromViewModel();
         HistogramCanvas.Invalidate();
         _suppressSliderEvents = false;
     }
@@ -1553,6 +1607,35 @@ public sealed partial class ImageEditorView : UserControl
             HighlightAmountSlider.Value = adjustments.Highlights.Amount;
             ColorGradingBlendingSlider.Value = adjustments.Blending;
             ColorGradingBalanceSlider.Value = adjustments.Balance;
+        }
+        finally { _suppressSliderEvents = wasSuppressed; }
+    }
+
+    private void SyncMonochromeMixFromViewModel()
+    {
+        if (ViewModel is null) return;
+        var wasSuppressed = _suppressSliderEvents;
+        _suppressSliderEvents = true;
+        try
+        {
+            var mix = ViewModel.GetCurrentParameters().MonochromeMix;
+            var sliders = MonochromeMixSliders;
+            for (var index = 0; index < sliders.Length; index++)
+                sliders[index].Value = mix.LuminanceBands[index];
+            UpdateMonochromeMixAvailability();
+        }
+        finally { _suppressSliderEvents = wasSuppressed; }
+    }
+
+    private void UpdateMonochromeMixAvailability()
+    {
+        var wasSuppressed = _suppressSliderEvents;
+        _suppressSliderEvents = true;
+        try
+        {
+            MonochromeToggle.IsOn = ViewModel?.Effect == PhotoEffect.BlackAndWhite;
+            MonochromeToggle.IsEnabled = ViewModel is { IsOpen: true, IsBusy: false, IsRawPreview: false };
+            MonochromeMixControls.IsEnabled = ViewModel?.CanEditMonochromeMix == true;
         }
         finally { _suppressSliderEvents = wasSuppressed; }
     }

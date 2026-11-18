@@ -1,7 +1,10 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
+    <OpenCvCacheBase Condition="'$(OpenCvCacheBase)' == ''">$(LOCALAPPDATA)\PhotoLibrarian\OpenCv</OpenCvCacheBase>
+    <OpenCvWorkspaceKey>$([MSBuild]::StableStringHash('$(NativeRoot.ToLowerInvariant())'))</OpenCvWorkspaceKey>
+    <OpenCvWorkspaceRoot>$(OpenCvCacheBase)\$(OpenCvWorkspaceKey)\</OpenCvWorkspaceRoot>
     <OpenCvToolchainKey>$([MSBuild]::StableStringHash('$(VSInstallDir)|$(VisualStudioVersion)|$(PlatformToolset)|$(VCToolsVersion)'))</OpenCvToolchainKey>
-    <OpenCvBuildDirectory>$(NativeRoot)obj\OpenCv\$(Platform)\$(OpenCvToolchainKey)\</OpenCvBuildDirectory>
+    <OpenCvBuildDirectory>$(OpenCvWorkspaceRoot)$(Platform)\$(OpenCvToolchainKey)\</OpenCvBuildDirectory>
     <OpenCvSource>$(OpenCvBuildDirectory)_deps\opencv-$(OpenCvVersion)\</OpenCvSource>
     <OpenCvProject>$(OpenCvBuildDirectory)opencv\modules\stitching\opencv_stitching.vcxproj</OpenCvProject>
     <OpenCvDebugSuffix Condition="'$(Configuration)' == 'Debug'">d</OpenCvDebugSuffix>

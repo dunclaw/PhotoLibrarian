@@ -1,7 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 
 using PhotoLibrarian.Diagnostics;
-using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Core.Services;
 using System.Text.Json;
 
 namespace PhotoLibrarian.Services;
@@ -20,10 +20,7 @@ public sealed class GridLayoutSettingsStore
 
     public GridLayoutSettingsStore(string? settingsPath = null)
     {
-        _settingsPath = settingsPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PhotoLibrarian",
-            "grid-layout.json");
+        _settingsPath = settingsPath ?? AppDataPaths.SettingsFile("grid-layout.json");
     }
 
     public GridLayoutSettings Load()
@@ -66,22 +63,9 @@ public sealed class GridLayoutSettingsStore
     {
         lock (_sync)
         {
-            var directory = Path.GetDirectoryName(_settingsPath);
-            if (!string.IsNullOrEmpty(directory))
-                Directory.CreateDirectory(directory);
-
-            var temporaryPath = _settingsPath + ".tmp";
-            try
-            {
-                File.WriteAllText(temporaryPath, JsonSerializer.Serialize(
-                    settings, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(temporaryPath, _settingsPath, true);
-            }
-            finally
-            {
-                if (File.Exists(temporaryPath))
-                    File.Delete(temporaryPath);
-            }
+            AppSettingsFile.WriteAllText(
+                _settingsPath,
+                JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
         }
     }
 }

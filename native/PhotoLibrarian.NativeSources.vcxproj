@@ -1,9 +1,14 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="Configurations.props" />
-  <PropertyGroup Label="Globals"><ProjectGuid>{693C7478-6A52-493C-924A-0C77256EE020}</ProjectGuid></PropertyGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{B5701CFD-3F40-ABE2-E9F7-093C31587BB9}</ProjectGuid>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="Toolset.props" />
-  <PropertyGroup Label="Configuration"><ConfigurationType>Utility</ConfigurationType><DisableFastUpToDateCheck>true</DisableFastUpToDateCheck></PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="Native.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

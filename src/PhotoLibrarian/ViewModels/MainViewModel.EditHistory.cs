@@ -8,9 +8,11 @@ public partial class MainViewModel
 {
     private sealed record CachedEditState(ImageEntry Image, IReadOnlyCollection<ImageTag> Tags);
 
-    private readonly string _editHistoryDirectory = Path.Combine(
+    internal static string EditHistoryRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PhotoLibrarian", "EditHistory", Guid.NewGuid().ToString("N"));
+        "PhotoLibrarian", "EditHistory");
+
+    private readonly string _editHistoryDirectory = Path.Combine(EditHistoryRoot, Guid.NewGuid().ToString("N"));
 
     public EditHistoryService EditHistory { get; } = new();
 
@@ -21,7 +23,8 @@ public partial class MainViewModel
     /// </summary>
     public async Task<bool> RunPhotoEditAsync(string label, IReadOnlyCollection<string> paths,
         Func<IReadOnlyDictionary<string, string>, Task> prepare,
-        string? expectedIdentity = null)
+        string? expectedIdentity = null,
+        IReadOnlyDictionary<string, string>? expectedIdentities = null)
     {
         if (paths.Count == 0) return false;
         var originals = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -59,6 +62,18 @@ public partial class MainViewModel
                 return new(EditHistoryStatus.Conflict,
                     "The photo or its metadata changed since the editor opened. Close and reopen it before saving.");
             }
+            if (expectedIdentities is not null)
+            {
+                foreach (var path in originals)
+                {
+                    if (expectedIdentities.TryGetValue(path, out var identity) &&
+                        await FileEditTransaction.ReadIdentityAsync(path) != identity)
+                    {
+                        return new(EditHistoryStatus.Conflict,
+                            $"The photo or its metadata changed before the batch edit: {Path.GetFileName(path)}.");
+                    }
+                }
+            }
             before = await CaptureCacheAsync(originals);
             foreach (var path in originals)
                 if (!RawToneMappingService.IsRaw(path))
@@ -69,6 +84,19 @@ public partial class MainViewModel
                 transaction.Dispose();
                 return new(EditHistoryStatus.Conflict,
                     "The photo or its metadata changed since the editor opened. Close and reopen it before saving.");
+            }
+            if (expectedIdentities is not null)
+            {
+                foreach (var path in originals)
+                {
+                    if (expectedIdentities.TryGetValue(path, out var identity) &&
+                        transaction.InputIdentity(path) != identity)
+                    {
+                        transaction.Dispose();
+                        return new(EditHistoryStatus.Conflict,
+                            $"The photo or its metadata changed before the batch edit: {Path.GetFileName(path)}.");
+                    }
+                }
             }
             if (!transaction.HasChanges)
             {

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(PhotoLibrarianPanorama LANGUAGES C CXX)
 
+# Keep VC tracking files below the build root instead of the deeply nested module directories.
+set(CMAKE_VS_GLOBALS "TLogLocation=${CMAKE_BINARY_DIR}/tlog/$(MSBuildProjectName)/$(Configuration)/")
+
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_WITH_STATIC_CRT ON CACHE BOOL "" FORCE)

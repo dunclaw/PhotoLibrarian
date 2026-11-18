@@ -126,7 +126,7 @@ public sealed class PhotoEffectTests : IDisposable
             element => (string?)element.Attribute(xaml + "Name") == "EffectsGallery"));
         var flyout = Assert.Single(gallery.Ancestors().Where(element => element.Name.LocalName == "Flyout"));
         Assert.Equal("EffectsFlyout", (string?)flyout.Attribute(xaml + "Name"));
-        Assert.DoesNotContain(flyout.Descendants(), element => element.Name.LocalName == "Button");
+        Assert.DoesNotContain(gallery.Descendants(), element => element.Name.LocalName == "Button");
         Assert.DoesNotContain(gallery.Ancestors(), element =>
             (string?)element.Attribute(xaml + "Name") == "AdjustmentsPanel");
         var ribbon = XDocument.Load(Path.Combine(assets, "TopRibbon.xaml"));

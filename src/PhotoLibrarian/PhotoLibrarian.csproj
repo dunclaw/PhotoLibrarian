@@ -18,10 +18,12 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.ImageCropper" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.RangeSelector" />
     <PackageReference Include="Microsoft.Graphics.Win2D" />
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="PhotoLibrarian.AccessibilityTests" />
     <ProjectReference Include="..\PhotoLibrarian.Core\PhotoLibrarian.Core.csproj" />
     <ProjectReference Include="..\PhotoLibrarian.ML\PhotoLibrarian.ML.csproj" />
   </ItemGroup>

@@ -39,6 +39,7 @@ public sealed class ImageEditService
         string filePath, EditParameters parameters, PixelRenderer renderer)
     {
         ArgumentNullException.ThrowIfNull(renderer);
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
         if (RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("Overwriting RAW originals is not supported. Use Export SDR derivative.");
 
@@ -54,6 +55,7 @@ public sealed class ImageEditService
     /// </summary>
     public async Task SaveEditParametersAsync(string filePath, EditParameters parameters)
     {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
         // Backup original first
         await _backupService.BackupOriginalAsync(filePath);
         await SavePendingRecipeAtomicallyAsync(filePath, parameters);
@@ -69,6 +71,7 @@ public sealed class ImageEditService
     {
         if (!RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("A RAW preview recipe requires a RAW source.");
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath, cancellationToken);
         RawToneMappingService.ValidateRecipe(parameters);
         await SavePendingRecipeAtomicallyAsync(filePath, parameters, cancellationToken);
     }
@@ -76,6 +79,7 @@ public sealed class ImageEditService
     private static async Task SavePendingRecipeAtomicallyAsync(string filePath, EditParameters parameters,
         CancellationToken cancellationToken = default)
     {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath, cancellationToken);
         var snapshot = parameters.Clone();
         await RawRecipeWrites.WaitAsync(cancellationToken);
         try
@@ -104,18 +108,22 @@ public sealed class ImageEditService
     /// Strips PhotoLibrarian's edit properties from the embedded packet or owned sidecars, leaving
     /// any unrelated XMP content (a Lightroom sidecar, for example) alone.
     /// </summary>
-    public static Task ClearPendingEditParametersAsync(string filePath) =>
-        MetadataWriterService.WriteUsingPolicyAsync(
+    public static Task ClearPendingEditParametersAsync(string filePath)
+    {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
+        return MetadataWriterService.WriteUsingPolicyAsync(
             filePath,
             MetadataWriteProperty.PendingEditRecipe,
             () => Task.Run(() => ClearEmbeddedRecipe(filePath)),
             () => Task.Run(() => ClearSidecarRecipe(filePath)));
+    }
 
     /// <summary>
     /// Reads pending edit parameters from the photo when supported, otherwise from its owned sidecar.
     /// </summary>
     public static EditParameters ReadEditParameters(string filePath)
     {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
         var sidecar = MetadataSidecarLocator.ResolveReadPath(
             filePath, MetadataSidecarLocator.OwnsPendingEditRecipe);
         var xmp = sidecar is not null
@@ -132,7 +140,7 @@ public sealed class ImageEditService
             xmp.DoesPropertyExist(EditParameters.XmpNamespace, "pledit:RawDevelopment") &&
             xmp.GetPropertyString(EditParameters.XmpNamespace, "pledit:RawDevelopment") != RawDevelopmentService.RecipeVersion)
             throw new NotSupportedException("The RAW recipe uses an unsupported development version.");
-        var parameters = EditParametersSerializer.ReadFromXmp(xmp);
+        var parameters = EditParametersSerializer.ReadFromXmp(xmp, rejectUnsupportedProperties: true);
         if (RawToneMappingService.IsRaw(filePath)) RawToneMappingService.ValidateRecipe(parameters);
         return parameters;
     }
@@ -141,6 +149,7 @@ public sealed class ImageEditService
     {
         var sidecars = LoadOwnedRecipeSidecars(filePath);
         var xmp = LoadEmbeddedXmp(filePath) ?? XmpMetaFactory.Create();
+        _ = EditParametersSerializer.ReadFromXmp(xmp, rejectUnsupportedProperties: true);
         EditParametersSerializer.WriteToXmp(xmp, parameters);
         var packet = XmpMetaFactory.SerializeToString(
             xmp, new XmpCore.Options.SerializeOptions()).TrimStart('\uFEFF');
@@ -149,7 +158,8 @@ public sealed class ImageEditService
 
         var written = LoadEmbeddedXmp(filePath)
             ?? throw new IOException("The embedded edit recipe could not be read after writing.");
-        if (!RecipesMatch(parameters, EditParametersSerializer.ReadFromXmp(written)))
+        if (!RecipesMatch(parameters,
+            EditParametersSerializer.ReadFromXmp(written, rejectUnsupportedProperties: true)))
             throw new IOException("The embedded edit recipe could not be verified after writing.");
 
         foreach (var (path, sidecar) in sidecars)
@@ -165,6 +175,7 @@ public sealed class ImageEditService
         bool keepBackup = false)
     {
         var xmp = LoadOrCreateRecipeSidecar(filePath);
+        _ = EditParametersSerializer.ReadFromXmp(xmp, rejectUnsupportedProperties: true);
         EditParametersSerializer.WriteToXmp(xmp, parameters);
         SaveRecipeSidecar(GetRecipeSidecarPath(filePath), xmp, keepBackup);
     }

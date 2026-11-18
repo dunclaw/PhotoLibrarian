@@ -21,14 +21,18 @@ public static class EditParametersSerializer
         "SharpeningMode", "UnsharpMaskAmount", "UnsharpMaskRadius", "UnsharpMaskThreshold",
         "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
         "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1",
-        "ToneCurveVersion", "ToneCurvesV1", "ColorAdjustmentsVersion", "ColorAdjustmentsV1"
+        "ToneCurveVersion", "ToneCurvesV1", "ColorAdjustmentsVersion", "ColorAdjustmentsV1",
+        "MonochromeMixVersion", "MonochromeMixV1"
     ];
+    private static readonly HashSet<string> SupportedEditProperties =
+        new(EditProperties, StringComparer.Ordinal);
 
     public static bool HasEditProperties(IXmpMeta xmp, bool includeRawParameters = true) =>
         EditProperties.Any(property =>
             (includeRawParameters ||
              property is not ("RawExposureEv" or "RawWhitePoint" or "RawToneMapping" or "RawDevelopment")) &&
-            xmp.DoesPropertyExist(Ns, $"{Pre}:{property}"));
+            xmp.DoesPropertyExist(Ns, $"{Pre}:{property}")) ||
+        EnumerateEditPropertyNames(xmp).Any(property => !SupportedEditProperties.Contains(property));
 
     public static void WriteToXmp(IXmpMeta xmp, EditParameters p)
     {
@@ -79,6 +83,17 @@ public static class EditParametersSerializer
             xmp.SetProperty(Ns, $"{Pre}:ColorAdjustmentsVersion", "1");
             xmp.SetProperty(Ns, $"{Pre}:ColorAdjustmentsV1", JsonSerializer.Serialize(p.ColorAdjustments));
         }
+        p.MonochromeMix.Validate();
+        if (p.MonochromeMix.IsDefault)
+        {
+            DeleteProp(xmp, "MonochromeMixVersion");
+            DeleteProp(xmp, "MonochromeMixV1");
+        }
+        else
+        {
+            xmp.SetProperty(Ns, $"{Pre}:MonochromeMixVersion", "1");
+            xmp.SetProperty(Ns, $"{Pre}:MonochromeMixV1", JsonSerializer.Serialize(p.MonochromeMix));
+        }
         SetDouble(xmp, "RotationAngle", p.RotationAngle);
         SpotRetouchProcessor.Validate(p.RetouchStrokes);
         if (p.RetouchStrokes.Count == 0) DeleteProp(xmp, "SpotRetouchV1");
@@ -116,8 +131,16 @@ public static class EditParametersSerializer
         }
     }
 
-    public static EditParameters ReadFromXmp(IXmpMeta xmp)
+    public static EditParameters ReadFromXmp(IXmpMeta xmp, bool rejectUnsupportedProperties = false)
     {
+        if (rejectUnsupportedProperties)
+        {
+            var unsupportedProperty = EnumerateEditPropertyNames(xmp)
+                .FirstOrDefault(property => !SupportedEditProperties.Contains(property));
+            if (unsupportedProperty is not null)
+                throw new NotSupportedException($"Unsupported photo edit recipe property: {unsupportedProperty}");
+        }
+
         var p = new EditParameters
         {
             Brightness = GetDouble(xmp, "Brightness"),
@@ -142,6 +165,7 @@ public static class EditParametersSerializer
             WhitePoint = GetDouble(xmp, "WhitePoint", 1.0),
             Midtones = GetDouble(xmp, "Midtones", 0.5),
             ColorAdjustments = ReadColorAdjustments(xmp),
+            MonochromeMix = ReadMonochromeMix(xmp),
             RotationAngle = GetDouble(xmp, "RotationAngle")
         };
 
@@ -194,6 +218,26 @@ public static class EditParametersSerializer
         return p;
     }
 
+    private static IEnumerable<string> EnumerateEditPropertyNames(IXmpMeta xmp)
+    {
+        foreach (var property in xmp.Properties)
+        {
+            if (!string.Equals(property.Namespace, Ns, StringComparison.Ordinal) ||
+                string.IsNullOrEmpty(property.Path))
+                continue;
+
+            var path = property.Path;
+            var prefixSeparator = path.IndexOf(':');
+            if (prefixSeparator >= 0)
+                path = path[(prefixSeparator + 1)..];
+            var nestedPath = path.IndexOfAny(['/', '[']);
+            if (nestedPath >= 0)
+                path = path[..nestedPath];
+            if (path.Length > 0)
+                yield return path;
+        }
+    }
+
     private static ColorAdjustments ReadColorAdjustments(IXmpMeta xmp)
     {
         var hasVersion = xmp.DoesPropertyExist(Ns, $"{Pre}:ColorAdjustmentsVersion");
@@ -218,6 +262,32 @@ public static class EditParametersSerializer
             return adjustments;
         }
         catch (JsonException ex) { throw new InvalidDataException("Invalid color adjustment recipe.", ex); }
+    }
+
+    private static MonochromeMix ReadMonochromeMix(IXmpMeta xmp)
+    {
+        var hasVersion = xmp.DoesPropertyExist(Ns, $"{Pre}:MonochromeMixVersion");
+        var hasRecipe = xmp.DoesPropertyExist(Ns, $"{Pre}:MonochromeMixV1");
+        if (hasVersion && xmp.GetPropertyString(Ns, $"{Pre}:MonochromeMixVersion") != "1")
+            throw new NotSupportedException("The monochrome mix recipe uses an unsupported version.");
+        if (hasVersion != hasRecipe)
+            throw new InvalidDataException("Monochrome mix recipe version and data must be present together.");
+        if (!hasRecipe) return new();
+
+        var json = xmp.GetPropertyString(Ns, $"{Pre}:MonochromeMixV1");
+        if (string.IsNullOrWhiteSpace(json))
+            throw new InvalidDataException("Monochrome mix recipe is empty.");
+        try
+        {
+            var mix = JsonSerializer.Deserialize<MonochromeMix>(json,
+                new JsonSerializerOptions
+                {
+                    UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
+                }) ?? throw new InvalidDataException("Monochrome mix recipe is null.");
+            mix.Validate();
+            return mix;
+        }
+        catch (JsonException ex) { throw new InvalidDataException("Invalid monochrome mix recipe.", ex); }
     }
 
     private static PhotoEffect GetEffect(IXmpMeta xmp)

@@ -24,6 +24,7 @@ public sealed partial class MainWindow : Window
     private CropAspectRatio _pendingAspect = CropAspectRatio.Free;
     private bool _isClosing;
     private Control? _editHistoryFocus;
+    private Control? _surfaceReturnFocus;
     private SlideshowWindow? _slideshow;
     private Control? _slideshowReturnFocus;
     private double _slideshowIntervalSeconds = 5;
@@ -31,6 +32,7 @@ public sealed partial class MainWindow : Window
     private PhotoPrintSession? _printSession;
     private bool _photoFuseOpen;
     private bool _photoFuseFinishing;
+    private OverlaySurface ActiveSurface { get; set; } = OverlaySurface.Library;
 
     private async void OnPhotoFuseClick(object? sender, EventArgs args)
     {
@@ -417,6 +419,10 @@ public sealed partial class MainWindow : Window
             UIElement.KeyDownEvent,
             new KeyEventHandler(OnUserKeyActivity),
             true);
+        AppRoot.AddHandler(
+            UIElement.KeyDownEvent,
+            new KeyEventHandler(OnAppRootKeyDown),
+            true);
 
         var appWindow = this.AppWindow;
         appWindow.Closing += OnAppWindowClosing;
@@ -450,13 +456,16 @@ public sealed partial class MainWindow : Window
         TopRibbon.PhotoFuseClicked += OnPhotoFuseClick;
         ViewerOverlay.PhotoFuseExitRequested += OnPhotoFuseClick;
         ViewerOverlay.PhotoFuseDiscardRequested += async (_, _) => await FinishPhotoFuseAsync(discard: true);
-        TopRibbon.EditVideoClicked += OnEditVideo;
+        ViewerOverlay.VideoEditCancelRequested += OnVideoEditCancelClicked;
+        TopRibbon.VideoEditOptionsChanged += OnVideoEditOptionsChanged;
+        TopRibbon.VideoEditPrepareClicked += OnVideoEditPrepareClicked;
+        TopRibbon.VideoEditExportClicked += OnVideoEditExportClicked;
+        TopRibbon.VideoEditCancelClicked += OnVideoEditCancelClicked;
+        TopRibbon.VideoEditStatusChanged += (_, status) => ViewModel.StatusText = status;
         TopRibbon.MakeCopyClicked += OnRibbonMakeCopyClicked;
         TopRibbon.StraightenClicked += OnRibbonStraightenClicked;
         TopRibbon.SlideshowClicked += (_, _) => StartSlideshow(null);
         TopRibbon.SlideshowThemeChanged += (_, theme) => _slideshowTheme = theme;
-        TopRibbon.StabilizeVideoClicked += async (_, _) => await ViewerOverlay.StabilizeVideoAsync();
-        TopRibbon.TrimVideoClicked += async (_, _) => await ViewerOverlay.TrimVideoAsync();
         ImageGridPanel.SlideshowRequested += (_, selection) => StartSlideshow(selection);
         ViewerOverlay.PhotoContextMenuOpening += ImageGridPanel.PopulateViewerContextMenu;
         ImageGridPanel.PeopleReviewRequested += OnPeopleReviewClick;
@@ -498,6 +507,7 @@ public sealed partial class MainWindow : Window
                 DispatcherQueue.TryEnqueue(() => ViewerOverlay.FocusViewer());
         };
         AppRoot.PreviewKeyDown += OnAppRootPreviewKeyDown;
+        UpdateSurfaceNavigation();
 
         // Cleanup on window close
         this.Closed += OnWindowClosed;
@@ -653,19 +663,23 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName is nameof(ViewModel.ImageViewer))
             UpdateViewerVisibility();
         if (e.PropertyName is nameof(ViewModel.Settings))
-            UpdateSettingsVisibility();
+            RefreshSettingsSurface();
     }
 
     private void OnPeopleReviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (!_isClosing && e.PropertyName == nameof(ViewModel.PeopleReview.IsOpen))
-            UpdatePeopleReviewVisibility();
+        {
+            UpdateSurfaceNavigation();
+            if (!ViewModel.PeopleReview.IsOpen)
+                _ = RefreshPeopleFiltersAsync();
+        }
     }
 
     private void OnDuplicateReviewPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (!_isClosing && e.PropertyName == nameof(ViewModel.DuplicateReview.IsOpen))
-            UpdateDuplicateReviewVisibility();
+            UpdateSurfaceNavigation();
     }
 
     private void OnImageEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -678,20 +692,21 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() =>
         {
             if (_isClosing) return;
+            UpdateSurfaceNavigation();
             UpdateRibbonVisibility();
-            if (ViewModel.ImageEditor.IsOpen)
-            {
-                ViewerOverlay.StopFocusGuard();
-                EditorOverlay.FocusEditor();
-            }
-            else if (ViewModel.ImageViewer.IsOpen)
-                ViewerOverlay.FocusViewer();
         });
     }
 
     private void OnImageViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isClosing) return;
+        if (e.PropertyName is nameof(ImageViewerViewModel.CurrentEntry) or nameof(ImageViewerViewModel.IsOpen))
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                if (!_isClosing)
+                    await UpdateVideoToolbarAsync();
+            });
+
         if (e.PropertyName is nameof(ImageViewerViewModel.IsApplyingEffect) or nameof(ImageViewerViewModel.CurrentEntry))
             UpdateHistoryControls();
 
@@ -704,7 +719,11 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName == nameof(ImageViewerViewModel.IsOpen))
             DispatcherQueue.TryEnqueue(() =>
             {
-                if (!_isClosing) UpdateRibbonVisibility();
+                if (!_isClosing)
+                {
+                    UpdateSurfaceNavigation();
+                    UpdateRibbonVisibility();
+                }
             });
         if (e.PropertyName == nameof(ImageViewerViewModel.Title))
             DispatcherQueue.TryEnqueue(() =>
@@ -726,7 +745,14 @@ public sealed partial class MainWindow : Window
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (!_isClosing && e.PropertyName == nameof(ViewModel.Settings.IsOpen))
-            UpdateSettingsVisibility();
+            RefreshSettingsSurface();
+    }
+
+    private void RefreshSettingsSurface()
+    {
+        UpdateSurfaceNavigation();
+        if (ViewModel.Settings.IsOpen)
+            SettingsPanel.Loaded += (s, args) => ViewModel.Settings.OpenCommand.Execute(null);
     }
 
     private void UpdateBackgroundProgress()
@@ -753,6 +779,12 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnAppRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (_videoEditSourcePath is not null && e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            OnVideoEditCancelClicked(null, EventArgs.Empty);
+            return;
+        }
         if (IsComparisonOpen)
         {
             if (e.Key == Windows.System.VirtualKey.Escape)
@@ -807,6 +839,23 @@ public sealed partial class MainWindow : Window
         {
             e.Handled = true;
             ViewerOverlay.FocusViewer();
+        }
+    }
+
+    private void OnAppRootKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Handled || e.Key != Windows.System.VirtualKey.Escape) return;
+
+        switch (ActiveSurface)
+        {
+            case OverlaySurface.Settings:
+                ViewModel.Settings.CloseCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case OverlaySurface.DuplicateReview:
+                ViewModel.DuplicateReview.Close();
+                e.Handled = true;
+                break;
         }
     }
 
@@ -1028,6 +1077,7 @@ public sealed partial class MainWindow : Window
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
         _isClosing = true;
+        await ExitVideoEditAsync(restoreSource: false);
         _removableVolumeMonitor?.Dispose();
         _removableVolumeMonitor = null;
         FolderNavPanel.SaveState();
@@ -1078,10 +1128,83 @@ public sealed partial class MainWindow : Window
 
     private void UpdateViewerVisibility()
     {
-        ViewerOverlay.Visibility = ViewModel.ImageViewer.IsOpen
-            ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSurfaceNavigation();
         UpdateInformationPaneVisibility();
         UpdateRibbonVisibility();
+    }
+
+    private void UpdateSurfaceNavigation()
+    {
+        var previousSurface = ActiveSurface;
+        var nextSurface = OverlayNavigationState.Resolve(
+            IsComparisonOpen,
+            ViewModel.DuplicateReview.IsOpen,
+            ViewModel.PeopleReview.IsOpen,
+            ViewModel.Settings.IsOpen,
+            ViewModel.ImageEditor.IsOpen,
+            ViewModel.ImageViewer.IsOpen);
+
+        if (previousSurface == OverlaySurface.Library && nextSurface != OverlaySurface.Library)
+            _surfaceReturnFocus = GetFocusedElement() as Control;
+
+        ActiveSurface = nextSurface;
+
+        ViewerOverlay.Visibility = ViewModel.ImageViewer.IsOpen
+            ? Visibility.Visible : Visibility.Collapsed;
+        EditorOverlay.Visibility = ViewModel.ImageEditor.IsOpen
+            ? Visibility.Visible : Visibility.Collapsed;
+        SettingsOverlay.Visibility = ViewModel.Settings.IsOpen
+            ? Visibility.Visible : Visibility.Collapsed;
+        PeopleReviewOverlay.Visibility = ViewModel.PeopleReview.IsOpen
+            ? Visibility.Visible : Visibility.Collapsed;
+        DuplicateReviewOverlay.Visibility = ViewModel.DuplicateReview.IsOpen
+            ? Visibility.Visible : Visibility.Collapsed;
+        ComparisonOverlay.Visibility = IsComparisonOpen
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        var comparisonActive = ActiveSurface == OverlaySurface.Comparison;
+        MainLayout.Visibility = comparisonActive ? Visibility.Collapsed : Visibility.Visible;
+        FooterNotifications.Visibility = comparisonActive ? Visibility.Collapsed : Visibility.Visible;
+        StatusBar.Visibility = comparisonActive ? Visibility.Collapsed : Visibility.Visible;
+        if (comparisonActive)
+            TopRibbon.Visibility = Visibility.Collapsed;
+        else if (previousSurface == OverlaySurface.Comparison)
+            UpdateRibbonVisibility();
+
+        if (previousSurface != ActiveSurface)
+            FocusSurface(ActiveSurface);
+    }
+
+    private void FocusSurface(OverlaySurface surface)
+    {
+        switch (surface)
+        {
+            case OverlaySurface.Library:
+                var returnFocus = _surfaceReturnFocus;
+                _surfaceReturnFocus = null;
+                if (returnFocus?.Focus(FocusState.Programmatic) != true)
+                    ImageGridPanel.FocusGrid();
+                break;
+            case OverlaySurface.Viewer:
+                ViewerOverlay.FocusViewer();
+                break;
+            case OverlaySurface.Editor:
+                ViewerOverlay.StopFocusGuard();
+                EditorOverlay.FocusEditor();
+                break;
+            case OverlaySurface.Settings:
+                SettingsPanel.FocusInitialControl();
+                break;
+            case OverlaySurface.PeopleReview:
+                PeopleReviewPanel.FocusInitialControl();
+                break;
+            case OverlaySurface.DuplicateReview:
+                DuplicateReviewPanel.FocusInitialControl();
+                break;
+            case OverlaySurface.Comparison:
+                _comparison?.FocusWorkspace();
+                break;
+        }
     }
 
     private void UpdateRibbonVisibility()
@@ -1484,17 +1607,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void UpdateSettingsVisibility()
-    {
-        SettingsOverlay.Visibility = ViewModel.Settings.IsOpen
-            ? Visibility.Visible : Visibility.Collapsed;
-        
-        if (ViewModel.Settings.IsOpen)
-        {
-            SettingsPanel.Loaded += (s, e) => ViewModel.Settings.OpenCommand.Execute(null);
-        }
-    }
-
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
         ViewModel.Settings.OpenCommand.Execute(null);
@@ -1525,23 +1637,6 @@ public sealed partial class MainWindow : Window
         await ViewModel.DuplicateReview.OpenForImagesAsync(ViewModel.ImageGrid.DisplayedEntries);
     }
 
-    private void UpdateDuplicateReviewVisibility()
-    {
-        DuplicateReviewOverlay.Visibility = ViewModel.DuplicateReview.IsOpen
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-    }
-
-    private void UpdatePeopleReviewVisibility()
-    {
-        PeopleReviewOverlay.Visibility = ViewModel.PeopleReview.IsOpen
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
-        if (!ViewModel.PeopleReview.IsOpen)
-            _ = RefreshPeopleFiltersAsync();
-    }
-    
     private async void OnBenchmarkClick(object sender, RoutedEventArgs e)
     {
         await ViewModel.RunBenchmarkCommand.ExecuteAsync(null);

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Controls;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ViewModels;
 using PhotoLibrarian.Views;
 using System.Collections.ObjectModel;
@@ -43,6 +44,33 @@ public partial class App : Application
         string? failure = null;
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--dialogs"))
+            {
+                await RunDialogServiceTestsAsync();
+                await FinishAsync(null);
+                return;
+            }
+            if (Environment.GetCommandLineArgs().Contains("--recovery"))
+            {
+                if (Environment.GetCommandLineArgs().Contains("--preview"))
+                {
+                    var recovery = new RecoveryWindow();
+                    _window = recovery;
+                    recovery.Activate();
+                    var candidate = new FileEditRecoveryCandidate(
+                        @"C:\Example\EditHistory\session\transaction", @"C:\Example\Photos\photo.cr3",
+                        new FileEditRecoveryInspection(FileEditRecoveryStatus.Ready));
+                    await recovery.ResolveAsync(@"C:\Example\EditHistory", [candidate]);
+                    recovery.CloseAfterRecovery();
+                    Exit();
+                    return;
+                }
+                _window = new Window { Title = "Recovery test host", Content = new Grid() };
+                _window.Activate();
+                await RecoveryUiTests.RunAsync(_passed);
+                await FinishAsync(null);
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--editor-clipping"))
             {
                 await RunEditorClippingTestsAsync();
@@ -93,7 +121,16 @@ public partial class App : Application
                 _window = await RetouchEditorFixture.OpenAsync(this);
                 return;
             }
-            if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
+            if (Environment.GetCommandLineArgs().Contains("--edit-presets"))
+            {
+                await RunEditPresetsTestsAsync();
+                return;
+            }
+            if (Environment.GetCommandLineArgs().Contains("--viewer-focus"))
+            {
+                await RunViewerFocusTestsAsync();
+            }
+            else if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
             {
                 await RunViewerContextMenuTestsAsync();
             }

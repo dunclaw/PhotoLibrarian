@@ -112,7 +112,7 @@
                 Grid.RowSpan="2"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                 Visibility="Collapsed">
-            <views:PeopleReviewView />
+            <views:PeopleReviewView x:Name="PeopleReviewPanel" />
         </Border>
 
         <Border x:Name="DuplicateReviewOverlay"
@@ -120,7 +120,7 @@
                 Grid.RowSpan="2"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                 Visibility="Collapsed">
-            <views:DuplicateReviewView />
+            <views:DuplicateReviewView x:Name="DuplicateReviewPanel" />
         </Border>
 
         <StackPanel x:Name="FooterNotifications" Grid.Row="2" Spacing="4">

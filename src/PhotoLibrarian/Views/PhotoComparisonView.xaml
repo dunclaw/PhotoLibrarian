@@ -8,7 +8,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <CommandBar DefaultLabelPosition="Right">
+        <CommandBar Style="{StaticResource ToolbarCommandBarStyle}">
             <AppBarButton x:Name="FitButton" x:Uid="ComparisonFit"
                           AutomationProperties.AutomationId="ComparisonFit" Click="OnFit" Icon="FullScreen" />
             <AppBarButton x:Uid="ComparisonActual"

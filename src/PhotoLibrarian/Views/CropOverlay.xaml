@@ -4,6 +4,34 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     IsHitTestVisible="True">
 
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="CropMaskBrush" Color="#90000000" />
+                    <SolidColorBrush x:Key="CropBorderBrush" Color="White" />
+                    <SolidColorBrush x:Key="CropGridBrush" Color="#80FFFFFF" />
+                    <SolidColorBrush x:Key="CropHandleFillBrush" Color="White" />
+                    <SolidColorBrush x:Key="CropHandleStrokeBrush" Color="#C0000000" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="CropMaskBrush" Color="#90000000" />
+                    <SolidColorBrush x:Key="CropBorderBrush" Color="White" />
+                    <SolidColorBrush x:Key="CropGridBrush" Color="#80FFFFFF" />
+                    <SolidColorBrush x:Key="CropHandleFillBrush" Color="White" />
+                    <SolidColorBrush x:Key="CropHandleStrokeBrush" Color="#C0000000" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <StaticResource x:Key="CropMaskBrush" ResourceKey="SystemColorWindowColorBrush" />
+                    <StaticResource x:Key="CropBorderBrush" ResourceKey="SystemColorHighlightColorBrush" />
+                    <StaticResource x:Key="CropGridBrush" ResourceKey="SystemColorHighlightColorBrush" />
+                    <StaticResource x:Key="CropHandleFillBrush" ResourceKey="SystemColorButtonFaceColorBrush" />
+                    <StaticResource x:Key="CropHandleStrokeBrush" ResourceKey="SystemColorButtonTextColorBrush" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
     <!--
         The overlay fills its parent and sizes the crop rect in DISPLAY coordinates
         (LayoutRoot.ActualWidth/Height). The code-behind converts the crop rect to
@@ -22,17 +50,17 @@
           PointerCaptureLost="OnRootPointerCaptureLost">
 
         <!-- Dim masks (outside the crop rect). Never hit-tested so drags fall through to LayoutRoot. -->
-        <Rectangle x:Name="MaskTop"    Fill="#90000000" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Top" />
-        <Rectangle x:Name="MaskBottom" Fill="#90000000" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Bottom" />
-        <Rectangle x:Name="MaskLeft"   Fill="#90000000" IsHitTestVisible="False" VerticalAlignment="Stretch"   HorizontalAlignment="Left" />
-        <Rectangle x:Name="MaskRight"  Fill="#90000000" IsHitTestVisible="False" VerticalAlignment="Stretch"   HorizontalAlignment="Right" />
+        <Rectangle x:Name="MaskTop"    Fill="{ThemeResource CropMaskBrush}" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Top" />
+        <Rectangle x:Name="MaskBottom" Fill="{ThemeResource CropMaskBrush}" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Bottom" />
+        <Rectangle x:Name="MaskLeft"   Fill="{ThemeResource CropMaskBrush}" IsHitTestVisible="False" VerticalAlignment="Stretch"   HorizontalAlignment="Left" />
+        <Rectangle x:Name="MaskRight"  Fill="{ThemeResource CropMaskBrush}" IsHitTestVisible="False" VerticalAlignment="Stretch"   HorizontalAlignment="Right" />
 
         <!-- Crop rect: positioned via Canvas inside LayoutRoot -->
         <Canvas x:Name="HandlesCanvas" IsHitTestVisible="True">
 
             <!-- Border + interior drag target (pan whole rect) -->
             <Border x:Name="CropBorder"
-                    BorderBrush="White"
+                    BorderBrush="{ThemeResource CropBorderBrush}"
                     BorderThickness="2"
                     Background="Transparent"
                     PointerPressed="OnCropBorderPointerPressed"
@@ -44,45 +72,45 @@
                     PointerExited="OnPointerExitedResetCursor" />
 
             <!-- Rule-of-thirds grid lines (inside crop rect) -->
-            <Line x:Name="GridV1" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
-            <Line x:Name="GridV2" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
-            <Line x:Name="GridH1" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
-            <Line x:Name="GridH2" Stroke="#80FFFFFF" StrokeThickness="1" IsHitTestVisible="False" />
+            <Line x:Name="GridV1" Stroke="{ThemeResource CropGridBrush}" StrokeThickness="1" IsHitTestVisible="False" />
+            <Line x:Name="GridV2" Stroke="{ThemeResource CropGridBrush}" StrokeThickness="1" IsHitTestVisible="False" />
+            <Line x:Name="GridH1" Stroke="{ThemeResource CropGridBrush}" StrokeThickness="1" IsHitTestVisible="False" />
+            <Line x:Name="GridH2" Stroke="{ThemeResource CropGridBrush}" StrokeThickness="1" IsHitTestVisible="False" />
 
             <!-- 8 handles: 4 corners (NW, NE, SE, SW) + 4 edge mid-points (N, E, S, W).
                  Each is a 28x28 transparent hit target wrapping a smaller visible marker,
                  so they stay easy to grab without dominating the image. -->
             <Grid x:Name="HandleNW" Width="28" Height="28" Background="Transparent" Tag="NW"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="14" Height="14" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleN" Width="28" Height="28" Background="Transparent" Tag="N"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="12" Height="12" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleNE" Width="28" Height="28" Background="Transparent" Tag="NE"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="14" Height="14" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleE" Width="28" Height="28" Background="Transparent" Tag="E"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="12" Height="12" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleSE" Width="28" Height="28" Background="Transparent" Tag="SE"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="14" Height="14" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleS" Width="28" Height="28" Background="Transparent" Tag="S"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="12" Height="12" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleSW" Width="28" Height="28" Background="Transparent" Tag="SW"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="14" Height="14" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="14" Height="14" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
             <Grid x:Name="HandleW" Width="28" Height="28" Background="Transparent" Tag="W"
                   PointerPressed="OnHandlePointerPressed" PointerMoved="OnHandlePointerMoved" PointerReleased="OnHandlePointerReleased" PointerCanceled="OnHandlePointerReleased" PointerCaptureLost="OnHandlePointerCaptureLost" PointerEntered="OnHandlePointerEntered" PointerExited="OnPointerExitedResetCursor">
-                <Ellipse Width="12" Height="12" Fill="White" Stroke="#C0000000" StrokeThickness="1" />
+                <Ellipse Width="12" Height="12" Fill="{ThemeResource CropHandleFillBrush}" Stroke="{ThemeResource CropHandleStrokeBrush}" StrokeThickness="1" />
             </Grid>
         </Canvas>
     </Grid>

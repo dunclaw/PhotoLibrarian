@@ -1,6 +1,8 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 
 using PhotoLibrarian.Views;
+using PhotoLibrarian.Core.Models;
+using System.Reflection;
 using System.Xml.Linq;
 using Windows.System;
 using Xunit;
@@ -72,5 +74,52 @@ public sealed class ViewerCommandAccessibilityTests
                 (string?)e.Attribute("AutomationProperties.AutomationId") == id);
             Assert.Null(button.Attribute("Opacity"));
         }
+    }
+
+    [Fact]
+    public void PresetControlsHaveAccessibleNamesUniqueActionsAndGroupOptions()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var xaml = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
+        var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"));
+        var resourceNames = resources.Descendants("data")
+            .Select(element => (string?)element.Attribute("name"))
+            .Where(name => name is not null)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var uid in new[]
+        {
+            "EditorPresetGallery", "EditorPresetAmountSlider", "EditorSavePresetButton",
+            "EditorApplyPresetButton", "EditorPresetFavorite", "EditorPresetDelete"
+        })
+            Assert.Contains(
+                $"{uid}.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name",
+                resourceNames);
+
+        var favorite = Assert.Single(xaml.Descendants().Where(element =>
+            (string?)element.Attribute(x + "Uid") == "EditorPresetFavorite"));
+        Assert.Contains("PresetFavoriteAutomationId",
+            (string?)favorite.Attribute("AutomationProperties.AutomationId"));
+        var delete = Assert.Single(xaml.Descendants().Where(element =>
+            (string?)element.Attribute(x + "Uid") == "EditorPresetDelete"));
+        Assert.Contains("PresetDeleteAutomationId",
+            (string?)delete.Attribute("AutomationProperties.AutomationId"));
+
+        foreach (var handler in new[]
+        {
+            (string?)favorite.Attribute("Click"),
+            (string?)delete.Attribute("Click"),
+            (string?)xaml.Descendants().Single(element =>
+                (string?)element.Attribute(x + "Uid") == "EditorSavePresetButton").Attribute("Click"),
+            (string?)xaml.Descendants().Single(element =>
+                (string?)element.Attribute(x + "Uid") == "EditorApplyPresetButton").Attribute("Click")
+        })
+            Assert.NotNull(typeof(ImageViewerOverlay).GetMethod(
+                handler!, BindingFlags.Instance | BindingFlags.NonPublic));
+
+        Assert.Equal(EditSettingGroup.All & ~EditSettingGroup.RawDevelopment,
+            EditSettingGroupDialog.AvailableForPhoto("photo.png"));
+        Assert.Equal(EditSettingGroup.All,
+            EditSettingGroupDialog.AvailableForPhoto("photo.dng"));
     }
 }

@@ -139,9 +139,12 @@ public sealed class RawPreviewWorkflowTests : IDisposable
     public async Task RawResetAndKeepDoNotDiscardDormantRasterRecipeOrCrop()
     {
         var path = await CreateRawAsync();
+        var mix = new MonochromeMix();
+        mix.LuminanceBands[5] = -0.7;
         await ImageEditService.SaveRawPreviewRecipeAsync(path, new EditParameters
         {
             Exposure = 0.5, RotationAngle = 90, RawExposureEv = -2, RawWhitePoint = 8,
+            Effect = PhotoEffect.BlackAndWhite, MonochromeMix = mix,
             Crop = new CropRect { Left = 0.1, Top = 0.2, Width = 0.7, Height = 0.6 }
         });
         var vm = CreateViewModel();
@@ -156,6 +159,8 @@ public sealed class RawPreviewWorkflowTests : IDisposable
         Assert.Equal(0.1, reopened.Crop!.Left);
         Assert.Equal(0.6, reopened.Crop.Height);
         Assert.Equal(0.5, reopened.Exposure);
+        Assert.Equal(PhotoEffect.BlackAndWhite, reopened.Effect);
+        Assert.Equal(-0.7, reopened.MonochromeMix.LuminanceBands[5]);
     }
 
     [Fact]

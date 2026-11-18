@@ -3,7 +3,9 @@ using Microsoft.UI.Xaml;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ML.Services;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
 
 namespace PhotoLibrarian;
 
@@ -12,6 +14,8 @@ public partial class App : Application
     private Window? _window;
 
     public static MainViewModel ViewModel { get; private set; } = null!;
+    public static FolderPickerService FolderPickerService { get; } =
+        new(() => MainWindow);
     public static Task LibraryInitialization { get; private set; } = Task.CompletedTask;
 
     /// <summary>
@@ -38,14 +42,28 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         // Set up data directory
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var dataDir = Path.Combine(appData, "PhotoLibrarian");
+        var dataDir = AppDataPaths.Root;
         Directory.CreateDirectory(dataDir);
         Core.Diagnostics.DebugLog.EnableFileLogging(Path.Combine(dataDir, "Logs"));
         Diagnostics.DebugLog.WriteLine(
             $"PhotoLibrarian starting: {typeof(App).Assembly.GetName().Version}, " +
             $"{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
             $"{Environment.OSVersion.VersionString}");
+        var candidates = await Task.Run(() => FileEditRecovery.FindAsync(MainViewModel.EditHistoryRoot));
+        RecoveryWindow? recoveryWindow = null;
+        if (candidates.Count > 0)
+        {
+            recoveryWindow = new RecoveryWindow();
+            _window = recoveryWindow;
+            recoveryWindow.Activate();
+            if (!await recoveryWindow.ResolveAsync(MainViewModel.EditHistoryRoot, candidates))
+            {
+                recoveryWindow.CloseAfterRecovery();
+                Exit();
+                return;
+            }
+        }
+
         _ = Task.Run(() => new PhotoSharePreparationService().CleanupExpired());
         var dbPath = Path.Combine(dataDir, "cache.db");
 
@@ -124,6 +142,7 @@ public partial class App : Application
         _window = new MainWindow();
         LibraryInitialization = ViewModel.InitializeAsync();
         _window.Activate();
+        recoveryWindow?.CloseAfterRecovery();
 
         await LibraryInitialization;
     }
