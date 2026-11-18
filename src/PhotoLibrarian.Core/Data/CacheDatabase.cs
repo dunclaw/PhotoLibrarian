@@ -119,6 +119,29 @@ public sealed class CacheDatabase : IDisposable
                 FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS photo_version_family_index (
+                image_id INTEGER PRIMARY KEY,
+                generation TEXT NOT NULL,
+                status INTEGER NOT NULL,
+                message TEXT,
+                source_id TEXT,
+                document_revision TEXT,
+                input_identity TEXT,
+                metadata_hash TEXT,
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS photo_version_index (
+                image_id INTEGER NOT NULL,
+                variant_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                is_main INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                status INTEGER NOT NULL,
+                PRIMARY KEY (image_id, variant_id),
+                FOREIGN KEY (image_id) REFERENCES photo_version_family_index(image_id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS tags (
                 image_id    INTEGER NOT NULL,
                 tag         TEXT    NOT NULL,
@@ -269,6 +292,7 @@ public sealed class CacheDatabase : IDisposable
     /// </summary>
     private static async Task MigrateAsync(SqliteConnection conn)
     {
+        await AddColumnIfMissingAsync(conn, "photo_version_family_index", "metadata_hash", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "caption", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "title", "TEXT");
         await AddColumnIfMissingAsync(conn, "images", "place_name", "TEXT");

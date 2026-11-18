@@ -462,7 +462,7 @@ public sealed class SpotRetouchTests : IDisposable
         for (var channel = 0; channel < 3; channel++)
             pixels[i + channel] = (byte)Math.Clamp(pixels[i + channel] + random.Next(-12, 13), 0, 255);
         Blemish(pixels);
-        await RenderQualityFixtures.WriteImageAsync(path, Size, Size, pixels);
+        await RenderQualityFixtures.WriteImageAsync(path, Size, Size, pixels, jpeg: true);
         using var device = new CanvasDevice();
         using var source = await ImageEditRenderer.LoadOrientedAsync(device, path);
         var result = await ImageEditRenderer.TryCreateRetouchedAsync(device, source, [Stroke(12)]);

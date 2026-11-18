@@ -23,39 +23,61 @@ public sealed class FileEditTransaction : IDisposable
         public bool Created { get; } = created;
         public bool Writable { get; } = writable;
         public string? RecoveryPath { get; set; }
+        public bool OriginalRenamed { get; set; }
         public FileStream? Replacement { get; set; }
         public string? ReplacementPath { get; set; }
         public bool ReplacementPublished { get; set; }
     }
     private readonly string _directory;
     private readonly List<Change> _changes;
+    private readonly bool _durableRecovery;
+    private readonly string? _recoverySourcePath;
+    private readonly IReadOnlyList<string>? _recoveryCompanions;
+    private readonly string? _recoveryRoot;
     private bool _disposed;
 
-    private FileEditTransaction(string directory, List<Change> changes)
+    private FileEditTransaction(
+        string directory, List<Change> changes, bool durableRecovery, string? recoverySourcePath,
+        IReadOnlyList<string>? recoveryCompanions, string? recoveryRoot)
     {
         _directory = directory;
         _changes = changes;
+        _durableRecovery = durableRecovery;
+        _recoverySourcePath = recoverySourcePath;
+        _recoveryCompanions = recoveryCompanions;
+        _recoveryRoot = recoveryRoot;
     }
 
     public bool HasChanges => _changes.Any(change => change.Before.Hash != change.After.Hash);
 
     public string InputIdentity(string photoPath)
+        => Identity(photoPath, before: true);
+
+    internal string OutputIdentity(string photoPath)
+        => Identity(photoPath, before: false);
+
+    private string Identity(string photoPath, bool before)
     {
         var path = Path.GetFullPath(photoPath);
         return string.Join("|", RelatedPaths(path).Select(related =>
-            _changes.Single(change => string.Equals(change.Path, related, StringComparison.OrdinalIgnoreCase)).Before.Hash ?? "-"));
+        {
+            var change = _changes.Single(change => string.Equals(change.Path, related, StringComparison.OrdinalIgnoreCase));
+            return (before ? change.Before.Hash : change.After.Hash) ?? "-";
+        }));
     }
 
-    public static async Task<string> ReadIdentityAsync(string photoPath)
+    public static async Task<string> ReadIdentityAsync(
+        string photoPath, CancellationToken cancellationToken = default)
     {
         var hashes = new List<string>();
         foreach (var path in RelatedPaths(Path.GetFullPath(photoPath)))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!File.Exists(path)) hashes.Add("-");
             else
             {
                 await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                hashes.Add(Convert.ToHexString(await SHA256.HashDataAsync(stream)));
+                hashes.Add(Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken)));
             }
         }
         return string.Join("|", hashes);
@@ -63,20 +85,42 @@ public sealed class FileEditTransaction : IDisposable
 
     private static string[] RelatedPaths(string path) => [path, Path.ChangeExtension(path, ".xmp"), path + ".xmp"];
 
+    internal static string[] GetMediaCompanions(string sourcePath)
+    {
+        var source = Path.GetFullPath(sourcePath);
+        var folder = Path.GetDirectoryName(source)!;
+        var stem = Path.GetFileNameWithoutExtension(source);
+        return Directory.EnumerateFiles(folder, stem + ".*")
+            .Where(path => !string.Equals(Path.GetFullPath(path), source, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Path.GetFileNameWithoutExtension(path), stem, StringComparison.OrdinalIgnoreCase) &&
+                FolderScannerService.IsSupportedFile(path))
+            .Select(Path.GetFullPath)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     public static async Task<FileEditTransaction> PrepareAsync(
         string storageDirectory,
         IReadOnlyCollection<string> photoPaths,
-        Func<IReadOnlyDictionary<string, string>, Task> prepare)
+        Func<IReadOnlyDictionary<string, string>, Task> prepare,
+        CancellationToken cancellationToken = default,
+        bool durableRecovery = false,
+        string? recoveryRoot = null)
     {
-        var directory = Path.Combine(storageDirectory, Guid.NewGuid().ToString("N"));
+        var originals = photoPaths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (durableRecovery && originals.Length != 1)
+            throw new ArgumentException("Durable recovery requires exactly one source photo.", nameof(photoPaths));
+        var companions = durableRecovery ? GetMediaCompanions(originals[0]) : null;
+        var directory = Path.Combine(Path.GetFullPath(storageDirectory), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
             var mapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var folders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var path in photoPaths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var path in originals)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var folder = Path.GetDirectoryName(path)!;
                 if (!folders.TryGetValue(folder, out var stagedFolder))
                 {
@@ -103,12 +147,12 @@ public sealed class FileEditTransaction : IDisposable
             foreach (var (path, staged) in files)
             {
                 var copy = Path.Combine(directory, "before", before.Count.ToString());
-                before.Add(path, await CaptureAsync(path, copy));
+                before.Add(path, await CaptureAsync(path, copy, cancellationToken, durableRecovery));
                 if (before[path].Copy is { } source)
                 {
                     await using (var input = File.OpenRead(source))
                     await using (var output = new FileStream(staged, FileMode.Create, FileAccess.Write, FileShare.None))
-                        await input.CopyToAsync(output);
+                        await input.CopyToAsync(output, cancellationToken);
                     if ((File.GetAttributes(path) & FileAttributes.ReadOnly) != 0)
                         File.SetAttributes(staged, FileAttributes.ReadOnly);
                 }
@@ -121,11 +165,13 @@ public sealed class FileEditTransaction : IDisposable
                     _ = XmpCore.XmpMetaFactory.Parse(stream);
                 }
             }
+            cancellationToken.ThrowIfCancellationRequested();
             await prepare(mapping);
             var changes = new List<Change>();
             foreach (var (path, staged) in files)
             {
-                var after = await CaptureAsync(staged, Path.Combine(directory, "checkpoints", changes.Count.ToString()));
+                var after = await CaptureAsync(staged, Path.Combine(directory, "checkpoints", changes.Count.ToString()),
+                    cancellationToken, durableRecovery);
                 if (RawToneMappingService.IsRaw(path) && before[path].Hash != after.Hash)
                     throw new InvalidOperationException("An edit attempted to change a RAW original.");
                 var previous = before[path];
@@ -139,7 +185,8 @@ public sealed class FileEditTransaction : IDisposable
                 changes.Add(new(path, previous, after));
             }
             DeleteStorage(Path.Combine(directory, "after"));
-            return new(directory, changes);
+            return new(directory, changes, durableRecovery, durableRecovery ? originals[0] : null,
+                companions, recoveryRoot);
         }
         catch
         {
@@ -148,27 +195,56 @@ public sealed class FileEditTransaction : IDisposable
         }
     }
 
-    private static async Task<Version> CaptureAsync(string path, string copy)
+    private static async Task<Version> CaptureAsync(
+        string path, string copy, CancellationToken cancellationToken, bool durableRecovery)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!File.Exists(path)) return new(null, null);
         Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
         await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         await using (var destination = new FileStream(copy, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            await source.CopyToAsync(destination);
+        {
+            await source.CopyToAsync(destination, cancellationToken);
+            if (durableRecovery) destination.Flush(flushToDisk: true);
+        }
         source.Position = 0;
-        var hash = Convert.ToHexString(await SHA256.HashDataAsync(source));
+        var hash = Convert.ToHexString(await SHA256.HashDataAsync(source, cancellationToken));
         return new(copy, hash);
     }
 
-    public async Task<EditHistoryResult> MoveAsync(bool undo, Func<Task> refresh)
+    public Task<EditHistoryResult> MoveAsync(bool undo, Func<Task> refresh) =>
+        MoveCoreAsync(undo, refresh, null);
+
+    internal Task<EditHistoryResult> MoveWithPublicationObserverAsync(
+        bool undo, Func<Task> refresh, Action afterRename) =>
+        MoveCoreAsync(undo, refresh, afterRename);
+
+    private async Task<EditHistoryResult> MoveCoreAsync(bool undo, Func<Task> refresh, Action? afterRename)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var leases = new List<Lease>();
         var published = false;
         var rollbackFailed = false;
+        var manifestWritten = false;
         var cleanupErrors = new List<Exception>();
+        FileStream? historyLease = null;
         try
         {
+            if (_durableRecovery && _recoveryRoot is not null)
+            {
+                var lockStatus = FileEditRecovery.TryAcquireHistoryLease(_recoveryRoot, out historyLease);
+                if (lockStatus.Status != FileEditRecoveryStatus.Ready)
+                    return new(lockStatus.Status == FileEditRecoveryStatus.Busy
+                        ? EditHistoryStatus.Busy : EditHistoryStatus.Conflict, lockStatus.Message);
+                if ((await FileEditRecovery.FindAsync(_recoveryRoot)).Count != 0)
+                    return new(EditHistoryStatus.Conflict,
+                        "An interrupted photo edit must be resolved before another version can be saved.");
+            }
+            if (_durableRecovery &&
+                (FileEditRecovery.HasReparsePoint(_directory) ||
+                 _changes.Any(change => FileEditRecovery.HasReparsePoint(change.Path))))
+                return new(EditHistoryStatus.Conflict,
+                    "Edit recovery cannot safely use a path containing a reparse point.");
             foreach (var change in _changes.OrderBy(change => change.Path, StringComparer.OrdinalIgnoreCase))
             {
                 var expected = undo ? change.After : change.Before;
@@ -197,6 +273,16 @@ public sealed class FileEditTransaction : IDisposable
             }
             foreach (var lease in leases.Where(lease => lease.Created))
                 if (File.Exists(lease.Change.Path)) return Conflict(lease.Change.Path);
+            if (_durableRecovery &&
+                (FileEditRecovery.HasReparsePoint(_directory) ||
+                 _changes.Any(change => FileEditRecovery.HasReparsePoint(change.Path))))
+                return new(EditHistoryStatus.Conflict,
+                    "Edit recovery cannot safely use a path containing a reparse point.");
+            if (_durableRecovery &&
+                !GetMediaCompanions(_recoverySourcePath!).SequenceEqual(
+                    _recoveryCompanions!, StringComparer.OrdinalIgnoreCase))
+                return new(EditHistoryStatus.Conflict,
+                    "The photo's same-name companions changed during the edit.");
 
             // Write fresh siblings before publishing. Truncating a viewer's memory-mapped
             // original is not supported by Windows, even after its read stream is closed.
@@ -217,20 +303,43 @@ public sealed class FileEditTransaction : IDisposable
                 await WriteAsync(lease.Replacement, version);
             }
 
+            if (_durableRecovery)
+            {
+                foreach (var lease in leases.Where(lease => lease.Writable && !lease.Created))
+                    lease.RecoveryPath = TemporarySibling(lease.Change.Path);
+                var records = _changes.Select(change =>
+                {
+                    var lease = leases.FirstOrDefault(item => item.Change == change);
+                    return new FileEditRecoveryChange(change.Path,
+                        new(change.Before.Copy, change.Before.Hash),
+                        new(change.After.Copy, change.After.Hash),
+                        lease?.RecoveryPath, lease?.ReplacementPath);
+                }).ToArray();
+                new FileEditRecoveryManifest(1, _recoverySourcePath!, _recoveryCompanions!, undo, records).Write(_directory);
+                manifestWritten = true;
+                if (!GetMediaCompanions(_recoverySourcePath!).SequenceEqual(
+                    _recoveryCompanions!, StringComparer.OrdinalIgnoreCase))
+                    return new(EditHistoryStatus.Conflict,
+                        "The photo's same-name companions changed during the edit.");
+            }
+
             try
             {
                 foreach (var lease in leases.Where(lease => lease.Writable))
                 {
                     if (!lease.Created)
                     {
-                        var recovery = TemporarySibling(lease.Change.Path);
+                        var recovery = lease.RecoveryPath ?? TemporarySibling(lease.Change.Path);
                         RenameLocked(lease.Stream.SafeFileHandle, recovery);
                         lease.RecoveryPath = recovery;
+                        lease.OriginalRenamed = true;
+                        afterRename?.Invoke();
                     }
                     if (lease.Replacement is not null)
                     {
                         RenameLocked(lease.Replacement.SafeFileHandle, lease.Change.Path);
                         lease.ReplacementPublished = true;
+                        afterRename?.Invoke();
                     }
                 }
                 published = true;
@@ -244,10 +353,11 @@ public sealed class FileEditTransaction : IDisposable
                         RenameLocked(lease.Replacement!.SafeFileHandle, lease.ReplacementPath!);
                         lease.ReplacementPublished = false;
                     }
-                    foreach (var lease in leases.Where(lease => lease.RecoveryPath is not null && !lease.Created).Reverse())
+                    foreach (var lease in leases.Where(lease => lease.OriginalRenamed).Reverse())
                     {
                         RenameLocked(lease.Stream.SafeFileHandle, lease.Change.Path);
                         lease.RecoveryPath = null;
+                        lease.OriginalRenamed = false;
                     }
                 }
                 catch (Exception rollbackError)
@@ -261,26 +371,35 @@ public sealed class FileEditTransaction : IDisposable
         }
         finally
         {
-            foreach (var lease in leases)
+            try
             {
-                try
-                {
-                    if (!rollbackFailed && (published && lease.Writable || !published && lease.Created))
-                        MarkForDeletion(lease.Stream.SafeFileHandle);
-                }
-                catch (Exception exception) { cleanupErrors.Add(exception); }
-                try { lease.Stream.Dispose(); }
-                catch (Exception exception) { cleanupErrors.Add(exception); }
-                if (lease.Replacement is not null)
+                foreach (var lease in leases)
                 {
                     try
                     {
-                        if (!published && !rollbackFailed) MarkForDeletion(lease.Replacement.SafeFileHandle);
+                        if (!rollbackFailed && (published && lease.Writable || !published && lease.Created))
+                            MarkForDeletion(lease.Stream.SafeFileHandle);
                     }
                     catch (Exception exception) { cleanupErrors.Add(exception); }
-                    try { lease.Replacement.Dispose(); }
+                    try { lease.Stream.Dispose(); }
                     catch (Exception exception) { cleanupErrors.Add(exception); }
+                    if (lease.Replacement is not null)
+                    {
+                        try
+                        {
+                            if (!published && !rollbackFailed) MarkForDeletion(lease.Replacement.SafeFileHandle);
+                        }
+                        catch (Exception exception) { cleanupErrors.Add(exception); }
+                        try { lease.Replacement.Dispose(); }
+                        catch (Exception exception) { cleanupErrors.Add(exception); }
+                    }
                 }
+                if (manifestWritten && !rollbackFailed && cleanupErrors.Count == 0)
+                    File.Delete(Path.Combine(_directory, FileEditRecoveryManifest.FileName));
+            }
+            finally
+            {
+                historyLease?.Dispose();
             }
             if (!published && cleanupErrors.Count > 0)
                 throw new IOException($"Could not release edit-history files. Recovery checkpoints are in {_directory}.",
@@ -354,6 +473,8 @@ public sealed class FileEditTransaction : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        if (File.Exists(Path.Combine(_directory, FileEditRecoveryManifest.FileName)))
+            throw new IOException($"An interrupted edit requires recovery: {_directory}.");
         DeleteStorage(_directory);
         _disposed = true;
     }

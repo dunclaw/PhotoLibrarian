@@ -125,6 +125,93 @@ public sealed class RawDerivativeExportTests : IDisposable
         Assert.Throws<NotSupportedException>(() => ImageEditService.ReadEditParameters(source));
     }
 
+    [Fact]
+    public async Task VersionExportUsesSelectedRecipeWithoutWritingSourceAndRejectsStaleSnapshots()
+    {
+        var source = await SourceAsync();
+        await ImageEditService.SaveRawPreviewRecipeAsync(source, new EditParameters { RawExposureEv = 0.75 });
+        var history = new EditHistoryService();
+        var store = new PhotoVersionRecipeStore(Path.Combine(_root, "history"), history, () => Task.CompletedTask);
+        var created = await store.CreateFamilyAsync(source, "Original", "Copy");
+        Assert.Equal(PhotoVersionRecipeStatus.Success, created.Status);
+        var snapshot = created.Snapshot!;
+        var sidecar = Path.ChangeExtension(source, ".xmp");
+        var originalSource = await File.ReadAllBytesAsync(source, TestContext.Current.CancellationToken);
+        var originalSidecar = await File.ReadAllBytesAsync(sidecar, TestContext.Current.CancellationToken);
+        var renderedExposure = double.NaN;
+        Task<RawSdrImage> Render(string _, EditParameters recipe, CancellationToken __)
+        {
+            renderedExposure = recipe.RawExposureEv;
+            return Task.FromResult(new RawSdrImage(1, 1, [0.5f, 0.5f, 0.5f]));
+        }
+
+        var result = await RawDerivativeExportService.ExportVersionAsync(
+            store, snapshot, "Copy: 1", _root, RawDerivativeFormat.Png, Render);
+        Assert.Equal(PhotoVersionRecipeStatus.Success, result.Status);
+        Assert.Contains("Copy_ 1", Path.GetFileName(result.Result!.FilePath));
+        Assert.Equal(0.75, renderedExposure);
+        Assert.Equal(originalSource, await File.ReadAllBytesAsync(source, TestContext.Current.CancellationToken));
+        Assert.Equal(originalSidecar, await File.ReadAllBytesAsync(sidecar, TestContext.Current.CancellationToken));
+        Assert.Equal(PhotoVersionRecipeStatus.VersionMissing,
+            MetadataWriterService.ReadVersionFamily(result.Result.FilePath).Status);
+        Assert.False(ImageEditService.ReadEditParameters(result.Result.FilePath).HasAdjustments);
+        Assert.Equal(PhotoVersionRecipeStatus.Success, PhotoVersionRecipePacket.TryRead(
+            snapshot.RecipeXmp, true, out var updatedRecipe));
+        updatedRecipe!.RawExposureEv = -0.5;
+        Assert.Equal(PhotoVersionRecipeStatus.Success, PhotoVersionRecipePacket.TryUpdate(
+            snapshot.RecipeXmp, true, updatedRecipe, out var updatedPacket));
+        Assert.Equal(PhotoVersionRecipeStatus.Success,
+            (await store.WriteRecipeAsync(snapshot, updatedPacket!)).Status);
+        Assert.Equal(PhotoVersionRecipeStatus.Conflict,
+            (await RawDerivativeExportService.ExportVersionAsync(
+                store, snapshot, "Copy", _root, RawDerivativeFormat.Png, Render)).Status);
+        NoStaging();
+        Assert.Equal(EditHistoryStatus.Applied, history.Clear().Status);
+    }
+
+    [Fact]
+    public async Task VersionExportDoesNotPublishWhenSourceMetadataChangesDuringRendering()
+    {
+        var source = await SourceAsync();
+        var history = new EditHistoryService();
+        var store = new PhotoVersionRecipeStore(Path.Combine(_root, "history"), history, () => Task.CompletedTask);
+        var snapshot = (await store.CreateFamilyAsync(source, "Original", "Copy")).Snapshot!;
+        async Task<RawSdrImage> Render(string path, EditParameters _, CancellationToken __)
+        {
+            await MetadataWriterService.WriteColorLabelAsync(path, "Blue");
+            return new RawSdrImage(1, 1, [0.5f, 0.5f, 0.5f]);
+        }
+        var result = await RawDerivativeExportService.ExportVersionAsync(
+            store, snapshot, "Copy", _root, RawDerivativeFormat.Png, Render);
+        Assert.Equal(PhotoVersionRecipeStatus.Conflict, result.Status);
+        Assert.Null(result.Result);
+        Assert.Empty(Directory.GetFiles(_root, "*.png"));
+        NoStaging();
+        Assert.Equal(EditHistoryStatus.Applied, history.Clear().Status);
+    }
+
+    [Fact]
+    public async Task VersionExportDevelopsTheSelectedSavedRawRecipe()
+    {
+        var source = await SourceAsync();
+        await ImageEditService.SaveRawPreviewRecipeAsync(source, new EditParameters { RawExposureEv = -1 });
+        var history = new EditHistoryService();
+        var store = new PhotoVersionRecipeStore(Path.Combine(_root, "history"), history, () => Task.CompletedTask);
+        var snapshot = (await store.CreateFamilyAsync(source, "Original", "Copy")).Snapshot!;
+        var sidecar = Path.ChangeExtension(source, ".xmp");
+        var before = await File.ReadAllBytesAsync(sidecar, TestContext.Current.CancellationToken);
+        using var session = new RawPreviewSession();
+        var preview = await session.RenderAsync(source, new EditParameters { RawExposureEv = -1 },
+            TestContext.Current.CancellationToken);
+
+        var result = await RawDerivativeExportService.ExportVersionAsync(
+            store, snapshot, "Copy", _root, RawDerivativeFormat.Png, TestContext.Current.CancellationToken);
+        Assert.Equal(PhotoVersionRecipeStatus.Success, result.Status);
+        Assert.Equal(preview.ToPreviewBgra8(), await ReopenAsync(result.Result!.FilePath));
+        Assert.Equal(before, await File.ReadAllBytesAsync(sidecar, TestContext.Current.CancellationToken));
+        Assert.Equal(EditHistoryStatus.Applied, history.Clear().Status);
+    }
+
     [Theory]
     [InlineData(0, 4)]
     [InlineData(-1.5, 8)]
