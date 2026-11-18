@@ -7,45 +7,42 @@
     CloseButtonClick="OnCloseButtonClick">
 
     <ContentDialog.Resources>
-        <DataTemplate x:Key="PhotoImportItemTemplate" x:DataType="local:PhotoImportListItem">
-            <Grid Padding="8,4" ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="{x:Bind FileDetails}"
-                               Style="{StaticResource BodyStrongTextBlockStyle}"
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Controls/FormLayout.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <DataTemplate x:Key="PhotoImportItemTemplate" x:DataType="local:PhotoImportListItem">
+                <Grid Padding="8,4" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{x:Bind FileDetails}"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{x:Bind DateDetails}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1"
+                               Text="{x:Bind DestinationPreview, Mode=OneWay}"
+                               ToolTipService.ToolTip="{x:Bind DestinationPreview, Mode=OneWay}"
+                               VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{x:Bind DateDetails}"
-                               Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-                <TextBlock Grid.Column="1"
-                           Text="{x:Bind DestinationPreview, Mode=OneWay}"
-                           ToolTipService.ToolTip="{x:Bind DestinationPreview, Mode=OneWay}"
-                           VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis" />
-                <TextBlock Grid.Column="2"
-                           Text="{x:Bind ResultText, Mode=OneWay}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis" />
-            </Grid>
-        </DataTemplate>
+                    <TextBlock Grid.Column="2"
+                               Text="{x:Bind ResultText, Mode=OneWay}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </DataTemplate>
+        </ResourceDictionary>
     </ContentDialog.Resources>
 
-    <Grid MaxWidth="760" MaxHeight="620" RowSpacing="8" ColumnSpacing="8">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="112" />
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
+    <Grid MaxWidth="760" MaxHeight="620" RowSpacing="8">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -56,75 +53,76 @@
         </Grid.RowDefinitions>
 
         <TextBlock x:Uid="PhotoImportDescription"
-                   Grid.ColumnSpan="3"
                    TextWrapping="Wrap" />
 
-        <TextBlock x:Uid="PhotoImportSourceLabel"
-                   Grid.Row="1"
-                   VerticalAlignment="Center" />
-        <TextBox x:Name="SourceFolderBox"
-                 x:Uid="PhotoImportSourceBox"
-                 Grid.Row="1"
-                 Grid.Column="1"
-                 AutomationProperties.AutomationId="PhotoImportSourceFolder"
-                 TextChanged="OnSourceFolderChanged" />
-        <Button x:Name="BrowseSourceButton"
-                x:Uid="PhotoImportSourceBrowseButton"
-                Grid.Row="1"
-                Grid.Column="2"
-                AutomationProperties.AutomationId="PhotoImportBrowseSource"
-                Click="OnBrowseSourceClick" />
+        <StackPanel Grid.Row="1" Style="{StaticResource FormSection}">
+            <StackPanel Style="{StaticResource SettingRow}">
+                <TextBlock x:Uid="PhotoImportSourceLabel" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="SourceFolderBox"
+                             x:Uid="PhotoImportSourceBox"
+                             AutomationProperties.AutomationId="PhotoImportSourceFolder"
+                             TextChanged="OnSourceFolderChanged" />
+                    <Button x:Name="BrowseSourceButton"
+                            x:Uid="PhotoImportSourceBrowseButton"
+                            Grid.Column="1"
+                            AutomationProperties.AutomationId="PhotoImportBrowseSource"
+                            Click="OnBrowseSourceClick" />
+                </Grid>
+            </StackPanel>
 
-        <TextBlock x:Uid="PhotoImportDestinationLabel"
-                   Grid.Row="2"
-                   VerticalAlignment="Center" />
-        <TextBox x:Name="DestinationFolderBox"
-                 x:Uid="PhotoImportDestinationBox"
-                 Grid.Row="2"
-                 Grid.Column="1"
-                 AutomationProperties.AutomationId="PhotoImportDestinationFolder"
-                 TextChanged="OnDestinationChanged" />
-        <Button x:Name="BrowseDestinationButton"
-                x:Uid="PhotoImportDestinationBrowseButton"
-                Grid.Row="2"
-                Grid.Column="2"
-                AutomationProperties.AutomationId="PhotoImportBrowseDestination"
-                Click="OnBrowseDestinationClick" />
+            <StackPanel Style="{StaticResource SettingRow}">
+                <TextBlock x:Uid="PhotoImportDestinationLabel" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="DestinationFolderBox"
+                             x:Uid="PhotoImportDestinationBox"
+                             AutomationProperties.AutomationId="PhotoImportDestinationFolder"
+                             TextChanged="OnDestinationChanged" />
+                    <Button x:Name="BrowseDestinationButton"
+                            x:Uid="PhotoImportDestinationBrowseButton"
+                            Grid.Column="1"
+                            AutomationProperties.AutomationId="PhotoImportBrowseDestination"
+                            Click="OnBrowseDestinationClick" />
+                </Grid>
+            </StackPanel>
 
-        <TextBlock x:Uid="PhotoImportNamingLabel"
-                   Grid.Row="3"
-                   VerticalAlignment="Center" />
-        <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
-            <TextBox x:Name="NamingTemplateBox"
-                     x:Uid="PhotoImportNamingBox"
-                     AutomationProperties.AutomationId="PhotoImportNamingTemplate"
-                     Text="{x:Bind DefaultNamingTemplate, Mode=OneTime}"
-                     TextChanged="OnNamingTemplateChanged" />
-            <TextBlock x:Uid="PhotoImportNamingHelp"
-                       Style="{StaticResource CaptionTextBlockStyle}"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       TextWrapping="Wrap" />
+            <StackPanel Style="{StaticResource SettingRow}">
+                <TextBlock x:Uid="PhotoImportNamingLabel" />
+                <StackPanel Spacing="4">
+                    <TextBox x:Name="NamingTemplateBox"
+                             x:Uid="PhotoImportNamingBox"
+                             AutomationProperties.AutomationId="PhotoImportNamingTemplate"
+                             Text="{x:Bind DefaultNamingTemplate, Mode=OneTime}"
+                             TextChanged="OnNamingTemplateChanged" />
+                    <TextBlock x:Uid="PhotoImportNamingHelp"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Style="{StaticResource SettingRow}">
+                <TextBlock x:Uid="PhotoImportTagsLabel" />
+                <TextBox x:Name="ImportTagsBox"
+                         x:Uid="PhotoImportTagsBox"
+                         AutomationProperties.AutomationId="PhotoImportTags" />
+            </StackPanel>
         </StackPanel>
-
-        <TextBlock x:Uid="PhotoImportTagsLabel"
-                   Grid.Row="4"
-                   VerticalAlignment="Center" />
-        <TextBox x:Name="ImportTagsBox"
-                 x:Uid="PhotoImportTagsBox"
-                 Grid.Row="4"
-                 Grid.Column="1"
-                 Grid.ColumnSpan="2"
-                 AutomationProperties.AutomationId="PhotoImportTags" />
 
         <CheckBox x:Name="DeleteSourceCheckBox"
                   x:Uid="PhotoImportDeleteSourceCheck"
-                  Grid.Row="5"
-                  Grid.Column="1"
-                  Grid.ColumnSpan="2"
+                  Grid.Row="2"
                   AutomationProperties.AutomationId="PhotoImportDeleteSource" />
 
-        <StackPanel Grid.Row="6"
-                    Grid.ColumnSpan="3"
+        <StackPanel Grid.Row="3"
                     Orientation="Horizontal"
                     Spacing="8">
             <Button x:Name="ScanButton"
@@ -147,23 +145,20 @@
         </StackPanel>
 
         <InfoBar x:Name="WarningInfoBar"
-                 Grid.Row="7"
-                 Grid.ColumnSpan="3"
+                 Grid.Row="4"
                  IsOpen="False"
                  Severity="Warning"
                  IsClosable="False" />
 
         <ListView x:Name="PhotoList"
                   x:Uid="PhotoImportList"
-                  Grid.Row="8"
-                  Grid.ColumnSpan="3"
+                  Grid.Row="5"
                   Height="220"
                   SelectionMode="Multiple"
                   ItemTemplate="{StaticResource PhotoImportItemTemplate}"
                   SelectionChanged="OnSelectionChanged" />
 
-        <StackPanel Grid.Row="9"
-                    Grid.ColumnSpan="3"
+        <StackPanel Grid.Row="6"
                     Spacing="4">
             <ProgressBar x:Name="ImportProgressBar"
                          x:Uid="PhotoImportProgressBar"

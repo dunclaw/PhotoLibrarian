@@ -7,7 +7,14 @@
     CloseButtonText="Cancel"
     DefaultButton="Primary"
     PrimaryButtonClick="OnExportClick">
-    <StackPanel Spacing="12">
+    <ContentDialog.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Controls/FormLayout.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </ContentDialog.Resources>
+    <StackPanel Style="{StaticResource FormSection}" MinWidth="320">
         <TextBlock Text="Create a separate full-resolution, opaque 8-bit sRGB photo from the current RAW controls. The original is unchanged and its recipe is kept in XMP."
                    TextWrapping="Wrap" />
         <RadioButtons x:Name="FormatBox" Header="Output format" SelectedIndex="0"
@@ -16,12 +23,14 @@
             <x:String>PNG (lossless)</x:String>
             <x:String>JPEG (quality 95, lossy)</x:String>
         </RadioButtons>
-        <TextBox x:Name="FolderBox" Header="Destination folder"
-                 AutomationProperties.Name="RAW derivative destination folder"
-                 AutomationProperties.AutomationId="RawExportFolder" />
-        <Button Content="Browse..." Click="OnBrowseClick"
-                AutomationProperties.AutomationId="RawExportBrowse"
-                AutomationProperties.Name="Browse for derivative destination folder" />
+        <StackPanel Style="{StaticResource SettingRow}">
+            <TextBox x:Name="FolderBox" Header="Destination folder"
+                     AutomationProperties.Name="RAW derivative destination folder"
+                     AutomationProperties.AutomationId="RawExportFolder" />
+            <Button Content="Browse..." Click="OnBrowseClick"
+                    AutomationProperties.AutomationId="RawExportBrowse"
+                    AutomationProperties.Name="Browse for derivative destination folder" />
+        </StackPanel>
         <TextBlock Text="Names use ' - Developed' with a number on collisions. Existing photos and sidecars are never overwritten. Descriptive metadata is copied; GPS, face regions and thumbnails are omitted."
                    TextWrapping="Wrap" />
         <InfoBar x:Name="ErrorBar" IsOpen="False" IsClosable="False" Severity="Error"
