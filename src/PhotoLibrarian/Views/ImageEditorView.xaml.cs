@@ -344,7 +344,7 @@ public sealed partial class ImageEditorView : UserControl
         AdjustmentsColumn.Width = new GridLength(fullWidthRetouch ? 0 : 300);
         AdjustmentsPanel.Visibility = fullWidthRetouch ? Visibility.Collapsed : Visibility.Visible;
         RetouchHistoryTools.Visibility = fullWidthRetouch ? Visibility.Visible : Visibility.Collapsed;
-        SaveBtn.IsEnabled = ViewModel?.CanSavePixels == true;
+        SaveBtn.IsEnabled = ViewModel?.CanSavePixels == true && _sourceBitmap is not null;
         ToolTipService.SetToolTip(SaveBtn, isRaw ? ViewModel!.SaveDisabledReason : "Save edits");
         RawPreviewPanel.Visibility = isRaw ? Visibility.Visible : Visibility.Collapsed;
         RasterAdjustmentsPanel.Visibility = isRaw ? Visibility.Collapsed : Visibility.Visible;
@@ -846,7 +846,16 @@ public sealed partial class ImageEditorView : UserControl
             }
             else
             {
-                bitmap = await ImageEditRenderer.LoadOrientedAsync(EditCanvas, path);
+                var loaded = await ImageEditRenderer.TryLoadOrientedAsync(EditCanvas, path, token);
+                if (loaded.Bitmap is null)
+                {
+                    ReleaseSourceBitmap();
+                    ShowRetouchError(loaded.Profile.Message ?? "The embedded color profile cannot be rendered.");
+                    UpdateHistoryControls();
+                    EditCanvas.Invalidate();
+                    return;
+                }
+                bitmap = loaded.Bitmap;
                 if (token.IsCancellationRequested)
                 {
                     bitmap.Dispose();

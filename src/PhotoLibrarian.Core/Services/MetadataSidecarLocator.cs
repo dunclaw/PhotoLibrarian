@@ -68,6 +68,52 @@ public static class MetadataSidecarLocator
     public static bool OwnsPendingEditRecipe(IXmpMeta xmp) =>
         EditParametersSerializer.HasEditProperties(xmp);
 
+    internal static bool OwnsVersionFamily(IXmpMeta xmp) =>
+        xmp.DoesPropertyExist(MetadataWriterService.PhotoLibrarianNamespace, "plib:VirtualCopies");
+
+    internal static IReadOnlyList<string> GetVersionFamilySidecarPaths(string imagePath)
+    {
+        if (EmbeddedMetadataWriter.IsSupported(imagePath))
+            return GetOwnedSidecarPaths(imagePath);
+
+        var paths = new List<string>(2);
+        var qualified = imagePath + ".xmp";
+        if (File.Exists(qualified))
+            paths.Add(qualified);
+        var legacy = Path.ChangeExtension(imagePath, ".xmp");
+        if (File.Exists(legacy) && CanOwnVersionFamilyLegacySidecar(imagePath))
+            paths.Add(legacy);
+        return paths;
+    }
+
+    internal static string GetVersionFamilySidecarTarget(string imagePath)
+    {
+        foreach (var path in GetVersionFamilySidecarPaths(imagePath))
+            if (SidecarOwns(path, OwnsVersionFamily))
+                return path;
+        if (HasMediaCompanion(imagePath))
+            return imagePath + ".xmp";
+        return CanOwnVersionFamilyLegacySidecar(imagePath)
+            ? Path.ChangeExtension(imagePath, ".xmp")
+            : imagePath + ".xmp";
+    }
+
+    private static bool CanOwnVersionFamilyLegacySidecar(string imagePath)
+    {
+        if (!HasMediaCompanion(imagePath))
+            return true;
+        if (!RawToneMappingService.IsRaw(imagePath))
+            return false;
+        var directory = Path.GetDirectoryName(Path.GetFullPath(imagePath))!;
+        var stem = Path.GetFileNameWithoutExtension(imagePath);
+        return !Directory.EnumerateFiles(directory, stem + ".*").Any(candidate =>
+            !string.Equals(Path.GetFullPath(candidate), Path.GetFullPath(imagePath),
+                StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Path.GetFileNameWithoutExtension(candidate), stem,
+                StringComparison.OrdinalIgnoreCase) &&
+            RawToneMappingService.IsRaw(candidate));
+    }
+
     /// <summary>
     /// Returns the photo's own qualified sidecar path (<c>filename.ext.xmp</c> for embeddable
     /// formats, <c>filename.xmp</c> otherwise), used for tag and face-region fallbacks.

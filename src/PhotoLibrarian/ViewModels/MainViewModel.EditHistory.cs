@@ -8,9 +8,11 @@ public partial class MainViewModel
 {
     private sealed record CachedEditState(ImageEntry Image, IReadOnlyCollection<ImageTag> Tags);
 
-    private readonly string _editHistoryDirectory = Path.Combine(
+    internal static string EditHistoryRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PhotoLibrarian", "EditHistory", Guid.NewGuid().ToString("N"));
+        "PhotoLibrarian", "EditHistory");
+
+    private readonly string _editHistoryDirectory = Path.Combine(EditHistoryRoot, Guid.NewGuid().ToString("N"));
 
     public EditHistoryService EditHistory { get; } = new();
 
