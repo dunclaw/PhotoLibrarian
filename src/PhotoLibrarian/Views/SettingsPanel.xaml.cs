@@ -17,6 +17,7 @@ public sealed partial class SettingsPanel : UserControl
         App.ViewModel?.Settings;
     private bool _isUpdatingDisplay;
     private bool _isBenchmarkVisible;
+    private bool _focusInitialControlOnLoad;
 
     public SettingsPanel()
     {
@@ -38,6 +39,29 @@ public sealed partial class SettingsPanel : UserControl
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         UpdateDisplay();
+        if (_focusInitialControlOnLoad)
+        {
+            _focusInitialControlOnLoad = false;
+            FocusInitialControlIfOpen();
+        }
+    }
+
+    internal void FocusInitialControl()
+    {
+        if (!IsLoaded)
+        {
+            _focusInitialControlOnLoad = true;
+            return;
+        }
+
+        FocusInitialControlIfOpen();
+    }
+
+    private void FocusInitialControlIfOpen()
+    {
+        if (ViewModel?.IsOpen != true) return;
+        if (!MapProviderCombo.Focus(FocusState.Programmatic))
+            CloseSettingsButton.Focus(FocusState.Programmatic);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)

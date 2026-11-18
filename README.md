@@ -109,8 +109,20 @@ run off the UI thread, with a 160-pixel maximum dimension and one render at a
 time. Changing photos or adjustments cancels pending work and rejects stale
 results. These small previews approximate spatial detail filters; the editor's
 main preview, baked saves and recipe exports evaluate the shared graph at source resolution.
-Creative color matrices act on the existing encoded raster RGB, preserve alpha,
-and do not add another sRGB transfer.
+The Adjust editor, effect/recipe thumbnails, and recipe rendering convert embedded
+ICC v2/v4 RGB profiles to encoded sRGB before adjustments. Untagged pixels retain
+their existing interpretation. Creative color matrices preserve alpha and do not
+add another sRGB transfer. Invalid profiles and profiles Windows cannot transform
+in both directions produce an explicit error, not an unmanaged preview.
+
+Baked saves convert working pixels back to the original profile, restore that
+exact ICC data through the shared metadata writer, and verify it on a private
+copy before replacing the photo. Failed conversion, profile preservation, or
+publication leaves the source unchanged; existing backup and edit-history
+transactions still apply. This is an 8-bit SDR sRGB working pipeline, not
+wide-gamut editing, monitor-profile management, soft proofing, or output-profile
+selection. Embedded/linked BMP profiles are explicitly unsupported by the Windows
+BMP codec; ordinary untagged BMPs are unchanged.
 
 Effects are explicitly disabled for RAW preview and RAW export; only the RAW
 controls apply there. Dormant raster recipe fields are retained, not applied to
@@ -351,6 +363,21 @@ quality/render-parity gates, and the #119 model-free comparison results.
 | `src/PhotoLibrarian.Inference` | Shared zero-shot scoring and reference-matching image preprocessing for the app and comparison utility. |
 | `src/PhotoLibrarian.Tests` | xUnit + Moq test suite. |
 | `tools/PhotoLibrarian.ModelBench` | Standalone ONNX model comparison and scoring utility. |
+
+### Dialog conventions
+
+Use `IDialogService` (`DialogService.Instance`) for simple confirmations and error summaries.
+Pass the invoking, loaded control on every call; the service resolves its current `XamlRoot`
+and theme rather than retaining a window. Pass caught exceptions to its error overload to show
+their message through the same presentation path. Prefer localized labels: primary names the
+action, confirmation close means Cancel, and destructive confirmations always default to Cancel.
+Only `ContentDialogResult.Primary` authorizes an action; handle presentation failures in the
+caller's existing error surface. Progress, nested dialogs and save/discard/cancel forms remain
+separate until their cancellation and validation semantics can be migrated intact.
+This first migration preserves existing text, including the geotag error summary's English
+title and Close label; resource-backed geotag error text remains a localization follow-up.
+The isolated accessibility host's `--dialogs` suite checks native keyboard cancellation,
+results, scrollable error content, and moving the same owner between windows.
 
 ---
 
@@ -828,6 +855,7 @@ decisions, persistence, and export/import roundtrips in an isolated headless bro
 | Show / hide viewer information pane | I or the information toggle |
 | Reset viewer zoom to fit | Ctrl+0 |
 | Next / previous in viewer | ←  →  arrow keys |
+| Close viewer | Esc |
 | Previous / next while editing | Left / Right arrows (outside input controls); Ctrl+Page Up / Ctrl+Page Down |
 | Flag / unflag selection | F (grid and viewer) |
 | Start full-screen slideshow | F11 (grid and viewer) |
@@ -849,6 +877,17 @@ toggle hides the right-hand pane and its splitter while viewing, restoring its r
 width when shown again. The choice is remembered only until the app closes; closing
 the viewer always restores the normal grid's information pane. Both controls support
 Tab and Enter/Space; A and I apply when viewer focus is outside text inputs.
+
+Opening a photo from the grid transfers keyboard focus to the viewer, so Left,
+Right and Escape work without clicking a navigation button. Clicking the image
+or its title restores viewer focus; input controls keep their own keyboard behavior.
+To check these paths without a live library, build
+`src\PhotoLibrarian.AccessibilityTests\PhotoLibrarian.AccessibilityTests.csproj`
+with Visual Studio MSBuild (`/p:Platform=x64 /restore`), then run
+`.\tools\Test-PhotoGridAccessibility.ps1 -SkipBuild -ViewerFocus`.
+The isolated host double-clicks generated grid photos and sends native keyboard
+and mouse input, saving results and `viewer-focus.png` in its `AppX` output folder.
+It tests the real grid/viewer controls, not the main window's other overlays.
 
 Start a slideshow with F11, the **Slideshow** button at the left of the grid toolbar or in
 the viewer ribbon, or **Slideshow** in a photo's right-click menu. Photos play in the order

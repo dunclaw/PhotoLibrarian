@@ -127,6 +127,34 @@ deleting them.
 Interrupted publication can also leave `.PhotoLibrarian-edit-<id>.tmp` recovery
 siblings beside the affected photos. Successful transactions remove these names.
 
+### Virtual-copy publication candidate (not approved for activation)
+
+The #197 virtual-copy mutation path remains internal and is not available in the
+photo UI. Its optional durable-recovery flow is an experiment, not an accepted
+guarantee for publishing virtual copies. It prepares same-volume siblings,
+retains before/after checkpoints of the unnamed file data, records a recovery
+manifest before renaming, and checks file hashes, the companion-file set,
+reparse paths, and detectable sharing conflicts. On startup, an interrupted
+transaction can present a **Before** or **After** recovery choice when its
+manifest and checkpoints validate. Keep the transaction directory under
+`%LOCALAPPDATA%\PhotoLibrarian\EditHistory` and any
+`.PhotoLibrarian-edit-<id>.tmp` siblings until recovery is resolved; if recovery
+is ambiguous or unavailable, do not delete or overwrite those files.
+
+This does not protect arbitrary concurrent third-party writes. The transaction
+checkpoints copy and hash the unnamed data stream and related XMP files; they
+do not capture NTFS alternate data streams or security descriptors, and only
+the read-only attribute is reapplied to staged files. Sharing violations and
+changes observed by the hash/companion checks are reported, but a pre-existing
+handle or memory-mapped view that can still write after a rename may modify the
+retained old file rather than the newly published file. The separate
+`ReplaceFileW` experiment preserved ADS in ordinary fixtures, but a
+pre-opened ADS handle could still write to the retained backup after replacement.
+An in-place write also failed to shrink a file with a mapped reader. Full SACL
+preservation has not been verified. Consequently, none of these approaches
+currently meets the requirement to preserve arbitrary concurrent writes; do not
+enable virtual-copy publication on the basis of recovery fixtures alone.
+
 ## Developer validation
 
 `EditHistoryServiceTests` covers cross-feature chronology, labels, atomic command

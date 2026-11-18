@@ -118,6 +118,15 @@ public partial class App
             ((IInvokeProvider)deletePeer.GetPattern(PatternInterface.Invoke)).Invoke();
             await UntilAsync(() => FindOpenContentDialog() is not null);
             var deleteDialog = FindOpenContentDialog()!;
+            Check(deleteDialog.DefaultButton == ContentDialogButton.Close,
+                "Preset deletion defaults to Cancel through the shared dialog service");
+            InvokeDialogButton(deleteDialog, "Cancel");
+            await UntilAsync(() => FindOpenContentDialog() is null);
+            Check(store.Load().Presets.Single().Id == preset.Id,
+                "Cancelling the migrated preset confirmation preserves the catalog");
+            ((IInvokeProvider)deletePeer.GetPattern(PatternInterface.Invoke)).Invoke();
+            await UntilAsync(() => FindOpenContentDialog() is not null);
+            deleteDialog = FindOpenContentDialog()!;
             var confirmDelete = FindButtonByContent(deleteDialog, "Delete preset");
             var confirmPeer = FrameworkElementAutomationPeer.CreatePeerForElement(confirmDelete);
             Check(!string.IsNullOrWhiteSpace(confirmPeer.GetName()),

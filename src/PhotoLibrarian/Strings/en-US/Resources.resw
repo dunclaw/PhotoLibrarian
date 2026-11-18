@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="RecoveryWindowTitle" xml:space="preserve"><value>Photo edit recovery</value></data>
+  <data name="RecoveryWindowMessage" xml:space="preserve"><value>PhotoLibrarian must resolve interrupted photo edits before opening the library.</value></data>
+  <data name="RecoveryApplying" xml:space="preserve"><value>Recovering the selected checkpoint. Please keep PhotoLibrarian open.</value></data>
+  <data name="RecoveryReadyTitle" xml:space="preserve"><value>Recover an interrupted edit</value></data>
+  <data name="RecoveryBlockedTitle" xml:space="preserve"><value>Recovery needs attention</value></data>
+  <data name="RecoveryDetails" xml:space="preserve"><value>Photo: {0}&#xA;&#xA;Recovery checkpoints: {1}&#xA;&#xA;{2}</value></data>
+  <data name="RecoveryUnknownSource" xml:space="preserve"><value>Unknown</value></data>
+  <data name="RecoveryReadyDetails" xml:space="preserve"><value>Choose the state before or after this edit. The checkpoints will be retained.</value></data>
+  <data name="RecoveryAmbiguousDetails" xml:space="preserve"><value>Another unresolved recovery may affect this photo. Keep the checkpoints and resolve the ambiguity before retrying.</value></data>
+  <data name="RecoveryRestoreBefore" xml:space="preserve"><value>Restore before edit</value></data>
+  <data name="RecoveryRestoreAfter" xml:space="preserve"><value>Restore after edit</value></data>
+  <data name="RecoveryRetry" xml:space="preserve"><value>Check again</value></data>
+  <data name="RecoveryQuit" xml:space="preserve"><value>Quit PhotoLibrarian</value></data>
+  <data name="RecoveryAppliedTitle" xml:space="preserve"><value>Recovery applied</value></data>
+  <data name="RecoveryFailedTitle" xml:space="preserve"><value>Recovery could not be applied</value></data>
+  <data name="RecoveryRetryDetails" xml:space="preserve"><value>Check the photo and recovery checkpoints, then try again.</value></data>
+  <data name="RecoveryContinue" xml:space="preserve"><value>Continue</value></data>
   <data name="EditorMonochromePanel.Header" xml:space="preserve"><value>Black and white</value></data>
   <data name="EditorMonochromeToggle.Header" xml:space="preserve"><value>Convert to black and white</value></data>
   <data name="EditorMonochromeToggle.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Convert to black and white</value></data>
@@ -445,7 +462,7 @@ Backup: {3}
   <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
   <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>
   <data name="IndexMaintenanceConfirmTitle" xml:space="preserve"><value>Repair the library index?</value></data>
-  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes entries verified missing by repeated folder scans. Offline or unreadable locations are retained. No photos or sidecars are modified or deleted.</value></data>
+  <data name="IndexMaintenanceConfirmMessage" xml:space="preserve"><value>This indexes available files, repairs moves with a unique SHA-256 match, and removes metadata-free entries verified missing by repeated folder scans. Offline or unreadable locations and missing photos with cached metadata are retained. No photos or sidecars are modified or deleted.</value></data>
   <data name="IndexMaintenanceConfirmPrimary" xml:space="preserve"><value>Repair index</value></data>
   <data name="IndexMaintenanceStarting" xml:space="preserve"><value>Preparing a safe library index scan…</value></data>
   <data name="IndexMaintenanceProgress" xml:space="preserve"><value>{0}: {1:N0} of {2:N0} — {3}</value></data>
@@ -458,6 +475,7 @@ Backup: {3}
   <data name="IndexMaintenanceStageIndexing" xml:space="preserve"><value>Indexing files</value></data>
   <data name="IndexMaintenanceStageRemoving" xml:space="preserve"><value>Removing verified missing index entries</value></data>
   <data name="IndexMaintenanceIssueCleanupFailed" xml:space="preserve"><value>Missing-entry cleanup failed; no entries were removed by this cleanup batch</value></data>
+  <data name="IndexMaintenanceIssueMissingMetadataRetained" xml:space="preserve"><value>Missing photo retained to preserve cached metadata</value></data>
   <data name="IndexMaintenanceStageComplete" xml:space="preserve"><value>Complete</value></data>
   <data name="IndexMaintenanceIssue" xml:space="preserve"><value>{0} — {1}: {2}</value></data>
   <data name="IndexMaintenanceIssueNoWatchedFolders" xml:space="preserve"><value>No watched folders</value></data>
