@@ -7,33 +7,38 @@
     CloseButtonClick="OnCloseButtonClick">
 
     <ContentDialog.Resources>
-        <DataTemplate x:Key="PhotoImportItemTemplate" x:DataType="local:PhotoImportListItem">
-            <Grid Padding="8,4" ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Spacing="2">
-                    <TextBlock Text="{x:Bind FileDetails}"
-                               Style="{StaticResource BodyStrongTextBlockStyle}"
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Controls/FormLayout.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <DataTemplate x:Key="PhotoImportItemTemplate" x:DataType="local:PhotoImportListItem">
+                <Grid Padding="8,4" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{x:Bind FileDetails}"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{x:Bind DateDetails}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1"
+                               Text="{x:Bind DestinationPreview, Mode=OneWay}"
+                               ToolTipService.ToolTip="{x:Bind DestinationPreview, Mode=OneWay}"
+                               VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{x:Bind DateDetails}"
-                               Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-                <TextBlock Grid.Column="1"
-                           Text="{x:Bind DestinationPreview, Mode=OneWay}"
-                           ToolTipService.ToolTip="{x:Bind DestinationPreview, Mode=OneWay}"
-                           VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis" />
-                <TextBlock Grid.Column="2"
-                           Text="{x:Bind ResultText, Mode=OneWay}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis" />
-            </Grid>
-        </DataTemplate>
+                    <TextBlock Grid.Column="2"
+                               Text="{x:Bind ResultText, Mode=OneWay}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </DataTemplate>
+        </ResourceDictionary>
     </ContentDialog.Resources>
 
     <Grid MaxWidth="760" MaxHeight="620" RowSpacing="8">
