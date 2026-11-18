@@ -943,17 +943,13 @@ public sealed partial class ImageGridView : UserControl
             {
                 async Task<bool> ConfirmAsync()
                 {
-                    var confirmation = new ContentDialog
-                    {
-                        Title = PhotoContextMenuStrings.Get("PhotoContextRecycleTitle"),
-                        Content = primary.Entry.FilePath,
-                        PrimaryButtonText = PhotoContextMenuStrings.Get("PhotoContextRecycle"),
-                        CloseButtonText = PhotoContextMenuStrings.Get("PhotoContextCancel"),
-                        DefaultButton = ContentDialogButton.Close,
-                        XamlRoot = XamlRoot,
-                        RequestedTheme = ActualTheme
-                    };
-                    return await confirmation.ShowAsync() == ContentDialogResult.Primary;
+                    var result = await DialogService.Instance.ConfirmDestructiveAsync(
+                        this,
+                        PhotoContextMenuStrings.Get("PhotoContextRecycleTitle"),
+                        primary.Entry.FilePath,
+                        PhotoContextMenuStrings.Get("PhotoContextRecycle"),
+                        PhotoContextMenuStrings.Get("PhotoContextCancel"));
+                    return result == ContentDialogResult.Primary;
                 }
 
                 var result = await viewerTarget.ExecuteConfirmedAsync(
