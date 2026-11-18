@@ -109,8 +109,20 @@ run off the UI thread, with a 160-pixel maximum dimension and one render at a
 time. Changing photos or adjustments cancels pending work and rejects stale
 results. These small previews approximate spatial detail filters; the editor's
 main preview, baked saves and recipe exports evaluate the shared graph at source resolution.
-Creative color matrices act on the existing encoded raster RGB, preserve alpha,
-and do not add another sRGB transfer.
+The Adjust editor, effect/recipe thumbnails, and recipe rendering convert embedded
+ICC v2/v4 RGB profiles to encoded sRGB before adjustments. Untagged pixels retain
+their existing interpretation. Creative color matrices preserve alpha and do not
+add another sRGB transfer. Invalid profiles and profiles Windows cannot transform
+in both directions produce an explicit error, not an unmanaged preview.
+
+Baked saves convert working pixels back to the original profile, restore that
+exact ICC data through the shared metadata writer, and verify it on a private
+copy before replacing the photo. Failed conversion, profile preservation, or
+publication leaves the source unchanged; existing backup and edit-history
+transactions still apply. This is an 8-bit SDR sRGB working pipeline, not
+wide-gamut editing, monitor-profile management, soft proofing, or output-profile
+selection. Embedded/linked BMP profiles are explicitly unsupported by the Windows
+BMP codec; ordinary untagged BMPs are unchanged.
 
 Effects are explicitly disabled for RAW preview and RAW export; only the RAW
 controls apply there. Dormant raster recipe fields are retained, not applied to

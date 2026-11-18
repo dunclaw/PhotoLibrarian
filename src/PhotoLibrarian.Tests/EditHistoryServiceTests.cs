@@ -73,6 +73,62 @@ public sealed class EditHistoryServiceTests
     }
 
     [Fact]
+    public async Task SimultaneousCommandsOnlyAdmitOneEdit()
+    {
+        const int count = 16;
+        var history = new EditHistoryService();
+        using var start = new ManualResetEventSlim();
+        using var entered = new CountdownEvent(count);
+        var gate = new TaskCompletionSource<EditHistoryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var applyCount = 0;
+        var commands = Enumerable.Range(0, count).Select(_ => Task.Run(async () =>
+        {
+            start.Wait();
+            var command = history.ExecuteAsync("Concurrent", () =>
+            {
+                Interlocked.Increment(ref applyCount);
+                return gate.Task;
+            }, _ => Task.FromResult(Applied));
+            entered.Signal();
+            return await command;
+        })).ToArray();
+
+        start.Set();
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(30)));
+        }
+        finally
+        {
+            gate.TrySetResult(Applied);
+        }
+        var results = await Task.WhenAll(commands);
+
+        Assert.Equal(1, applyCount);
+        Assert.Single(results, result => result.Status == EditHistoryStatus.Applied);
+        Assert.Equal(count - 1, results.Count(result => result.Status == EditHistoryStatus.Busy));
+        Assert.True(history.CanUndo);
+    }
+
+    [Fact]
+    public async Task ReleaseCallbackCanInspectHistoryFromAnotherThread()
+    {
+        var history = new EditHistoryService();
+        var released = false;
+        await history.ExecuteAsync("Effect", () => Task.FromResult(Applied),
+            _ => Task.FromResult(Applied), () =>
+            {
+                var inspection = Task.Run(() => history.CanUndo);
+                Assert.True(inspection.Wait(TimeSpan.FromSeconds(5)));
+                released = true;
+            });
+
+        Assert.Equal(EditHistoryStatus.Applied, history.Clear().Status);
+        Assert.True(released);
+        Assert.False(history.CanUndo);
+    }
+
+    [Fact]
     public async Task FailedNewEditDoesNotInvalidateRedoOrCreateHistory()
     {
         var history = new EditHistoryService();
