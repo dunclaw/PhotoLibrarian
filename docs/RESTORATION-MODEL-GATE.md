@@ -1,6 +1,7 @@
 # Local restoration model gate
 
-Evaluated 2026-10-30 against the pinned upstream source revisions below. This
+Evaluated 2026-10-30 and source contracts rechecked 2026-11-15 against the
+pinned upstream source revisions below. This
 is a technical and provenance gate, not legal advice. **No candidate is
 approved for export, bundling, or application integration.** The source
 licenses do not independently establish redistribution terms for the linked
@@ -26,8 +27,8 @@ export contract**:
 
 | Candidate | Input and preprocessing | Spatial behavior and output |
 | --- | --- | --- |
-| NAFNet SIDD width32 | `float32` NCHW RGB, batch 1, 3 channels, values in `[0,1]`; the upstream paired-image loader decodes BGR, converts to RGB/CHW, and applies no mean/std normalization in this config. | The network pads only the right and bottom with zeros to a multiple of 8, then crops its residual output back to the original height/width. Output shape matches input. Upstream image saving clamps to `[0,1]`. |
-| NAFNet GoPro width32 | Same RGB, range, dtype, and layout as SIDD. | Same inherited multiple-of-8 padding/crop. `NAFNetLocal` converts global adaptive pooling into input-size-dependent local pooling using a 256×256 train size and a 1.5× base size; changing image/tile dimensions can change those pooling statistics. Output shape matches input; upstream saving clamps to `[0,1]`. |
+| NAFNet SIDD width32 | `float32` NCHW RGB, batch 1, 3 channels, values in `[0,1]`; the upstream paired-image loader decodes BGR, converts to RGB/CHW, and applies no mean/std normalization in this config. | Four encoder stages give a padding multiple of 16: the network pads only the right and bottom with zeros, then crops its residual output back to the original height/width. It uses global adaptive average pooling. Output shape matches input; upstream image saving clamps to `[0,1]`. |
+| NAFNet GoPro width32 | Same RGB, range, dtype, and layout as SIDD. | Same inherited multiple-of-16 padding/crop. `NAFNetLocal` replaces adaptive pooling with local pooling, initialized by a 256×256 train-size pass and a 1.5× base size. Depending on feature-map size, it uses global or local pooling; tile dimensions and contents can change the statistics. Output shape matches input; upstream saving clamps to `[0,1]`. |
 | Restormer single-image defocus | `float32` NCHW RGB, batch 1, 3 channels, values divided by 255 to `[0,1]`; no mean/std normalization. | Three pixel-unshuffle downsampling stages require height and width divisible by 8. The pinned test script does not pad arbitrary inputs. The network predicts a residual and adds the input; the test script clamps to `[0,1]`. |
 
 No candidate has an exported graph, named ONNX input/output, selected opset,
@@ -42,7 +43,7 @@ contract from these upstream PyTorch behaviors.
 | --- | --- |
 | ONNX export and PyTorch parity | Not run. No candidate passed the checkpoint-terms gate; PyTorch/ONNX export dependencies are also absent from this environment. |
 | Quality against #26, #108, and #78 | Not run. Keep #26's noise reduction and #108's sharpening as the shipped model-free baselines. #78 and PR #129 record why the tested global Richardson–Lucy candidate was rejected; that evidence does not validate or invalidate these neural candidates. |
-| Tiling, seams, and whole-image comparison | Not run. Overlap is not a parity guarantee: NAFNet GoPro uses local pooling dependent on image dimensions, while Restormer attention uses spatial statistics. |
+| Tiling, seams, and whole-image comparison | Not run. Overlap is not a parity guarantee: SIDD uses global pooling, GoPro uses size-dependent global or local pooling, and Restormer attention uses spatial statistics. |
 | CPU and DirectML at 1, 12, and 24 MP | Not run; no model bundle exists to measure. No CPU, integrated-GPU, or discrete-GPU restoration run was executed. |
 | Provider/operator placement and resource/cancellation behavior | Not run. No restoration model was loaded, and `torch`, `onnx`, `onnxruntime`, and `onnxruntime_directml` are not importable in the local Python environment. No provider/operator result is claimed. |
 | ARM64 | Untested. No ARM64 hardware or packaged restoration runtime was evaluated. |
@@ -77,6 +78,8 @@ from the repository's MIT code licenses.
 
 - [NAFNet SIDD config and checkpoint link](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/options/test/SIDD/NAFNet-width32.yml)
 - [NAFNet GoPro config and checkpoint link](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/options/test/GoPro/NAFNet-width32.yml)
+- [NAFNet network padding and adaptive pooling](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/basicsr/models/archs/NAFNet_arch.py)
+- [NAFNet local pooling initialization](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/basicsr/models/archs/local_arch.py)
 - [NAFNet SIDD model documentation](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/docs/SIDD.md)
 - [NAFNet GoPro model documentation](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/docs/GoPro.md)
 - [NAFNet license](https://github.com/megvii-research/NAFNet/blob/2b4af71ebe098a92a75910c233a3965a3e93ede4/LICENSE)
