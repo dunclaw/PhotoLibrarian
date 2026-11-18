@@ -231,14 +231,19 @@ properties must keep today's graph and appearance.
 
 ### #194 isolated creative-effect primitives: not activated
 
-The internal `SourceDetailEffect`, `PostCropEffect` and `PostCropEffectReference` provide bounded
-implementation and acceptance work while the shared final-output geometry hook
-is being developed. Neither is connected to the editor, render graph, XMP
+The internal `SourceDetailEffect`, `PostCropEffect` and `PostCropEffectReference`
+provide implementation and acceptance work while the shared final-output geometry
+hook is being developed. None is connected to the editor, render graph, XMP
 serializer, preset composer, or RAW development. No new recipe can be saved
 and silently ignored. These primitives do not complete #194.
 
-The GPU source primitive works in straight gamma-encoded raster RGB and
-re-premultiplies with the original alpha. Dehaze uses a conservative local
+The GPU source primitive consumes premultiplied BGRA8 sRGB working pixels from
+the shared `RasterImageDecoder`/`ImageEditRenderer` load path. Embedded profiles
+are converted by that path before these primitives; untagged inputs retain the
+shared decoder's sRGB assumption and unsupported profiles retain its rejection.
+The shaders work in straight gamma-encoded sRGB and re-premultiply with the
+original alpha; they do not decode or apply another profile conversion.
+Dehaze uses a conservative local
 dark-channel average with spatial/range weighting and highlight protection:
 positive values remove a bounded veil, negative values add one. Texture applies
 a signed, gated difference between two luminance smoothing scales. Its band
@@ -249,8 +254,9 @@ no image. Zero amounts bypass exactly. The simultaneous primitive samples the
 original input for both corrections, with an eight-source-pixel halo and hard
 image boundaries. It does not implement source resampling or a tiled engine.
 
-The GPU post-crop primitive and its CPU reference use complete, continuous output dimensions and
-global pixel centers and footprints, not viewport/tile-local coordinates.
+The GPU post-crop primitive and its CPU reference use complete, continuous
+output dimensions and global pixel centers and footprints, not
+viewport/tile-local coordinates.
 Negative Vignette amount darkens and positive brightens; feather and roundness
 control the centered elliptical falloff. Highlight priority protects bright
 values when darkening. Grain is a seeded two-scale lattice field; size is
@@ -266,6 +272,11 @@ unrepresentable lattice coordinates and cancellation explicitly; the GPU
 factory reports invalid input and unrepresentable integer/float sampling
 precision with no effect image. These are actual arithmetic checks, not
 dimension cutoffs. The CPU reference is not a production export path.
+Exact noise integration visits the lattice cells within a pixel footprint, so
+large footprints and very small Grain sizes can be expensive. Production
+activation still needs cancellation/resource scheduling and representative
+hardware acceptance; these inactive primitives do not establish a bounded
+GPU dispatch latency.
 
 Focused generated-fixture tests cover signed behavior, highlight/alpha safety,
 fine-band versus edge responses, two-dimensional source halos, stable seeds,
@@ -278,7 +289,9 @@ comparisons allow at most one RGB byte of shader precision difference and
 require exact alpha. Additional tests cover full 32-bit seeds, translated and
 zoomed presentation, identical global-coordinate output tiles, reduced-output
 footprints, the minimum Grain size on a small odd image and a 24 MP post-output
-render. The existing raster graph remains
+render. A synthetic embedded-linear-ICC fixture also verifies the primitives
+consume the shared decoder's converted working pixels, preserve alpha and
+leave the tagged source unchanged. The existing raster graph remains
 unchanged. Final geometry integration, all consumers, portable recipe/history
 support, presets, UI and photographic review remain activation gates.
 
