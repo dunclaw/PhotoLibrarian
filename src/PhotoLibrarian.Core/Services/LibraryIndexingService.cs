@@ -18,6 +18,7 @@ public sealed class LibraryIndexingService
     private readonly FolderScannerService _scanner;
     private readonly MetadataReaderService _metadataReader;
     private readonly IFaceMetadataStore _faceMetadataStore;
+    private readonly PhotoVersionIndexRepository _versionIndex;
 
     public event EventHandler<IndexingProgressEventArgs>? Progress;
 
@@ -37,6 +38,7 @@ public sealed class LibraryIndexingService
         _scanner = scanner;
         _metadataReader = metadataReader;
         _faceMetadataStore = faceMetadataStore;
+        _versionIndex = new PhotoVersionIndexRepository(db);
     }
 
     public async Task ExportPendingFaceMetadataAsync(
@@ -163,6 +165,7 @@ public sealed class LibraryIndexingService
         if (!verifyContent &&
             existing is not null &&
             existing.SourceIdentity is not null &&
+            existing.MetadataHash is not null &&
             existing.FileSize == fileInfo.Length &&
             existing.DateModified == fileInfo.LastWriteTimeUtc &&
             existing.SearchMetadataIndexed &&
@@ -170,7 +173,12 @@ public sealed class LibraryIndexingService
             !existing.FaceMetadataExportRequired &&
             existing.MetadataStamp == metadataStamp &&
             !sidecarChanged)
+        {
+            if (!FolderScannerService.IsVideoFile(filePath) &&
+                (await _versionIndex.GetAsync(existing.Id, ct))?.MetadataHash != existing.MetadataHash)
+                await ReconcileVersionsAsync(existing.Id, filePath, existing.MetadataHash, ct);
             return false;
+        }
 
         var metadataHash = await LibraryMetadataIdentity.ComputeAsync(filePath, ct);
         var sourceIdentity = existing?.SourceIdentity is not null &&
@@ -204,7 +212,12 @@ public sealed class LibraryIndexingService
             existing.FaceMetadataImported &&
             !sidecarChanged &&
             !portableTagsChanged)
+        {
+            if (!FolderScannerService.IsVideoFile(filePath) &&
+                (await _versionIndex.GetAsync(existing.Id, ct))?.MetadataHash != metadataHash)
+                await ReconcileVersionsAsync(existing.Id, filePath, metadataHash, ct);
             return false;
+        }
 
         var entry = _metadataReader.ReadMetadata(filePath);
         entry.SourceIdentity = sourceIdentity;
@@ -238,9 +251,62 @@ public sealed class LibraryIndexingService
             ct);
         if (metadataStamp != LibraryMetadataIdentity.CaptureStamp(filePath))
             throw new IOException("The photo or its metadata changed during indexing; it will be retried.");
+        if (!FolderScannerService.IsVideoFile(filePath))
+            await ReconcileVersionsAsync(imageId, filePath, metadataHash, ct);
         await _faceRepo.SetFaceMetadataImportedAsync(
             imageId, true, sidecar?.FullName, sidecar?.Length, sidecar?.LastWriteTimeUtc, ct);
         return true;
+    }
+
+    private async Task ReconcileVersionsAsync(
+        long imageId, string path, string? expectedMetadataHash, CancellationToken cancellationToken)
+    {
+        var existing = await _versionIndex.GetAsync(imageId, cancellationToken);
+        PhotoVersionFamilyResult family;
+        try
+        {
+            var (status, _) = MetadataWriterService.ReadVersionFamily(path, cancellationToken);
+            family = status == PhotoVersionRecipeStatus.Success
+                ? await PhotoVersionRecipeStore.ListFamilyAsync(path, cancellationToken)
+                : new(status);
+        }
+        catch (XmpCore.XmpException exception)
+        {
+            family = new(PhotoVersionRecipeStatus.InvalidMetadata, Message: exception.Message);
+        }
+        catch (MetadataExtractor.ImageProcessingException exception)
+        {
+            family = new(PhotoVersionRecipeStatus.InvalidMetadata, Message: exception.Message);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            family = new(PhotoVersionRecipeStatus.ReadOnly, Message: exception.Message);
+        }
+        catch (IOException exception) when (exception is InvalidDataException || exception.InnerException is XmpCore.XmpException)
+        {
+            family = new(PhotoVersionRecipeStatus.InvalidMetadata, Message: exception.Message);
+        }
+        catch (IOException exception) when ((exception.HResult & 0xFFFF) is 32 or 33)
+        {
+            family = new(PhotoVersionRecipeStatus.Busy, Message: exception.Message);
+        }
+        catch (IOException exception)
+        {
+            family = new(PhotoVersionRecipeStatus.Conflict, Message: exception.Message);
+        }
+
+        var stable = expectedMetadataHash is not null &&
+            string.Equals(expectedMetadataHash,
+                await LibraryMetadataIdentity.ComputeAsync(path, cancellationToken), StringComparison.Ordinal);
+        if (!stable)
+            family = new(PhotoVersionRecipeStatus.Conflict,
+                Message: "The photo or its metadata changed during version indexing.");
+        var result = await _versionIndex.ReconcileAsync(
+            imageId, path, existing?.Generation, family, cancellationToken,
+            stable && family.Status is (PhotoVersionRecipeStatus.Success or PhotoVersionRecipeStatus.VersionMissing)
+                ? expectedMetadataHash : null, expectedImageMetadataHash: expectedMetadataHash);
+        if (result == PhotoVersionIndexWriteStatus.Invalid)
+            throw new InvalidDataException("The photo-version index rejected an invalid family.");
     }
 
     private static IReadOnlyCollection<ImageTag> CreatePortableTagRows(

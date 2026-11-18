@@ -4,8 +4,6 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using System.Numerics;
 using Windows.Graphics.DirectX;
-using Windows.Graphics.Imaging;
-using Windows.Storage;
 
 namespace PhotoLibrarian.Services;
 
@@ -116,27 +114,18 @@ internal sealed class EffectThumbnailSession
     {
         if (!ImageEditRenderer.IsSupported(path))
             throw new NotSupportedException("Effect thumbnails require a supported raster photo.");
-        var file = await StorageFile.GetFileFromPathAsync(path);
-        using var stream = await file.OpenAsync(FileAccessMode.Read);
-        var decoder = await BitmapDecoder.CreateAsync(stream);
-        var scale = Math.Min(1d, (double)maximumDimension / Math.Max(decoder.PixelWidth, decoder.PixelHeight));
-        var width = (uint)Math.Max(1, Math.Round(decoder.PixelWidth * scale));
-        var height = (uint)Math.Max(1, Math.Round(decoder.PixelHeight * scale));
-        var data = await decoder.GetPixelDataAsync(
-            BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-            new BitmapTransform { ScaledWidth = width, ScaledHeight = height },
-            ExifOrientationMode.RespectExifOrientation, ColorManagementMode.DoNotColorManage);
-        token.ThrowIfCancellationRequested();
-        if (decoder.OrientedPixelWidth != decoder.PixelWidth)
-            (width, height) = (height, width);
+        var decoded = await RasterImageDecoder.DecodeAsync(path, checked((uint)maximumDimension), token);
+        if (!decoded.Profile.IsSupported) throw new InvalidDataException(decoded.Profile.Message);
+        var width = decoded.Width;
+        var height = decoded.Height;
         using var device = new CanvasDevice();
-        var sourcePixels = data.DetachPixelData();
+        var sourcePixels = decoded.Pixels!;
         if (parameters.RetouchStrokes.Count > 0)
         {
             var retouch = ScaleRetouchStrokes(
                 parameters.RetouchStrokes,
-                (int)decoder.OrientedPixelWidth,
-                (int)decoder.OrientedPixelHeight,
+                (int)decoded.SourceWidth,
+                (int)decoded.SourceHeight,
                 (int)width,
                 (int)height);
             var retouchResult = SpotRetouchProcessor.Apply(
