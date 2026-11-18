@@ -19,15 +19,17 @@ public sealed class EditHistoryService
 
     private readonly List<Entry> _undo = [];
     private readonly List<Entry> _redo = [];
+    private readonly object _sync = new();
     private TaskCompletionSource? _idle;
+    private bool _isBusy;
 
     public event EventHandler? Changed;
-    public bool IsBusy { get; private set; }
-    public bool CanUndo => !IsBusy && _undo.Count > 0;
-    public bool CanRedo => !IsBusy && _redo.Count > 0;
-    public string UndoLabel => _undo.Count == 0 ? "Undo" : $"Undo {_undo[^1].Label}";
-    public string RedoLabel => _redo.Count == 0 ? "Redo" : $"Redo {_redo[^1].Label}";
-    public Task WaitForIdleAsync() => _idle?.Task ?? Task.CompletedTask;
+    public bool IsBusy { get { lock (_sync) return _isBusy; } }
+    public bool CanUndo { get { lock (_sync) return !_isBusy && _undo.Count > 0; } }
+    public bool CanRedo { get { lock (_sync) return !_isBusy && _redo.Count > 0; } }
+    public string UndoLabel { get { lock (_sync) return _undo.Count == 0 ? "Undo" : $"Undo {_undo[^1].Label}"; } }
+    public string RedoLabel { get { lock (_sync) return _redo.Count == 0 ? "Redo" : $"Redo {_redo[^1].Label}"; } }
+    public Task WaitForIdleAsync() { lock (_sync) return _idle?.Task ?? Task.CompletedTask; }
 
     public async Task<EditHistoryResult> ExecuteAsync(
         string label,
@@ -35,23 +37,29 @@ public sealed class EditHistoryService
         Func<bool, Task<EditHistoryResult>> move,
         Action? release = null)
     {
-        if (IsBusy) return new(EditHistoryStatus.Busy, "An edit is already in progress.");
-        IsBusy = true;
-        _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        NotifyChanged();
+        lock (_sync)
+        {
+            if (_isBusy) return new(EditHistoryStatus.Busy, "An edit is already in progress.");
+            _isBusy = true;
+            _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
         try
         {
+            NotifyChanged();
             var result = await apply();
             if (result.Status != EditHistoryStatus.Applied) return result;
-            ReleaseEntries(_redo);
-            _undo.Add(new(label, move, release));
+            List<Entry> discarded;
+            lock (_sync)
+            {
+                discarded = TakeEntries(_redo);
+                _undo.Add(new(label, move, release));
+            }
+            ReleaseEntries(discarded);
             return result;
         }
         finally
         {
-            IsBusy = false;
-            _idle.TrySetResult();
-            NotifyChanged();
+            Finish();
         }
     }
 
@@ -60,38 +68,67 @@ public sealed class EditHistoryService
 
     private async Task<EditHistoryResult> MoveAsync(bool undo)
     {
-        if (IsBusy) return new(EditHistoryStatus.Busy, "An edit is already in progress.");
-        var source = undo ? _undo : _redo;
-        var target = undo ? _redo : _undo;
-        if (source.Count == 0) return new(EditHistoryStatus.Empty);
-        IsBusy = true;
-        _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        NotifyChanged();
+        List<Entry> source;
+        List<Entry> target;
+        Entry entry;
+        lock (_sync)
+        {
+            if (_isBusy) return new(EditHistoryStatus.Busy, "An edit is already in progress.");
+            source = undo ? _undo : _redo;
+            target = undo ? _redo : _undo;
+            if (source.Count == 0) return new(EditHistoryStatus.Empty);
+            entry = source[^1];
+            _isBusy = true;
+            _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
         try
         {
-            var entry = source[^1];
+            NotifyChanged();
             var result = await entry.Move(undo);
             if (result.Status != EditHistoryStatus.Applied) return result;
-            source.RemoveAt(source.Count - 1);
-            target.Add(entry);
+            lock (_sync)
+            {
+                source.RemoveAt(source.Count - 1);
+                target.Add(entry);
+            }
             return result;
         }
         finally
         {
-            IsBusy = false;
-            _idle.TrySetResult();
-            NotifyChanged();
+            Finish();
         }
     }
 
     /// <summary>Call only at an explicit library/session boundary, never on a failed edit.</summary>
     public EditHistoryResult Clear()
     {
-        if (IsBusy) return new(EditHistoryStatus.Busy, "An edit is already in progress.");
-        ReleaseEntries(_undo);
-        ReleaseEntries(_redo);
+        List<Entry> discarded;
+        lock (_sync)
+        {
+            if (_isBusy) return new(EditHistoryStatus.Busy, "An edit is already in progress.");
+            discarded = TakeEntries(_undo);
+            discarded.AddRange(TakeEntries(_redo));
+        }
+        ReleaseEntries(discarded);
         NotifyChanged();
         return new(EditHistoryStatus.Applied);
+    }
+
+    private void Finish()
+    {
+        lock (_sync)
+        {
+            _isBusy = false;
+            _idle!.TrySetResult();
+        }
+        NotifyChanged();
+    }
+
+    private static List<Entry> TakeEntries(List<Entry> entries)
+    {
+        var result = entries.ToList();
+        entries.Clear();
+        return result;
     }
 
     private static void ReleaseEntries(List<Entry> entries)

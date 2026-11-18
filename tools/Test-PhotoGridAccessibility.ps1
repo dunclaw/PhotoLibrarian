@@ -15,29 +15,33 @@ param(
     [switch]$Comparison,
     [switch]$EditorComparison,
     [switch]$EditorClipping,
+    [switch]$Recovery,
     [string]$MotionPhotoValidationPath
 )
 
 $ErrorActionPreference = 'Stop'
-if ($ViewerFocus -and ($Preview -or $ViewerPreview -or $Dialogs -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $EditHistory -or $Comparison -or $EditorComparison -or $EditorClipping)) {
+if ($Recovery -and ($EditorClipping -or $EditorComparison -or $Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $ViewerFocus -or $Dialogs)) {
+    throw '-Recovery cannot be combined with another suite.'
+}
+if ($ViewerFocus -and ($Preview -or $ViewerPreview -or $Dialogs -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $EditHistory -or $Comparison -or $EditorComparison -or $EditorClipping -or $Recovery)) {
     throw '-ViewerFocus cannot be combined with another suite or preview.'
 }
-if ($EditorClipping -and ($EditorComparison -or $Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs)) {
+if ($EditorClipping -and ($EditorComparison -or $Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs -or $Recovery)) {
     throw '-EditorClipping cannot be combined with another suite.'
 }
-if ($EditorComparison -and ($Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs)) {
+if ($EditorComparison -and ($Comparison -or $EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs -or $Recovery)) {
     throw '-EditorComparison cannot be combined with another suite.'
 }
-if ($Comparison -and ($EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs)) {
+if ($Comparison -and ($EditHistory -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs -or $Recovery)) {
     throw '-Comparison cannot be combined with another suite.'
 }
-if ($EditHistory -and ($Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs)) {
+if ($EditHistory -and ($Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $ViewerPreview -or $Dialogs -or $Recovery)) {
     throw '-EditHistory cannot be combined with another suite.'
 }
 if ($ViewerPreview -and ($Preview -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $Dialogs)) {
     throw '-ViewerPreview cannot be combined with another suite or preview.'
 }
-if ($Dialogs -and ($Preview -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto)) {
+if ($Dialogs -and ($Preview -or $Slideshow -or $ViewerContextMenu -or $MotionPhoto -or $Recovery -or $ViewerFocus)) {
     throw '-Dialogs cannot be combined with another suite or preview.'
 }
 if ($MotionPhotoValidationPath -and -not $MotionPhoto) {
@@ -77,6 +81,9 @@ try {
         }
         $arguments += @('--args', $testArguments)
     }
+    elseif ($Recovery) {
+        $arguments += @('--args', $(if ($Preview) { '--recovery --preview' } else { '--recovery' }))
+    }
     elseif ($EditorClipping) {
         $arguments += @('--args', $(if ($Preview) { '--editor-clipping --preview' } else { '--editor-clipping' }))
     }
@@ -102,7 +109,7 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         $result.passed | ForEach-Object { Write-Host "PASS: $_" }
         if ($result.failure) { throw $result.failure }
-        $suite = if ($ViewerFocus) { 'viewer keyboard focus' } elseif ($EditorClipping) { 'editor clipping' } elseif ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Dialogs) { 'dialog service' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
+        $suite = if ($Recovery) { 'edit recovery' } elseif ($ViewerFocus) { 'viewer keyboard focus' } elseif ($EditorClipping) { 'editor clipping' } elseif ($EditorComparison) { 'editor before/after' } elseif ($Comparison) { 'compare and survey' } elseif ($Dialogs) { 'dialog service' } elseif ($Slideshow) { 'slideshow' } elseif ($MotionPhoto) { 'motion-photo lifecycle' } elseif ($ViewerContextMenu) { 'viewer context menu' } elseif ($EditHistory) { 'unified edit history' } else { 'grid and viewer command accessibility' }
         Write-Host "Passed $($result.passed.Count) $suite checks."
     }
 }

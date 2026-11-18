@@ -5,6 +5,7 @@ using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.ML.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
+using PhotoLibrarian.Views;
 
 namespace PhotoLibrarian;
 
@@ -48,6 +49,21 @@ public partial class App : Application
             $"PhotoLibrarian starting: {typeof(App).Assembly.GetName().Version}, " +
             $"{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
             $"{Environment.OSVersion.VersionString}");
+        var candidates = await Task.Run(() => FileEditRecovery.FindAsync(MainViewModel.EditHistoryRoot));
+        RecoveryWindow? recoveryWindow = null;
+        if (candidates.Count > 0)
+        {
+            recoveryWindow = new RecoveryWindow();
+            _window = recoveryWindow;
+            recoveryWindow.Activate();
+            if (!await recoveryWindow.ResolveAsync(MainViewModel.EditHistoryRoot, candidates))
+            {
+                recoveryWindow.CloseAfterRecovery();
+                Exit();
+                return;
+            }
+        }
+
         _ = Task.Run(() => new PhotoSharePreparationService().CleanupExpired());
         var dbPath = Path.Combine(dataDir, "cache.db");
 
@@ -126,6 +142,7 @@ public partial class App : Application
         _window = new MainWindow();
         LibraryInitialization = ViewModel.InitializeAsync();
         _window.Activate();
+        recoveryWindow?.CloseAfterRecovery();
 
         await LibraryInitialization;
     }
