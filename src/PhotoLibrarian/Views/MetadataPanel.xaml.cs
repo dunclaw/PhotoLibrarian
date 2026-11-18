@@ -441,14 +441,8 @@ public sealed partial class MetadataPanel : UserControl
                         TextWrapping = TextWrapping.Wrap
                     }
                 };
-                var failureDialog = new ContentDialog
-                {
-                    XamlRoot = XamlRoot,
-                    Title = "Some geotags need attention",
-                    Content = failures,
-                    CloseButtonText = "Close"
-                };
-                await failureDialog.ShowAsync();
+                await DialogService.Instance.ErrorAsync(
+                    this, "Some geotags need attention", failures, "Close");
             }
         }
         catch (Exception exception)

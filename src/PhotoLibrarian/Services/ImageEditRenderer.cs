@@ -45,33 +45,37 @@ public static class ImageEditRenderer
             : Microsoft.UI.Colors.White;
 
     /// <summary>
-    /// Decodes an image into a Win2D bitmap with its EXIF orientation applied. Win2D's own
+    /// Decodes an image into an sRGB Win2D bitmap with its EXIF orientation applied. Win2D's own
     /// loaders ignore orientation, which would show (and bake) sideways pixels for phone photos.
     /// Uploading at 96 DPI keeps Win2D's DIP geometry aligned with source-pixel coordinates even
     /// when the file carries a rounded or non-96-DPI value.
     /// </summary>
     public static async Task<CanvasBitmap> LoadOrientedAsync(ICanvasResourceCreator device, string filePath)
     {
+        var loaded = await TryLoadOrientedAsync(device, filePath);
+        if (loaded.Bitmap is null) throw new InvalidDataException(loaded.Profile.Message);
+        return loaded.Bitmap;
+    }
+
+    internal readonly record struct RasterBitmapLoad(CanvasBitmap? Bitmap, RasterColorProfile Profile);
+
+    internal static async Task<RasterBitmapLoad> TryLoadOrientedAsync(
+        ICanvasResourceCreator device, string filePath, CancellationToken cancellationToken = default)
+    {
         if (RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("RAW must use the scene-linear development and SDR preview pipeline, not the raster decoder.");
-        var file = await StorageFile.GetFileFromPathAsync(filePath);
-        using var stream = await file.OpenAsync(FileAccessMode.Read);
-        var decoder = await BitmapDecoder.CreateAsync(stream);
-        var pixelData = await decoder.GetPixelDataAsync(
-            BitmapPixelFormat.Bgra8,
-            BitmapAlphaMode.Premultiplied,
-            new BitmapTransform(),
-            ExifOrientationMode.RespectExifOrientation,
-            ColorManagementMode.DoNotColorManage);
+        var decoded = await RasterImageDecoder.DecodeAsync(filePath, cancellationToken: cancellationToken);
+        if (!decoded.Profile.IsSupported) return new(null, decoded.Profile);
 
-        return CanvasBitmap.CreateFromBytes(
+        var bitmap = CanvasBitmap.CreateFromBytes(
             device,
-            pixelData.DetachPixelData(),
-            checked((int)decoder.OrientedPixelWidth),
-            checked((int)decoder.OrientedPixelHeight),
+            decoded.Pixels!,
+            checked((int)decoded.Width),
+            checked((int)decoded.Height),
             DirectXPixelFormat.B8G8R8A8UIntNormalized,
             96f,
             CanvasAlphaMode.Premultiplied);
+        return new(bitmap, decoded.Profile);
     }
 
     /// <summary>
@@ -118,14 +122,16 @@ public static class ImageEditRenderer
             throw new NotSupportedException($"Editing not supported for {Path.GetExtension(filePath)}");
 
         var device = CanvasDevice.GetSharedDevice();
-        using var source = await LoadOrientedAsync(device, filePath);
+        var loaded = await TryLoadOrientedAsync(device, filePath);
+        if (loaded.Bitmap is null) throw new InvalidDataException(loaded.Profile.Message);
+        using var source = loaded.Bitmap;
         var width = (int)source.SizeInPixels.Width;
         var height = (int)source.SizeInPixels.Height;
         var pixels = source.GetPixelBytes();
         var changed = RedEyeRemovalProcessor.Apply(pixels, width, height, bounds);
         if (changed == 0) return 0;
 
-        await EncodeOverFileAsync(filePath, pixels, (uint)width, (uint)height);
+        await EncodeOverFileAsync(filePath, pixels, (uint)width, (uint)height, loaded.Profile);
         return changed;
     }
 
@@ -145,8 +151,8 @@ public static class ImageEditRenderer
         ICanvasResourceCreator device,
         bool autoCropRotation)
     {
-        var rendered = await RenderToPixelsAsync(device, filePath, parameters, autoCropRotation);
-        await EncodeOverFileAsync(filePath, rendered.Pixels, rendered.Width, rendered.Height);
+        var (rendered, profile) = await RenderRasterAsync(device, filePath, parameters, autoCropRotation);
+        await EncodeOverFileAsync(filePath, rendered.Pixels, rendered.Width, rendered.Height, profile);
         return (rendered.Width, rendered.Height);
     }
 
@@ -165,11 +171,20 @@ public static class ImageEditRenderer
         string filePath,
         EditParameters parameters,
         bool autoCropRotation = false)
+        => (await RenderRasterAsync(device, filePath, parameters, autoCropRotation)).Rendered;
+
+    private static async Task<(RenderedPixels Rendered, RasterColorProfile Profile)> RenderRasterAsync(
+        ICanvasResourceCreator device,
+        string filePath,
+        EditParameters parameters,
+        bool autoCropRotation)
     {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Editing not supported for {Path.GetExtension(filePath)}");
 
-        using var source = await LoadOrientedAsync(device, filePath);
+        var loaded = await TryLoadOrientedAsync(device, filePath);
+        if (loaded.Bitmap is null) throw new InvalidDataException(loaded.Profile.Message);
+        using var source = loaded.Bitmap;
         var sourceWidth = source.SizeInPixels.Width;
         var sourceHeight = source.SizeInPixels.Height;
         using var retouched = await CreateRetouchedAsync(device, source, parameters.RetouchStrokes);
@@ -214,7 +229,7 @@ public static class ImageEditRenderer
                 Matrix3x2.CreateTranslation(offset));
         }
 
-        return new RenderedPixels(outWidth, outHeight, target.GetPixelBytes());
+        return (new RenderedPixels(outWidth, outHeight, target.GetPixelBytes()), loaded.Profile);
     }
 
     internal readonly record struct RenderedPixels(uint Width, uint Height, byte[] Pixels);
@@ -254,18 +269,21 @@ public static class ImageEditRenderer
     /// Writes <paramref name="pixels"/> (BGRA8, premultiplied) over the file, transcoding from the
     /// existing decoder so metadata survives the round trip.
     /// </summary>
-    private static async Task EncodeOverFileAsync(string filePath, byte[] pixels, uint width, uint height)
+    private static async Task EncodeOverFileAsync(
+        string filePath, byte[] pixels, uint width, uint height, RasterColorProfile profile)
     {
+        // The metadata writer restores the source ICC tag; never put sRGB working bytes under it.
+        var sourcePixels = await Task.Run(() => profile.FromSrgb(pixels, width, height));
         var file = await StorageFile.GetFileFromPathAsync(filePath);
 
         using var rendered = SoftwareBitmap.CreateCopyFromBuffer(
-            CryptographicBuffer.CreateFromByteArray(pixels),
+            CryptographicBuffer.CreateFromByteArray(sourcePixels),
             BitmapPixelFormat.Bgra8,
             (int)width,
             (int)height,
             BitmapAlphaMode.Premultiplied);
 
-        var destBuffer = new InMemoryRandomAccessStream();
+        using var destBuffer = new InMemoryRandomAccessStream();
         using (var srcStream = await file.OpenAsync(FileAccessMode.Read))
         {
             var decoder = await BitmapDecoder.CreateAsync(srcStream);
@@ -288,13 +306,22 @@ public static class ImageEditRenderer
             await encoder.FlushAsync();
         }
 
-        destBuffer.Seek(0);
-        using (var outStream = await file.OpenAsync(FileAccessMode.ReadWrite))
+        var staged = Path.Combine(Path.GetDirectoryName(filePath)!,
+            $".{Path.GetFileNameWithoutExtension(filePath)}.{Guid.NewGuid():N}.bake{Path.GetExtension(filePath)}");
+        try
         {
-            outStream.Size = 0;
-            await RandomAccessStream.CopyAsync(destBuffer.GetInputStreamAt(0), outStream);
-            await outStream.FlushAsync();
+            destBuffer.Seek(0);
+            await using (var output = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                await destBuffer.AsStreamForRead().CopyToAsync(output);
+                await output.FlushAsync();
+            }
+            await Task.Run(() => MetadataWriterService.PreserveRasterColorProfileAsync(staged, profile));
+            File.Replace(staged, filePath, destinationBackupFileName: null);
         }
-        destBuffer.Dispose();
+        finally
+        {
+            if (File.Exists(staged)) File.Delete(staged);
+        }
     }
 }

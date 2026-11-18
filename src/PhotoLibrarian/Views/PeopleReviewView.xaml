@@ -129,7 +129,8 @@
                 </GridView>
             </Grid>
 
-            <Button AutomationProperties.AutomationId="ClosePeopleReviewButton"
+            <Button x:Name="CloseButton"
+                    AutomationProperties.AutomationId="ClosePeopleReviewButton"
                     AutomationProperties.Name="Close people"
                     Grid.Column="2"
                     VerticalAlignment="Top"

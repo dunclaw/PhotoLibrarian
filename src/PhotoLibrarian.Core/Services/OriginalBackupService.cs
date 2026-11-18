@@ -1,3 +1,4 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
 using System.Security.Cryptography;
 
 namespace PhotoLibrarian.Core.Services;
@@ -55,6 +56,7 @@ public sealed class OriginalBackupService
     /// </summary>
     public async Task<bool> RestoreOriginalAsync(string filePath, string originalHash)
     {
+        MetadataWriterService.EnsureLegacyPhotoAccess(filePath);
         var ext = Path.GetExtension(filePath);
         var backupPath = GetBackupPath(originalHash, ext);
 

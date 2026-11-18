@@ -4,15 +4,15 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Folder Name="/native/">
-    <Project Path="native/PhotoLibrarian.NativeSources.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
-    <Project Path="native/zlib.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
-    <Project Path="native/LibRaw.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
-    <Project Path="native/PhotoLibrarian.RawDecoder/PhotoLibrarian.RawDecoder.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
-    <Project Path="native/OpenCv.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
-    <Project Path="native/PhotoLibrarian.Panorama/PhotoLibrarian.Panorama.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
-    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.TileCodecProbe.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
-    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.CodecMemoryProbe.vcxproj"><Platform Solution="*|x86" Project="Win32" /></Project>
+  <Folder Name="/NativeDependencies/" Id="2f2ba0b1-8447-348e-8da4-622f0257d38b">
+    <Project Path="native/LibRaw.vcxproj" />
+    <Project Path="native/OpenCv.vcxproj" />
+    <Project Path="native/PhotoLibrarian.NativeSources.vcxproj" />
+    <Project Path="native/PhotoLibrarian.Panorama/PhotoLibrarian.Panorama.vcxproj" />
+    <Project Path="native/PhotoLibrarian.RawDecoder/PhotoLibrarian.RawDecoder.vcxproj" />
+    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.CodecMemoryProbe.vcxproj" />
+    <Project Path="native/PhotoLibrarian.TileCodecProbe/PhotoLibrarian.TileCodecProbe.vcxproj" />
+    <Project Path="native/zlib.vcxproj" />
   </Folder>
   <Folder Name="/Packaging/">
     <File Path="packaging/Package.appxmanifest" />
@@ -57,5 +57,12 @@
       <Platform Solution="*|x64" Project="x64" />
       <Platform Solution="*|x86" Project="x64" />
     </Project>
+  </Folder>
+  <Folder Name="/Website/">
+    <File Path="website/index.html" />
+    <File Path="website/privacy.html" />
+    <File Path="website/staticwebapp.config.json" />
+    <File Path="website/styles.css" />
+    <File Path="website/Test-ReleaseSite.ps1" />
   </Folder>
 </Solution>

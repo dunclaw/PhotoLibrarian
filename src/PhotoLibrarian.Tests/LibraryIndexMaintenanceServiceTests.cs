@@ -11,6 +11,170 @@ namespace PhotoLibrarian.Tests;
 public sealed class LibraryIndexMaintenanceServiceTests
 {
     [Fact]
+    public async Task Reconcile_ConfirmedMissingRetainsDatabaseOnlyStateAndReportsPath()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var library = await TestLibrary.CreateAsync(root);
+            await library.AddWatchedFolderAsync(root);
+            var path = Path.Combine(root, "missing.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            var image = (await library.Images.GetByPathAsync(path))!;
+            await SeedDatabaseOnlyStateAsync(library, image.Id);
+            await SeedExactHashAsync(library, image, path);
+            using (var connection = library.Database.CreateConnection())
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    UPDATE persons SET representative_face_region_id =
+                        (SELECT id FROM face_regions WHERE image_id = $id);
+                    INSERT INTO face_rejections (face_region_id, person_id)
+                        SELECT id, person_id FROM face_regions WHERE image_id = $id;
+                    INSERT INTO hidden_face_suggestions (face_region_id)
+                        SELECT id FROM face_regions WHERE image_id = $id;
+                    """;
+                command.Parameters.AddWithValue("$id", image.Id);
+                await command.ExecuteNonQueryAsync();
+            }
+            File.Delete(path);
+
+            for (var retry = 0; retry < 2; retry++)
+            {
+                var result = await library.Maintenance.ReconcileAsync();
+
+                Assert.False(result.Succeeded);
+                Assert.Equal(1, result.ConfirmedMissingFiles);
+                Assert.Equal(0, result.RemovedFiles);
+                Assert.Contains(result.Issues, issue =>
+                    issue.Kind == LibraryIndexMaintenanceIssueKind.MissingMetadataRetained &&
+                    issue.Path == path);
+                Assert.Equal(image.Id, (await library.Images.GetByPathAsync(path))!.Id);
+                Assert.True((await library.Images.GetByPathAsync(path))!.IsFlagged);
+                Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, image.Id));
+                Assert.Contains(path, (await library.Images.GetDuplicateHashesAsync(
+                    TestContext.Current.CancellationToken)).Keys);
+                using var connection = library.Database.CreateConnection();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    SELECT
+                        (SELECT COUNT(*) FROM face_rejections) +
+                        (SELECT COUNT(*) FROM hidden_face_suggestions) +
+                        (SELECT COUNT(*) FROM persons
+                            WHERE face_count = 1 AND representative_face_region_id IS NOT NULL)
+                    """;
+                Assert.Equal(3L, await command.ExecuteScalarAsync());
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("UPDATE images SET is_flagged = 1 WHERE id = $id")]
+    [InlineData("UPDATE images SET rating = 4 WHERE id = $id")]
+    [InlineData("UPDATE images SET color_label = 'red' WHERE id = $id")]
+    [InlineData("UPDATE images SET place_name = 'Local place' WHERE id = $id")]
+    [InlineData("UPDATE images SET caption = 'Local caption' WHERE id = $id")]
+    [InlineData("UPDATE images SET title = 'Local title' WHERE id = $id")]
+    [InlineData("UPDATE images SET face_metadata_export_required = 1 WHERE id = $id")]
+    [InlineData("UPDATE images SET face_sidecar_path = 'missing.xmp' WHERE id = $id")]
+    [InlineData("INSERT INTO tags (image_id, tag) VALUES ($id, 'metadata-only')")]
+    [InlineData("INSERT INTO face_regions (image_id, x, y, width, height) VALUES ($id, 0.1, 0.1, 0.2, 0.2)")]
+    public async Task Reconcile_ProtectsMetadataAddedAfterScan(string seedSql)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var library = await TestLibrary.CreateAsync(root);
+            await library.AddWatchedFolderAsync(root);
+            var path = Path.Combine(root, "missing.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            var image = (await library.Images.GetByPathAsync(path))!;
+            File.Delete(path);
+            var progress = new InlineProgress<LibraryIndexMaintenanceProgress>(update =>
+            {
+                if (update.Stage != LibraryIndexMaintenanceStage.RemovingMissingFiles ||
+                    update.Current != 0)
+                    return;
+                using var connection = library.Database.CreateConnection();
+                using var command = connection.CreateCommand();
+                command.CommandText = seedSql;
+                command.Parameters.AddWithValue("$id", image.Id);
+                command.ExecuteNonQuery();
+            });
+
+            var result = await library.Maintenance.ReconcileAsync(progress);
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.Equal(image.Id, (await library.Images.GetByPathAsync(path))!.Id);
+            Assert.Contains(result.Issues, issue =>
+                issue.Kind == LibraryIndexMaintenanceIssueKind.MissingMetadataRetained &&
+                issue.Path == path);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reconcile_InterruptedEnumerationRetainsEntireLocationAndCanRetry(bool cancel)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var cancellation = new CancellationTokenSource();
+            var fileSystem = new InterruptedFileSystem(root, cancel ? cancellation : null);
+            using var library = await TestLibrary.CreateAsync(root, fileSystem);
+            await library.AddWatchedFolderAsync(root);
+            var plainPath = Path.Combine(root, "plain.png");
+            var protectedPath = Path.Combine(root, "protected.png");
+            await WicTestImage.CreateAsync(plainPath, 16, 12);
+            await WicTestImage.CreateAsync(protectedPath, 18, 12);
+            await library.IndexAsync(plainPath);
+            await library.IndexAsync(protectedPath);
+            var protectedImage = (await library.Images.GetByPathAsync(protectedPath))!;
+            await SeedDatabaseOnlyStateAsync(library, protectedImage.Id);
+            File.Delete(plainPath);
+            File.Delete(protectedPath);
+
+            var interrupted = await library.Maintenance.ReconcileAsync(
+                cancellationToken: cancellation.Token);
+
+            Assert.False(interrupted.Succeeded);
+            Assert.Equal(cancel, interrupted.Cancelled);
+            Assert.Equal(0, interrupted.ConfirmedMissingFiles);
+            Assert.Equal(0, interrupted.RemovedFiles);
+            Assert.Equal(2, await library.Images.GetCountAsync());
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, protectedImage.Id));
+            if (!cancel)
+                Assert.Contains(interrupted.Issues, issue =>
+                    issue.Kind == LibraryIndexMaintenanceIssueKind.FolderUnavailable);
+
+            fileSystem.Interrupt = false;
+            var retried = await library.Maintenance.ReconcileAsync();
+
+            Assert.False(retried.Succeeded);
+            Assert.Equal(1, retried.RemovedFiles);
+            Assert.Null(await library.Images.GetByPathAsync(plainPath));
+            Assert.Equal(protectedImage.Id, (await library.Images.GetByPathAsync(protectedPath))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, protectedImage.Id));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_RootRemovedBeforeCleanupRetainsMissingCachedRecords()
     {
         var root = CreateTemporaryDirectory();
@@ -105,7 +269,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
     }
 
     [Fact]
-    public async Task Reconcile_RemovesConfirmedDeletionAndRelatedCacheRows()
+    public async Task Reconcile_RemovesConfirmedDeletionWithoutProtectedMetadata()
     {
         var root = CreateTemporaryDirectory();
         try
@@ -117,16 +281,11 @@ public sealed class LibraryIndexMaintenanceServiceTests
             await library.IndexAsync(path);
             var indexed = Assert.IsType<ImageEntry>(
                 await library.Images.GetByPathAsync(path));
-            await SeedDatabaseOnlyStateAsync(library, indexed.Id);
             await SeedExactHashAsync(library, indexed, path);
             using (var connection = library.Database.CreateConnection())
             {
                 using var command = connection.CreateCommand();
-                command.CommandText = """
-                    UPDATE persons SET representative_face_region_id =
-                        (SELECT id FROM face_regions WHERE image_id = $id)
-                    """;
-                command.Parameters.AddWithValue("$id", indexed.Id);
+                command.CommandText = "INSERT INTO persons (name, face_count) VALUES ('Unrelated person', 9)";
                 await command.ExecuteNonQueryAsync();
             }
             File.Delete(path);
@@ -139,15 +298,11 @@ public sealed class LibraryIndexMaintenanceServiceTests
             Assert.Null(await library.Images.GetByPathAsync(path));
             Assert.Empty(await library.Images.GetDuplicateHashesAsync(
                 TestContext.Current.CancellationToken));
-            Assert.Equal(1, await CountDatabaseOnlyStateAsync(library.Database, indexed.Id));
             using (var connection = library.Database.CreateConnection())
             {
                 using var command = connection.CreateCommand();
-                command.CommandText = """
-                    SELECT COUNT(*) FROM persons
-                    WHERE face_count = 0 AND representative_face_region_id IS NULL
-                    """;
-                Assert.Equal(1L, await command.ExecuteScalarAsync());
+                command.CommandText = "SELECT face_count FROM persons WHERE name = 'Unrelated person'";
+                Assert.Equal(9L, await command.ExecuteScalarAsync());
             }
             var repeated = await library.Maintenance.ReconcileAsync();
             Assert.True(repeated.Succeeded);
@@ -270,8 +425,6 @@ public sealed class LibraryIndexMaintenanceServiceTests
                 var path = Path.Combine(root, name);
                 await WicTestImage.CreateAsync(path, 16, 12);
                 await library.IndexAsync(path);
-                var entry = (await library.Images.GetByPathAsync(path))!;
-                await SeedDatabaseOnlyStateAsync(library, entry.Id);
                 File.Delete(path);
             }
             if (!cancel)
@@ -302,7 +455,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = "SELECT COUNT(*) FROM tags";
-                Assert.Equal(2L, await command.ExecuteScalarAsync());
+                Assert.Equal(0L, await command.ExecuteScalarAsync());
                 command.CommandText = "DROP TRIGGER IF EXISTS fail_cleanup";
                 await command.ExecuteNonQueryAsync();
             }
@@ -370,6 +523,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
             await library.IndexAsync(path);
             var indexed = Assert.IsType<ImageEntry>(
                 await library.Images.GetByPathAsync(path));
+            await SeedDatabaseOnlyStateAsync(library, indexed.Id);
             Directory.Delete(watchedFolder, recursive: true);
 
             var result = await library.Maintenance.ReconcileAsync();
@@ -381,6 +535,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
                 issue => issue.Kind ==
                     LibraryIndexMaintenanceIssueKind.FolderUnavailable);
             Assert.Equal(indexed.Id, (await library.Images.GetByPathAsync(path))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, indexed.Id));
         }
         finally
         {
@@ -405,6 +560,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
             await library.IndexAsync(path);
             var indexed = Assert.IsType<ImageEntry>(
                 await library.Images.GetByPathAsync(path));
+            await SeedDatabaseOnlyStateAsync(library, indexed.Id);
 
             var result = await library.Maintenance.ReconcileAsync();
 
@@ -415,6 +571,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
                 issue => issue.Kind ==
                     LibraryIndexMaintenanceIssueKind.AccessDenied);
             Assert.Equal(indexed.Id, (await library.Images.GetByPathAsync(path))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, indexed.Id));
         }
         finally
         {
@@ -771,6 +928,28 @@ public sealed class LibraryIndexMaintenanceServiceTests
             _scanCounts[directoryPath] = ++count;
             beforeEnumeration(directoryPath, count);
             return Directory.EnumerateFileSystemEntries(directoryPath);
+        }
+
+        public FileAttributes GetAttributes(string path) => File.GetAttributes(path);
+    }
+
+    private sealed class InterruptedFileSystem(string root, CancellationTokenSource? cancellation)
+        : ILibraryMaintenanceFileSystem
+    {
+        public bool Interrupt { get; set; } = true;
+
+        public IEnumerable<string> EnumerateFileSystemEntries(string directoryPath)
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(directoryPath))
+            {
+                yield return entry;
+                if (!Interrupt || directoryPath != root)
+                    continue;
+                if (cancellation is null)
+                    throw new IOException("Synthetic interrupted enumeration.");
+                cancellation.Cancel();
+                cancellation.Token.ThrowIfCancellationRequested();
+            }
         }
 
         public FileAttributes GetAttributes(string path) => File.GetAttributes(path);

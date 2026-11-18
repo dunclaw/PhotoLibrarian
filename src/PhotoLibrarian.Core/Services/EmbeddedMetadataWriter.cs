@@ -50,6 +50,8 @@ public static class EmbeddedMetadataWriter
     private const string FlagQueryPath = "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:Flagged";
     private const string TagMetadataQueryPath =
         "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:TagMetadata";
+    private const string VersionFamilyQueryPath =
+        "/xmp/{wstr=http://ns.photolibrarian.app/1.0/}:VirtualCopies";
     private const string ColorLabelQueryPath =
         "/xmp/{wstr=http://ns.adobe.com/xap/1.0/}:Label";
 
@@ -92,6 +94,14 @@ public static class EmbeddedMetadataWriter
         if (props.Count == 0) return;
 
         await WritePropertiesAsync(filePath, props);
+    }
+
+    internal static Task WriteVersionFamilyAsync(
+        string filePath, string value, CancellationToken cancellationToken = default)
+    {
+        var properties = BuildPropertySet(null, null, null, null,
+            extension: Path.GetExtension(filePath), versionFamily: value);
+        return WritePropertiesAsync(filePath, properties, useStagedFileTranscode: true, cancellationToken);
     }
 
     /// <summary>Writes EXIF GPS coordinates and hemisphere references into a JPEG or TIFF.</summary>
@@ -228,7 +238,7 @@ public static class EmbeddedMetadataWriter
     private static BitmapPropertySet BuildPropertySet(
         int? rating, string? title, IReadOnlyList<string>? keywords, DateTime? dateTaken,
         ushort? orientation = null, bool? flagged = null, string? photoTagMetadata = null,
-        string? colorLabel = null, string? extension = null)
+        string? colorLabel = null, string? extension = null, string? versionFamily = null)
     {
         var props = new BitmapPropertySet();
         var xmpQueryPrefix = extension is not null &&
@@ -295,6 +305,12 @@ public static class EmbeddedMetadataWriter
                 new BitmapTypedValue(photoTagMetadata, Windows.Foundation.PropertyType.String));
         }
 
+        if (versionFamily is not null)
+        {
+            props.Add(xmpQueryPrefix + VersionFamilyQueryPath,
+                new BitmapTypedValue(versionFamily, Windows.Foundation.PropertyType.String));
+        }
+
         if (colorLabel is not null)
         {
             props.Add(xmpQueryPrefix + ColorLabelQueryPath,
@@ -308,8 +324,10 @@ public static class EmbeddedMetadataWriter
     /// Two-tier write: try in-place first (byte-exact); fall back to transcoding when in-place
     /// doesn't have room for the new metadata (the common case when adding a tag to a complex file).
     /// </summary>
-    private static Task WritePropertiesAsync(string filePath, BitmapPropertySet props) =>
-        RetryOnFileLockAsync(() => WritePropertiesOnceAsync(filePath, props));
+    private static Task WritePropertiesAsync(
+        string filePath, BitmapPropertySet props, bool useStagedFileTranscode = false,
+        CancellationToken cancellationToken = default) =>
+        RetryOnFileLockAsync(() => WritePropertiesOnceAsync(filePath, props, useStagedFileTranscode, cancellationToken));
 
     internal static async Task RetryOnFileLockAsync(
         Func<Task> write, Func<TimeSpan, Task>? delay = null)
@@ -336,8 +354,10 @@ public static class EmbeddedMetadataWriter
             or unchecked((int)0x80030020) // STG_E_SHAREVIOLATION
             or unchecked((int)0x80030021); // STG_E_LOCKVIOLATION
 
-    private static async Task WritePropertiesOnceAsync(string filePath, BitmapPropertySet props)
+    private static async Task WritePropertiesOnceAsync(
+        string filePath, BitmapPropertySet props, bool useStagedFileTranscode, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         byte[]? compatibleJpeg = null;
         var operation = "opening the image";
         // === Tier 1: in-place (preserves bytes exactly) ===
@@ -356,7 +376,7 @@ public static class EmbeddedMetadataWriter
             // Other WIC error — also try transcoding as a more resilient path
             LogWriteFailure("In-place", filePath, operation, props, ex);
         }
-        catch (ArgumentException ex) when (ex.HResult == unchecked((int)0x80070057))
+        catch (ArgumentException ex) when (!useStagedFileTranscode && ex.HResult == unchecked((int)0x80070057))
         {
             LogWriteFailure("In-place", filePath, operation, props, ex);
             var bytes = await File.ReadAllBytesAsync(filePath);
@@ -368,7 +388,41 @@ public static class EmbeddedMetadataWriter
         }
 
         // === Tier 2: transcode (rewrites file, but preserves encoded image data losslessly) ===
-        await TranscodeWriteAsync(filePath, props, compatibleJpeg);
+        if (useStagedFileTranscode)
+            await TranscodeToStagedFileAsync(filePath, props, cancellationToken);
+        else
+            await TranscodeWriteAsync(filePath, props, compatibleJpeg);
+    }
+
+    /// <summary>Transcodes a transaction's private copy without buffering the encoded image in memory.</summary>
+    internal static async Task TranscodeToStagedFileAsync(
+        string filePath, BitmapPropertySet props, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var temporaryPath = Path.Combine(Path.GetDirectoryName(filePath)!,
+            $".{Path.GetFileName(filePath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var source = File.OpenRead(filePath))
+            await using (var destination = new FileStream(
+                temporaryPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            using (var sourceStream = source.AsRandomAccessStream())
+            using (var destinationStream = destination.AsRandomAccessStream())
+            {
+                var decoder = await BitmapDecoder.CreateAsync(sourceStream).AsTask(cancellationToken);
+                var encoder = await BitmapEncoder.CreateForTranscodingAsync(destinationStream, decoder)
+                    .AsTask(cancellationToken);
+                await encoder.BitmapProperties.SetPropertiesAsync(props).AsTask(cancellationToken);
+                await encoder.FlushAsync().AsTask(cancellationToken);
+                await destinationStream.FlushAsync().AsTask(cancellationToken);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
     }
 
     private static async Task WritePropertiesInPlaceAsync(string filePath, BitmapPropertySet props)

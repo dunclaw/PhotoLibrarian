@@ -18,6 +18,7 @@ internal static class SdrDerivativeMetadata
 {
     internal const string ProvenanceNamespace = "https://photolibrarian.app/ns/raw-derivative/1.0/";
     private static readonly byte[] Profile = CreateSrgbProfile();
+    internal static bool IsSrgbProfile(ReadOnlySpan<byte> profile) => profile.SequenceEqual(Profile);
     private static readonly byte[] JpegStandardXmpHeader = "http://ns.adobe.com/xap/1.0/\0"u8.ToArray();
     private static readonly byte[] JpegExtendedXmpHeader =
         "http://ns.adobe.com/xmp/extension/\0"u8.ToArray();
@@ -126,7 +127,8 @@ internal static class SdrDerivativeMetadata
         output.Flush(flushToDisk: true);
     }
 
-    private static async Task CopyJpegSegmentsAsync(Stream input, Stream output, CancellationToken token)
+    internal static async Task CopyJpegSegmentsAsync(
+        Stream input, Stream output, CancellationToken token, bool preserveXmp = false)
     {
         var lengthBytes = new byte[2];
         while (true)
@@ -176,7 +178,7 @@ internal static class SdrDerivativeMetadata
 
             var data = new byte[segmentLength - 2];
             await input.ReadExactlyAsync(data, token);
-            var remove = marker == 0xe1 &&
+            var remove = !preserveXmp && marker == 0xe1 &&
                     (data.AsSpan().StartsWith(JpegStandardXmpHeader) ||
                      data.AsSpan().StartsWith(JpegExtendedXmpHeader)) ||
                 marker == 0xe2 && data.AsSpan().StartsWith(JpegIccHeader);
@@ -206,7 +208,7 @@ internal static class SdrDerivativeMetadata
         }
     }
 
-    private static async Task CopyPngChunksAsync(Stream input, Stream output, CancellationToken token)
+    internal static async Task CopyPngChunksAsync(Stream input, Stream output, CancellationToken token)
     {
         var header = new byte[8];
         var buffer = new byte[64 * 1024];
@@ -272,7 +274,7 @@ internal static class SdrDerivativeMetadata
         }
     }
 
-    private static void WriteJpegSegment(Stream stream, byte marker, byte[] data)
+    internal static void WriteJpegSegment(Stream stream, byte marker, byte[] data)
     {
         if (data.Length > 65533)
             throw new InvalidDataException("Descriptive metadata is too large for a JPEG derivative. Choose PNG.");
@@ -280,7 +282,7 @@ internal static class SdrDerivativeMetadata
         stream.Write(data);
     }
 
-    private static void WritePngChunk(Stream stream, string type, byte[] data)
+    internal static void WritePngChunk(Stream stream, string type, byte[] data)
     {
         Span<byte> length = stackalloc byte[4];
         BinaryPrimitives.WriteInt32BigEndian(length, data.Length);
@@ -299,7 +301,7 @@ internal static class SdrDerivativeMetadata
     }
 
     /// <summary>App-owned ICC v2 matrix/shaper profile, built from the sRGB standard, not an OS asset.</summary>
-    private static byte[] CreateSrgbProfile()
+    internal static byte[] CreateSrgbProfile()
     {
         static void UInt(byte[] data, int offset, uint value) =>
             BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(offset, 4), value);

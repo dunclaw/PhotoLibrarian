@@ -387,20 +387,17 @@ public sealed partial class ImageViewerOverlay
     {
         if (PresetStore is not { } presetStore ||
             sender is not FrameworkElement { DataContext: PhotoPreset preset }) return;
-        var dialog = new ContentDialog
-        {
-            Title = EditorEffectStrings.Get("EditPresetDeleteTitle"),
-            Content = string.Format(CultureInfo.CurrentCulture,
-                EditorEffectStrings.Get("EditPresetDeleteMessage"), preset.Name),
-            PrimaryButtonText = EditorEffectStrings.Get("EditPresetDelete"),
-            CloseButtonText = EditorEffectStrings.Get("EditPresetCancel"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot,
-            RequestedTheme = ActualTheme
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         try
         {
+            var result = await DialogService.Instance.ConfirmDestructiveAsync(
+                this,
+                EditorEffectStrings.Get("EditPresetDeleteTitle"),
+                string.Format(CultureInfo.CurrentCulture,
+                    EditorEffectStrings.Get("EditPresetDeleteMessage"), preset.Name),
+                EditorEffectStrings.Get("EditPresetDelete"),
+                EditorEffectStrings.Get("EditPresetCancel"));
+            if (result != ContentDialogResult.Primary) return;
+
             presetStore.Delete(preset.Id);
             ReloadPresetGallery();
         }

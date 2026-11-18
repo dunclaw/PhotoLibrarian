@@ -7,12 +7,15 @@ namespace PhotoLibrarian.Core.Services;
 
 internal static class WindowsImagingCodec
 {
-    internal sealed record DecodedImage(byte[] Pixels, uint Width, uint Height);
+    internal sealed record DecodedImage(
+        byte[] Pixels, uint Width, uint Height, uint SourceWidth = 0, uint SourceHeight = 0);
 
     internal static async Task<DecodedImage> DecodeAsync(
         string path,
         uint maximumDimension = uint.MaxValue,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ColorManagementMode colorManagement = ColorManagementMode.ColorManageToSRgb,
+        BitmapInterpolationMode interpolationMode = BitmapInterpolationMode.Fant)
     {
         cancellationToken.ThrowIfCancellationRequested();
         await using var stream = File.OpenRead(path);
@@ -24,17 +27,18 @@ internal static class WindowsImagingCodec
         {
             ScaledWidth = Math.Max(1, (uint)Math.Round(decoder.PixelWidth * scale)),
             ScaledHeight = Math.Max(1, (uint)Math.Round(decoder.PixelHeight * scale)),
-            InterpolationMode = BitmapInterpolationMode.Fant
+            InterpolationMode = interpolationMode
         };
         var pixels = await decoder.GetPixelDataAsync(
             BitmapPixelFormat.Bgra8,
             BitmapAlphaMode.Premultiplied,
             transform,
             ExifOrientationMode.RespectExifOrientation,
-            ColorManagementMode.ColorManageToSRgb).AsTask(cancellationToken);
+            colorManagement).AsTask(cancellationToken);
         var orientedWidth = Math.Max(1, (uint)Math.Round(decoder.OrientedPixelWidth * scale));
         var orientedHeight = Math.Max(1, (uint)Math.Round(decoder.OrientedPixelHeight * scale));
-        return new DecodedImage(pixels.DetachPixelData(), orientedWidth, orientedHeight);
+        return new DecodedImage(pixels.DetachPixelData(), orientedWidth, orientedHeight,
+            decoder.OrientedPixelWidth, decoder.OrientedPixelHeight);
     }
 
     internal static async Task<byte[]> EncodeAsync(
