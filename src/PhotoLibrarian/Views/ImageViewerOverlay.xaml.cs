@@ -565,7 +565,12 @@ public sealed partial class ImageViewerOverlay : UserControl
         var session = sender.PlaybackSession;
         DebugLog.WriteLine($"Video: opened {System.IO.Path.GetFileName(playback?.Path)} " +
             $"{session.NaturalVideoWidth}x{session.NaturalVideoHeight}, duration {session.NaturalDuration}");
-        ApplyVideoPlaybackRate(sender);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (playback.Version == _playbackVersion &&
+                ReferenceEquals(sender.Source, _videoSource?.Source))
+                ApplyVideoPlaybackRate(sender);
+        });
         if (playback is { ResumePosition: var resume } && resume > TimeSpan.Zero && resume < session.NaturalDuration)
             session.Position = resume;
         if (playback is { ShouldPlay: false })
@@ -574,7 +579,7 @@ public sealed partial class ImageViewerOverlay : UserControl
 
     private void OnVideoPlaybackSpeedChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (VideoPlayer.MediaPlayer is { } player)
+        if (VideoPlayer?.MediaPlayer is { } player)
             ApplyVideoPlaybackRate(player);
     }
 
