@@ -1,4 +1,5 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using System.Security.Cryptography;
 
 namespace PhotoLibrarian.Core.Services;
@@ -13,10 +14,7 @@ public sealed class OriginalBackupService
 
     public OriginalBackupService(string? backupDirectory = null)
     {
-        _backupDir = backupDirectory ??
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PhotoLibrarian", "Originals");
+        _backupDir = backupDirectory ?? AppDataPaths.OriginalBackupDirectory;
         Directory.CreateDirectory(_backupDir);
     }
 

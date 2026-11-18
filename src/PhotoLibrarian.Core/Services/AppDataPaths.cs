@@ -8,6 +8,8 @@ public static class AppDataPaths
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "PhotoLibrarian");
 
+    public static string OriginalBackupDirectory => Path.Combine(Root, "Originals");
+
     public static string SettingsFile(string fileName) =>
         Path.Combine(Root, fileName);
 }
