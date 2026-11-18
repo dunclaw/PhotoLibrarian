@@ -13,6 +13,8 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class DuplicateReviewView : UserControl
 {
+    private bool _focusInitialControlOnLoad;
+
     public Visibility BoolToVisibility(bool value) =>
         value ? Visibility.Visible : Visibility.Collapsed;
 
@@ -44,6 +46,29 @@ public sealed partial class DuplicateReviewView : UserControl
             RecycleButton,
             DuplicateReviewStrings.Get("DuplicateRecycleButtonName"));
         RefreshDisplay();
+        if (_focusInitialControlOnLoad)
+        {
+            _focusInitialControlOnLoad = false;
+            FocusInitialControlIfOpen();
+        }
+    }
+
+    internal void FocusInitialControl()
+    {
+        if (!IsLoaded)
+        {
+            _focusInitialControlOnLoad = true;
+            return;
+        }
+
+        FocusInitialControlIfOpen();
+    }
+
+    private void FocusInitialControlIfOpen()
+    {
+        if (!ViewModel.IsOpen) return;
+        if (!ScanButton.Focus(FocusState.Programmatic))
+            CloseButton.Focus(FocusState.Programmatic);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -116,26 +141,21 @@ public sealed partial class DuplicateReviewView : UserControl
         var warning = group.Source.Kind == Core.Models.DuplicateMatchKind.Near
             ? DuplicateReviewStrings.Get("DuplicateNearRecycleWarning")
             : DuplicateReviewStrings.Get("DuplicateExactRecycleWarning");
-        var dialog = new ContentDialog
-        {
-            Title = DuplicateReviewStrings.Get("DuplicateRecycleDialogTitle"),
-            Content = DuplicateReviewStrings.Format(
-                "DuplicateRecycleDialogContent",
-                warning,
-                keeper.FileName,
-                count),
-            PrimaryButtonText = DuplicateReviewStrings.Format(
-                "DuplicateRecycleDialogPrimary",
-                count),
-            CloseButtonText = DuplicateReviewStrings.Get("DuplicateRecycleDialogCancel"),
-            DefaultButton = ContentDialogButton.None,
-            XamlRoot = XamlRoot
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-            return;
-
         try
         {
+            var result = await DialogService.Instance.ConfirmDestructiveAsync(
+                this,
+                DuplicateReviewStrings.Get("DuplicateRecycleDialogTitle"),
+                DuplicateReviewStrings.Format(
+                    "DuplicateRecycleDialogContent",
+                    warning,
+                    keeper.FileName,
+                    count),
+                DuplicateReviewStrings.Format("DuplicateRecycleDialogPrimary", count),
+                DuplicateReviewStrings.Get("DuplicateRecycleDialogCancel"));
+            if (result != ContentDialogResult.Primary)
+                return;
+
             await ViewModel.RemoveNonKeeperFilesAsync();
             await App.ViewModel.ImageGrid.LoadImagesAsync();
         }
