@@ -207,29 +207,43 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
             () =>
             {
                 var sidecarPath = GetSidecarPathForImage(imagePath);
-                if (File.Exists(sidecarPath))
+                var sidecarSnapshot = TagWriterService.CaptureSidecarSnapshotAt(sidecarPath);
+                if (sidecarSnapshot.Exists)
                     _ = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
+                if (TagWriterService.CaptureSidecarSnapshotAt(sidecarPath) != sidecarSnapshot)
+                    throw new IOException("The XMP sidecar changed while face metadata was being read.");
 
-                var xmp = LoadEmbeddedXmp(imagePath) ?? XmpMetaFactory.Create();
+                var xmp = LoadEmbeddedXmp(imagePath, cancellationToken) ?? XmpMetaFactory.Create();
                 ApplyMetadata(xmp, metadata);
                 xmp.DeleteProperty(PhotoLibrarian, AuthorityProperty);
                 var serialized = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions())
                     .TrimStart('\uFEFF');
-                if (!TryWriteEmbedded(imagePath, serialized))
+                if (!TryWriteEmbedded(imagePath, serialized, cancellationToken: cancellationToken))
                     throw new IOException($"The embedded face metadata writer rejected {imagePath}.");
 
-                var written = LoadEmbeddedXmp(imagePath)
+                var written = LoadEmbeddedXmp(imagePath, CancellationToken.None)
                     ?? throw new IOException("Embedded face metadata could not be read after writing.");
                 if (!MatchesMetadata(metadata, ReadXmp(written)))
                     throw new IOException("Embedded face metadata could not be verified after writing.");
-                ClearSidecarFaceMetadata(imagePath);
+                if (!string.Equals(GetSidecarPathForImage(imagePath), sidecarPath, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("The face metadata sidecar changed during the write.");
+                ClearSidecarFaceMetadata(sidecarPath, sidecarSnapshot);
             },
             () =>
             {
-                var sidecar = LoadSidecar(imagePath);
+                var sidecarPath = GetSidecarPathForImage(imagePath);
+                var sidecarSnapshot = TagWriterService.CaptureSidecarSnapshotAt(sidecarPath);
+                var sidecar = sidecarSnapshot.Exists
+                    ? XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath))
+                    : XmpMetaFactory.Create();
+                if (TagWriterService.CaptureSidecarSnapshotAt(sidecarPath) != sidecarSnapshot)
+                    throw new IOException("The XMP sidecar changed while face metadata was being read.");
                 ApplyMetadata(sidecar, metadata);
                 sidecar.SetProperty(PhotoLibrarian, AuthorityProperty, "True");
-                SaveSidecar(imagePath, sidecar);
+                if (!string.Equals(GetSidecarPathForImage(imagePath), sidecarPath, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("The face metadata sidecar changed during the write.");
+                cancellationToken.ThrowIfCancellationRequested();
+                SaveSidecar(sidecarPath, sidecar, sidecarSnapshot);
             });
     }
 
@@ -257,17 +271,20 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         return true;
     }
 
-    private static IXmpMeta? LoadEmbeddedXmp(string imagePath)
+    private static IXmpMeta? LoadEmbeddedXmp(string imagePath, CancellationToken cancellationToken)
     {
+        var extension = Path.GetExtension(imagePath);
+        if (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".jpe", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".jfif", StringComparison.OrdinalIgnoreCase))
+        {
+            var status = TryReadCompleteJpegXmp(imagePath, out var metadata, cancellationToken);
+            if (status != PhotoVersionRecipeStatus.Success)
+                throw new IOException($"The embedded JPEG metadata cannot be safely read ({status}): {imagePath}.");
+            return metadata;
+        }
         return ReadEmbeddedXmp(imagePath);
-    }
-
-    private static IXmpMeta LoadSidecar(string imagePath)
-    {
-        var sidecarPath = GetSidecarPathForImage(imagePath);
-        return File.Exists(sidecarPath)
-            ? XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath))
-            : XmpMetaFactory.Create();
     }
 
     private static void ApplyMetadata(IXmpMeta xmp, PhotoFaceMetadata metadata)
@@ -632,15 +649,18 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    internal static bool TryWriteEmbedded(string imagePath, string xmp, string? formatExtension = null)
+    internal static bool TryWriteEmbedded(
+        string imagePath, string xmp, string? formatExtension = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!File.Exists(imagePath)) return false;
 
         return (formatExtension ?? Path.GetExtension(imagePath)).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" or ".jpe" or ".jfif" =>
-                TryWriteJpegXmp(imagePath, xmp),
-            ".png" => TryWritePngXmp(imagePath, xmp),
+                TryWriteJpegXmp(imagePath, xmp, cancellationToken),
+            ".png" => TryWritePngXmp(imagePath, xmp, cancellationToken),
             _ => false
         };
     }
@@ -665,121 +685,211 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         Path.GetExtension(imagePath).ToLowerInvariant() is
             ".jpg" or ".jpeg" or ".jpe" or ".jfif" or ".png";
 
-    private static bool TryWriteJpegXmp(string imagePath, string xmp)
+    private static bool TryWriteJpegXmp(string imagePath, string xmp, CancellationToken cancellationToken)
     {
-        var bytes = File.ReadAllBytes(imagePath);
-        if (bytes.Length < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8)
-        {
-            return false;
-        }
-
         var xmpHeader = Encoding.ASCII.GetBytes(JpegXmpHeader);
         var extendedHeader = Encoding.ASCII.GetBytes(JpegExtendedXmpHeader);
-        _ = ReadJpegXmp(imagePath);
-        var replacement = BuildJpegXmpSegments(xmp, xmpHeader, extendedHeader);
+        _ = ReadJpegXmp(imagePath, false, out _, cancellationToken);
+        var replacement = BuildJpegXmpSegments(xmp, xmpHeader, extendedHeader, cancellationToken);
         if (replacement is null) return false;
 
-        using var output = new MemoryStream(bytes.Length + Encoding.UTF8.GetByteCount(xmp) + 128);
-        output.Write(bytes, 0, 2);
-        var replaced = false;
-        var offset = 2;
-        while (offset + 4 <= bytes.Length && bytes[offset] == 0xFF)
+        var temporaryPath = TemporaryReplacementPath(imagePath);
+        try
         {
-            var marker = bytes[offset + 1];
-            if (marker is 0xDA or 0xD9) break;
-            if (marker is >= 0xD0 and <= 0xD7 or 0x01)
+            using (var input = File.OpenRead(imagePath))
+            using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                output.Write(bytes, offset, 2);
-                offset += 2;
-                continue;
-            }
-
-            var segmentLength = BinaryPrimitives.ReadUInt16BigEndian(
-                bytes.AsSpan(offset + 2, 2));
-            var totalLength = segmentLength + 2;
-            if (segmentLength < 2 || offset + totalLength > bytes.Length)
-            {
-                return false;
-            }
-
-            var isXmp = marker == 0xE1 &&
-                        (bytes.AsSpan(offset + 4, segmentLength - 2).StartsWith(xmpHeader) ||
-                         bytes.AsSpan(offset + 4, segmentLength - 2).StartsWith(extendedHeader));
-            if (isXmp)
-            {
-                if (!replaced)
+                if (input.Length < 4 || input.ReadByte() != 0xFF || input.ReadByte() != 0xD8)
+                    return false;
+                output.WriteByte(0xFF);
+                output.WriteByte(0xD8);
+                var replaced = false;
+                Span<byte> lengthBytes = stackalloc byte[2];
+                while (input.Position < input.Length)
                 {
-                    WriteJpegXmpSegments(output, replacement);
-                    replaced = true;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var segmentStart = input.Position;
+                    if (input.ReadByte() != 0xFF) return false;
+                    var prefixLength = 1;
+                    var marker = input.ReadByte();
+                    while (marker == 0xFF)
+                    {
+                        prefixLength++;
+                        marker = input.ReadByte();
+                    }
+                    if (marker is 0xDA or 0xD9)
+                    {
+                        input.Position = segmentStart;
+                        break;
+                    }
+                    if (marker is >= 0xD0 and <= 0xD7 or 0x01)
+                    {
+                        for (var index = 0; index < prefixLength; index++)
+                            output.WriteByte(0xFF);
+                        output.WriteByte((byte)marker);
+                        continue;
+                    }
+                    input.ReadExactly(lengthBytes);
+                    var segmentLength = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes);
+                    if (segmentLength < 2 || input.Position + segmentLength - 2 > input.Length)
+                        return false;
+                    var payload = new byte[segmentLength - 2];
+                    input.ReadExactly(payload);
+                    var isXmp = marker == 0xE1 &&
+                        (payload.AsSpan().StartsWith(xmpHeader) || payload.AsSpan().StartsWith(extendedHeader));
+                    if (isXmp)
+                    {
+                        if (!replaced)
+                        {
+                            WriteJpegXmpSegments(output, replacement, cancellationToken);
+                            replaced = true;
+                        }
+                    }
+                    else
+                    {
+                        for (var index = 0; index < prefixLength; index++)
+                            output.WriteByte(0xFF);
+                        output.WriteByte((byte)marker);
+                        output.Write(lengthBytes);
+                        output.Write(payload);
+                    }
                 }
+                if (!replaced)
+                    WriteJpegXmpSegments(output, replacement, cancellationToken);
+                CopyBytes(input, output, input.Length - input.Position, new byte[81920], cancellationToken);
             }
-            else
-            {
-                output.Write(bytes, offset, totalLength);
-            }
-            offset += totalLength;
+            cancellationToken.ThrowIfCancellationRequested();
+            PublishReplacement(temporaryPath, imagePath);
+            return true;
         }
-
-        if (!replaced)
+        finally
         {
-            WriteJpegXmpSegments(output, replacement);
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
         }
-        output.Write(bytes, offset, bytes.Length - offset);
-        ReplaceFile(imagePath, output.ToArray());
-        return true;
     }
 
-    private static IXmpMeta? ReadJpegXmp(string imagePath)
+    private static IXmpMeta? ReadJpegXmp(string imagePath) =>
+        ReadJpegXmp(imagePath, false, out _, CancellationToken.None);
+
+    internal static PhotoVersionRecipeStatus TryReadCompleteJpegXmp(
+        string imagePath, out IXmpMeta? metadata, CancellationToken cancellationToken = default)
     {
-        var bytes = File.ReadAllBytes(imagePath);
-        if (bytes.Length < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8)
+        metadata = null;
+        try
+        {
+            metadata = ReadJpegXmp(imagePath, true, out var status, cancellationToken);
+            return status;
+        }
+        catch (XmpException)
+        {
+            return PhotoVersionRecipeStatus.InvalidMetadata;
+        }
+        catch (InvalidDataException)
+        {
+            return PhotoVersionRecipeStatus.InvalidMetadata;
+        }
+        catch (DecoderFallbackException)
+        {
+            return PhotoVersionRecipeStatus.InvalidMetadata;
+        }
+        catch (FileNotFoundException)
+        {
+            return PhotoVersionRecipeStatus.SourceMissing;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return PhotoVersionRecipeStatus.SourceMissing;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return PhotoVersionRecipeStatus.ReadOnly;
+        }
+        catch (IOException exception) when ((exception.HResult & 0xFFFF) is 32 or 33)
+        {
+            return PhotoVersionRecipeStatus.Busy;
+        }
+    }
+
+    private static IXmpMeta? ReadJpegXmp(
+        string imagePath, bool mergePackets, out PhotoVersionRecipeStatus status,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        status = PhotoVersionRecipeStatus.Success;
+        using var stream = File.OpenRead(imagePath);
+        if (stream.Length < 4 || stream.ReadByte() != 0xFF || stream.ReadByte() != 0xD8)
+        {
+            if (mergePackets)
+                status = PhotoVersionRecipeStatus.InvalidMetadata;
             return null;
+        }
 
         var standardHeader = Encoding.ASCII.GetBytes(JpegXmpHeader);
         var extendedHeader = Encoding.ASCII.GetBytes(JpegExtendedXmpHeader);
         var standardPackets = new List<byte[]>();
-        var extendedChunks = new List<(string Guid, uint TotalLength, uint Offset, byte[] Data)>();
-        var offset = 2;
-        while (offset + 4 <= bytes.Length && bytes[offset] == 0xFF)
+        var extendedChunks = new List<(string Guid, uint TotalLength, uint Offset, long Position, int Length)>();
+        Span<byte> lengthBytes = stackalloc byte[2];
+        var reachedImageData = false;
+        while (stream.Position < stream.Length)
         {
-            var marker = bytes[offset + 1];
-            if (marker is 0xDA or 0xD9) break;
-            if (marker is >= 0xD0 and <= 0xD7 or 0x01)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (stream.ReadByte() != 0xFF)
+                throw new InvalidDataException("The JPEG contains an invalid marker.");
+            var marker = stream.ReadByte();
+            while (marker == 0xFF)
+                marker = stream.ReadByte();
+            if (marker < 0 || marker is 0x00 or 0xD8)
+                throw new InvalidDataException("The JPEG contains an invalid marker.");
+            if (marker == 0xD9)
             {
-                offset += 2;
-                continue;
+                reachedImageData = true;
+                break;
             }
-
-            var segmentLength = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(offset + 2, 2));
-            var totalLength = segmentLength + 2;
-            if (segmentLength < 2 || offset + totalLength > bytes.Length)
+            if (marker is >= 0xD0 and <= 0xD7 or 0x01)
+                continue;
+            if (stream.Length - stream.Position < 2)
+                throw new InvalidDataException("The JPEG contains a truncated marker.");
+            stream.ReadExactly(lengthBytes);
+            var segmentLength = BinaryPrimitives.ReadUInt16BigEndian(lengthBytes);
+            if (segmentLength < 2 || stream.Position + segmentLength - 2 > stream.Length)
                 throw new InvalidDataException("The JPEG contains an invalid metadata segment.");
+            if (marker == 0xDA)
+            {
+                reachedImageData = true;
+                break;
+            }
 
             if (marker == 0xE1)
             {
-                var payload = bytes.AsSpan(offset + 4, segmentLength - 2);
-                if (payload.StartsWith(standardHeader))
-                    standardPackets.Add(payload[standardHeader.Length..].ToArray());
-                else if (payload.StartsWith(extendedHeader))
+                var payload = new byte[segmentLength - 2];
+                stream.ReadExactly(payload);
+                var span = payload.AsSpan();
+                if (span.StartsWith(standardHeader))
+                    standardPackets.Add(span[standardHeader.Length..].ToArray());
+                else if (span.StartsWith(extendedHeader))
                 {
                     var prefixLength = extendedHeader.Length + 40;
-                    if (payload.Length < prefixLength)
+                    if (span.Length < prefixLength)
                         throw new InvalidDataException("The JPEG contains a truncated extended-XMP segment.");
 
-                    var guid = Encoding.ASCII.GetString(payload.Slice(extendedHeader.Length, 32));
+                    var guid = Encoding.ASCII.GetString(span.Slice(extendedHeader.Length, 32));
                     var packetLength = BinaryPrimitives.ReadUInt32BigEndian(
-                        payload.Slice(extendedHeader.Length + 32, 4));
+                        span.Slice(extendedHeader.Length + 32, 4));
                     var chunkOffset = BinaryPrimitives.ReadUInt32BigEndian(
-                        payload.Slice(extendedHeader.Length + 36, 4));
-                    var chunk = payload[prefixLength..].ToArray();
+                        span.Slice(extendedHeader.Length + 36, 4));
+                    var chunkLength = payload.Length - prefixLength;
                     if (packetLength == 0 || chunkOffset > packetLength ||
-                        (ulong)chunkOffset + (uint)chunk.Length > packetLength)
+                        (ulong)chunkOffset + (uint)chunkLength > packetLength)
                         throw new InvalidDataException("The JPEG contains invalid extended-XMP offsets.");
-                    extendedChunks.Add((guid, packetLength, chunkOffset, chunk));
+                    extendedChunks.Add((guid, packetLength, chunkOffset,
+                        stream.Position - chunkLength, chunkLength));
                 }
             }
-            offset += totalLength;
+            else
+                stream.Position += segmentLength - 2;
         }
+        if (!reachedImageData)
+            throw new InvalidDataException("The JPEG has no image data or end marker.");
 
         if (standardPackets.Count > 1)
             throw new InvalidDataException("The JPEG contains multiple standard XMP packets.");
@@ -790,13 +900,14 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
             return null;
         }
 
-        var standardPacket = Encoding.UTF8.GetString(standardPackets[0]).TrimEnd('\0');
+        var encoding = mergePackets ? new UTF8Encoding(false, true) : Encoding.UTF8;
+        var standardPacket = encoding.GetString(standardPackets[0]).TrimStart('\uFEFF').TrimEnd('\0');
         IXmpMeta standard;
         try
         {
             standard = XmpMetaFactory.ParseFromString(standardPacket);
         }
-        catch (XmpException) when (extendedChunks.Count == 0)
+        catch (XmpException) when (!mergePackets && extendedChunks.Count == 0)
         {
             var fallback = ImageMetadataReader.ReadMetadata(imagePath)
                 .OfType<XmpDirectory>()
@@ -830,35 +941,95 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
             throw new InvalidDataException("The JPEG's extended-XMP packet length is invalid.");
 
         var orderedChunks = extendedChunks.OrderBy(chunk => chunk.Offset).ToArray();
-        var packet = new byte[(int)expectedLength];
         uint nextOffset = 0;
         foreach (var chunk in orderedChunks)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (chunk.Offset != nextOffset)
                 throw new InvalidDataException("The JPEG's extended-XMP packet has missing or overlapping data.");
-            chunk.Data.CopyTo(packet, (int)chunk.Offset);
-            nextOffset += (uint)chunk.Data.Length;
+            nextOffset += (uint)chunk.Length;
         }
-        if (nextOffset != expectedLength ||
-            !string.Equals(
-                Convert.ToHexString(MD5.HashData(packet)),
-                expectedGuid,
+        if (nextOffset != expectedLength)
+            throw new InvalidDataException("The JPEG's extended-XMP packet has missing data.");
+        var packet = new byte[(int)expectedLength];
+        foreach (var chunk in orderedChunks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            stream.Position = chunk.Position;
+            stream.ReadExactly(packet.AsSpan((int)chunk.Offset, chunk.Length));
+        }
+        if (!string.Equals(ComputeJpegXmpDigest(packet, cancellationToken), expectedGuid,
                 StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The JPEG's extended-XMP packet failed integrity verification.");
 
-        return XmpMetaFactory.ParseFromString(Encoding.UTF8.GetString(packet));
+        var extended = XmpMetaFactory.ParseFromString(encoding.GetString(packet).TrimStart('\uFEFF').TrimEnd('\0'));
+        if (!mergePackets)
+            return extended;
+        cancellationToken.ThrowIfCancellationRequested();
+        status = TryMergeJpegXmpPackets(standard, extended, out var merged, cancellationToken);
+        return merged;
+    }
+
+    internal static PhotoVersionRecipeStatus TryMergeJpegXmpPackets(
+        IXmpMeta standard, IXmpMeta extended, out IXmpMeta? merged,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        merged = null;
+        if ((standard.DoesPropertyExist(XmpNoteNamespace, "xmpNote:HasExtendedXMP") &&
+             standard.GetProperty(XmpNoteNamespace, "xmpNote:HasExtendedXMP").Options.HasQualifiers) ||
+            extended.DoesPropertyExist(XmpNoteNamespace, "xmpNote:HasExtendedXMP"))
+            return PhotoVersionRecipeStatus.Unsupported;
+        var standardCopy = standard.Clone();
+        standardCopy.DeleteProperty(XmpNoteNamespace, "xmpNote:HasExtendedXMP");
+        var combined = extended.Clone();
+        foreach (var property in standardCopy.Properties)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = property.Path;
+            var schema = property.Namespace;
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(schema) ||
+                path.IndexOfAny(['/', '[', '?']) >= 0)
+                continue;
+            if (combined.DoesPropertyExist(schema, path))
+            {
+                if (!XmpSubtreesMatch(standardCopy, combined, schema, path))
+                    return PhotoVersionRecipeStatus.Conflict;
+                continue;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            XmpUtils.DuplicateSubtree(standardCopy, combined, schema, path, schema, path,
+                new XmpCore.Options.PropertyOptions());
+        }
+        merged = combined;
+        return PhotoVersionRecipeStatus.Success;
+    }
+
+    private static bool XmpSubtreesMatch(IXmpMeta first, IXmpMeta second, string schema, string path)
+    {
+        var firstCopy = XmpMetaFactory.Create();
+        var secondCopy = XmpMetaFactory.Create();
+        XmpUtils.DuplicateSubtree(first, firstCopy, schema, path, schema, path,
+            new XmpCore.Options.PropertyOptions());
+        XmpUtils.DuplicateSubtree(second, secondCopy, schema, path, schema, path,
+            new XmpCore.Options.PropertyOptions());
+        var options = new XmpCore.Options.SerializeOptions { Sort = true, OmitPacketWrapper = true };
+        return string.Equals(XmpMetaFactory.SerializeToString(firstCopy, options),
+            XmpMetaFactory.SerializeToString(secondCopy, options), StringComparison.Ordinal);
     }
 
     private static (byte[] Header, byte[] Packet)[]? BuildJpegXmpSegments(
         string xmp,
         byte[] standardHeader,
-        byte[] extendedHeader)
+        byte[] extendedHeader,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var packet = Encoding.UTF8.GetBytes(xmp);
         if (standardHeader.Length + packet.Length <= ushort.MaxValue - 2)
             return [(standardHeader, packet)];
 
-        var guid = Convert.ToHexString(MD5.HashData(packet));
+        var guid = ComputeJpegXmpDigest(packet, cancellationToken);
         var standard = XmpMetaFactory.Create();
         standard.SetProperty(XmpNoteNamespace, "xmpNote:HasExtendedXMP", guid);
         var standardPacket = Encoding.UTF8.GetBytes(
@@ -873,8 +1044,9 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
             (standardHeader, standardPacket)
         };
         var guidBytes = Encoding.ASCII.GetBytes(guid);
-        for (var offset = 0; offset < packet.Length; offset += maximumChunkLength)
+        for (var offset = 0; offset < packet.Length;)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var chunkLength = Math.Min(maximumChunkLength, packet.Length - offset);
             var extension = new byte[ExtendedXmpMetadataLength + chunkLength];
             guidBytes.CopyTo(extension, 0);
@@ -882,17 +1054,37 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
             BinaryPrimitives.WriteUInt32BigEndian(extension.AsSpan(36, 4), (uint)offset);
             packet.AsSpan(offset, chunkLength).CopyTo(extension.AsSpan(ExtendedXmpMetadataLength));
             segments.Add((extendedHeader, extension));
+            offset += chunkLength;
         }
 
         return segments.ToArray();
     }
 
+    private static string ComputeJpegXmpDigest(byte[] packet, CancellationToken cancellationToken)
+    {
+        using var checksum = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+        const int blockSize = 128 * 1024;
+        for (var offset = 0; offset < packet.Length;)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(blockSize, packet.Length - offset);
+            checksum.AppendData(packet.AsSpan(offset, count));
+            offset += count;
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return Convert.ToHexString(checksum.GetHashAndReset());
+    }
+
     private static void WriteJpegXmpSegments(
         Stream output,
-        IReadOnlyList<(byte[] Header, byte[] Packet)> segments)
+        IReadOnlyList<(byte[] Header, byte[] Packet)> segments,
+        CancellationToken cancellationToken)
     {
         foreach (var (header, packet) in segments)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             WriteJpegSegment(output, header, packet);
+        }
     }
 
     private static void WriteJpegSegment(
@@ -911,59 +1103,92 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         output.Write(packet);
     }
 
-    private static bool TryWritePngXmp(string imagePath, string xmp)
+    private static bool TryWritePngXmp(string imagePath, string xmp, CancellationToken cancellationToken)
     {
-        var bytes = File.ReadAllBytes(imagePath);
+        cancellationToken.ThrowIfCancellationRequested();
         ReadOnlySpan<byte> signature = [137, 80, 78, 71, 13, 10, 26, 10];
-        if (bytes.Length < signature.Length ||
-            !bytes.AsSpan(0, signature.Length).SequenceEqual(signature))
-        {
-            return false;
-        }
-
         var xmpData = BuildPngXmpData(xmp);
-        using var output = new MemoryStream(bytes.Length + xmpData.Length + 12);
-        output.Write(signature);
-        var offset = signature.Length;
-        var wroteXmp = false;
-        while (offset + 12 <= bytes.Length)
+        var temporaryPath = TemporaryReplacementPath(imagePath);
+        try
         {
-            var length = BinaryPrimitives.ReadInt32BigEndian(
-                bytes.AsSpan(offset, 4));
-            if (length < 0 || offset + length + 12 > bytes.Length)
+            using (var input = File.OpenRead(imagePath))
+            using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                return false;
-            }
-
-            var type = bytes.AsSpan(offset + 4, 4);
-            var data = bytes.AsSpan(offset + 8, length);
-            var isXmp = type.SequenceEqual("iTXt"u8) &&
-                        data.StartsWith(Encoding.UTF8.GetBytes(PngXmpKeyword + "\0"));
-            if (isXmp)
-            {
-                if (!wroteXmp)
+                Span<byte> actualSignature = stackalloc byte[8];
+                if (input.Length < actualSignature.Length) return false;
+                input.ReadExactly(actualSignature);
+                if (!actualSignature.SequenceEqual(signature)) return false;
+                output.Write(signature);
+                var wroteXmp = false;
+                var foundEnd = false;
+                var keyword = Encoding.UTF8.GetBytes(PngXmpKeyword + "\0");
+                var buffer = new byte[81920];
+                Span<byte> chunkHeader = stackalloc byte[8];
+                while (input.Position + 12 <= input.Length)
                 {
-                    WritePngChunk(output, "iTXt"u8, xmpData);
-                    wroteXmp = true;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    input.ReadExactly(chunkHeader);
+                    var length = BinaryPrimitives.ReadInt32BigEndian(chunkHeader[..4]);
+                    if (length < 0 || input.Position + (long)length + 4 > input.Length)
+                        return false;
+                    var type = chunkHeader[4..];
+                    var dataStart = input.Position;
+                    var isXmp = false;
+                    if (type.SequenceEqual("iTXt"u8) && length >= keyword.Length)
+                    {
+                        input.ReadExactly(buffer.AsSpan(0, keyword.Length));
+                        isXmp = buffer.AsSpan(0, keyword.Length).SequenceEqual(keyword);
+                        input.Position = dataStart;
+                    }
+                    if (isXmp)
+                    {
+                        if (!wroteXmp)
+                        {
+                            WritePngChunk(output, "iTXt"u8, xmpData, cancellationToken);
+                            wroteXmp = true;
+                        }
+                        input.Position += (long)length + 4;
+                    }
+                    else
+                    {
+                        if (!wroteXmp && type.SequenceEqual("IEND"u8))
+                        {
+                            WritePngChunk(output, "iTXt"u8, xmpData, cancellationToken);
+                            wroteXmp = true;
+                        }
+                        output.Write(chunkHeader);
+                        CopyBytes(input, output, (long)length + 4, buffer, cancellationToken);
+                    }
+                    if (type.SequenceEqual("IEND"u8))
+                    {
+                        foundEnd = true;
+                        break;
+                    }
                 }
+                if (!wroteXmp || !foundEnd) return false;
+                CopyBytes(input, output, input.Length - input.Position, buffer, cancellationToken);
             }
-            else
-            {
-                if (!wroteXmp && type.SequenceEqual("IEND"u8))
-                {
-                    WritePngChunk(output, "iTXt"u8, xmpData);
-                    wroteXmp = true;
-                }
-                output.Write(bytes, offset, length + 12);
-            }
-
-            offset += length + 12;
-            if (type.SequenceEqual("IEND"u8)) break;
+            cancellationToken.ThrowIfCancellationRequested();
+            PublishReplacement(temporaryPath, imagePath);
+            return true;
         }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
+    }
 
-        if (!wroteXmp) return false;
-        ReplaceFile(imagePath, output.ToArray());
-        return true;
+    private static void CopyBytes(
+        Stream input, Stream output, long count, byte[] buffer, CancellationToken cancellationToken)
+    {
+        while (count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var size = (int)Math.Min(count, buffer.Length);
+            input.ReadExactly(buffer.AsSpan(0, size));
+            output.Write(buffer, 0, size);
+            count -= size;
+        }
     }
 
     private static byte[] BuildPngXmpData(string xmp)
@@ -982,25 +1207,31 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
     private static void WritePngChunk(
         Stream output,
         ReadOnlySpan<byte> type,
-        ReadOnlySpan<byte> data)
+        ReadOnlySpan<byte> data,
+        CancellationToken cancellationToken)
     {
         Span<byte> length = stackalloc byte[4];
         BinaryPrimitives.WriteInt32BigEndian(length, data.Length);
         output.Write(length);
         output.Write(type);
-        output.Write(data);
-
-        var crcData = new byte[type.Length + data.Length];
-        type.CopyTo(crcData);
-        data.CopyTo(crcData.AsSpan(type.Length));
+        var crcValue = UpdateCrc32(uint.MaxValue, type);
+        const int blockSize = 128 * 1024;
+        while (!data.IsEmpty)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(blockSize, data.Length);
+            var block = data[..count];
+            output.Write(block);
+            crcValue = UpdateCrc32(crcValue, block);
+            data = data[count..];
+        }
         Span<byte> crc = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(crc, ComputeCrc32(crcData));
+        BinaryPrimitives.WriteUInt32BigEndian(crc, ~crcValue);
         output.Write(crc);
     }
 
-    private static uint ComputeCrc32(ReadOnlySpan<byte> data)
+    private static uint UpdateCrc32(uint crc, ReadOnlySpan<byte> data)
     {
-        var crc = uint.MaxValue;
         foreach (var value in data)
         {
             crc ^= value;
@@ -1009,54 +1240,47 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
                 crc = (crc >> 1) ^ (0xEDB88320u & (uint)-(int)(crc & 1));
             }
         }
-        return ~crc;
+        return crc;
     }
 
     private static bool Contains(byte[] source, byte[] value) =>
         source.AsSpan().IndexOf(value) >= 0;
 
-    private static void ReplaceFile(string path, byte[] contents)
+    private static string TemporaryReplacementPath(string path) => Path.Combine(
+        Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+
+    private static void PublishReplacement(string temporaryPath, string path)
     {
-        var temporaryPath = Path.Combine(
-            Path.GetDirectoryName(path)!,
-            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-        try
+        for (var attempt = 0; ; attempt++)
         {
-            File.WriteAllBytes(temporaryPath, contents);
-            for (var attempt = 0; ; attempt++)
+            try
             {
-                try
-                {
-                    File.Move(temporaryPath, path, true);
-                    return;
-                }
-                catch (Exception exception) when (
-                    attempt < 3 &&
-                    exception is IOException or UnauthorizedAccessException)
-                {
-                    global::PhotoLibrarian.Core.Diagnostics.DebugLog.WriteLine(
-                        $"Retrying embedded metadata replacement for {path}: {exception.Message}");
-                    Thread.Sleep(TimeSpan.FromMilliseconds(100 * (1 << attempt)));
-                }
+                File.Move(temporaryPath, path, true);
+                return;
             }
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            catch (Exception exception) when (
+                attempt < 3 &&
+                exception is IOException or UnauthorizedAccessException)
+            {
+                global::PhotoLibrarian.Core.Diagnostics.DebugLog.WriteLine(
+                    $"Retrying embedded metadata replacement for {path}: {exception.Message}");
+                Thread.Sleep(TimeSpan.FromMilliseconds(100 * (1 << attempt)));
+            }
         }
     }
 
-    private static void ClearSidecarFaceMetadata(string imagePath)
+    private static void ClearSidecarFaceMetadata(string sidecarPath, TagMetadataSidecarSnapshot snapshot)
     {
-        var sidecarPath = GetSidecarPathForImage(imagePath);
-        if (!File.Exists(sidecarPath)) return;
+        if (TagWriterService.CaptureSidecarSnapshotAt(sidecarPath) != snapshot)
+            throw new IOException("The XMP sidecar changed during face metadata migration.");
+        if (!snapshot.Exists) return;
 
         var sidecar = XmpMetaFactory.ParseFromString(File.ReadAllText(sidecarPath));
         RemoveFaceRegions(sidecar);
         MicrosoftPeopleTags.Clear(sidecar);
         sidecar.DeleteProperty(PhotoLibrarian, ReviewProperty);
         sidecar.DeleteProperty(PhotoLibrarian, AuthorityProperty);
-        SaveSidecar(imagePath, sidecar);
+        SaveSidecar(sidecarPath, sidecar, snapshot);
     }
 
     private static void RemoveFaceRegions(IXmpMeta xmp)
@@ -1076,20 +1300,10 @@ public sealed class FaceMetadataStore : IFaceMetadataStore
         }
     }
 
-    private static void SaveSidecar(string imagePath, IXmpMeta xmp)
+    private static void SaveSidecar(string sidecarPath, IXmpMeta xmp, TagMetadataSidecarSnapshot snapshot)
     {
         var serialized = XmpMetaFactory.SerializeToString(xmp, new SerializeOptions());
-        var sidecarPath = GetSidecarPathForImage(imagePath);
-        var temporaryPath = $"{sidecarPath}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(temporaryPath, serialized);
-            File.Move(temporaryPath, sidecarPath, true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-        }
+        TagWriterService.WriteOwnedSidecarAtomically(sidecarPath, serialized, snapshot);
     }
 
     public static string GetSidecarPathForImage(string imagePath) =>
