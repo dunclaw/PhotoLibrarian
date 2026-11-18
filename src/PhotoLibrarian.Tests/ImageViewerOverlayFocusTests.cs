@@ -41,7 +41,9 @@ public sealed class ImageViewerOverlayFocusTests
         var overlay = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"));
         var topBar = overlay.Descendants().Single(e => (string?)e.Attribute(x + "Name") == "TopBar");
         var toolbar = topBar.Elements().Single(e => (string?)e.Attribute("Grid.Column") == "1");
-        var actions = toolbar.Elements().ToList();
+        var actions = toolbar.Elements()
+            .Where(e => e.Name == presentation + "Button" || e.Name == presentation + "ToggleButton")
+            .ToList();
 
         Assert.Equal("StackPanel", toolbar.Name.LocalName);
         Assert.Equal("Horizontal", (string?)toolbar.Attribute("Orientation"));
@@ -72,7 +74,9 @@ public sealed class ImageViewerOverlayFocusTests
             },
             actions.Select(e => (string?)e.Attribute("Click")));
 
-        foreach (var action in actions.Where(e => e.Name.LocalName == "Button"))
+        var buttons = actions.Where(e => e.Name == presentation + "Button").ToList();
+        Assert.Equal(7, buttons.Count);
+        foreach (var action in buttons)
         {
             Assert.Equal(
                 "{StaticResource ToolbarIconButtonStyle}",
