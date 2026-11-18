@@ -22,6 +22,9 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class ImageViewerOverlay : UserControl
 {
+    internal const int DefaultVideoPlaybackRateIndex = 2;
+    private static readonly double[] VideoPlaybackRates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
     private readonly ImageViewerViewModel? _providedViewModel;
     private ImageViewerViewModel? ViewModel => _providedViewModel ?? App.ViewModel?.ImageViewer;
     private ImageZoomPanController? _zoomPan;
@@ -453,6 +456,7 @@ public sealed partial class ImageViewerOverlay : UserControl
                     ZoomActualSizeButton.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     ImageScrollViewer.Visibility = ViewModel.IsVideo ? Visibility.Collapsed : Visibility.Visible;
                     VideoPlayer.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
+                    VideoPlaybackSpeed.Visibility = ViewModel.IsVideo ? Visibility.Visible : Visibility.Collapsed;
                     if (ViewModel.IsVideo)
                         StopAnimatedGif();
                     else
@@ -561,10 +565,40 @@ public sealed partial class ImageViewerOverlay : UserControl
         var session = sender.PlaybackSession;
         DebugLog.WriteLine($"Video: opened {System.IO.Path.GetFileName(playback?.Path)} " +
             $"{session.NaturalVideoWidth}x{session.NaturalVideoHeight}, duration {session.NaturalDuration}");
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (playback.Version == _playbackVersion &&
+                ReferenceEquals(sender.Source, _videoSource?.Source))
+                ApplyVideoPlaybackRate(sender);
+        });
         if (playback is { ResumePosition: var resume } && resume > TimeSpan.Zero && resume < session.NaturalDuration)
             session.Position = resume;
         if (playback is { ShouldPlay: false })
             sender.Pause();
+    }
+
+    private void OnVideoPlaybackSpeedChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (VideoPlayer?.MediaPlayer is { } player)
+            ApplyVideoPlaybackRate(player);
+    }
+
+    private void ApplyVideoPlaybackRate(Windows.Media.Playback.MediaPlayer player)
+    {
+        if (TryGetVideoPlaybackRate(VideoPlaybackSpeed.SelectedIndex, out var playbackRate))
+            player.PlaybackSession.PlaybackRate = playbackRate;
+    }
+
+    internal static bool TryGetVideoPlaybackRate(int selectedIndex, out double playbackRate)
+    {
+        if ((uint)selectedIndex < (uint)VideoPlaybackRates.Length)
+        {
+            playbackRate = VideoPlaybackRates[selectedIndex];
+            return true;
+        }
+
+        playbackRate = VideoPlaybackRates[DefaultVideoPlaybackRateIndex];
+        return false;
     }
 
     private void OnPlaybackStateChanged(Windows.Media.Playback.MediaPlaybackSession sender, object args)
@@ -659,6 +693,10 @@ public sealed partial class ImageViewerOverlay : UserControl
     {
         _playbackVersion++;
         _playback = null;
+        VideoPlaybackSpeed.SelectedIndex = DefaultVideoPlaybackRateIndex;
+        if (VideoPlayer.MediaPlayer is { } player &&
+            TryGetVideoPlaybackRate(DefaultVideoPlaybackRateIndex, out var defaultRate))
+            player.PlaybackSession.PlaybackRate = defaultRate;
         VideoPlayer.MediaPlayer?.Pause();
         VideoPlayer.Source = null;
         if (_videoSource is { } source) source.Source.OpenOperationCompleted -= OnVideoSourceOpenCompleted;

@@ -59,4 +59,71 @@ public sealed class MotionPhotoViewerTests
                 (string?)element.Attribute("name") == key && !string.IsNullOrWhiteSpace(element.Element("value")?.Value));
         }
     }
+
+    [Theory]
+    [InlineData(0, 0.5)]
+    [InlineData(1, 0.75)]
+    [InlineData(2, 1.0)]
+    [InlineData(3, 1.25)]
+    [InlineData(4, 1.5)]
+    [InlineData(5, 2.0)]
+    public void VideoPlaybackRateSelectionMapsToSupportedRates(int selectedIndex, double expectedRate)
+    {
+        Assert.True(ImageViewerOverlay.TryGetVideoPlaybackRate(selectedIndex, out var playbackRate));
+        Assert.Equal(expectedRate, playbackRate);
+    }
+
+    [Fact]
+    public void DefaultVideoPlaybackRateAndInvalidSelectionFallbackAreOneTimesSpeed()
+    {
+        Assert.Equal(2, ImageViewerOverlay.DefaultVideoPlaybackRateIndex);
+        Assert.True(ImageViewerOverlay.TryGetVideoPlaybackRate(
+            ImageViewerOverlay.DefaultVideoPlaybackRateIndex, out var playbackRate));
+        Assert.Equal(1.0, playbackRate);
+
+        Assert.False(ImageViewerOverlay.TryGetVideoPlaybackRate(-1, out var invalidRate));
+        Assert.Equal(1.0, invalidRate);
+        Assert.False(ImageViewerOverlay.TryGetVideoPlaybackRate(6, out invalidRate));
+        Assert.Equal(1.0, invalidRate);
+    }
+
+    [Fact]
+    public void VideoPlaybackSpeedControlIsAccessibleAndLocalized()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var controls = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "ImageViewerOverlay.xaml"))
+            .Descendants().ToList();
+        var speed = controls.Single(element => (string?)element.Attribute(x + "Name") == "VideoPlaybackSpeed");
+        Assert.Equal("2", (string?)speed.Attribute("SelectedIndex"));
+        Assert.Equal("Collapsed", (string?)speed.Attribute("Visibility"));
+        Assert.Equal("OnVideoPlaybackSpeedChanged", (string?)speed.Attribute("SelectionChanged"));
+        Assert.Equal(new[]
+        {
+            "ViewerPlaybackSpeedHalf",
+            "ViewerPlaybackSpeedThreeQuarter",
+            "ViewerPlaybackSpeedNormal",
+            "ViewerPlaybackSpeedFiveQuarter",
+            "ViewerPlaybackSpeedOneAndHalf",
+            "ViewerPlaybackSpeedDouble"
+        }, speed.Elements()
+            .Where(element => element.Name.LocalName == "ComboBoxItem")
+            .Select(element => (string?)element.Attribute(x + "Uid")));
+
+        var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"));
+        foreach (string key in new[]
+        {
+            "ViewerPlaybackSpeed.Header",
+            "ViewerPlaybackSpeed.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name",
+            "ViewerPlaybackSpeedHalf.Content",
+            "ViewerPlaybackSpeedThreeQuarter.Content",
+            "ViewerPlaybackSpeedNormal.Content",
+            "ViewerPlaybackSpeedFiveQuarter.Content",
+            "ViewerPlaybackSpeedOneAndHalf.Content",
+            "ViewerPlaybackSpeedDouble.Content"
+        })
+        {
+            Assert.Contains(resources.Descendants("data"), element =>
+                (string?)element.Attribute("name") == key && !string.IsNullOrWhiteSpace(element.Element("value")?.Value));
+        }
+    }
 }

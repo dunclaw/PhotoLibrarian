@@ -581,6 +581,15 @@ Backup: {3}
   <data name="FuseFailed" xml:space="preserve"><value>Photo Fuse failed: {0}</value></data>
   <data name="FuseIndexFailed" xml:space="preserve"><value>Photo Fuse copy saved at {0}, but could not be added to the library: {1}</value></data>
   <data name="VideoEditRotationLabel.Text" xml:space="preserve"><value>Rotation</value></data>
+  <data name="ViewerPlaybackSpeed.Header" xml:space="preserve"><value>Speed</value></data>
+  <data name="ViewerPlaybackSpeed.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video playback speed</value></data>
+  <data name="ViewerPlaybackSpeed.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Change the playback speed. This does not change the video file.</value></data>
+  <data name="ViewerPlaybackSpeedHalf.Content" xml:space="preserve"><value>0.5×</value></data>
+  <data name="ViewerPlaybackSpeedThreeQuarter.Content" xml:space="preserve"><value>0.75×</value></data>
+  <data name="ViewerPlaybackSpeedNormal.Content" xml:space="preserve"><value>1×</value></data>
+  <data name="ViewerPlaybackSpeedFiveQuarter.Content" xml:space="preserve"><value>1.25×</value></data>
+  <data name="ViewerPlaybackSpeedOneAndHalf.Content" xml:space="preserve"><value>1.5×</value></data>
+  <data name="ViewerPlaybackSpeedDouble.Content" xml:space="preserve"><value>2×</value></data>
   <data name="VideoEditRotateLeft.Label" xml:space="preserve"><value>Rotate left</value></data>
   <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees counterclockwise</value></data>
   <data name="VideoEditResetRotation.Label" xml:space="preserve"><value>0°</value></data>
