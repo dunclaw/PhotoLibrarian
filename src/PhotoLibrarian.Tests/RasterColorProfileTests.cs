@@ -6,6 +6,7 @@ using Microsoft.Graphics.Canvas;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
+using System.Numerics;
 using Windows.Graphics.Imaging;
 using Xunit;
 
@@ -95,6 +96,43 @@ public sealed class RasterColorProfileTests : IDisposable
         cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => RasterImageDecoder.DecodeAsync(path, cancellationToken: cancelled.Token));
+    }
+
+    [Fact]
+    public async Task IsolatedCreativePrimitivesConsumeTheConvertedSrgbWorkingPixelsWithoutChangingTheTaggedSource()
+    {
+        var path = await CreateTaggedAsync(jpeg: false, alpha: true);
+        var original = await File.ReadAllBytesAsync(path);
+        var expectedWorkingPixels = await ReadAsync(path, ColorManagementMode.ColorManageToSRgb);
+        var unmanaged = await ReadAsync(path, ColorManagementMode.DoNotColorManage);
+        Assert.NotEqual(unmanaged, expectedWorkingPixels);
+
+        using var device = new CanvasDevice(forceSoftwareRenderer: true);
+        using var loaded = await ImageEditRenderer.LoadOrientedAsync(device, path);
+        using var reference = CanvasBitmap.CreateFromBytes(device, expectedWorkingPixels, 11, 7,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+        var actualPixels = RenderCreativePrimitives(device, loaded);
+        var expectedPixels = RenderCreativePrimitives(device, reference);
+        AssertClose(expectedPixels, actualPixels, 3);
+        for (var i = 3; i < actualPixels.Length; i += 4)
+            Assert.Equal(unmanaged[i], actualPixels[i]);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+    }
+
+    private static byte[] RenderCreativePrimitives(CanvasDevice device, CanvasBitmap source)
+    {
+        var size = new Vector2((float)source.Size.Width, (float)source.Size.Height);
+        Assert.True(SourceDetailEffect.TryCreate(source, size, 0.6, 0.4,
+            out var detailImage, out var detailError), detailError);
+        using var detail = Assert.IsType<Microsoft.Graphics.Canvas.Effects.CropEffect>(detailImage);
+        Assert.True(PostCropEffect.TryCreate(detail, size,
+            new() { VignetteAmount = -0.5, GrainAmount = 0.4, Seed = 0xff00ff00 },
+            size, Vector2.Zero, Vector2.One, out var outputImage, out var outputError), outputError);
+        using var output = Assert.IsType<Microsoft.Graphics.Canvas.Effects.CropEffect>(outputImage);
+        using var target = new CanvasRenderTarget(device, size.X, size.Y, 96);
+        using (var session = target.CreateDrawingSession())
+            session.DrawImage(output);
+        return target.GetPixelBytes();
     }
 
     [Theory]
