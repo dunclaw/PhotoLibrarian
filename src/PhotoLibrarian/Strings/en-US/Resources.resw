@@ -802,4 +802,11 @@ Backup: {3}
   <data name="VideoTrimCanceled" xml:space="preserve"><value>Export canceled. No copy was saved.</value></data>
   <data name="VideoTrimCanceling" xml:space="preserve"><value>Canceling export...</value></data>
   <data name="VideoTrimClose" xml:space="preserve"><value>Close</value></data>
+  <data name="EditorDehazeLabel.Text" xml:space="preserve"><value>Dehaze</value></data>
+  <data name="EditorDehazeControl.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Dehaze</value></data>
+  <data name="EditorDehazeControl.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Reduce haze with positive values or add a soft veil with negative values.</value></data>
+  <data name="EditorTextureLabel.Text" xml:space="preserve"><value>Texture</value></data>
+  <data name="EditorTextureControl.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Texture</value></data>
+  <data name="EditorTextureControl.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Increase or soften fine detail without using the sharpening control.</value></data>
+  <data name="EditorRawRasterDetailNote.Text" xml:space="preserve"><value>Only these RAW controls apply. Raster adjustments, including Dehaze and Texture, are retained in the recipe but are not applied to RAW preview or export.</value></data>
 </root>

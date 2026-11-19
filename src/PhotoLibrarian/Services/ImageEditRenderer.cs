@@ -170,24 +170,27 @@ public static class ImageEditRenderer
         ICanvasResourceCreator device,
         string filePath,
         EditParameters parameters,
-        bool autoCropRotation = false)
-        => (await RenderRasterAsync(device, filePath, parameters, autoCropRotation)).Rendered;
+        bool autoCropRotation = false,
+        CancellationToken cancellationToken = default)
+        => (await RenderRasterAsync(device, filePath, parameters, autoCropRotation, cancellationToken)).Rendered;
 
     private static async Task<(RenderedPixels Rendered, RasterColorProfile Profile)> RenderRasterAsync(
         ICanvasResourceCreator device,
         string filePath,
         EditParameters parameters,
-        bool autoCropRotation)
+        bool autoCropRotation,
+        CancellationToken cancellationToken = default)
     {
         if (!IsSupported(filePath))
             throw new NotSupportedException($"Editing not supported for {Path.GetExtension(filePath)}");
 
-        var loaded = await TryLoadOrientedAsync(device, filePath);
+        var loaded = await TryLoadOrientedAsync(device, filePath, cancellationToken);
         if (loaded.Bitmap is null) throw new InvalidDataException(loaded.Profile.Message);
         using var source = loaded.Bitmap;
         var sourceWidth = source.SizeInPixels.Width;
         var sourceHeight = source.SizeInPixels.Height;
-        using var retouched = await CreateRetouchedAsync(device, source, parameters.RetouchStrokes);
+        using var retouched = await CreateRetouchedAsync(device, source, parameters.RetouchStrokes, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
         Vector2 offset;
         uint outWidth;
@@ -229,7 +232,10 @@ public static class ImageEditRenderer
                 Matrix3x2.CreateTranslation(offset));
         }
 
-        return (new RenderedPixels(outWidth, outHeight, target.GetPixelBytes()), loaded.Profile);
+        cancellationToken.ThrowIfCancellationRequested();
+        var pixels = target.GetPixelBytes();
+        cancellationToken.ThrowIfCancellationRequested();
+        return (new RenderedPixels(outWidth, outHeight, pixels), loaded.Profile);
     }
 
     internal readonly record struct RenderedPixels(uint Width, uint Height, byte[] Pixels);

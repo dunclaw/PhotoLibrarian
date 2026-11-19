@@ -39,6 +39,8 @@ public static class EditRecipeComposer
             result.Exposure = Blend(current.Exposure, source.Exposure, amount, -1, 1);
             result.Highlights = Blend(current.Highlights, source.Highlights, amount, -1, 1);
             result.Shadows = Blend(current.Shadows, source.Shadows, amount, -1, 1);
+            EditParametersSerializer.ValidateSourceDetail(current.Dehaze, source.Dehaze);
+            result.Dehaze = Blend(current.Dehaze, source.Dehaze, amount, -1, 1);
             result.BlackPoint = Blend(current.BlackPoint, source.BlackPoint, amount, 0, 1);
             result.WhitePoint = Blend(current.WhitePoint, source.WhitePoint, amount, 0, 1);
             result.Midtones = Blend(current.Midtones, source.Midtones, amount, 0, 1);
@@ -57,6 +59,8 @@ public static class EditRecipeComposer
         if (groups.HasFlag(EditSettingGroup.Detail))
         {
             result.Clarity = Blend(current.Clarity, source.Clarity, amount, -1, 1);
+            EditParametersSerializer.ValidateSourceDetail(current.Texture, source.Texture);
+            result.Texture = Blend(current.Texture, source.Texture, amount, -1, 1);
             result.Sharpness = Blend(current.Sharpness, source.Sharpness, amount, 0, 2);
             result.NoiseReduction = Blend(current.NoiseReduction, source.NoiseReduction, amount, 0, 1);
             result.UnsharpMaskAmount = Blend(current.UnsharpMaskAmount, source.UnsharpMaskAmount, amount, 0, 2);

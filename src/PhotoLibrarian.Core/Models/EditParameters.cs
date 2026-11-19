@@ -13,6 +13,7 @@ public sealed class EditParameters
     public double Exposure { get; set; }
     public double Highlights { get; set; }
     public double Shadows { get; set; }
+    public double Dehaze { get; set; }
 
     // RAW-only scene-linear recipe; never interpreted by the legacy raster graph.
     public double RawExposureEv { get; set; }
@@ -26,6 +27,9 @@ public sealed class EditParameters
 
     // Detail
     public double Clarity { get; set; }
+    public double Texture { get; set; }
+    internal bool HasSourceDetail => Dehaze != 0 || Texture != 0;
+    internal static bool IsValidSourceDetailAmount(double value) => double.IsFinite(value) && value is >= -1 and <= 1;
     /// <summary>Legacy SharpenEffect amount. Retained for existing XMP recipes.</summary>
     public double Sharpness { get; set; }
     /// <summary>Edge-aware noise reduction (0.0 to 1.0, 0 = off).</summary>
@@ -54,7 +58,7 @@ public sealed class EditParameters
     public bool HasAdjustments =>
         Effect != PhotoEffect.None || Brightness != 0 || Contrast != 0 || Exposure != 0 ||
         RawExposureEv != 0 || RawWhitePoint != 4.0 ||
-        Highlights != 0 || Shadows != 0 || Saturation != 0 ||
+        Highlights != 0 || Shadows != 0 || HasSourceDetail || Saturation != 0 ||
         Temperature != 0 || Tint != 0 || Clarity != 0 || Sharpness != 0 || NoiseReduction != 0 ||
         SharpeningMode != PhotoLibrarian.Core.Models.SharpeningMode.Legacy || UnsharpMaskAmount != 0 ||
         UnsharpMaskRadius != 1.0 || UnsharpMaskThreshold != 0.02 ||
@@ -72,11 +76,13 @@ public sealed class EditParameters
         RawWhitePoint = RawWhitePoint,
         Highlights = Highlights,
         Shadows = Shadows,
+        Dehaze = Dehaze,
         Saturation = Saturation,
         Temperature = Temperature,
         Tint = Tint,
         Effect = Effect,
         Clarity = Clarity,
+        Texture = Texture,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
         SharpeningMode = SharpeningMode,
@@ -99,7 +105,7 @@ public sealed class EditParameters
         Brightness = Contrast = Exposure = 0;
         RawExposureEv = 0;
         RawWhitePoint = 4.0;
-        Highlights = Shadows = 0;
+        Highlights = Shadows = Dehaze = Texture = 0;
         Saturation = Temperature = Tint = 0;
         Effect = PhotoEffect.None;
         Clarity = Sharpness = NoiseReduction = UnsharpMaskAmount = 0;

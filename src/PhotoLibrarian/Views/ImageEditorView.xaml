@@ -256,7 +256,7 @@
                     <Button x:Name="CancelRawExportBtn" Content="Cancel export" Click="OnCancelRawExport"
                             Visibility="Collapsed" AutomationProperties.Name="Cancel RAW derivative export"
                             AutomationProperties.AutomationId="EditorCancelRawExport" />
-                    <TextBlock Text="Only these RAW controls apply. Color mixer, color grading, tone curves, and other raster adjustments are retained in the recipe but not applied to RAW."
+                    <TextBlock x:Uid="EditorRawRasterDetailNote"
                                TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
                 </StackPanel>
 
@@ -298,6 +298,14 @@
                 </StackPanel>
 
                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <StackPanel Spacing="4">
+                    <TextBlock x:Uid="EditorDehazeLabel" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="DehazeSlider" x:Uid="EditorDehazeControl"
+                            AutomationProperties.AutomationId="EditorDehaze"
+                            Minimum="-1" Maximum="1" StepFrequency="0.01" SmallChange="0.01"
+                            ValueChanged="OnSliderChanged" />
+                </StackPanel>
 
                 <!-- Color section -->
                 <TextBlock Text="Color" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -520,6 +528,13 @@
                     <Slider x:Name="ClaritySlider" Minimum="-1" Maximum="1" StepFrequency="0.01"
                             TickFrequency="1" TickPlacement="Inline"
                             Value="0" ValueChanged="OnSliderChanged" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock x:Uid="EditorTextureLabel" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Slider x:Name="TextureSlider" x:Uid="EditorTextureControl"
+                            AutomationProperties.AutomationId="EditorTexture"
+                            Minimum="-1" Maximum="1" StepFrequency="0.01" SmallChange="0.01"
+                            ValueChanged="OnSliderChanged" />
                 </StackPanel>
                 <StackPanel x:Name="SharpeningPanel" Spacing="8">
                     <TextBlock Text="Sharpening" Style="{StaticResource BodyStrongTextBlockStyle}" />

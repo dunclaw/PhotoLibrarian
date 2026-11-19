@@ -1026,7 +1026,8 @@ public sealed partial class ImageEditorView : UserControl
         Slider[] centered =
         [
             ExposureSlider, BrightnessSlider, ContrastSlider, HighlightsSlider, ShadowsSlider,
-            SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, MidtonesSlider
+            SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, MidtonesSlider,
+            DehazeSlider, TextureSlider
         ];
         foreach (var slider in centered)
         {
@@ -1051,7 +1052,7 @@ public sealed partial class ImageEditorView : UserControl
         [
             ExposureSlider, BrightnessSlider, ContrastSlider, HighlightsSlider, ShadowsSlider,
             SaturationSlider, TemperatureSlider, TintSlider, ClaritySlider, SharpnessSlider,
-            NoiseReductionSlider, UnsharpMaskAmountSlider, UnsharpMaskRadiusSlider,
+            NoiseReductionSlider, DehazeSlider, TextureSlider, UnsharpMaskAmountSlider, UnsharpMaskRadiusSlider,
             UnsharpMaskThresholdSlider, BlackPointSlider, WhitePointSlider, MidtonesSlider,
             RotationSlider, RawExposureSlider, RawWhitePointSlider,
             ColorMixerHueSlider, ColorMixerSaturationSlider, ColorMixerLuminanceSlider,
@@ -1137,6 +1138,8 @@ public sealed partial class ImageEditorView : UserControl
         ViewModel.Temperature = TemperatureSlider.Value;
         ViewModel.Tint = TintSlider.Value;
         ViewModel.Clarity = ClaritySlider.Value;
+        ViewModel.Dehaze = DehazeSlider.Value;
+        ViewModel.Texture = TextureSlider.Value;
         ViewModel.Sharpness = SharpnessSlider.Value;
         ViewModel.NoiseReduction = NoiseReductionSlider.Value;
         ViewModel.UnsharpMaskAmount = UnsharpMaskAmountSlider.Value;
@@ -1564,6 +1567,8 @@ public sealed partial class ImageEditorView : UserControl
         TemperatureSlider.Value = ViewModel.Temperature;
         TintSlider.Value = ViewModel.Tint;
         ClaritySlider.Value = ViewModel.Clarity;
+        DehazeSlider.Value = ViewModel.Dehaze;
+        TextureSlider.Value = ViewModel.Texture;
         SharpnessSlider.Value = ViewModel.Sharpness;
         NoiseReductionSlider.Value = ViewModel.NoiseReduction;
         AdvancedSharpeningCheckBox.IsChecked =

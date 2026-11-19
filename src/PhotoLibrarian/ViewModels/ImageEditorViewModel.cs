@@ -229,6 +229,12 @@ public partial class ImageEditorViewModel : ObservableObject
     public partial double Clarity { get; set; }
 
     [ObservableProperty]
+    public partial double Dehaze { get; set; }
+
+    [ObservableProperty]
+    public partial double Texture { get; set; }
+
+    [ObservableProperty]
     public partial double Sharpness { get; set; }
 
     [ObservableProperty]
@@ -353,9 +359,11 @@ public partial class ImageEditorViewModel : ObservableObject
 
         EndEdit();
         var parameters = GetCurrentParameters();
+        var keepSourceDetail = parameters.Dehaze != 0 || parameters.Texture != 0 ||
+            _baseline.Dehaze != 0 || _baseline.Texture != 0;
         if (!parameters.HasAdjustments && _baseline.ToneCurves.IsDefault &&
             _baseline.ColorAdjustments.IsDefault && _baseline.MonochromeMix.IsDefault &&
-            _baseline.Effect != PhotoEffect.BlackAndWhite) return false;
+            _baseline.Effect != PhotoEffect.BlackAndWhite && !keepSourceDetail) return false;
 
         IsSaving = true;
         try
@@ -364,11 +372,12 @@ public partial class ImageEditorViewModel : ObservableObject
                 !parameters.ColorAdjustments.IsDefault || !_baseline.ColorAdjustments.IsDefault ||
                 !parameters.MonochromeMix.IsDefault || !_baseline.MonochromeMix.IsDefault ||
                 parameters.Effect == PhotoEffect.BlackAndWhite ||
-                _baseline.Effect == PhotoEffect.BlackAndWhite)
+                _baseline.Effect == PhotoEffect.BlackAndWhite || keepSourceDetail)
             {
                 if (PersistEditAsync is not null)
                 {
-                    var kept = await PersistEditAsync("color recipe", _currentEntry.FilePath, _openedIdentity,
+                    var kept = await PersistEditAsync(keepSourceDetail ? "adjustment recipe" : "color recipe",
+                        _currentEntry.FilePath, _openedIdentity,
                         copy => ImageEditService.WritePendingRecipeAsync(copy, parameters));
                     if (!kept) return false;
                 }
@@ -422,6 +431,8 @@ public partial class ImageEditorViewModel : ObservableObject
         Tint = Tint,
         Effect = Effect,
         Clarity = Clarity,
+        Dehaze = Dehaze,
+        Texture = Texture,
         Sharpness = Sharpness,
         NoiseReduction = NoiseReduction,
         SharpeningMode = SharpeningMode,
@@ -647,6 +658,8 @@ public partial class ImageEditorViewModel : ObservableObject
         Tint = p.Tint;
         Effect = p.Effect;
         Clarity = p.Clarity;
+        Dehaze = p.Dehaze;
+        Texture = p.Texture;
         Sharpness = p.Sharpness;
         NoiseReduction = p.NoiseReduction;
         SharpeningMode = p.SharpeningMode;
@@ -681,6 +694,8 @@ public partial class ImageEditorViewModel : ObservableObject
         OnParameterChanged("Effect");
     }
     partial void OnClarityChanged(double value) => OnParameterChanged("Clarity");
+    partial void OnDehazeChanged(double value) => OnParameterChanged("Dehaze");
+    partial void OnTextureChanged(double value) => OnParameterChanged("Texture");
     partial void OnSharpnessChanged(double value) => OnParameterChanged("Sharpness");
     partial void OnNoiseReductionChanged(double value) => OnParameterChanged("Noise reduction");
     partial void OnSharpeningModeChanged(SharpeningMode value) => OnParameterChanged("Sharpening mode");
@@ -792,6 +807,7 @@ public partial class ImageEditorViewModel : ObservableObject
         a.Highlights == b.Highlights && a.Shadows == b.Shadows && a.Saturation == b.Saturation &&
         a.Effect == b.Effect && a.Temperature == b.Temperature && a.Tint == b.Tint && a.Clarity == b.Clarity &&
         a.Sharpness == b.Sharpness && a.NoiseReduction == b.NoiseReduction &&
+        a.Dehaze == b.Dehaze && a.Texture == b.Texture &&
         a.SharpeningMode == b.SharpeningMode && a.UnsharpMaskAmount == b.UnsharpMaskAmount &&
         a.UnsharpMaskRadius == b.UnsharpMaskRadius &&
         a.UnsharpMaskThreshold == b.UnsharpMaskThreshold &&

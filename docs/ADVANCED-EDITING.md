@@ -229,13 +229,17 @@ denoise/deblur, existing tone/color controls, sharpening, then rotation.
 New detail stages need explicit neutral bypasses. Existing edits with no new
 properties must keep today's graph and appearance.
 
-### #194 isolated creative-effect primitives: not activated
+### Dehaze and Texture (raster editor)
 
-The internal `SourceDetailEffect`, `PostCropEffect` and `PostCropEffectReference`
-provide implementation and acceptance work while the shared final-output geometry
-hook is being developed. None is connected to the editor, render graph, XMP
-serializer, preset composer, or RAW development. No new recipe can be saved
-and silently ignored. These primitives do not complete #194.
+Use **Dehaze** in Tone to reduce an estimated veil with positive values or
+add one with negative values. Use **Texture** in Detail to increase or soften
+fine surface variation without using Clarity or sharpening. Both accept
+[-1, 1]; zero bypasses them exactly, including for earlier recipes.
+They run after noise reduction and before exposure, color, sharpening and
+rotation. The editor keeps these adjustments as portable `DehazeV1` and
+`TextureV1` XMP recipe fields. Preset Amount and selective paste treat Dehaze
+as Tone and Texture as Detail. RAW recipes can retain the fields, but neither
+RAW preview nor derivative export applies them.
 
 The GPU source primitive consumes premultiplied BGRA8 sRGB working pixels from
 the shared `RasterImageDecoder`/`ImageEditRenderer` load path. Embedded profiles
@@ -252,7 +256,13 @@ it is not Clarity, sharpening, blur inversion, or recovered sensor detail.
 Amounts are finite and in [-1, 1]; invalid inputs return an explicit error with
 no image. Zero amounts bypass exactly. The simultaneous primitive samples the
 original input for both corrections, with an eight-source-pixel halo and hard
-image boundaries. It does not implement source resampling or a tiled engine.
+image boundaries. Recipe thumbnails with either adjustment active decode
+at source resolution before rendering and reduction; neutral recipes retain
+the existing reduced-decode path. This preserves sampling in source pixels
+at the cost of a full-resolution upload. Existing platform resource limits
+apply; no megapixel cutoff or new tiled engine is introduced.
+
+### #194 Vignette and Grain primitives: not activated
 
 The GPU post-crop primitive and its CPU reference use complete, continuous
 output dimensions and global pixel centers and footprints, not
@@ -291,9 +301,9 @@ zoomed presentation, identical global-coordinate output tiles, reduced-output
 footprints, the minimum Grain size on a small odd image and a 24 MP post-output
 render. A synthetic embedded-linear-ICC fixture also verifies the primitives
 consume the shared decoder's converted working pixels, preserve alpha and
-leave the tagged source unchanged. The existing raster graph remains
-unchanged. Final geometry integration, all consumers, portable recipe/history
-support, presets, UI and photographic review remain activation gates.
+leave the tagged source unchanged. Vignette and Grain are not available in
+the editor or recipes. Their final geometry integration and production
+preview/export acceptance remain activation gates.
 
 ### #119 model-free denoising comparison: no-go
 

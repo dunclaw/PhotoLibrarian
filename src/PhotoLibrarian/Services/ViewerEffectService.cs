@@ -82,10 +82,11 @@ internal sealed class ViewerEffectService(OriginalBackupService backups)
         finally { _gate.Release(); }
     }
 
-    internal static Task<ImageEditRenderer.RenderedPixels> RenderAsync(string path, EditParameters parameters) =>
+    internal static Task<ImageEditRenderer.RenderedPixels> RenderAsync(
+        string path, EditParameters parameters, CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
             using var device = new CanvasDevice();
-            return await ImageEditRenderer.RenderToPixelsAsync(device, path, parameters);
-        });
+            return await ImageEditRenderer.RenderToPixelsAsync(device, path, parameters, cancellationToken: cancellationToken);
+        }, cancellationToken);
 }
