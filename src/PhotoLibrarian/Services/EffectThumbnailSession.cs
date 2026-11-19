@@ -9,7 +9,7 @@ namespace PhotoLibrarian.Services;
 
 internal sealed record EffectThumbnail(PhotoEffect Effect, int Width, int Height, byte[] Pixels);
 
-/// <summary>Latest request wins; only one bounded decode/render may run at a time.</summary>
+/// <summary>Latest request wins; only one thumbnail decode/render may run at a time.</summary>
 internal sealed class EffectThumbnailSession
 {
     internal const int MaximumDimension = 160;
@@ -77,6 +77,12 @@ internal sealed class EffectThumbnailSession
             sourcePixels.Length != checked(width * height * 4))
             throw new InvalidDataException("The developed preview has invalid pixel dimensions.");
 
+        if (RawToneMappingService.IsRaw(path) && (parameters.Dehaze != 0 || parameters.Texture != 0))
+        {
+            parameters = parameters.Clone();
+            parameters.Dehaze = parameters.Texture = 0;
+        }
+
         if (parameters.RetouchStrokes.Count > 0)
         {
             var retouch = ScaleRetouchStrokes(
@@ -114,7 +120,10 @@ internal sealed class EffectThumbnailSession
     {
         if (!ImageEditRenderer.IsSupported(path))
             throw new NotSupportedException("Effect thumbnails require a supported raster photo.");
-        var decoded = await RasterImageDecoder.DecodeAsync(path, checked((uint)maximumDimension), token);
+        // The fine band is defined in original source pixels; render it before thumbnail reduction.
+        var decodeDimension = parameters.Dehaze != 0 || parameters.Texture != 0
+            ? uint.MaxValue : checked((uint)maximumDimension);
+        var decoded = await RasterImageDecoder.DecodeAsync(path, decodeDimension, token);
         if (!decoded.Profile.IsSupported) throw new InvalidDataException(decoded.Profile.Message);
         var width = decoded.Width;
         var height = decoded.Height;
@@ -155,6 +164,7 @@ internal sealed class EffectThumbnailSession
             var (croppedWidth, croppedHeight, croppedPixels) = ApplyCrop(
                 target.GetPixelBytes(), outputWidth, outputHeight, parameters.Crop);
             result.Add(new EffectThumbnail(effect, croppedWidth, croppedHeight, croppedPixels));
+            token.ThrowIfCancellationRequested();
         }
         return result;
     }

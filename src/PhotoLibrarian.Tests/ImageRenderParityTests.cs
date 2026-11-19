@@ -96,6 +96,36 @@ public sealed class ImageRenderParityTests : IDisposable
     }
 
     [Fact]
+    public async Task SourceDetailThumbnailUsesTheSameSourceScaleAsAFittedPreview()
+    {
+        const int width = 128, height = 80, size = 32;
+        var path = Path.Combine(_directory, "source-detail-thumbnail.png");
+        await RenderQualityFixtures.WriteImageAsync(path, width, height,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.FineTexture, width, height, alpha: true));
+        var recipe = new EditParameters { Dehaze = -0.65, Texture = 0.8 };
+        var token = TestContext.Current.CancellationToken;
+        using var device = new CanvasDevice();
+        using var source = await ImageEditRenderer.LoadOrientedAsync(device, path);
+        using var preview = new CanvasRenderTarget(device, size, size * height / width, 96);
+        using (var draw = preview.CreateDrawingSession())
+        {
+            draw.Clear(ImageEditRenderer.GetBackgroundColor(path));
+            ImageEditRenderPass.Draw(draw, source, recipe, new(width, height), Matrix3x2.CreateScale((float)size / width));
+        }
+
+        var thumbnail = await EffectThumbnailSession.RenderRecipeThumbnailAsync(path, recipe, size, token);
+        Assert.Equal((size, size * height / width), (thumbnail.Width, thumbnail.Height));
+        Assert.Equal(preview.GetPixelBytes(), thumbnail.Pixels);
+
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            EffectThumbnailSession.RenderRecipeThumbnailAsync(path, recipe, size, cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            ViewerEffectService.RenderAsync(path, recipe, cancelled.Token));
+    }
+
+    [Fact]
     public async Task RawOnlyRecipeFieldsLeaveLegacyRasterPixelsUnchanged()
     {
         var path = Path.Combine(_directory, "legacy.png");
@@ -148,6 +178,7 @@ public sealed class ImageRenderParityTests : IDisposable
                 BlackPoint = 0.03, WhitePoint = 0.96, Midtones = 0.54
             }),
             ("detail", new() { Clarity = 0.25 }),
+            ("source-detail", new() { Dehaze = 0.6, Texture = -0.75, RotationAngle = 13 }),
             ("legacy-sharpen", new() { Sharpness = 0.35 }),
             ("unsharp-mask", new()
             {

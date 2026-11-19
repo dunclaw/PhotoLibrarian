@@ -22,7 +22,7 @@ public static class EditParametersSerializer
         "BlackPoint", "WhitePoint", "Midtones", "RotationAngle",
         "CropLeft", "CropTop", "CropWidth", "CropHeight", "SpotRetouchV1",
         "ToneCurveVersion", "ToneCurvesV1", "ColorAdjustmentsVersion", "ColorAdjustmentsV1",
-        "MonochromeMixVersion", "MonochromeMixV1"
+        "MonochromeMixVersion", "MonochromeMixV1", "DehazeV1", "TextureV1"
     ];
     private static readonly HashSet<string> SupportedEditProperties =
         new(EditProperties, StringComparer.Ordinal);
@@ -36,7 +36,12 @@ public static class EditParametersSerializer
 
     public static void WriteToXmp(IXmpMeta xmp, EditParameters p)
     {
+        ValidateSourceDetail(p.Dehaze, p.Texture);
         XmpMetaFactory.SchemaRegistry.RegisterNamespace(Ns, Pre);
+        if (p.Dehaze == 0) DeleteProp(xmp, "DehazeV1");
+        else SetDouble(xmp, "DehazeV1", p.Dehaze);
+        if (p.Texture == 0) DeleteProp(xmp, "TextureV1");
+        else SetDouble(xmp, "TextureV1", p.Texture);
 
         SetDouble(xmp, "Brightness", p.Brightness);
         SetDouble(xmp, "Contrast", p.Contrast);
@@ -150,6 +155,8 @@ public static class EditParametersSerializer
             RawWhitePoint = GetRawDouble(xmp, "RawWhitePoint", 4.0),
             Highlights = GetDouble(xmp, "Highlights"),
             Shadows = GetDouble(xmp, "Shadows"),
+            Dehaze = GetDouble(xmp, "DehazeV1"),
+            Texture = GetDouble(xmp, "TextureV1"),
             Saturation = GetDouble(xmp, "Saturation"),
             Temperature = GetDouble(xmp, "Temperature"),
             Tint = GetDouble(xmp, "Tint"),
@@ -169,6 +176,7 @@ public static class EditParametersSerializer
             RotationAngle = GetDouble(xmp, "RotationAngle")
         };
 
+        ValidateSourceDetail(p.Dehaze, p.Texture);
         var cropLeft = GetDoubleOrNull(xmp, "CropLeft");
         if (cropLeft.HasValue)
         {
@@ -307,6 +315,12 @@ public static class EditParametersSerializer
     private static void SetDouble(IXmpMeta xmp, string prop, double value)
     {
         xmp.SetPropertyDouble(Ns, $"{Pre}:{prop}", value);
+    }
+
+    internal static void ValidateSourceDetail(double dehaze, double texture)
+    {
+        if (!EditParameters.IsValidSourceDetailAmount(dehaze) || !EditParameters.IsValidSourceDetailAmount(texture))
+            throw new InvalidDataException("Dehaze and Texture must be finite values between -1 and 1.");
     }
 
     private static double GetDouble(IXmpMeta xmp, string prop, double defaultValue = 0.0)

@@ -238,6 +238,35 @@ public sealed class ImageEditorHistoryTests : IDisposable
     }
 
     [Fact]
+    public async Task SourceDetailRestoresBothPortableValuesThroughUndoRedoAndReset()
+    {
+        await new ImageEditService(_backups).SaveEditParametersAsync(
+            _entry.FilePath, new EditParameters { Dehaze = -0.3, Texture = 0.4 });
+        var vm = await OpenAsync();
+        Assert.Equal(-0.3, vm.Dehaze);
+        Assert.Equal(0.4, vm.Texture);
+        vm.ResetAllCommand.Execute(null);
+        Assert.True(vm.HasChanges);
+        Assert.Equal(0, vm.Dehaze);
+        Assert.Equal(0, vm.Texture);
+        vm.UndoCommand.Execute(null);
+        Assert.False(vm.HasChanges);
+        Assert.Equal(-0.3, vm.Dehaze);
+        Assert.Equal(0.4, vm.Texture);
+        vm.RedoCommand.Execute(null);
+        Assert.Equal(0, vm.GetCurrentParameters().Dehaze);
+        Assert.Equal(0, vm.GetCurrentParameters().Texture);
+        Assert.True(await vm.SaveAsync((_, _) => throw new InvalidOperationException("Recipe save must not bake pixels.")));
+        Assert.False(ImageEditService.ReadEditParameters(_entry.FilePath).HasAdjustments);
+        vm.Dehaze = 0.6;
+        vm.Texture = -0.5;
+        Assert.True(await vm.SaveAsync((_, _) => throw new InvalidOperationException("Recipe save must not bake pixels.")));
+        var saved = ImageEditService.ReadEditParameters(_entry.FilePath);
+        Assert.Equal(0.6, saved.Dehaze);
+        Assert.Equal(-0.5, saved.Texture);
+    }
+
+    [Fact]
     public async Task AdvancedSharpeningSwitch_PreservesBothMethodsAndIsUndoable()
     {
         var vm = await OpenAsync();

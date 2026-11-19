@@ -192,7 +192,7 @@ public sealed class RawToneMappingTests
         var raster = await RawToneMappingService.RenderAsync(source, 6, 1, new EditParameters
         {
             Exposure = 1, Contrast = 0.5, NoiseReduction = 1, Sharpness = 1, RotationAngle = 90,
-            Temperature = 1, WhitePoint = 0.5
+            Temperature = 1, WhitePoint = 0.5, Dehaze = 1, Texture = -1
         });
         Assert.Equal(6, raster.Width);
         Assert.Equal(1, raster.Height);

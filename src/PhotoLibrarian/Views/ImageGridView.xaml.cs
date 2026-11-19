@@ -1392,7 +1392,7 @@ public sealed partial class ImageGridView : UserControl
         string path, Core.Models.EditParameters parameters, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var pixels = await Services.ViewerEffectService.RenderAsync(path, parameters);
+        var pixels = await Services.ViewerEffectService.RenderAsync(path, parameters, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return new(pixels.Width, pixels.Height, pixels.Pixels);
     }

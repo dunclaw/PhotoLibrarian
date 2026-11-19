@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices.WindowsRuntime;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Services;
 using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using XmpCore;
@@ -201,6 +202,32 @@ public sealed class ImageExportTests : IDisposable
         Assert.Single(result.ExportedPaths);
         Assert.Empty(result.Failures);
         Assert.Equal(new ImageExportProgress(1, 2, "cancel.png"), Assert.Single(updates));
+        AssertNoStagingFiles();
+    }
+
+    [Fact]
+    public async Task ExportRendersThePortableSourceDetailRecipeWithoutChangingItsSource()
+    {
+        var source = await CreateImageAsync("source-detail.png");
+        var token = TestContext.Current.CancellationToken;
+        var recipe = new EditParameters { Dehaze = -0.75, Texture = 0.6 };
+        await ImageEditService.WritePendingRecipeAsync(source, recipe);
+        var original = await File.ReadAllBytesAsync(source, token);
+        var preview = await ViewerEffectService.RenderAsync(source, recipe, token);
+        var neutral = await ViewerEffectService.RenderAsync(source, new(), token);
+        Assert.False(neutral.Pixels.AsSpan().SequenceEqual(preview.Pixels));
+        var result = await ImageExportService.ExportAsync([source], _directory, new(), cancellationToken: token,
+            renderRecipe: async (path, pending, cancellationToken) =>
+            {
+                Assert.Equal(recipe.Dehaze, pending.Dehaze);
+                Assert.Equal(recipe.Texture, pending.Texture);
+                var pixels = await ViewerEffectService.RenderAsync(path, pending, cancellationToken);
+                Assert.Equal(preview.Pixels, pixels.Pixels);
+                return new(pixels.Width, pixels.Height, pixels.Pixels);
+            });
+        Assert.Empty(result.Failures);
+        Assert.Single(result.ExportedPaths);
+        Assert.Equal(original, await File.ReadAllBytesAsync(source, token));
         AssertNoStagingFiles();
     }
 

@@ -27,6 +27,12 @@ public static class EditEffectGraph
     public static ICanvasImage Build(ICanvasImage source, Vector2 sourceSize, EditParameters p)
     {
         ICanvasImage current = NoiseReductionEffect.Create(source, sourceSize, p.NoiseReduction);
+        if (p.Dehaze != 0 || p.Texture != 0)
+        {
+            if (!SourceDetailEffect.TryCreate(current, sourceSize, p.Dehaze, p.Texture, out var detail, out var error))
+                throw new InvalidDataException(error);
+            current = detail!;
+        }
 
         // 1. Exposure (simulated via brightness/gamma)
         if (p.Exposure != 0)

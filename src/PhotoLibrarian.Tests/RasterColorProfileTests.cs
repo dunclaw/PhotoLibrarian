@@ -75,7 +75,7 @@ public sealed class RasterColorProfileTests : IDisposable
         using var device = new CanvasDevice();
         using var preview = await ImageEditRenderer.LoadOrientedAsync(device, path);
         Assert.Equal(decoded.Pixels, preview.GetPixelBytes());
-        var parameters = new EditParameters { Exposure = 0.2, Contrast = 0.1 };
+        var parameters = new EditParameters { Exposure = 0.2, Contrast = 0.1, Dehaze = 0.6, Texture = -0.4 };
         var rendered = await ImageEditRenderer.RenderToPixelsAsync(device, path, parameters);
         var thumbnail = await EffectThumbnailSession.RenderRecipeThumbnailAsync(
             path, parameters, 100, TestContext.Current.CancellationToken);

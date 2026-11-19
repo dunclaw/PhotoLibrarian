@@ -1,16 +1,80 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using Microsoft.Graphics.Canvas;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using System.Diagnostics;
 using System.Numerics;
 using Windows.Graphics.DirectX;
+using XmpCore;
 using Xunit;
 
 namespace PhotoLibrarian.Tests;
 
 public sealed class RasterCreativeEffectTests
 {
+    [Fact]
+    public void SourceDetailRecipeIsNeutralWhenAbsentAndRoundTripsAndClearsVersionedFields()
+    {
+        var xmp = XmpMetaFactory.Create();
+        XmpMetaFactory.SchemaRegistry.RegisterNamespace(EditParameters.XmpNamespace, EditParameters.XmpPrefix);
+        Assert.False(EditParametersSerializer.ReadFromXmp(xmp).HasAdjustments);
+        var recipe = new EditParameters { Dehaze = -0.65, Texture = 0.4 };
+        EditParametersSerializer.WriteToXmp(xmp, recipe.Clone());
+        var reopened = EditParametersSerializer.ReadFromXmp(xmp, rejectUnsupportedProperties: true);
+        Assert.True(reopened.HasAdjustments);
+        Assert.Equal(recipe.Dehaze, reopened.Dehaze);
+        Assert.Equal(recipe.Texture, reopened.Texture);
+        reopened.Reset();
+        EditParametersSerializer.WriteToXmp(xmp, reopened);
+        Assert.False(xmp.DoesPropertyExist(EditParameters.XmpNamespace, "DehazeV1"));
+        Assert.False(xmp.DoesPropertyExist(EditParameters.XmpNamespace, "TextureV1"));
+        Assert.False(EditParametersSerializer.ReadFromXmp(xmp).HasAdjustments);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(-1.01)]
+    [InlineData(1.01)]
+    public void InvalidSourceDetailCannotBeWrittenOrInterpretedAsNeutral(double value)
+    {
+        var xmp = XmpMetaFactory.Create();
+        XmpMetaFactory.SchemaRegistry.RegisterNamespace(EditParameters.XmpNamespace, EditParameters.XmpPrefix);
+        Assert.Throws<InvalidDataException>(() =>
+            EditParametersSerializer.WriteToXmp(xmp, new EditParameters { Dehaze = value }));
+        xmp.SetPropertyDouble(EditParameters.XmpNamespace, "TextureV1", value);
+        Assert.Throws<InvalidDataException>(() => EditParametersSerializer.ReadFromXmp(xmp));
+    }
+
+    [Fact]
+    public void SourceDetailCompositionRespectsToneAndDetailSelection()
+    {
+        var current = new EditParameters { Dehaze = -0.75, Texture = 0.25 };
+        var preset = new EditParameters { Dehaze = 0.5, Texture = -0.75 };
+        var tone = EditRecipeComposer.Compose(current, preset, EditSettingGroup.Tone, 200, false, false).Parameters;
+        var detail = EditRecipeComposer.Compose(current, preset, EditSettingGroup.Detail, 50, false, false).Parameters;
+        Assert.Equal(1, tone.Dehaze);
+        Assert.Equal(current.Texture, tone.Texture);
+        Assert.Equal(current.Dehaze, detail.Dehaze);
+        Assert.Equal(-0.25, detail.Texture);
+    }
+
+    [Fact]
+    public void DevelopedRawPresetThumbnailDoesNotApplyDormantRasterDetail()
+    {
+        var pixels = Gray(17, 11, (x, y) => (byte)(100 + (x * 11 + y * 7) % 70));
+        var token = TestContext.Current.CancellationToken;
+        var recipe = new EditParameters { Dehaze = -1, Texture = 1 };
+        var neutral = EffectThumbnailSession.RenderRecipeThumbnailFromPixels("fixture.dng", pixels,
+            17, 11, new(), 20, token);
+        var dormant = EffectThumbnailSession.RenderRecipeThumbnailFromPixels("fixture.dng", pixels,
+            17, 11, recipe, 20, token);
+        Assert.Equal(neutral.Pixels, dormant.Pixels);
+        Assert.Equal(-1, recipe.Dehaze);
+        Assert.Equal(1, recipe.Texture);
+    }
+
     [Fact]
     public void SourcePrimitiveBypassesNeutralAndReportsInvalidInputsWithoutReturningAnImage()
     {

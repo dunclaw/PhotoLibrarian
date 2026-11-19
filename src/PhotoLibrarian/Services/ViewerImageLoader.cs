@@ -19,7 +19,7 @@ internal static class ViewerImageLoader
             var recipe = ImageEditService.ReadEditParameters(path);
             if (recipe.HasAdjustments)
             {
-                var rendered = await ViewerEffectService.RenderAsync(path, recipe);
+                var rendered = await ViewerEffectService.RenderAsync(path, recipe, token);
                 token.ThrowIfCancellationRequested();
                 return await CreateBitmapAsync(rendered, token);
             }
