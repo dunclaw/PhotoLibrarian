@@ -297,8 +297,6 @@
                             Value="0" ValueChanged="OnSliderChanged" />
                 </StackPanel>
 
-                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-
                 <StackPanel Spacing="4">
                     <TextBlock x:Uid="EditorDehazeLabel" Style="{StaticResource CaptionTextBlockStyle}" />
                     <Slider x:Name="DehazeSlider" x:Uid="EditorDehazeControl"
