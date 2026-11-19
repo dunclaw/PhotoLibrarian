@@ -19,6 +19,53 @@ public sealed class ImageRenderParityTests : IDisposable
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(4, false)]
+    [InlineData(5, true)]
+    [InlineData(6, true)]
+    [InlineData(7, true)]
+    [InlineData(8, true)]
+    public async Task RasterEditorAndRecipeThumbnailHonorEveryExifOrientation(
+        ushort orientation, bool swapsAxes)
+    {
+        var path = Path.Combine(_directory, $"orientation-{orientation}.jpg");
+        await RenderQualityFixtures.WriteImageAsync(path, 61, 37,
+            RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 61, 37),
+            dpi: 300, orientation: orientation, jpeg: true);
+        var original = await File.ReadAllBytesAsync(path);
+
+        using var device = new CanvasDevice();
+        using var editor = await ImageEditRenderer.LoadOrientedAsync(device, path);
+        Assert.Equal(swapsAxes ? 37u : 61u, editor.SizeInPixels.Width);
+        Assert.Equal(swapsAxes ? 61u : 37u, editor.SizeInPixels.Height);
+
+        using var file = File.OpenRead(path);
+        var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
+        var expected = await decoder.GetPixelDataAsync(
+            BitmapPixelFormat.Bgra8,
+            BitmapAlphaMode.Premultiplied,
+            new BitmapTransform(),
+            ExifOrientationMode.RespectExifOrientation,
+            ColorManagementMode.DoNotColorManage);
+        Assert.Equal(expected.DetachPixelData(), editor.GetPixelBytes());
+
+        var thumbnail = await EffectThumbnailSession.RenderRecipeThumbnailAsync(
+            path, new(), 31, CancellationToken.None);
+        Assert.Equal(swapsAxes ? 19 : 31, thumbnail.Width);
+        Assert.Equal(swapsAxes ? 31 : 19, thumbnail.Height);
+        var expectedThumbnail = await decoder.GetPixelDataAsync(
+            BitmapPixelFormat.Bgra8,
+            BitmapAlphaMode.Premultiplied,
+            new BitmapTransform { ScaledWidth = 31, ScaledHeight = 19 },
+            ExifOrientationMode.RespectExifOrientation,
+            ColorManagementMode.DoNotColorManage);
+        Assert.Equal(expectedThumbnail.DetachPixelData(), thumbnail.Pixels);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+    }
+
     [Fact]
     public async Task EveryPhotoEffectMatchesSourceResolutionPreviewSaveAndPngReopen()
     {
