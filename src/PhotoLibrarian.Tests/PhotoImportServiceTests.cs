@@ -11,6 +11,29 @@ namespace PhotoLibrarian.Tests;
 public sealed class PhotoImportServiceTests
 {
     [Fact]
+    public void SourceDeletionConfirmationUsesSharedDestructiveDialogAndOnlyPrimaryProceeds()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.xaml.cs"));
+        var start = source.IndexOf("private async Task ShowPhotoImportDialogAsync(", StringComparison.Ordinal);
+        var end = source.IndexOf("private void OnMetadataSidecarFallback(", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+
+        var importFlow = source[start..end];
+        var confirmation = importFlow.IndexOf("DialogService.Instance.ConfirmDestructiveAsync(", StringComparison.Ordinal);
+        var approval = importFlow.IndexOf("if (confirmation != ContentDialogResult.Primary)", StringComparison.Ordinal);
+        var deletion = importFlow.IndexOf("DeleteVerifiedSourcesAsync(", StringComparison.Ordinal);
+        Assert.True(confirmation >= 0 && approval > confirmation && deletion > approval);
+        Assert.Contains("await dialog.ShowAsync();", importFlow[..confirmation]);
+        Assert.Contains("AppRoot,", importFlow[confirmation..approval]);
+        Assert.Contains("PhotoImportStrings.Get(\"PhotoImportDeleteConfirmTitle\")", importFlow[confirmation..approval]);
+        Assert.Contains("\"PhotoImportDeleteConfirmContent\"", importFlow[confirmation..approval]);
+        Assert.Contains("result.SuccessfulItems.Count", importFlow[confirmation..approval]);
+        Assert.Contains("PhotoImportStrings.Get(\"PhotoImportDeleteConfirmButton\")", importFlow[confirmation..approval]);
+        Assert.Contains("PhotoImportStrings.Get(\"PhotoImportCancel\")", importFlow[confirmation..approval]);
+        Assert.Contains("return;", importFlow[approval..deletion]);
+    }
+
+    [Fact]
     public async Task ImportAsync_CopiesAndIndexesVerifiedFilesWithoutOverwriting()
     {
         var directory = CreateTemporaryDirectory();

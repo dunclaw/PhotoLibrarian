@@ -577,18 +577,15 @@ public sealed partial class MainWindow : Window
             result.SuccessfulItems.Count == 0)
             return;
 
-        var confirmation = new ContentDialog
-        {
-            XamlRoot = AppRoot.XamlRoot,
-            Title = PhotoImportStrings.Get("PhotoImportDeleteConfirmTitle"),
-            Content = PhotoImportStrings.Format(
+        var confirmation = await DialogService.Instance.ConfirmDestructiveAsync(
+            AppRoot,
+            PhotoImportStrings.Get("PhotoImportDeleteConfirmTitle"),
+            PhotoImportStrings.Format(
                 "PhotoImportDeleteConfirmContent",
                 result.SuccessfulItems.Count),
-            PrimaryButtonText = PhotoImportStrings.Get("PhotoImportDeleteConfirmButton"),
-            CloseButtonText = PhotoImportStrings.Get("PhotoImportCancel"),
-            DefaultButton = ContentDialogButton.Close
-        };
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+            PhotoImportStrings.Get("PhotoImportDeleteConfirmButton"),
+            PhotoImportStrings.Get("PhotoImportCancel"));
+        if (confirmation != ContentDialogResult.Primary)
         {
             ViewModel.StatusText = PhotoImportStrings.Get("PhotoImportDeleteCanceled");
             return;
