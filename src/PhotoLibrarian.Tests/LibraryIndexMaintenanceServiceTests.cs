@@ -716,6 +716,120 @@ public sealed class LibraryIndexMaintenanceServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Reconcile_ReparseDirectoryRetainsMissingRecordsAndCanRetry(
+        bool nested,
+        bool changesBeforeCleanup)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var watched = Path.Combine(root, "watched");
+            var location = nested ? Path.Combine(watched, "child") : watched;
+            Directory.CreateDirectory(location);
+            var fileSystem = new ReparsePointFileSystem(location)
+            {
+                Enabled = !changesBeforeCleanup
+            };
+            using var library = await TestLibrary.CreateAsync(root, fileSystem);
+            await library.AddWatchedFolderAsync(watched);
+            var missingPath = Path.Combine(location, "missing.png");
+            var retainedPath = Path.Combine(location, "metadata.png");
+            var availablePath = Path.Combine(watched, "available.png");
+            await WicTestImage.CreateAsync(missingPath, 16, 12);
+            await WicTestImage.CreateAsync(retainedPath, 18, 12);
+            await WicTestImage.CreateAsync(availablePath, 20, 12);
+            await library.IndexAsync(missingPath);
+            await library.IndexAsync(retainedPath);
+            var retained = (await library.Images.GetByPathAsync(retainedPath))!;
+            await SeedDatabaseOnlyStateAsync(library, retained.Id);
+            File.Delete(missingPath);
+            File.Delete(retainedPath);
+            var originalBytes = await File.ReadAllBytesAsync(availablePath);
+            var progress = new InlineProgress<LibraryIndexMaintenanceProgress>(update =>
+            {
+                if (changesBeforeCleanup &&
+                    update.Stage == LibraryIndexMaintenanceStage.IndexingFiles &&
+                    update.Current == 1)
+                    fileSystem.Enabled = true;
+            });
+
+            var blocked = await library.Maintenance.ReconcileAsync(progress);
+
+            Assert.False(blocked.Succeeded);
+            Assert.Equal(0, blocked.RemovedFiles);
+            Assert.Contains(blocked.Issues, issue =>
+                issue.Kind == LibraryIndexMaintenanceIssueKind.ReparsePointSkipped &&
+                issue.Path == location);
+            Assert.NotNull(await library.Images.GetByPathAsync(missingPath));
+            Assert.Equal(retained.Id, (await library.Images.GetByPathAsync(retainedPath))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, retained.Id));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(availablePath));
+            if (!nested && !changesBeforeCleanup)
+                Assert.Null(await library.Images.GetByPathAsync(availablePath));
+
+            fileSystem.Enabled = false;
+            var retried = await library.Maintenance.ReconcileAsync();
+
+            Assert.False(retried.Succeeded);
+            Assert.Equal(1, retried.RemovedFiles);
+            Assert.Null(await library.Images.GetByPathAsync(missingPath));
+            Assert.Equal(retained.Id, (await library.Images.GetByPathAsync(retainedPath))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, retained.Id));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(availablePath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_DirectoryBecomingReparsePointAfterDiscoveryIsNotTraversed()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var child = Path.Combine(root, "child");
+            Directory.CreateDirectory(child);
+            var childAttributeReads = 0;
+            var traversedChild = false;
+            var fileSystem = new CallbackFileSystem(
+                (path, _) => traversedChild |= path == child,
+                path =>
+                {
+                    var attributes = File.GetAttributes(path);
+                    if (path == child && ++childAttributeReads > 1)
+                        attributes |= FileAttributes.ReparsePoint;
+                    return attributes;
+                });
+            using var library = await TestLibrary.CreateAsync(root, fileSystem);
+            await library.AddWatchedFolderAsync(root);
+            var path = Path.Combine(child, "photo.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            await library.IndexAsync(path);
+            File.Delete(path);
+
+            var result = await library.Maintenance.ReconcileAsync();
+
+            Assert.False(result.Succeeded);
+            Assert.False(traversedChild);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.NotNull(await library.Images.GetByPathAsync(path));
+            Assert.Contains(result.Issues, issue =>
+                issue.Kind == LibraryIndexMaintenanceIssueKind.ReparsePointSkipped &&
+                issue.Path == child);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Reconcile_ReportsFailedFileAndRetryCompletesWithoutLosingExistingEntries()
     {
@@ -917,7 +1031,9 @@ public sealed class LibraryIndexMaintenanceServiceTests
             File.GetAttributes(path);
     }
 
-    private sealed class CallbackFileSystem(Action<string, int> beforeEnumeration)
+    private sealed class CallbackFileSystem(
+        Action<string, int> beforeEnumeration,
+        Func<string, FileAttributes>? getAttributes = null)
         : ILibraryMaintenanceFileSystem
     {
         private readonly Dictionary<string, int> _scanCounts = new(StringComparer.OrdinalIgnoreCase);
@@ -930,7 +1046,8 @@ public sealed class LibraryIndexMaintenanceServiceTests
             return Directory.EnumerateFileSystemEntries(directoryPath);
         }
 
-        public FileAttributes GetAttributes(string path) => File.GetAttributes(path);
+        public FileAttributes GetAttributes(string path) =>
+            getAttributes is null ? File.GetAttributes(path) : getAttributes(path);
     }
 
     private sealed class InterruptedFileSystem(string root, CancellationTokenSource? cancellation)
@@ -958,6 +1075,8 @@ public sealed class LibraryIndexMaintenanceServiceTests
     private sealed class ReparsePointFileSystem(string reparsePath)
         : ILibraryMaintenanceFileSystem
     {
+        public bool Enabled { get; set; } = true;
+
         public IEnumerable<string> EnumerateFileSystemEntries(
             string directoryPath) =>
             Directory.EnumerateFileSystemEntries(directoryPath);
@@ -965,7 +1084,7 @@ public sealed class LibraryIndexMaintenanceServiceTests
         public FileAttributes GetAttributes(string path)
         {
             var attributes = File.GetAttributes(path);
-            return string.Equals(
+            return Enabled && string.Equals(
                     path,
                     reparsePath,
                     StringComparison.OrdinalIgnoreCase)

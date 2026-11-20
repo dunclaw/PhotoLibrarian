@@ -28,6 +28,11 @@ Entries on unavailable storage, in unreadable directories, or outside the
 watched scan scope remain indexed. A false filesystem existence check alone is
 never sufficient evidence for removal. Symbolic links and other reparse points
 are skipped and reported rather than followed.
+This includes watched roots that are junctions or symbolic links. Repair checks
+each directory again immediately before enumeration, including the cleanup
+rescan, so replacing a previously discovered directory with a reparse point
+does not authorize missing-entry cleanup there. Entries remain available for
+retry after the original accessible location is restored.
 
 A move or rename is repaired only when an existing duplicate-scan SHA-256
 cache entry still matches the indexed file size and modification time, and
