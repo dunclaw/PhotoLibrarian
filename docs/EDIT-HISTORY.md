@@ -150,8 +150,11 @@ handle or memory-mapped view that can still write after a rename may modify the
 retained old file rather than the newly published file. The separate
 `ReplaceFileW` experiment preserved ADS in ordinary fixtures, but a
 pre-opened ADS handle could still write to the retained backup after replacement.
-An in-place write also failed to shrink a file with a mapped reader. Full SACL
-preservation has not been verified. Consequently, none of these approaches
+A generated NTFS fixture also confirmed that a writable mapped view can survive
+`ReplaceFileW` and modify the retained backup afterward; the experimental candidate
+reports recovery required when that write occurs before its post-publication
+verification. An in-place write also failed to shrink a file with a mapped reader.
+Full SACL preservation has not been verified. Consequently, none of these approaches
 currently meets the requirement to preserve arbitrary concurrent writes; do not
 enable virtual-copy publication on the basis of recovery fixtures alone.
 
