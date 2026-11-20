@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using PhotoLibrarian.ML.Services;
 using Xunit;
 
@@ -5,6 +7,28 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class OnnxSessionManagerTests
 {
+    [Fact]
+    public void CustomModelDirectory_RemainsTheRootForAutoTaggingModels()
+    {
+        var modelDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"PhotoLibrarian-{Guid.NewGuid():N}");
+        try
+        {
+            using var manager = new OnnxSessionManager(modelDirectory);
+            Assert.Equal(modelDirectory, manager.ModelDirectory);
+            Assert.True(Directory.Exists(modelDirectory));
+
+            var autoTagging = new AutoTagModelManager(manager);
+            Assert.Equal(Path.Combine(modelDirectory, "AutoTagging"), autoTagging.DefaultDirectory);
+        }
+        finally
+        {
+            if (Directory.Exists(modelDirectory))
+                Directory.Delete(modelDirectory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task RunInference_SerializesNativeInference()
     {

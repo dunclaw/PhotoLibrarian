@@ -10,6 +10,8 @@ public static class AppDataPaths
 
     public static string OriginalBackupDirectory => Path.Combine(Root, "Originals");
 
+    public static string ModelDirectory => Path.Combine(Root, "Models");
+
     public static string SettingsFile(string fileName) =>
         Path.Combine(Root, fileName);
 }

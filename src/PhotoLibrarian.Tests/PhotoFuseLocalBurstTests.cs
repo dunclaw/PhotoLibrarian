@@ -33,8 +33,7 @@ public sealed class PhotoFuseLocalBurstTests(ITestOutputHelper output)
         int accepted = 0, total = 0, previews = 0;
         bool checkedCombined = false;
         var coveredFaces = new HashSet<int>();
-        Assert.True(System.IO.Directory.Exists(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PhotoLibrarian", "Models")),
+        Assert.True(System.IO.Directory.Exists(AppDataPaths.ModelDirectory),
             "The opt-in test requires already-installed local face models; it never installs them.");
         using var models = new OnnxSessionManager();
         await new LocalFaceModelProvider(models).EnsureModelsAsync(token);

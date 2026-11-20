@@ -1,4 +1,7 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using Microsoft.ML.OnnxRuntime;
+using PhotoLibrarian.Core.Services;
 
 namespace PhotoLibrarian.ML.Services;
 
@@ -15,10 +18,7 @@ public sealed class OnnxSessionManager : IDisposable
 
     public OnnxSessionManager(string? modelDirectory = null, int gpuDeviceId = 0)
     {
-        _modelDirectory = modelDirectory ??
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PhotoLibrarian", "Models");
+        _modelDirectory = modelDirectory ?? AppDataPaths.ModelDirectory;
         _deviceId = gpuDeviceId;
         Directory.CreateDirectory(_modelDirectory);
     }
