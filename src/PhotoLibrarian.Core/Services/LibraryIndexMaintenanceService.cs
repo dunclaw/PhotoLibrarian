@@ -331,19 +331,34 @@ public sealed class LibraryIndexMaintenanceService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var entries = new List<string>();
+            var isWatchedRoot = IsRootFolder(directory, folder.Path);
+            var pathBeingRead = directory;
             try
             {
-                // Watched roots bypass the entry check below; queued directories
-                // can also become reparse points after their parent was scanned.
-                if ((_fileSystem.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+                // Check ancestors from the outside in before probing the watched
+                // root itself. Queued directories still need their own recheck.
+                IEnumerable<string> pathsToCheck = isWatchedRoot
+                    ? GetWatchedRootComponents(directory)
+                    : [directory];
+                var blocked = false;
+                foreach (var path in pathsToCheck)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    pathBeingRead = path;
+                    if ((_fileSystem.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
+                        continue;
+
                     pathsWithErrors.Add(directory);
+                    pathsWithErrors.Add(path);
                     issues.Add(new LibraryIndexMaintenanceIssue(
                         LibraryIndexMaintenanceIssueKind.ReparsePointSkipped,
-                        directory,
+                        path,
                         "Skipped a symbolic link or reparse point to avoid following an unverified location."));
-                    continue;
+                    blocked = true;
+                    break;
                 }
+                if (blocked)
+                    continue;
 
                 foreach (var entry in _fileSystem
                              .EnumerateFileSystemEntries(directory))
@@ -367,13 +382,14 @@ public sealed class LibraryIndexMaintenanceService
                 exception is UnauthorizedAccessException or IOException)
             {
                 pathsWithErrors.Add(directory);
+                pathsWithErrors.Add(pathBeingRead);
                 issues.Add(new LibraryIndexMaintenanceIssue(
                     exception is UnauthorizedAccessException
                         ? LibraryIndexMaintenanceIssueKind.AccessDenied
-                        : IsRootFolder(directory, folder.Path)
+                        : isWatchedRoot
                             ? LibraryIndexMaintenanceIssueKind.FolderUnavailable
                             : LibraryIndexMaintenanceIssueKind.FolderScanFailed,
-                    directory,
+                    pathBeingRead,
                     exception.Message));
                 continue;
             }
@@ -430,6 +446,23 @@ public sealed class LibraryIndexMaintenanceService
                 }
             }
         }
+    }
+
+    private static Stack<string> GetWatchedRootComponents(string watchedRoot)
+    {
+        var components = new Stack<string>();
+        components.Push(watchedRoot);
+        // A volume or UNC share root is the path anchor, not an ancestor
+        // directory entry. Still check it if it is itself the watched root.
+        var path = Path.GetFullPath(watchedRoot);
+        var anchorLength = Path.GetPathRoot(path)!.Length;
+        var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path));
+        while (parent is not null && parent.Length > anchorLength)
+        {
+            components.Push(parent);
+            parent = Path.GetDirectoryName(parent);
+        }
+        return components;
     }
 
     private async Task<HashSet<string>> RepairUniqueMovesAsync(
