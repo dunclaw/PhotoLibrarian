@@ -106,6 +106,74 @@ public sealed class VideoEditingTests : IDisposable
         Assert.NotEqual(second, VideoEditingService.GetAvailableOutputPath(Source));
     }
 
+    [Theory]
+    [InlineData(50, 2.0, 220)]
+    [InlineData(75, 4.0 / 3.0, 330)]
+    public async Task SlowMotionKeepsAudioSynchronizedAndExportsThePreparedPreview(
+        int playbackSpeedPercent, double expectedDurationSeconds, int expectedToneFrequency)
+    {
+        await CreateFixtureAsync(0, withAudio: true);
+        byte[] sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(Source, Token));
+        using var editing = await VideoEditingService.CreateAsync(Source,
+            new(TrimStart: TimeSpan.FromSeconds(0.5), TrimEnd: TimeSpan.FromSeconds(1.5),
+                PlaybackSpeedPercent: playbackSpeedPercent), Token);
+
+        Assert.InRange(editing.Duration.TotalSeconds, expectedDurationSeconds - 0.01, expectedDurationSeconds + 0.01);
+        await editing.PreparePreviewAsync(token: Token);
+        var preview = await StorageFile.GetFileFromPathAsync(editing.PreviewPath!);
+        var previewProperties = await preview.Properties.GetVideoPropertiesAsync();
+        Assert.InRange(previewProperties.Duration.TotalSeconds,
+            expectedDurationSeconds - 0.1, expectedDurationSeconds + 0.1);
+        byte[] previewHash = SHA256.HashData(await File.ReadAllBytesAsync(editing.PreviewPath!, Token));
+
+        await editing.ExportAsync(Output, Token);
+        Assert.Equal(previewHash, SHA256.HashData(await File.ReadAllBytesAsync(Output, Token)));
+        var outputFile = await StorageFile.GetFileFromPathAsync(Output);
+        var outputProfile = await MediaEncodingProfile.CreateFromFileAsync(outputFile);
+        Assert.Equal(24u, outputProfile.Video.FrameRate.Numerator / outputProfile.Video.FrameRate.Denominator);
+        Assert.NotNull(outputProfile.Audio);
+        var outputProperties = await outputFile.Properties.GetVideoPropertiesAsync();
+        Assert.InRange(outputProperties.Duration.TotalSeconds,
+            expectedDurationSeconds - 0.1, expectedDurationSeconds + 0.1);
+
+        using (var reader = new MediaFoundationFrameReader(Output, 192, 128, includeAudio: true))
+        {
+            long lastVideoEnd = 0;
+            while (reader.Read(video: true, Token) is { } frame)
+                lastVideoEnd = frame.Timestamp + frame.Duration;
+            Assert.InRange(TimeSpan.FromTicks(lastVideoEnd).TotalSeconds,
+                expectedDurationSeconds - 0.1, expectedDurationSeconds + 0.1);
+
+            long lastAudioEnd = 0;
+            long energy = 0;
+            long samples = 0;
+            int crossings = 0;
+            int previous = 0;
+            while (reader.Read(video: false, Token) is { } audio)
+            {
+                lastAudioEnd = audio.Timestamp + audio.Duration;
+                for (int offset = 0; offset < audio.Data.Length; offset += checked((int)reader.AudioChannels * 2))
+                {
+                    short value = BitConverter.ToInt16(audio.Data, offset);
+                    energy += (long)value * value;
+                    if (previous < 0 && value >= 0) crossings++;
+                    previous = value;
+                    samples++;
+                }
+            }
+
+            Assert.InRange(TimeSpan.FromTicks(lastAudioEnd).TotalSeconds,
+                expectedDurationSeconds - 0.1, expectedDurationSeconds + 0.1);
+            Assert.InRange(Math.Abs(TimeSpan.FromTicks(lastVideoEnd - lastAudioEnd).TotalSeconds), 0, 0.1);
+            Assert.InRange(Math.Sqrt(energy / (double)samples), 1500, 4000);
+            double audioDuration = samples / (double)reader.AudioRate;
+            Assert.InRange(crossings / audioDuration, expectedToneFrequency - 25, expectedToneFrequency + 25);
+        }
+
+        Assert.Equal(sourceHash, SHA256.HashData(await File.ReadAllBytesAsync(Source, Token)));
+        AssertNoTemporaryFiles();
+    }
+
     [Fact]
     public async Task BrightnessContrastPreviewAndExportMatchAndPreserveSourceMetadata()
     {
@@ -320,6 +388,8 @@ public sealed class VideoEditingTests : IDisposable
             VideoEditingService.CreateAsync(Source, new(Brightness: 101), Token));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             VideoEditingService.CreateAsync(Source, new(Contrast: 201), Token));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            VideoEditingService.CreateAsync(Source, new(PlaybackSpeedPercent: 60), Token));
         string invalid = Path.Combine(_directory, "invalid.mp4");
         File.WriteAllText(invalid, "not media");
         await Assert.ThrowsAnyAsync<Exception>(() => VideoEditingService.CreateAsync(invalid, new(1), Token));

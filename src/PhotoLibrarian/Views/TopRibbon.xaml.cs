@@ -138,6 +138,7 @@ public sealed partial class TopRibbon : UserControl
         _videoRotationQuarterTurns = 0;
         BrightnessSlider.Value = 0;
         ContrastSlider.Value = 100;
+        VideoEditSpeedBox.SelectedIndex = 2;
         RemoveAudioBox.IsChecked = false;
         StabilizeVideoButton.IsChecked = false;
         TrimVideoButton.IsChecked = false;
@@ -175,13 +176,21 @@ public sealed partial class TopRibbon : UserControl
 
     public bool TryGetVideoEditOptions(out VideoEditOptions options)
     {
+        if (VideoEditSpeedBox.SelectedItem is not ComboBoxItem { Tag: string speedTag } ||
+            !int.TryParse(speedTag, NumberStyles.None, CultureInfo.InvariantCulture, out int playbackSpeedPercent) ||
+            playbackSpeedPercent is not (50 or 75 or 100))
+        {
+            options = new();
+            return false;
+        }
         StabilizationOptions? stabilization = StabilizeVideoButton.IsChecked == true
             ? new(VideoAutoCropBox.IsChecked == true,
                 (StabilizationSmoothness)Math.Clamp(VideoSmoothnessBox.SelectedIndex, 0, 2),
                 VideoCorrectRotationBox.IsChecked == true, VideoLockFrameBox.IsChecked == true)
             : null;
         options = new(_videoRotationQuarterTurns, RemoveAudioBox.IsChecked == true,
-            (int)BrightnessSlider.Value, (int)ContrastSlider.Value, stabilization);
+            (int)BrightnessSlider.Value, (int)ContrastSlider.Value, stabilization,
+            PlaybackSpeedPercent: playbackSpeedPercent);
         if (TrimVideoButton.IsChecked != true) return true;
         if (_videoTrimInfo is not { } info) return false;
         double start = VideoTrimRange.RangeStart / info.FramesPerSecond;
@@ -211,6 +220,7 @@ public sealed partial class TopRibbon : UserControl
         VideoTrimRange.IsEnabled = editable;
         BrightnessSlider.IsEnabled = editable;
         ContrastSlider.IsEnabled = editable;
+        VideoEditSpeedBox.IsEnabled = editable;
         RotateVideoLeftButton.IsEnabled = editable;
         ResetRotationButton.IsEnabled = editable;
         RotateVideoRightButton.IsEnabled = editable;
@@ -245,6 +255,7 @@ public sealed partial class TopRibbon : UserControl
     public bool HasVideoEditChanges =>
         _videoRotationQuarterTurns != 0 || RemoveAudioBox.IsChecked == true ||
         BrightnessSlider.Value != 0 || ContrastSlider.Value != 100 ||
+        VideoEditSpeedBox.SelectedIndex != 2 ||
         StabilizeVideoButton.IsChecked == true || TrimVideoButton.IsChecked == true;
 
     private void OnVideoTrimChanged(object sender, RoutedEventArgs args)
@@ -287,6 +298,9 @@ public sealed partial class TopRibbon : UserControl
         NotifyVideoEditOptionsChanged();
 
     private void OnVideoEditSliderChanged(object sender, RangeBaseValueChangedEventArgs args) =>
+        NotifyVideoEditOptionsChanged();
+
+    private void OnVideoEditSpeedChanged(object sender, SelectionChangedEventArgs args) =>
         NotifyVideoEditOptionsChanged();
 
     private void OnVideoEditAudioChanged(object sender, RoutedEventArgs args) =>

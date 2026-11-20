@@ -19,7 +19,10 @@ Everything runs locally inside PhotoLibrarian.
 Preview preparation runs in the background with percentage progress and cancellation.
 Changing an edit cancels the obsolete preparation and rebuilds after a short
 pause; it does not require pressing a separate Prepare button. Stabilization
-composes with brightness, contrast, rotation, audio removal and trimming.
+composes with brightness, contrast, rotation, playback speed, audio removal and trimming.
+The **Playback speed** selector also makes 0.5× and 0.75× slow-motion copies.
+The source frames are retimed without generated in-between frames; audio remains
+synchronized and slows to a lower pitch unless you explicitly remove it.
 Toggle **Trim** to show a single range bar directly in the same toolbar row.
 Drag its left handle inward to set the start and its right handle inward to set
 the end; read-only in/out time labels show the selected boundaries. The handles
@@ -118,8 +121,10 @@ CPU cores. On a 32-core test machine, a 16-second 4K clip exports in about 25 s
 and a 51-second 4K clip in about 66 s. Progress shows analysis as the first
 30%.
 
-A `MediaStreamSource` feeds the rendered frames and their source timestamps/durations
-to Windows' H.264/AAC MP4 encoder. Only a few full-size frames are held in memory, not the
+A `MediaStreamSource` feeds the rendered frames and their retimed timestamps/durations
+to Windows' H.264/AAC MP4 encoder. For slow motion, PCM audio uses the correspondingly
+slower sample clock so it stays aligned with video; no pitch correction or frame
+interpolation is applied. Only a few full-size frames are held in memory, not the
 entire clip. The decoding bindings
 ([Vortice.MediaFoundation](https://github.com/amerkoleci/Vortice.Windows), MIT)
 and their managed dependencies ship automatically with the app on x64 and

@@ -100,7 +100,7 @@ public sealed class VideoWorkflowTests
 
         var editTools = ribbon.Descendants().Single(element => (string?)element.Attribute(x + "Name") == "VideoEditTools");
         var editControls = editTools.Descendants()
-            .Where(element => element.Name.LocalName is "AppBarButton" or "AppBarToggleButton" or "Slider").ToList();
+            .Where(element => element.Name.LocalName is "AppBarButton" or "AppBarToggleButton" or "Slider" or "ComboBox").ToList();
         var resources = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "Resources.resw"))
             .Descendants("data").Select(element => (string)element.Attribute("name")!).ToHashSet();
         foreach (var control in editControls)
@@ -143,9 +143,17 @@ public sealed class VideoWorkflowTests
         Assert.Equal("True", (string?)checkBoxes["StabilizationAutoCrop"].Attribute("IsChecked"));
         Assert.Equal("True", (string?)checkBoxes["StabilizationRotation"].Attribute("IsChecked"));
         Assert.Null(checkBoxes["StabilizationLockFrame"].Attribute("IsChecked"));
-        var smoothness = Assert.Single(videoTools.Descendants(presentation + "ComboBox"));
+        var smoothness = Assert.Single(videoTools.Descendants(presentation + "ComboBox").Where(element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "StabilizationSmoothness"));
         Assert.Equal("StabilizationSmoothness", (string?)smoothness.Attribute("AutomationProperties.AutomationId"));
         Assert.Equal("1", (string?)smoothness.Attribute("SelectedIndex"));
+
+        var speed = Assert.Single(content.Descendants(presentation + "ComboBox").Where(element =>
+            (string?)element.Attribute("AutomationProperties.AutomationId") == "VideoEditSpeed"));
+        Assert.Equal("2", (string?)speed.Attribute("SelectedIndex"));
+        Assert.Equal(["50", "75", "100"], speed.Elements(presentation + "ComboBoxItem")
+            .Select(element => (string?)element.Attribute("Tag")).ToArray());
+        Assert.Contains(resources, key => key == "VideoEditSpeedLabel.Text");
 
         var trimRange = Assert.Single(content.Descendants().Where(element =>
             element.Name.LocalName == "RangeSelector"));

@@ -13,7 +13,8 @@ public sealed record VideoEditOptions(
     int Contrast = 100,
     StabilizationOptions? Stabilization = null,
     TimeSpan? TrimStart = null,
-    TimeSpan? TrimEnd = null);
+    TimeSpan? TrimEnd = null,
+    int PlaybackSpeedPercent = 100);
 
 /// <summary>Prepares one local MP4; preview and save use those exact bytes.</summary>
 public sealed class VideoEditingService : IDisposable
@@ -32,11 +33,12 @@ public sealed class VideoEditingService : IDisposable
     public string? PreviewPath { get; private set; }
 
     private VideoEditingService(
-        StorageFile source, TimeSpan duration, MediaEncodingProfile profile, VideoEditOptions options)
+        StorageFile source, TimeSpan sourceDuration, TimeSpan duration,
+        MediaEncodingProfile profile, VideoEditOptions options)
     {
         _source = source;
-        _sourceDuration = duration;
-        Duration = (options.TrimEnd ?? duration) - (options.TrimStart ?? TimeSpan.Zero);
+        _sourceDuration = sourceDuration;
+        Duration = duration;
         _profile = profile;
         _options = options;
     }
@@ -51,6 +53,9 @@ public sealed class VideoEditingService : IDisposable
             throw new ArgumentOutOfRangeException(nameof(options), "Brightness must be between -100 and 100.");
         if (options.Contrast is < 0 or > 200)
             throw new ArgumentOutOfRangeException(nameof(options), "Contrast must be between 0 and 200.");
+        if (options.PlaybackSpeedPercent is not (50 or 75 or 100))
+            throw new ArgumentOutOfRangeException(nameof(options),
+                "Playback speed must be 50, 75, or 100 percent.");
         token.ThrowIfCancellationRequested();
         var source = await StorageFile.GetFileFromPathAsync(sourcePath).AsTask(token);
         var input = await MediaEncodingProfile.CreateFromFileAsync(source).AsTask(token);
@@ -64,12 +69,18 @@ public sealed class VideoEditingService : IDisposable
                 properties.Duration, framesPerSecond);
             options = options with { TrimStart = selection.Start, TrimEnd = selection.End };
         }
+        double durationTicks = ((options.TrimEnd ?? properties.Duration) -
+                                (options.TrimStart ?? TimeSpan.Zero)).Ticks *
+                               (100d / options.PlaybackSpeedPercent);
+        if (!double.IsFinite(durationTicks) || durationTicks > TimeSpan.MaxValue.Ticks)
+            throw new ArgumentOutOfRangeException(nameof(options), "The edited video duration is too long.");
+        var editedDuration = TimeSpan.FromTicks((long)Math.Round(durationTicks));
         // MP4 rotation is standard track metadata, not a resampling of the source pixels.
         // Keep encoded dimensions and aspect ratio; compose with the existing orientation.
         profile.Video.Properties[RotationKey] = ((uint)properties.Orientation + (uint)options.ClockwiseQuarterTurns * 90) % 360;
         if (options.RemoveAudio)
             profile.Audio = null;
-        return new VideoEditingService(source, properties.Duration, profile, options);
+        return new VideoEditingService(source, properties.Duration, editedDuration, profile, options);
     }
 
     public Task PreparePreviewAsync(IProgress<double>? progress = null,
@@ -99,7 +110,8 @@ public sealed class VideoEditingService : IDisposable
             using (var input = new WindowsStabilizedVideoSource(
                        _source.Path, _profile, _sourceDuration, stabilizer, corrections, token,
                        _options.Brightness, _options.Contrast,
-                       _options.TrimStart ?? TimeSpan.Zero, _options.TrimEnd))
+                       _options.TrimStart ?? TimeSpan.Zero, _options.TrimEnd,
+                       _options.PlaybackSpeedPercent))
             using (var fileStream = new FileStream(_stagingPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
                 _ownsStagingFile = true;
