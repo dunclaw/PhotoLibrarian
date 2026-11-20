@@ -19,6 +19,15 @@ Do not use exceptions for normal flow control. Expected validation outcomes, uns
 - Keep writes local, portable, and non-destructive. Use the existing transaction and backup mechanisms where applicable, verify round trips with generated fixtures, and do not rely on the cache database as the sole source of portable metadata.
 
 
+## Cross-feature consistency
+
+- Before introducing a pattern, inspect comparable workflows, their callers and tests, and existing shared services, controls, and styles. Start with the [architecture map](../README.md#cross-feature-architecture-map); update it when ownership changes.
+- For metadata, backups, history, rendering, navigation, dialogs, notifications, progress/cancellation, settings, localization, and pickers, extend the shared owner where one exists. Keep operations and policy in services, not view/window code-behind; do not duplicate persistence or lifecycle logic. Reuse first; extract for a demonstrated shared need, not for speculative reuse or an unrelated rewrite.
+- When implementations compete, check repository guidance and actual callers rather than assuming the newest or closest one is canonical. Ask before choosing a direction that materially changes architecture or UX. Flag unrelated inconsistencies separately; get agreement before changing app-wide conventions.
+- Fit commands into the surrounding workflow: match placement, typography, spacing, icons, labels, and interaction conventions. Prefer contextual commands over controls visible in unrelated modes. Check the overall workflow before adding toolbars, permanent rows, global commands, or navigation surfaces. Preserve keyboard, focus, selection, and back/close behavior.
+- Follow the host workflow's confirmation, error, partial-success, progress, and cancellation conventions. Use existing resource-backed strings and presentation paths rather than creating feature-local infrastructure.
+- Verify shared callers and neighboring workflows, not just the changed feature. For UI changes, check relevant window sizes and themes and say explicitly if visual verification was not performed.
+
 ## Build, toolchains and packages
 
 - Prefer standard Visual Studio VC/MSBuild projects, project references and native build items. Avoid CMake and custom build scripts where standard constructs suffice; any unavoidable upstream generator or acquisition tooling must be narrowly scoped and documented, not hide application compilation.
