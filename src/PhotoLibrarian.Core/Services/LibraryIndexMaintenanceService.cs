@@ -333,6 +333,18 @@ public sealed class LibraryIndexMaintenanceService
             var entries = new List<string>();
             try
             {
+                // Watched roots bypass the entry check below; queued directories
+                // can also become reparse points after their parent was scanned.
+                if ((_fileSystem.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+                {
+                    pathsWithErrors.Add(directory);
+                    issues.Add(new LibraryIndexMaintenanceIssue(
+                        LibraryIndexMaintenanceIssueKind.ReparsePointSkipped,
+                        directory,
+                        "Skipped a symbolic link or reparse point to avoid following an unverified location."));
+                    continue;
+                }
+
                 foreach (var entry in _fileSystem
                              .EnumerateFileSystemEntries(directory))
                 {
