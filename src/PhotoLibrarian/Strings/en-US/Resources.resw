@@ -606,6 +606,12 @@ Backup: {3}
   <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video brightness</value></data>
   <data name="VideoEditContrastLabel.Text" xml:space="preserve"><value>Contrast</value></data>
   <data name="VideoEditContrastSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video contrast</value></data>
+  <data name="VideoEditSpeedLabel.Text" xml:space="preserve"><value>Playback speed</value></data>
+  <data name="VideoEditSpeed.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Export playback speed</value></data>
+  <data name="VideoEditSpeed.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Choose the speed of the exported copy. Audio stays synchronized and slows in pitch; frames are retimed without interpolation.</value></data>
+  <data name="VideoEditSpeedHalf.Content" xml:space="preserve"><value>0.5×</value></data>
+  <data name="VideoEditSpeedThreeQuarter.Content" xml:space="preserve"><value>0.75×</value></data>
+  <data name="VideoEditSpeedNormal.Content" xml:space="preserve"><value>1×</value></data>
   <data name="VideoEditPrepare.Label" xml:space="preserve"><value>Retry preview</value></data>
   <data name="VideoEditExport.Label" xml:space="preserve"><value>Export copy</value></data>
   <data name="VideoEditExit.Label" xml:space="preserve"><value>Reset edits</value></data>

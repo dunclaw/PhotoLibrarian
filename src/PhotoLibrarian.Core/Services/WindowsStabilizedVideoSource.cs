@@ -24,6 +24,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
     private readonly long _trimStart;
     private readonly long _trimEnd;
     private readonly bool _isTrimming;
+    private readonly double _playbackTimeScale;
     private int _frameIndex;
     private bool _disposed;
 
@@ -34,9 +35,12 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
         string sourcePath, MediaEncodingProfile profile, TimeSpan duration,
         VideoFrameStabilizer? stabilizer, IReadOnlyList<VideoFrameStabilizer.Correction> corrections,
         CancellationToken cancellationToken, int brightness = 0, int contrast = 100,
-        TimeSpan trimStart = default, TimeSpan? trimEnd = null)
+        TimeSpan trimStart = default, TimeSpan? trimEnd = null, int playbackSpeedPercent = 100)
     {
+        if (playbackSpeedPercent is not (50 or 75 or 100))
+            throw new ArgumentOutOfRangeException(nameof(playbackSpeedPercent));
         _cancellationToken = cancellationToken;
+        _playbackTimeScale = 100d / playbackSpeedPercent;
         _stabilizer = stabilizer;
         _corrections = corrections;
         _brightness = brightness;
@@ -64,7 +68,11 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
             var videoDescriptor = new VideoStreamDescriptor(video);
             if (profile.Audio is not null)
             {
-                var audio = AudioEncodingProperties.CreatePcm(_reader.AudioRate, _reader.AudioChannels, 16);
+                uint slowedAudioRate = checked((uint)Math.Round(
+                    _reader.AudioRate * (playbackSpeedPercent / 100d)));
+                if (slowedAudioRate == 0)
+                    throw new NotSupportedException("The selected playback speed is not supported by this audio track.");
+                var audio = AudioEncodingProperties.CreatePcm(slowedAudioRate, _reader.AudioChannels, 16);
                 StreamSource = new MediaStreamSource(videoDescriptor, new AudioStreamDescriptor(audio));
             }
             else
@@ -72,7 +80,8 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                 StreamSource = new MediaStreamSource(videoDescriptor);
             }
             StreamSource.BufferTime = TimeSpan.Zero;
-            StreamSource.Duration = (trimEnd ?? duration) - trimStart;
+            long sourceDuration = ((trimEnd ?? duration) - trimStart).Ticks;
+            StreamSource.Duration = TimeSpan.FromTicks(ScaleTicks(sourceDuration));
             StreamSource.Starting += OnStarting;
             StreamSource.SampleRequested += OnSampleRequested;
         }
@@ -139,6 +148,11 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                     }
                     break;
                 }
+                sample = sample with
+                {
+                    Timestamp = ScaleTicks(sample.Timestamp),
+                    Duration = ScaleTicks(sample.Duration)
+                };
                 byte[] data = sample.Data;
                 if (isVideo && _stabilizer is not null)
                 {
@@ -157,6 +171,14 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                 sender.NotifyError(MediaStreamSourceErrorStatus.Other);
             }
         }
+    }
+
+    private long ScaleTicks(long ticks)
+    {
+        double scaled = ticks * _playbackTimeScale;
+        if (!double.IsFinite(scaled) || scaled > long.MaxValue || scaled < long.MinValue)
+            throw new InvalidDataException("A video sample timestamp exceeds the supported duration.");
+        return checked((long)Math.Round(scaled));
     }
 
     public void Dispose()

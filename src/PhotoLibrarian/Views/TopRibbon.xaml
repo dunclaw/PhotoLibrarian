@@ -224,6 +224,17 @@
                                     Value="100" ValueChanged="OnVideoEditSliderChanged"
                                     AutomationProperties.AutomationId="VideoEditContrast" />
                         </StackPanel>
+                        <StackPanel Width="112" Spacing="4">
+                            <TextBlock x:Uid="VideoEditSpeedLabel"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                            <ComboBox x:Name="VideoEditSpeedBox" x:Uid="VideoEditSpeed"
+                                      SelectedIndex="2" SelectionChanged="OnVideoEditSpeedChanged"
+                                      AutomationProperties.AutomationId="VideoEditSpeed">
+                                <ComboBoxItem x:Uid="VideoEditSpeedHalf" Tag="50" />
+                                <ComboBoxItem x:Uid="VideoEditSpeedThreeQuarter" Tag="75" />
+                                <ComboBoxItem x:Uid="VideoEditSpeedNormal" Tag="100" />
+                            </ComboBox>
+                        </StackPanel>
                         <StackPanel x:Name="VideoTrimControls" Width="256"
                                     Visibility="Collapsed">
                             <Grid>
