@@ -1,5 +1,6 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Services;
+using System.IO.MemoryMappedFiles;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Xunit;
@@ -122,6 +123,45 @@ public sealed class RecoveryBasedFileReplacementCandidateTests : IDisposable
         Assert.Equal(before, await File.ReadAllBytesAsync(backup));
         Assert.Equal("before", (await File.ReadAllTextAsync(source + ":review")).Trim());
         Assert.Equal("during", (await File.ReadAllTextAsync(backup + ":review")).Trim());
+        Assert.True(File.Exists(manifestPath));
+        Assert.Equal(RecoveryBasedRecoveryStatus.Conflict,
+            (await RecoveryBasedFileReplacementCandidate.InspectAsync(manifestPath)).Status);
+    }
+
+    [Fact]
+    public async Task WritableMappedViewAcrossReplacementCanModifyRetainedBackup()
+    {
+        var source = Path.Combine(_directory, "source.bin");
+        var replacement = Path.Combine(_directory, "replacement.bin");
+        var backup = Path.Combine(_directory, "recovery", "source.before.bin");
+        var manifestPath = Path.Combine(_directory, "recovery", "publication.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+        byte[] before = [1, 2, 3, 4];
+        byte[] after = [5, 6, 7, 8];
+        await File.WriteAllBytesAsync(source, before);
+        await File.WriteAllBytesAsync(replacement, after);
+        RecoveryBasedPublicationResult result;
+        {
+            await using var openedSource = new FileStream(
+                source, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+            using var mappedFile = MemoryMappedFile.CreateFromFile(
+                openedSource, null, 0, MemoryMappedFileAccess.ReadWrite,
+                HandleInheritability.None, leaveOpen: true);
+            using var mappedView = mappedFile.CreateViewAccessor(
+                0, 0, MemoryMappedFileAccess.ReadWrite);
+
+            result = await RecoveryBasedFileReplacementCandidate.PublishWithPostReplaceObserverAsync(
+                source, replacement, backup, manifestPath,
+                Convert.ToHexString(SHA256.HashData(before)), () =>
+                {
+                    mappedView.Write(0, (byte)9);
+                    mappedView.Flush();
+                });
+        }
+
+        Assert.Equal(RecoveryBasedPublicationStatus.RecoveryRequired, result.Status);
+        Assert.Equal(after, await File.ReadAllBytesAsync(source));
+        Assert.Equal(new byte[] { 9, 2, 3, 4 }, await File.ReadAllBytesAsync(backup));
         Assert.True(File.Exists(manifestPath));
         Assert.Equal(RecoveryBasedRecoveryStatus.Conflict,
             (await RecoveryBasedFileReplacementCandidate.InspectAsync(manifestPath)).Status);
