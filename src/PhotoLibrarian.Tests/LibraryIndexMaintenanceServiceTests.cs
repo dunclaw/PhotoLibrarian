@@ -788,6 +788,105 @@ public sealed class LibraryIndexMaintenanceServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(LibraryIndexMaintenanceIssueKind.ReparsePointSkipped, false)]
+    [InlineData(LibraryIndexMaintenanceIssueKind.ReparsePointSkipped, true)]
+    [InlineData(LibraryIndexMaintenanceIssueKind.AccessDenied, false)]
+    [InlineData(LibraryIndexMaintenanceIssueKind.FolderUnavailable, true)]
+    public async Task Reconcile_UnverifiedWatchedAncestorRetainsEntriesAndCanRetry(
+        LibraryIndexMaintenanceIssueKind expectedIssue,
+        bool changesBeforeCleanup)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var ancestor = Path.Combine(root, "ancestor");
+            var intermediate = Path.Combine(ancestor, "intermediate");
+            var watched = Path.Combine(intermediate, "watched");
+            Directory.CreateDirectory(watched);
+            var blockAncestor = !changesBeforeCleanup;
+            var inspectedBelowBlockedAncestor = false;
+            var scans = 0;
+            var fileSystem = new CallbackFileSystem(
+                (path, _) =>
+                {
+                    if (path == watched)
+                        scans++;
+                },
+                path =>
+                {
+                    if (blockAncestor && (path == intermediate || path == watched))
+                        inspectedBelowBlockedAncestor = true;
+                    if (blockAncestor && path == ancestor)
+                    {
+                        return expectedIssue switch
+                        {
+                            LibraryIndexMaintenanceIssueKind.ReparsePointSkipped =>
+                                FileAttributes.Directory | FileAttributes.ReparsePoint,
+                            LibraryIndexMaintenanceIssueKind.AccessDenied =>
+                                throw new UnauthorizedAccessException("Synthetic ancestor access denial."),
+                            _ => throw new DirectoryNotFoundException("Synthetic unavailable ancestor.")
+                        };
+                    }
+                    return File.GetAttributes(path);
+                });
+            using var library = await TestLibrary.CreateAsync(root, fileSystem);
+            await library.AddWatchedFolderAsync(watched);
+            var missingPath = Path.Combine(watched, "missing.png");
+            var retainedPath = Path.Combine(watched, "metadata.png");
+            var availablePath = Path.Combine(watched, "available.png");
+            await WicTestImage.CreateAsync(missingPath, 16, 12);
+            await WicTestImage.CreateAsync(retainedPath, 18, 12);
+            await WicTestImage.CreateAsync(availablePath, 20, 12);
+            await library.IndexAsync(missingPath);
+            await library.IndexAsync(retainedPath);
+            var retained = (await library.Images.GetByPathAsync(retainedPath))!;
+            await SeedDatabaseOnlyStateAsync(library, retained.Id);
+            File.Delete(missingPath);
+            File.Delete(retainedPath);
+            var originalBytes = await File.ReadAllBytesAsync(availablePath);
+            var retainedSidecar = FaceMetadataStore.GetSidecarPathForImage(retainedPath);
+            const string sidecarContents = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" />";
+            await File.WriteAllTextAsync(retainedSidecar, sidecarContents);
+            var progress = new InlineProgress<LibraryIndexMaintenanceProgress>(update =>
+            {
+                if (changesBeforeCleanup &&
+                    update.Stage == LibraryIndexMaintenanceStage.IndexingFiles &&
+                    update.Current == 1)
+                    blockAncestor = true;
+            });
+
+            var blocked = await library.Maintenance.ReconcileAsync(progress);
+
+            Assert.False(blocked.Succeeded);
+            Assert.Contains(blocked.Issues, issue =>
+                issue.Kind == expectedIssue && issue.Path == ancestor);
+            Assert.False(inspectedBelowBlockedAncestor);
+            Assert.Equal(changesBeforeCleanup ? 1 : 0, scans);
+            Assert.Equal(changesBeforeCleanup ? 2 : 0, blocked.ConfirmedMissingFiles);
+            Assert.Equal(0, blocked.RemovedFiles);
+            Assert.NotNull(await library.Images.GetByPathAsync(missingPath));
+            Assert.Equal(retained.Id, (await library.Images.GetByPathAsync(retainedPath))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, retained.Id));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(availablePath));
+            Assert.Equal(sidecarContents, await File.ReadAllTextAsync(retainedSidecar));
+
+            blockAncestor = false;
+            var retried = await library.Maintenance.ReconcileAsync();
+
+            Assert.Equal(1, retried.RemovedFiles);
+            Assert.Null(await library.Images.GetByPathAsync(missingPath));
+            Assert.Equal(retained.Id, (await library.Images.GetByPathAsync(retainedPath))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, retained.Id));
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(availablePath));
+            Assert.Equal(sidecarContents, await File.ReadAllTextAsync(retainedSidecar));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Reconcile_DirectoryBecomingReparsePointAfterDiscoveryIsNotTraversed()
     {
