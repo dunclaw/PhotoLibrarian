@@ -1,3 +1,5 @@
+// Copyright (c) Duncan Lawler. All Rights Reserved.
+
 using System.Reflection;
 using PhotoLibrarian.ML.Services;
 using PhotoLibrarian.ViewModels;
@@ -7,6 +9,27 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class PeopleReviewViewModelTests
 {
+    [Theory]
+    [InlineData("OnHidePersonClick", "OnRenamePersonClick", "Hide suggestions", "HideCurrentPersonAsync")]
+    [InlineData("OnDeletePersonClick", "OnRestoreFacesClick", "Delete person", "DeletePersonAsync")]
+    public void PeopleConfirmationsUseSharedDestructiveDialogAndOnlyPrimaryProceeds(
+        string method, string nextMethod, string actionLabel, string action)
+    {
+        var source = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "TestAssets", "PeopleReviewView.xaml.cs"));
+        var start = source.IndexOf($"void {method}(", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        var end = source.IndexOf($"void {nextMethod}(", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        var confirmation = source[start..end];
+        Assert.Contains("DialogService.Instance.ConfirmDestructiveAsync(", confirmation);
+        Assert.Contains($"\"{actionLabel}\"", confirmation);
+        Assert.Contains("\"Cancel\"", confirmation);
+        Assert.Contains("if (result != ContentDialogResult.Primary) return;", confirmation);
+        Assert.Contains(action, confirmation);
+        Assert.DoesNotContain("new ContentDialog", confirmation);
+    }
+
     [Fact]
     public void ResolveGroupAfterRefresh_PrefersTheGroupWithTheCurrentFaceSelection()
     {
