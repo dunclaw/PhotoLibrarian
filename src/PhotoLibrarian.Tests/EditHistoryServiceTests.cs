@@ -118,7 +118,9 @@ public sealed class EditHistoryServiceTests
         await history.ExecuteAsync("Effect", () => Task.FromResult(Applied),
             _ => Task.FromResult(Applied), () =>
             {
-                var inspection = Task.Run(() => history.CanUndo);
+                var inspection = Task.Factory.StartNew(
+                    () => history.CanUndo, CancellationToken.None,
+                    TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 Assert.True(inspection.Wait(TimeSpan.FromSeconds(5)));
                 released = true;
             });
