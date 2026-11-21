@@ -66,6 +66,18 @@ history are not modified. There is no automatic whole-cache backup for this
 incremental cleanup; a destructive rebuild and its recovery design remain out
 of scope.
 
+The core snapshot API provides a building block for that future workflow. It
+uses SQLite's backup API to include committed WAL data, checks the resulting
+database, and never overwrites an existing destination. Recovery creates a
+separate new file; it does not replace the live cache. Failed or cancelled
+copies may leave an incomplete file at the reported destination and must not
+be treated as a backup. Cancellation is observed before and after the
+synchronous SQLite copy, not during it. No Settings command currently invokes
+this API, and it does not coordinate live index writers or make a rebuild safe.
+In particular, old cache-only state and pending people exports require
+preservation, and unavailable folders cannot be reconstructed from their
+photos until those folders are accessible.
+
 ## Incremental recognition
 
 Startup still enumerates watched files to discover additions and ordinary external

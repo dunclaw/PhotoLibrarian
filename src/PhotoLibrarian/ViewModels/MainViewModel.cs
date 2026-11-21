@@ -1452,7 +1452,7 @@ public partial class MainViewModel : ObservableObject
         _isShuttingDown = true;
         await AutoTagReview.ShutdownAsync();
         await MetadataPanel.StopVideoMetadataReadsAsync();
-        _watchedChanges.Dispose();
+        await _watchedChanges.DisposeAsync();
         _scanner.WatcherError -= OnWatcherError;
         _indexingCts?.Cancel();
         _indexingCts?.Dispose();
