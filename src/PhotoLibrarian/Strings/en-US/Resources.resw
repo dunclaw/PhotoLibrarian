@@ -740,6 +740,7 @@ Backup: {3}
   <data name="PhotoImportDeviceButton.Content" xml:space="preserve"><value>Import</value></data>
   <data name="PhotoImportDeviceButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Review photos from the detected device</value></data>
   <data name="PhotoImportDeviceScanFailed" xml:space="preserve"><value>Could not check removable devices: {0}</value></data>
+  <data name="PhotoImportWorkflowFailed" xml:space="preserve"><value>The photo import workflow failed: {0} Check the source and destination before retrying.</value></data>
   <data name="PhotoImportDeleteConfirmTitle" xml:space="preserve"><value>Delete verified originals from the source?</value></data>
   <data name="PhotoImportDeleteConfirmContent" xml:space="preserve"><value>{0:N0} imported item(s) passed copy verification and were indexed. Deletion is permanent on most cameras and cards, not sent to the Recycle Bin. The source and destination will be checked again; changed, missing, or unverified files will be preserved.</value></data>
   <data name="PhotoImportDeleteConfirmButton" xml:space="preserve"><value>Delete verified originals</value></data>
