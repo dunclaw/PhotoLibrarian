@@ -6,7 +6,7 @@ using PhotoLibrarian.Core.Models;
 namespace PhotoLibrarian.Core.Services;
 
 /// <summary>Coalesces filesystem notifications and updates only the affected library records.</summary>
-public sealed class WatchedFolderChangeService : IDisposable
+public sealed class WatchedFolderChangeService : IDisposable, IAsyncDisposable
 {
     private readonly FolderScannerService _scanner;
     private readonly LibraryIndexingService _indexer;
@@ -18,6 +18,7 @@ public sealed class WatchedFolderChangeService : IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Timer _timer;
     private bool _processing;
+    private TaskCompletionSource? _processingCompletion;
     private bool _disposed;
     private int _suspendCount;
 
@@ -147,6 +148,7 @@ public sealed class WatchedFolderChangeService : IDisposable
         {
             if (_disposed || _processing || _suspendCount > 0) return;
             _processing = true;
+            _processingCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
         try
@@ -256,6 +258,7 @@ public sealed class WatchedFolderChangeService : IDisposable
                 _processing = false;
                 if (!_disposed && (_pending.Count > 0 || _pendingDirectories.Count > 0))
                     _timer.Change(_quietPeriod, Timeout.InfiniteTimeSpan);
+                _processingCompletion!.TrySetResult();
             }
         }
 
@@ -329,6 +332,16 @@ public sealed class WatchedFolderChangeService : IDisposable
             _pending.Clear();
             _pendingDirectories.Clear();
         }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+        Task? processing;
+        lock (_sync)
+            processing = _processingCompletion?.Task;
+        if (processing is not null)
+            await processing.ConfigureAwait(false);
     }
 
     public sealed class WatchedLibraryChangedEventArgs(
