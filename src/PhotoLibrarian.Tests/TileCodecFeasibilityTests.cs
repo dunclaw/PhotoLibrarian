@@ -223,47 +223,6 @@ public sealed class TileCodecFeasibilityTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_directory, "cancelled-decode.bgra")));
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    public async Task MeasuresRealCodecPrivateAllocationsInFreshProcesses(int format)
-    {
-        foreach (var size in new[] { (Width: 2048, Height: 1536), (Width: 8192, Height: 6144) })
-        {
-            var path = Path.Combine(_directory, $"memory-{format}-{size.Width}.image");
-            foreach (var operation in new[] { "encode", "decode", "decode-tiles", "decode-reverse" })
-            {
-                var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.CodecMemoryProbe.exe"))
-                {
-                    UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true
-                };
-                foreach (var argument in new[] { operation, path, size.Width.ToString(), size.Height.ToString(), format.ToString() })
-                    start.ArgumentList.Add(argument);
-                using var process = Process.Start(start)!;
-                var stdout = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
-                var stderr = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
-                try { await process.WaitForExitAsync(TestContext.Current.CancellationToken); }
-                finally
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                        await process.WaitForExitAsync(CancellationToken.None);
-                    }
-                }
-                var output = await stdout;
-                Assert.True(process.ExitCode == 0, $"{operation}: {output} {await stderr}");
-                using var data = JsonDocument.Parse(output);
-                Assert.Equal(0, data.RootElement.GetProperty("hresult").GetInt32());
-                Assert.True(data.RootElement.GetProperty("buffer").GetInt64() <= 262144);
-                Console.WriteLine($"WIC {(ProbeImageFormat)format} {operation} {size.Width}x{size.Height}: {output.Trim()}");
-            }
-        }
-    }
-
     private static void AssertSamples(IBgraTileSource actual, PatternSource expected, int tolerance = 0)
     {
         foreach (var tile in new[]
@@ -333,4 +292,64 @@ public sealed class TileCodecFeasibilityTests : IDisposable
         internal int Count { get; private set; }
         public void Write(PixelTile tile, byte[] pixels, CancellationToken token) => Count++;
     }
+}
+
+public abstract class CodecMemoryProbeTests : IDisposable
+{
+    private readonly string _directory = Path.Combine(Path.GetTempPath(), "PhotoLibrarian-Tiles-" + Guid.NewGuid().ToString("N"));
+    protected CodecMemoryProbeTests() => Directory.CreateDirectory(_directory);
+    public void Dispose() => Directory.Delete(_directory, recursive: true);
+
+    protected async Task MeasureAsync(int format)
+    {
+        foreach (var size in new[] { (Width: 2048, Height: 1536), (Width: 8192, Height: 6144) })
+        {
+            var path = Path.Combine(_directory, $"memory-{format}-{size.Width}.image");
+            foreach (var operation in new[] { "encode", "decode", "decode-tiles", "decode-reverse" })
+            {
+                var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "PhotoLibrarian.CodecMemoryProbe.exe"))
+                {
+                    UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true
+                };
+                foreach (var argument in new[] { operation, path, size.Width.ToString(), size.Height.ToString(), format.ToString() })
+                    start.ArgumentList.Add(argument);
+                using var process = Process.Start(start)!;
+                var stdout = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+                var stderr = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+                try { await process.WaitForExitAsync(TestContext.Current.CancellationToken); }
+                finally
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync(CancellationToken.None);
+                    }
+                }
+                var output = await stdout;
+                Assert.True(process.ExitCode == 0, $"{operation}: {output} {await stderr}");
+                using var data = JsonDocument.Parse(output);
+                Assert.Equal(0, data.RootElement.GetProperty("hresult").GetInt32());
+                Assert.True(data.RootElement.GetProperty("buffer").GetInt64() <= 262144);
+                Console.WriteLine($"WIC {(ProbeImageFormat)format} {operation} {size.Width}x{size.Height}: {output.Trim()}");
+            }
+        }
+    }
+}
+
+// JPEG's random-access probes dominate this suite; separate collections let them
+// overlap the other codecs without sharing fixture files or probe processes.
+public sealed class JpegCodecMemoryProbeTests : CodecMemoryProbeTests
+{
+    [Fact]
+    public Task MeasuresRealCodecPrivateAllocationsInFreshProcesses() => MeasureAsync((int)ProbeImageFormat.Jpeg);
+}
+
+public sealed class OtherCodecMemoryProbeTests : CodecMemoryProbeTests
+{
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public Task MeasuresRealCodecPrivateAllocationsInFreshProcesses(int format) => MeasureAsync(format);
 }
