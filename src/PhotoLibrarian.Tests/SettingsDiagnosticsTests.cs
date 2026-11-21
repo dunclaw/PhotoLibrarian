@@ -8,6 +8,37 @@ namespace PhotoLibrarian.Tests;
 public sealed class SettingsDiagnosticsTests
 {
     [Fact]
+    public void SettingsConfirmationsUseDestructiveDialogAndRequirePrimary()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "TestAssets", "SettingsPanel.xaml.cs"));
+        var start = source.IndexOf("private async Task<bool> ConfirmAsync(", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        var helper = source[start..];
+        Assert.Contains("DialogService.Instance.ConfirmDestructiveAsync(", helper);
+        Assert.Contains("this, title, message, primaryButtonText, \"Cancel\"", helper);
+        Assert.Contains("return result == ContentDialogResult.Primary;", helper);
+        Assert.DoesNotContain("new ContentDialog", helper);
+    }
+
+    [Fact]
+    public void SidecarMigrationErrorsUseSharedDialogAndLocalizedLabels()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "TestAssets", "SettingsPanel.SidecarMigration.cs"));
+        var start = source.IndexOf("catch (Exception ex)", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        var end = source.IndexOf("finally", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        var errorHandler = source[start..end];
+        Assert.Contains("DialogService.Instance.ErrorAsync(", errorHandler);
+        Assert.Contains("SidecarMigrationViewModel.Text(\"MigrationTitle\")", errorHandler);
+        Assert.Contains("SidecarMigrationViewModel.Text(\"MigrationClose\")", errorHandler);
+        Assert.Contains("ex,", errorHandler);
+        Assert.DoesNotContain("new ContentDialog", errorHandler);
+    }
+
+    [Fact]
     public void ImageBenchmarkIsInLocalizedSettingsDiagnosticsAndReusesExistingCommand()
     {
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
