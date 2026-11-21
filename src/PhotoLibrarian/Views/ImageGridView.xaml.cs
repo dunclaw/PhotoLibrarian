@@ -1214,19 +1214,16 @@ public sealed partial class ImageGridView : UserControl
                 App.ViewModel.StatusText =
                     PanoramaStrings.Format(
                         "PanoramaSavedButNotIndexed", outputPath, ex.Message);
-                await new ContentDialog
-                {
-                    Title = PanoramaStrings.Get("PanoramaSavedButNotIndexedTitle"),
-                    Content = new TextBlock
+                await DialogService.Instance.ErrorAsync(
+                    this,
+                    PanoramaStrings.Get("PanoramaSavedButNotIndexedTitle"),
+                    new TextBlock
                     {
                         Text = App.ViewModel.StatusText,
                         TextWrapping = TextWrapping.Wrap,
                         IsTextSelectionEnabled = true
                     },
-                    CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton"),
-                    XamlRoot = XamlRoot,
-                    RequestedTheme = ActualTheme
-                }.ShowAsync();
+                    PanoramaStrings.Get("PanoramaCloseButton"));
                 return;
             }
         }
@@ -1244,14 +1241,11 @@ public sealed partial class ImageGridView : UserControl
                 await showing;
             DebugLog.WriteLine($"[PANORAMA] Save failed: {ex}");
             App.ViewModel.StatusText = PanoramaStrings.Format("PanoramaSaveFailed", ex.Message);
-            await new ContentDialog
-            {
-                Title = PanoramaStrings.Get("PanoramaSaveFailedTitle"),
-                Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
-                CloseButtonText = PanoramaStrings.Get("PanoramaCloseButton"),
-                XamlRoot = XamlRoot,
-                RequestedTheme = ActualTheme
-            }.ShowAsync();
+            await DialogService.Instance.ErrorAsync(
+                this,
+                PanoramaStrings.Get("PanoramaSaveFailedTitle"),
+                new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                PanoramaStrings.Get("PanoramaCloseButton"));
         }
         finally
         {
@@ -1476,18 +1470,15 @@ public sealed partial class ImageGridView : UserControl
             if (result.Failures.Count > 0)
                 details += "\n\n" + string.Join("\n", result.Failures.Select(failure =>
                     $"{failure.SourcePath}: {failure.Message}"));
-            await new ContentDialog
-            {
-                Title = result.Failures.Count > 0 ? "Export finished with errors" : "Resize and export",
-                Content = new ScrollViewer
+            await DialogService.Instance.ErrorAsync(
+                this,
+                result.Failures.Count > 0 ? "Export finished with errors" : "Resize and export",
+                new ScrollViewer
                 {
                     Content = new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap },
                     MaxHeight = 400
                 },
-                CloseButtonText = "OK",
-                XamlRoot = XamlRoot,
-                RequestedTheme = ActualTheme
-            }.ShowAsync();
+                "OK");
         }
         catch (Exception ex)
         {
@@ -1578,13 +1569,7 @@ public sealed partial class ImageGridView : UserControl
         catch (Exception ex)
         {
             DebugLog.WriteDebugLine($"[OPS] Batch rename failed: {ex}");
-            await new ContentDialog
-            {
-                Title = "Rename failed",
-                Content = ex.Message,
-                CloseButtonText = "OK",
-                XamlRoot = XamlRoot
-            }.ShowAsync();
+            await DialogService.Instance.ErrorAsync(this, "Rename failed", ex, "OK");
         }
         finally
         {
@@ -1632,14 +1617,11 @@ public sealed partial class ImageGridView : UserControl
         var newPath = await ops.RenameAsync(entry, newName);
         if (newPath == null)
         {
-            var err = new ContentDialog
-            {
-                Title = "Rename failed",
-                Content = "Couldn't rename file. The name may be invalid or a file with that name already exists.",
-                CloseButtonText = "OK",
-                XamlRoot = this.XamlRoot
-            };
-            await err.ShowAsync();
+            await DialogService.Instance.ErrorAsync(
+                this,
+                "Rename failed",
+                "Couldn't rename file. The name may be invalid or a file with that name already exists.",
+                "OK");
             return;
         }
 
