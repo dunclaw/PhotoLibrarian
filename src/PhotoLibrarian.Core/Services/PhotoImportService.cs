@@ -964,6 +964,7 @@ public sealed class RemovableVolumeMonitor : IDisposable
     private readonly object _pollLock = new();
     private bool _started;
     private bool _disposed;
+    private (Type Type, string Message)? _lastScanFailure;
 
     public event EventHandler<string>? DeviceInserted;
     public event EventHandler<Exception>? ScanFailed;
@@ -990,11 +991,12 @@ public sealed class RemovableVolumeMonitor : IDisposable
         try
         {
             _tracker.Refresh(_discoverSources());
+            _lastScanFailure = null;
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or DriveNotFoundException)
         {
-            ScanFailed?.Invoke(this, exception);
+            ReportScanFailure(exception);
         }
         _started = true;
         _timer.Change(_pollInterval, _pollInterval);
@@ -1009,16 +1011,27 @@ public sealed class RemovableVolumeMonitor : IDisposable
         {
             foreach (var source in _tracker.Refresh(_discoverSources()))
                 DeviceInserted?.Invoke(this, source);
+            _lastScanFailure = null;
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or DriveNotFoundException)
         {
-            ScanFailed?.Invoke(this, exception);
+            ReportScanFailure(exception);
         }
         finally
         {
             System.Threading.Monitor.Exit(_pollLock);
         }
+    }
+
+    private void ReportScanFailure(Exception exception)
+    {
+        var failure = (exception.GetType(), exception.Message);
+        if (_lastScanFailure == failure)
+            return;
+
+        _lastScanFailure = failure;
+        ScanFailed?.Invoke(this, exception);
     }
 
     private static IEnumerable<string> DiscoverRemovableDcimRoots()

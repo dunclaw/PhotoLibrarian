@@ -532,8 +532,10 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() =>
         {
             if (!_isClosing)
-                ViewModel.StatusText = PhotoImportStrings.Format(
-                    "PhotoImportDeviceScanFailed", exception.Message);
+                FeedbackService.Instance.Show(
+                    ImportScanErrorInfoBar,
+                    FeedbackSeverity.Error,
+                    PhotoImportStrings.Format("PhotoImportDeviceScanFailed", exception.Message));
         });
     }
 
@@ -544,26 +546,48 @@ public sealed partial class MainWindow : Window
             return;
 
         _pendingDetectedDeviceRoot = _detectedDeviceRoots.Dequeue();
-        ImportDeviceInfoBar.Message = PhotoImportStrings.Format(
-            "PhotoImportDeviceInfoMessage",
-            _pendingDetectedDeviceRoot);
-        ImportDeviceInfoBar.IsOpen = true;
+        FeedbackService.Instance.Show(
+            ImportDeviceInfoBar,
+            FeedbackSeverity.Informational,
+            PhotoImportStrings.Format("PhotoImportDeviceInfoMessage", _pendingDetectedDeviceRoot));
     }
 
     private async void OnImportDetectedDeviceClick(object sender, RoutedEventArgs e)
     {
         var sourceRoot = _pendingDetectedDeviceRoot;
         _pendingDetectedDeviceRoot = null;
-        ImportDeviceInfoBar.IsOpen = false;
-        if (sourceRoot is not null)
-            await ShowPhotoImportDialogAsync(sourceRoot);
-        ShowNextDetectedDevice();
+        FeedbackService.Instance.Dismiss(ImportDeviceInfoBar);
+        try
+        {
+            if (sourceRoot is not null)
+                await ShowPhotoImportDialogAsync(sourceRoot);
+        }
+        finally
+        {
+            ShowNextDetectedDevice();
+        }
     }
 
     private async void OnImportRequested(object sender, RoutedEventArgs e) =>
         await ShowPhotoImportDialogAsync();
 
     private async Task ShowPhotoImportDialogAsync(string? sourceRoot = null)
+    {
+        try
+        {
+            await RunPhotoImportDialogAsync(sourceRoot);
+        }
+        catch (Exception exception)
+        {
+            if (!_isClosing)
+                FeedbackService.Instance.Show(
+                    ImportErrorInfoBar,
+                    FeedbackSeverity.Error,
+                    PhotoImportStrings.Format("PhotoImportWorkflowFailed", exception.Message));
+        }
+    }
+
+    private async Task RunPhotoImportDialogAsync(string? sourceRoot)
     {
         var destinationRoot = ViewModel.FolderNav.RootFolders.FirstOrDefault()?.Path;
         var dialog = new PhotoImportDialog(ViewModel, sourceRoot, destinationRoot)
@@ -587,7 +611,10 @@ public sealed partial class MainWindow : Window
             PhotoImportStrings.Get("PhotoImportCancel"));
         if (confirmation != ContentDialogResult.Primary)
         {
-            ViewModel.StatusText = PhotoImportStrings.Get("PhotoImportDeleteCanceled");
+            FeedbackService.Instance.Show(
+                ImportStatusInfoBar,
+                FeedbackSeverity.Informational,
+                PhotoImportStrings.Get("PhotoImportDeleteCanceled"));
             return;
         }
 

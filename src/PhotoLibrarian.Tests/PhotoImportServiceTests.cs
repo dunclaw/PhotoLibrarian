@@ -11,6 +11,59 @@ namespace PhotoLibrarian.Tests;
 public sealed class PhotoImportServiceTests
 {
     [Fact]
+    public void RemovableMonitorReportsRepeatedFailureOnceUntilRecovery()
+    {
+        var failing = 1;
+        var attempts = 0;
+        var successes = 0;
+        var failures = 0;
+        using var monitor = new RemovableVolumeMonitor(() =>
+        {
+            Interlocked.Increment(ref attempts);
+            if (Volatile.Read(ref failing) != 0)
+                throw new IOException("Synthetic scan failure");
+            Interlocked.Increment(ref successes);
+            return [];
+        }, TimeSpan.FromMilliseconds(20));
+        monitor.ScanFailed += (_, _) => Interlocked.Increment(ref failures);
+
+        monitor.Start();
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref attempts) >= 4, TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, Volatile.Read(ref failures));
+        Volatile.Write(ref failing, 0);
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref successes) >= 2, TimeSpan.FromSeconds(5)));
+        Volatile.Write(ref failing, 1);
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref failures) == 2, TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public void DeviceAndImportFailuresUseSeparateNonBlockingFeedbackSlots()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.xaml.cs"));
+        var scanStart = source.IndexOf("private void OnRemovableDeviceScanFailed(", StringComparison.Ordinal);
+        var promptStart = source.IndexOf("private void ShowNextDetectedDevice(", scanStart, StringComparison.Ordinal);
+        var clickStart = source.IndexOf("private async void OnImportDetectedDeviceClick(", promptStart, StringComparison.Ordinal);
+        var flowStart = source.IndexOf("private async Task ShowPhotoImportDialogAsync(", clickStart, StringComparison.Ordinal);
+        var flowEnd = source.IndexOf("private async Task RunPhotoImportDialogAsync(", flowStart, StringComparison.Ordinal);
+        Assert.True(scanStart >= 0 && promptStart > scanStart && clickStart > promptStart && flowStart > clickStart && flowEnd > flowStart);
+
+        var scan = source[scanStart..promptStart];
+        var prompt = source[promptStart..clickStart];
+        var click = source[clickStart..flowStart];
+        var flow = source[flowStart..flowEnd];
+        Assert.Contains("ImportScanErrorInfoBar", scan);
+        Assert.Contains("FeedbackSeverity.Error", scan);
+        Assert.Contains("PhotoImportDeviceScanFailed", scan);
+        Assert.Contains("ImportDeviceInfoBar", prompt);
+        Assert.Contains("FeedbackSeverity.Informational", prompt);
+        Assert.Contains("finally", click);
+        Assert.Contains("ShowNextDetectedDevice();", click);
+        Assert.Contains("ImportErrorInfoBar", flow);
+        Assert.Contains("FeedbackSeverity.Error", flow);
+        Assert.Contains("PhotoImportWorkflowFailed", flow);
+    }
+
+    [Fact]
     public void SourceDeletionConfirmationUsesSharedDestructiveDialogAndOnlyPrimaryProceeds()
     {
         var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MainWindow.xaml.cs"));
