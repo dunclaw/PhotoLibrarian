@@ -78,6 +78,9 @@
     <None Include="..\PhotoLibrarian\Views\SettingsPanel.xaml.cs"
           Link="TestAssets\SettingsPanel.xaml.cs"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\SettingsPanel.SidecarMigration.cs"
+          Link="TestAssets\SettingsPanel.SidecarMigration.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\PeopleReviewView.xaml"
           Link="TestAssets\PeopleReviewView.xaml"
           CopyToOutputDirectory="PreserveNewest" />
