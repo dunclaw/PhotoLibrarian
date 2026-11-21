@@ -386,6 +386,52 @@ public sealed class LibraryIndexingServiceTests
     }
 
     [Fact]
+    public async Task WatchedFolderChanges_AsyncDisposeWaitsForActiveProcessing()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var database = new CacheDatabase(Path.Combine(directory, "cache.db"));
+            await database.InitializeAsync();
+            var images = new ImageRepository(database);
+            using var scanner = new FolderScannerService();
+            var indexer = new LibraryIndexingService(
+                database, images, new TagRepository(database), new FaceRepository(database),
+                scanner, new MetadataReaderService(), new FaceMetadataStore());
+            await using var changes = new WatchedFolderChangeService(
+                scanner, indexer, images, TimeSpan.FromMilliseconds(100));
+            using var release = new ManualResetEventSlim();
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            changes.LibraryChanged += (_, _) =>
+            {
+                entered.TrySetResult();
+                release.Wait();
+            };
+            scanner.SyncWatchedFolders([(directory, false)]);
+            try
+            {
+                await WicTestImage.CreateAsync(Path.Combine(directory, "photo.png"), 16, 12);
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                var shutdown = changes.DisposeAsync().AsTask();
+                Assert.False(shutdown.IsCompleted);
+                release.Set();
+                await shutdown.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+            finally
+            {
+                release.Set();
+                await changes.DisposeAsync();
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task WatchedFolderChanges_SuspensionHoldsEventsAndDiscardsOnlyUnchangedReindexedPhotos()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-{Guid.NewGuid():N}");

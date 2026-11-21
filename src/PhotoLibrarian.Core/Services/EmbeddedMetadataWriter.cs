@@ -340,17 +340,24 @@ public static class EmbeddedMetadataWriter
                 await write();
                 return;
             }
-            catch (Exception ex) when (IsFileLock(ex) && attempt < 3)
+            catch (Exception ex) when (IsFileLock(ex) && attempt < MaxFileLockRetries(ex))
             {
-                await delay(TimeSpan.FromMilliseconds(100 * (1 << attempt)));
+                await delay(TimeSpan.FromMilliseconds(100 * (1 << Math.Min(attempt, 4))));
             }
         }
     }
 
+    // A section mapped by another process (for example a malware scanner or thumbnailer) usually
+    // outlives a sharing violation. Allow it about six seconds before reporting the failure.
+    private static int MaxFileLockRetries(Exception exception) =>
+        exception.HResult == ErrorUserMappedFile ? 7 : 3;
+
+    private const int ErrorUserMappedFile = unchecked((int)0x800704C8);
+
     private static bool IsFileLock(Exception exception) =>
         exception.HResult is unchecked((int)0x80070020) // ERROR_SHARING_VIOLATION
             or unchecked((int)0x80070021) // ERROR_LOCK_VIOLATION
-            or unchecked((int)0x800704C8) // ERROR_USER_MAPPED_FILE
+            or ErrorUserMappedFile
             or unchecked((int)0x80030020) // STG_E_SHAREVIOLATION
             or unchecked((int)0x80030021); // STG_E_LOCKVIOLATION
 
