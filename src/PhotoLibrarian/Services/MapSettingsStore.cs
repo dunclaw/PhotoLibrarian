@@ -1,6 +1,5 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 
-using System.Text.Json;
 using PhotoLibrarian.Diagnostics;
 using PhotoLibrarian.Core.Services;
 
@@ -25,16 +24,20 @@ public sealed class MapSettingsStore
     {
         try
         {
-            if (!File.Exists(_path))
+            var result = AppSettingsFile.ReadJson<MapSettings>(_path);
+            if (result.Status == AppSettingsReadStatus.Missing)
                 return MapProvider.Google;
 
-            var settings = JsonSerializer.Deserialize<MapSettings>(File.ReadAllText(_path));
-            if (settings is not null && Enum.IsDefined(settings.Provider))
+            if (result.Value is { } settings && Enum.IsDefined(settings.Provider))
+            {
+                if (result.Status == AppSettingsReadStatus.RecoveredFromBackup)
+                    DebugLog.WriteLine("[MAP] Recovered preferences from backup.");
                 return settings.Provider;
+            }
 
             DebugLog.WriteLine("[MAP] Invalid preferences; using Google Maps.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             DebugLog.WriteLine($"[MAP] Could not load preferences; using Google Maps: {ex.Message}");
         }
@@ -47,9 +50,7 @@ public sealed class MapSettingsStore
         if (!Enum.IsDefined(provider))
             throw new ArgumentOutOfRangeException(nameof(provider));
 
-        AppSettingsFile.WriteAllText(
-            _path,
-            JsonSerializer.Serialize(new MapSettings { Provider = provider }));
+        AppSettingsFile.WriteJson(_path, new MapSettings { Provider = provider });
     }
 
     private sealed record MapSettings
