@@ -570,16 +570,13 @@ public sealed partial class PeopleReviewView : UserControl
         var personName = ViewModel.SelectedGroup?.DisplayName;
         if (personName is null) return;
 
-        var dialog = new ContentDialog
-        {
-            Title = $"Hide suggestions for {personName}?",
-            Content = "This person will no longer appear in people review.",
-            PrimaryButtonText = "Hide suggestions",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var result = await DialogService.Instance.ConfirmDestructiveAsync(
+            this,
+            $"Hide suggestions for {personName}?",
+            "This person will no longer appear in people review.",
+            "Hide suggestions",
+            "Cancel");
+        if (result != ContentDialogResult.Primary) return;
         await RunGridActionAsync(
             SuggestionGrid,
             () => ViewModel.HideCurrentPersonAsync());
@@ -717,18 +714,14 @@ public sealed partial class PeopleReviewView : UserControl
         var person = ViewModel.SelectedPerson;
         if (person is null) return;
 
-        var dialog = new ContentDialog
-        {
-            Title = $"Delete {person.Name}?",
-            Content =
-                $"The person will be deleted and {person.Faces.Count} assigned faces " +
+        var result = await DialogService.Instance.ConfirmDestructiveAsync(
+            this,
+            $"Delete {person.Name}?",
+            $"The person will be deleted and {person.Faces.Count} assigned faces " +
                 "will return to face matching.",
-            PrimaryButtonText = "Delete person",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            "Delete person",
+            "Cancel");
+        if (result != ContentDialogResult.Primary) return;
         await RunActionAsync(() => ViewModel.DeletePersonAsync(person));
     }
 
