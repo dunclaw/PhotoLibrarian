@@ -124,6 +124,15 @@
         </Border>
 
         <StackPanel x:Name="FooterNotifications" Grid.Row="2" Spacing="4">
+            <InfoBar x:Name="ImportScanErrorInfoBar"
+                     AutomationProperties.AutomationId="PhotoImportScanErrorInfoBar"
+                     IsOpen="False" />
+            <InfoBar x:Name="ImportErrorInfoBar"
+                     AutomationProperties.AutomationId="PhotoImportErrorInfoBar"
+                     IsOpen="False" />
+            <InfoBar x:Name="ImportStatusInfoBar"
+                     AutomationProperties.AutomationId="PhotoImportStatusInfoBar"
+                     IsOpen="False" />
             <InfoBar x:Name="MetadataFallbackInfoBar"
                      AutomationProperties.AutomationId="MetadataFallbackInfoBar"
                      Severity="Warning"

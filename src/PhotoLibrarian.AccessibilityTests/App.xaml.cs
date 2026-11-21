@@ -44,6 +44,12 @@ public partial class App : Application
         string? failure = null;
         try
         {
+            if (Environment.GetCommandLineArgs().Contains("--feedback"))
+            {
+                await RunFeedbackServiceTestsAsync();
+                await FinishAsync(null);
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--dialogs"))
             {
                 await RunDialogServiceTestsAsync();
