@@ -372,6 +372,48 @@ public sealed class RawDerivativeExportTests : IDisposable
     }
 
     [Fact]
+    public async Task DerivativeMetadataReadCoordinatesWithRawRecipeReplacement()
+    {
+        var source = await SourceAsync();
+        await ImageEditService.SaveRawPreviewRecipeAsync(source, new EditParameters());
+        var sidecar = Path.ChangeExtension(source, ".xmp");
+        var before = await File.ReadAllBytesAsync(sidecar);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var read = Task.Run(() => ImageEditService.ReadWithRawRecipeLockAsync(() =>
+        {
+            using var sidecarRead = File.OpenRead(sidecar);
+            entered.SetResult();
+            release.Wait();
+            return SdrDerivativeMetadata.CreateXmp(source, new EditParameters(),
+                new RawSdrImage(1, 1, [0.5f, 0.5f, 0.5f]));
+        }, CancellationToken.None));
+        Task? writeAfterRead = null;
+
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            using var cancellation = new CancellationTokenSource();
+            var write = ImageEditService.SaveRawPreviewRecipeAsync(
+                source, new EditParameters { RawExposureEv = 1 }, cancellation.Token);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => write);
+            writeAfterRead = ImageEditService.SaveRawPreviewRecipeAsync(
+                source, new EditParameters { RawExposureEv = 1 });
+            await Assert.ThrowsAsync<TimeoutException>(() => writeAfterRead.WaitAsync(TimeSpan.FromSeconds(1)));
+            Assert.Equal(before, await File.ReadAllBytesAsync(sidecar));
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        Assert.NotEmpty(await read.WaitAsync(TimeSpan.FromSeconds(30)));
+        await writeAfterRead!.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(1, ImageEditService.ReadEditParameters(source).RawExposureEv);
+    }
+
+    [Fact]
     public async Task PrecancelledAndStaleNonCooperativeRendererCannotPublishOrKeepRecipe()
     {
         var source = await SourceAsync();

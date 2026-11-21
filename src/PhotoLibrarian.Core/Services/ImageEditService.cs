@@ -71,19 +71,27 @@ public sealed class ImageEditService
     {
         if (!RawToneMappingService.IsRaw(filePath))
             throw new NotSupportedException("A RAW preview recipe requires a RAW source.");
-        MetadataWriterService.EnsureLegacyPhotoAccess(filePath, cancellationToken);
         RawToneMappingService.ValidateRecipe(parameters);
         await SavePendingRecipeAtomicallyAsync(filePath, parameters, cancellationToken);
+    }
+
+    // Sidecar replacement and derivative metadata reads cannot overlap on Windows.
+    internal static async Task<T> ReadWithRawRecipeLockAsync<T>(
+        Func<T> read, CancellationToken cancellationToken)
+    {
+        await RawRecipeWrites.WaitAsync(cancellationToken);
+        try { return read(); }
+        finally { RawRecipeWrites.Release(); }
     }
 
     private static async Task SavePendingRecipeAtomicallyAsync(string filePath, EditParameters parameters,
         CancellationToken cancellationToken = default)
     {
-        MetadataWriterService.EnsureLegacyPhotoAccess(filePath, cancellationToken);
         var snapshot = parameters.Clone();
         await RawRecipeWrites.WaitAsync(cancellationToken);
         try
         {
+            MetadataWriterService.EnsureLegacyPhotoAccess(filePath, cancellationToken);
             await MetadataWriterService.WriteUsingPolicyAsync(
                 filePath,
                 MetadataWriteProperty.PendingEditRecipe,

@@ -112,7 +112,8 @@ public static class RawDerivativeExportService
                     encodedCreated = true;
                     await EncodeAsync(file, image, pixels, format, cancellationToken);
                 }
-                var xmp = SdrDerivativeMetadata.CreateXmp(sourcePath, snapshot, image);
+                var xmp = await ImageEditService.ReadWithRawRecipeLockAsync(
+                    () => SdrDerivativeMetadata.CreateXmp(sourcePath, snapshot, image), cancellationToken);
                 await using (var input = File.OpenRead(encoded))
                 await using (var output = new FileStream(tagged, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
