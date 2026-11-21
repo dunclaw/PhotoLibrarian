@@ -111,6 +111,21 @@ public sealed class GridLayoutPersistenceTests : IDisposable
     }
 
     [Fact]
+    public void CorruptPreferences_RecoverPreviousLayoutFromBackup()
+    {
+        var store = new GridLayoutSettingsStore(SettingsPath);
+        var original = new GridLayoutSettings { GroupBy = GroupByOption.MonthTaken, SortDescending = false };
+        store.Save(original);
+        store.Save(new GridLayoutSettings());
+        File.WriteAllText(SettingsPath, "corrupt");
+
+        Assert.Equal(original, store.Load());
+        store.Save(original);
+        Assert.Equal(original, store.Load());
+        Assert.Equal(original, JsonSerializer.Deserialize<GridLayoutSettings>(File.ReadAllText(SettingsPath + ".bak")));
+    }
+
+    [Fact]
     public void FailedReplacement_ReportsFailureAndRemovesTemporaryFile()
     {
         Directory.CreateDirectory(SettingsPath);

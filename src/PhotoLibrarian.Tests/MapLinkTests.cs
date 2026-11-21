@@ -101,6 +101,22 @@ public sealed class MapLinkTests : IDisposable
     }
 
     [Fact]
+    public void CorruptPreferences_RecoverPreviousProviderFromBackup()
+    {
+        var path = Path.Combine(_directory, "map-settings.json");
+        var store = new MapSettingsStore(path);
+        store.Save(MapProvider.Bing);
+        Assert.Equal("""{"Provider":1}""", File.ReadAllText(path));
+        store.Save(MapProvider.Google);
+        File.WriteAllText(path, "corrupt");
+
+        Assert.Equal(MapProvider.Bing, store.Load());
+        store.Save(MapProvider.Bing);
+        Assert.Equal(MapProvider.Bing, store.Load());
+        Assert.Equal("""{"Provider":1}""", File.ReadAllText(path + ".bak"));
+    }
+
+    [Fact]
     public void FailedSaveIsReportedAndTemporaryFileIsRemoved()
     {
         var path = Path.Combine(_directory, "map-settings.json");
