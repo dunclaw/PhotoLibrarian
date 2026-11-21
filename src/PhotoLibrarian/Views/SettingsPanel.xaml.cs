@@ -599,16 +599,8 @@ public sealed partial class SettingsPanel : UserControl
         string message,
         string primaryButtonText)
     {
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = title,
-            Content = message,
-            PrimaryButtonText = primaryButtonText,
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close
-        };
-        return await dialog.ShowAsync() ==
-            ContentDialogResult.Primary;
+        var result = await DialogService.Instance.ConfirmDestructiveAsync(
+            this, title, message, primaryButtonText, "Cancel");
+        return result == ContentDialogResult.Primary;
     }
 }

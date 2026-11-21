@@ -2,6 +2,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 
 namespace PhotoLibrarian.Views;
@@ -48,14 +49,11 @@ public sealed partial class SettingsPanel
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or UnauthorizedAccessException)
         {
-            var error = new ContentDialog
-            {
-                XamlRoot = XamlRoot,
-                Title = SidecarMigrationViewModel.Text("MigrationTitle"),
-                Content = ex.Message,
-                CloseButtonText = SidecarMigrationViewModel.Text("MigrationClose")
-            };
-            await error.ShowAsync();
+            await DialogService.Instance.ErrorAsync(
+                button,
+                SidecarMigrationViewModel.Text("MigrationTitle"),
+                ex,
+                SidecarMigrationViewModel.Text("MigrationClose"));
         }
         finally
         {
