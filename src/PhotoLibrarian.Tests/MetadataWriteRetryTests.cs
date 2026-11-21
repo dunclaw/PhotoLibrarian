@@ -1,3 +1,4 @@
+using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using PhotoLibrarian.Core.Services;
 using Xunit;
@@ -6,6 +7,44 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class MetadataWriteRetryTests
 {
+    [Fact]
+    public async Task MappedPhotoIsUnchangedWhileBlockedAndRewrittenFromIntactSourceAfterRelease()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"PhotoLibrarian-mapped-write-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var path = Path.Combine(directory, "mapped.png");
+            await WicTestImage.CreateAsync(path, 16, 12);
+            var original = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
+            Task write;
+            using (var holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                using (var map = MemoryMappedFile.CreateFromFile(holder, null, 0,
+                    MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: true))
+                using (map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
+                {
+                    write = EmbeddedMetadataWriter.WriteAsync(path, keywords: ["mapped"]);
+                    // Longer than the former 0.7 s retry budget, so several attempts fail here.
+                    await Task.Delay(TimeSpan.FromSeconds(1.5), TestContext.Current.CancellationToken);
+                    Assert.False(write.IsCompleted, write.Exception?.ToString());
+                    holder.Position = 0;
+                    var whileBlocked = new byte[holder.Length];
+                    holder.ReadExactly(whileBlocked);
+                    Assert.Equal(original, whileBlocked);
+                }
+            }
+
+            await write;
+            Assert.Contains("mapped", await EmbeddedMetadataWriter.ReadKeywordsAsync(path));
+            Assert.Equal((16u, 12u), await WicTestImage.ReadSizeAsync(path));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(unchecked((int)0x80070020), false)]
     [InlineData(unchecked((int)0x80070021), false)]
