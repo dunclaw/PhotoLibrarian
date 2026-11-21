@@ -29,16 +29,18 @@ public sealed class GridLayoutSettingsStore
         {
             try
             {
-                if (!File.Exists(_settingsPath))
+                var result = AppSettingsFile.ReadJson<GridLayoutSettings>(_settingsPath);
+                if (result.Status == AppSettingsReadStatus.Missing)
                     return new GridLayoutSettings();
 
-                var settings = JsonSerializer.Deserialize<GridLayoutSettings>(
-                    File.ReadAllText(_settingsPath));
-                if (settings is null)
+                if (result.Value is not { } settings)
                 {
-                    DebugLog.WriteLine("[GRID LAYOUT] Empty preferences; using defaults.");
+                    DebugLog.WriteLine("[GRID LAYOUT] Invalid preferences; using defaults.");
                     return new GridLayoutSettings();
                 }
+
+                if (result.Status == AppSettingsReadStatus.RecoveredFromBackup)
+                    DebugLog.WriteLine("[GRID LAYOUT] Recovered preferences from backup.");
 
                 var groupIsValid = Enum.IsDefined(settings.GroupBy);
                 var sortIsValid = Enum.IsDefined(settings.SortBy);
@@ -51,7 +53,7 @@ public sealed class GridLayoutSettingsStore
                     SortBy = sortIsValid ? settings.SortBy : SortByOption.DateTaken
                 };
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 DebugLog.WriteLine($"[GRID LAYOUT] Could not load preferences; using defaults: {ex.Message}");
                 return new GridLayoutSettings();
@@ -63,9 +65,10 @@ public sealed class GridLayoutSettingsStore
     {
         lock (_sync)
         {
-            AppSettingsFile.WriteAllText(
+            AppSettingsFile.WriteJson(
                 _settingsPath,
-                JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
+                settings,
+                new JsonSerializerOptions { WriteIndented = true });
         }
     }
 }

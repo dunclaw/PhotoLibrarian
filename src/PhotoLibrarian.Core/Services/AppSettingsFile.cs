@@ -1,10 +1,73 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 
+using System.Text.Json;
+
 namespace PhotoLibrarian.Core.Services;
+
+public enum AppSettingsReadStatus
+{
+    Success,
+    Missing,
+    Corrupt,
+    RecoveredFromBackup
+}
+
+public sealed record AppSettingsReadResult<T>(AppSettingsReadStatus Status, T? Value) where T : class;
 
 public static class AppSettingsFile
 {
+    public static AppSettingsReadResult<T> ReadJson<T>(string path) where T : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var primary = ReadJsonFile<T>(path);
+        if (primary.Status == AppSettingsReadStatus.Success)
+            return primary;
+
+        var backup = ReadJsonFile<T>(path + ".bak");
+        if (backup.Status == AppSettingsReadStatus.Success)
+            return new(AppSettingsReadStatus.RecoveredFromBackup, backup.Value);
+
+        return new(
+            primary.Status == AppSettingsReadStatus.Corrupt || backup.Status == AppSettingsReadStatus.Corrupt
+                ? AppSettingsReadStatus.Corrupt
+                : AppSettingsReadStatus.Missing,
+            null);
+    }
+
+    public static void WriteJson<T>(string path, T value, JsonSerializerOptions? options = null) where T : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(value);
+
+        // Do not replace the only good backup with a corrupt primary after recovery.
+        var preserveBackup = File.Exists(path + ".bak") &&
+            ReadJsonFile<T>(path).Status == AppSettingsReadStatus.Corrupt;
+        WriteAllText(path, JsonSerializer.Serialize(value, options), preserveBackup);
+    }
+
     public static void WriteAllText(string path, string contents)
+        => WriteAllText(path, contents, preserveBackup: false);
+
+    private static AppSettingsReadResult<T> ReadJsonFile<T>(string path) where T : class
+    {
+        if (!File.Exists(path))
+            return new(AppSettingsReadStatus.Missing, null);
+
+        try
+        {
+            var value = JsonSerializer.Deserialize<T>(File.ReadAllText(path));
+            return value is null
+                ? new(AppSettingsReadStatus.Corrupt, null)
+                : new(AppSettingsReadStatus.Success, value);
+        }
+        catch (JsonException)
+        {
+            return new(AppSettingsReadStatus.Corrupt, null);
+        }
+    }
+
+    private static void WriteAllText(string path, string contents, bool preserveBackup)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(contents);
@@ -24,7 +87,7 @@ public static class AppSettingsFile
                 File.Replace(
                     temporaryPath,
                     path,
-                    path + ".bak",
+                    preserveBackup ? null : path + ".bak",
                     ignoreMetadataErrors: true);
             }
             else
