@@ -58,6 +58,31 @@ public sealed class MetadataWriteRetryTests
         Assert.Equal(3, delays.Count);
     }
 
+    [Fact]
+    public async Task RetryOnFileLock_WaitsLongerForUserMappedSectionThenPreservesError()
+    {
+        var attempts = 0;
+        var delays = new List<TimeSpan>();
+        var error = CreateError(unchecked((int)0x800704C8), false);
+        var thrown = await Assert.ThrowsAsync<IOException>(() =>
+            EmbeddedMetadataWriter.RetryOnFileLockAsync(
+                () =>
+                {
+                    attempts++;
+                    return Task.FromException(error);
+                },
+                delay =>
+                {
+                    delays.Add(delay);
+                    return Task.CompletedTask;
+                }));
+
+        Assert.Same(error, thrown);
+        Assert.Equal(8, attempts);
+        Assert.Equal(
+            new[] { 100, 200, 400, 800, 1600, 1600, 1600 }.Select(ms => TimeSpan.FromMilliseconds(ms)), delays);
+    }
+
     [Theory]
     [InlineData(unchecked((int)0x80070005), false)]
     [InlineData(unchecked((int)0x80070002), false)]
