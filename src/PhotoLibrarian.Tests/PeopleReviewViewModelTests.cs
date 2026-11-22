@@ -9,6 +9,22 @@ namespace PhotoLibrarian.Tests;
 
 public sealed class PeopleReviewViewModelTests
 {
+    [Fact]
+    public void PeopleReviewOpenFailureClosesReviewAndUsesSharedErrorDialog()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "TestAssets", "MainWindow.xaml.cs"));
+        var start = source.IndexOf("private async void OnPeopleReviewClick(", StringComparison.Ordinal);
+        var end = source.IndexOf("private async void OnDuplicateReviewClick(", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var handler = source[start..end];
+        var close = handler.IndexOf("ViewModel.PeopleReview.Close();", StringComparison.Ordinal);
+        var error = handler.IndexOf("DialogService.Instance.ErrorAsync(", StringComparison.Ordinal);
+        Assert.True(close >= 0 && error > close);
+        Assert.Contains("MainLayout, \"People review couldn't be opened\", ex, \"Close\"", handler);
+        Assert.DoesNotContain("new ContentDialog", handler);
+    }
+
     [Theory]
     [InlineData("OnHidePersonClick", "OnRenamePersonClick", "Hide suggestions", "HideCurrentPersonAsync")]
     [InlineData("OnDeletePersonClick", "OnRestoreFacesClick", "Delete person", "DeletePersonAsync")]
