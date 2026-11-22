@@ -45,10 +45,7 @@ public sealed class PhotoPresetStore
 
     public PhotoPresetStore(string? path = null)
     {
-        _path = path ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PhotoLibrarian",
-            "presets.json");
+        _path = path ?? AppDataPaths.PresetCatalogFile;
     }
 
     public PhotoPresetCatalogResult Load()
