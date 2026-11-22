@@ -9,6 +9,23 @@ public sealed class PhotoPrintLayoutTests
     private static readonly PhotoPrintRectangle LetterImageableArea =
         new(18, 18, 8 * PhotoPrintLayoutService.DipsPerInch, 10.5 * PhotoPrintLayoutService.DipsPerInch);
 
+    [Fact]
+    public void PrintErrorsUseSharedDialogWithLocalizedLabelsAndOriginalDetails()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "TestAssets", "MainWindow.xaml.cs"));
+        var start = source.IndexOf("private async Task ShowPrintErrorAsync(", StringComparison.Ordinal);
+        var end = source.IndexOf("private void OnPrintError(", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var handler = source[start..end];
+        Assert.Contains("DialogService.Instance.ErrorAsync(", handler);
+        Assert.Contains("AppRoot,", handler);
+        Assert.Contains("PhotoPrintStrings.Get(\"PrintErrorTitle\")", handler);
+        Assert.Contains("message,", handler);
+        Assert.Contains("PhotoPrintStrings.Get(\"PrintClose\")", handler);
+        Assert.DoesNotContain("new ContentDialog", handler);
+    }
+
     [Theory]
     [InlineData(PhotoPrintLayout.FourBySix, false, 6, 4)]
     [InlineData(PhotoPrintLayout.FourBySix, true, 4, 6)]

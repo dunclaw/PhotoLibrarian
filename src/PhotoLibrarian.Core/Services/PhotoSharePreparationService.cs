@@ -44,9 +44,7 @@ public sealed class PhotoSharePreparationService
     public const long MaximumBytes = 20 * 1024 * 1024;
     public static readonly TimeSpan Retention = TimeSpan.FromDays(7);
 
-    public static string DefaultRoot => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PhotoLibrarian", "ShareCopies");
+    public static string DefaultRoot => AppDataPaths.ShareCopiesDirectory;
 
     private readonly string _root;
 
