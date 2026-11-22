@@ -63,6 +63,8 @@ internal static class LibraryIndexMaintenanceStrings
                 "IndexMaintenanceIssueCleanupFailed",
             LibraryIndexMaintenanceIssueKind.MissingMetadataRetained =>
                 "IndexMaintenanceIssueMissingMetadataRetained",
+            LibraryIndexMaintenanceIssueKind.IncompleteMoveVerification =>
+                "IndexMaintenanceIssueIncompleteMoveVerification",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         });
 }

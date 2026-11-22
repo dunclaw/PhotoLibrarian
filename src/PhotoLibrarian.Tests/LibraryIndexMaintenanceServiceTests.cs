@@ -269,6 +269,102 @@ public sealed class LibraryIndexMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task Reconcile_InaccessibleLocationDoesNotGuessUniqueMoveOrRemoveMissingEntries()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var inaccessible = Path.Combine(root, "inaccessible");
+            Directory.CreateDirectory(inaccessible);
+            using var library = await TestLibrary.CreateAsync(root, new DenyingFileSystem(inaccessible));
+            await library.AddWatchedFolderAsync(root);
+            var oldPath = Path.Combine(root, "old.png");
+            var plainPath = Path.Combine(root, "plain.png");
+            var visiblePath = Path.Combine(root, "visible.png");
+            var hiddenPath = Path.Combine(inaccessible, "hidden.png");
+            await WicTestImage.CreateAsync(oldPath, 16, 12);
+            await WicTestImage.CreateAsync(plainPath, 18, 12);
+            await library.IndexAsync(oldPath);
+            await library.IndexAsync(plainPath);
+            var original = (await library.Images.GetByPathAsync(oldPath))!;
+            var plain = (await library.Images.GetByPathAsync(plainPath))!;
+            await SeedDatabaseOnlyStateAsync(library, original.Id);
+            await SeedExactHashAsync(library, original, oldPath);
+            File.Copy(oldPath, visiblePath);
+            File.Move(oldPath, hiddenPath);
+            File.Delete(plainPath);
+            var bytes = await File.ReadAllBytesAsync(visiblePath);
+
+            var result = await library.Maintenance.ReconcileAsync();
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(0, result.RepairedMoves);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.Contains(result.Issues, issue =>
+                issue.Kind == LibraryIndexMaintenanceIssueKind.AccessDenied &&
+                issue.Path == inaccessible);
+            Assert.Contains(result.Issues, issue =>
+                issue.Kind == LibraryIndexMaintenanceIssueKind.IncompleteMoveVerification);
+            Assert.Equal(original.Id, (await library.Images.GetByPathAsync(oldPath))!.Id);
+            Assert.Equal(plain.Id, (await library.Images.GetByPathAsync(plainPath))!.Id);
+            Assert.NotEqual(original.Id, (await library.Images.GetByPathAsync(visiblePath))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, original.Id));
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(visiblePath));
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(hiddenPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_UnreadableHashCandidateDoesNotGuessUniqueMove()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            using var library = await TestLibrary.CreateAsync(root);
+            await library.AddWatchedFolderAsync(root);
+            var oldPath = Path.Combine(root, "old.png");
+            var visiblePath = Path.Combine(root, "visible.png");
+            var lockedPath = Path.Combine(root, "locked.png");
+            await WicTestImage.CreateAsync(oldPath, 16, 12);
+            await library.IndexAsync(oldPath);
+            var original = (await library.Images.GetByPathAsync(oldPath))!;
+            await SeedDatabaseOnlyStateAsync(library, original.Id);
+            await SeedExactHashAsync(library, original, oldPath);
+            File.Copy(oldPath, visiblePath);
+            File.Move(oldPath, lockedPath);
+            var bytes = await File.ReadAllBytesAsync(visiblePath);
+
+            LibraryIndexMaintenanceResult result;
+            using (new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                result = await library.Maintenance.ReconcileAsync();
+            }
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(0, result.RepairedMoves);
+            Assert.Equal(0, result.RemovedFiles);
+            Assert.Contains(result.Issues, issue =>
+                issue.Kind == LibraryIndexMaintenanceIssueKind.FileReadFailed &&
+                issue.Path == lockedPath);
+            Assert.Contains(result.Issues, issue =>
+                issue.Kind == LibraryIndexMaintenanceIssueKind.IncompleteMoveVerification);
+            Assert.Equal(original.Id, (await library.Images.GetByPathAsync(oldPath))!.Id);
+            Assert.NotEqual(original.Id, (await library.Images.GetByPathAsync(visiblePath))!.Id);
+            Assert.Equal(3, await CountDatabaseOnlyStateAsync(library.Database, original.Id));
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(visiblePath));
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(lockedPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_RemovesConfirmedDeletionWithoutProtectedMetadata()
     {
         var root = CreateTemporaryDirectory();

@@ -481,6 +481,7 @@ Backup: {3}
   <data name="IndexMaintenanceStageRemoving" xml:space="preserve"><value>Removing verified missing index entries</value></data>
   <data name="IndexMaintenanceIssueCleanupFailed" xml:space="preserve"><value>Missing-entry cleanup failed; no entries were removed by this cleanup batch</value></data>
   <data name="IndexMaintenanceIssueMissingMetadataRetained" xml:space="preserve"><value>Missing photo retained to preserve cached metadata</value></data>
+  <data name="IndexMaintenanceIssueIncompleteMoveVerification" xml:space="preserve"><value>Move verification incomplete; missing entries retained</value></data>
   <data name="IndexMaintenanceStageComplete" xml:space="preserve"><value>Complete</value></data>
   <data name="IndexMaintenanceIssue" xml:space="preserve"><value>{0} — {1}: {2}</value></data>
   <data name="IndexMaintenanceIssueNoWatchedFolders" xml:space="preserve"><value>No watched folders</value></data>
