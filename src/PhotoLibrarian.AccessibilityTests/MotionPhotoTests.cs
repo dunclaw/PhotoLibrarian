@@ -58,7 +58,8 @@ public partial class App
             var badMedia = Entry(folder, "bad-media.jpg");
             var video = Entry(folder, "generated.mp4", MediaType.Video);
             var appleStill = Entry(folder, "apple-still.jpg");
-            List<ImageEntry> entries = [motion, still, malformed, badMedia, video, appleStill];
+            var appleMissing = Entry(folder, "apple-missing.jpg");
+            List<ImageEntry> entries = [motion, still, malformed, badMedia, video, appleStill, appleMissing];
 
             viewer.OpenImage(motion, entries);
             await UntilAsync(() => player.Visibility == Visibility.Visible && viewer.CurrentImage is not null);
@@ -126,6 +127,13 @@ public partial class App
                 appleMovieWritten == File.GetLastWriteTimeUtc(appleMoviePath),
                 "Apple still and MOV source bytes and timestamps remain unchanged");
 
+            status.Severity = InfoBarSeverity.Error;
+            viewer.OpenImage(appleMissing, entries);
+            await UntilAsync(() => status.IsOpen && viewer.CurrentImage is not null);
+            Check(status.Severity == InfoBarSeverity.Warning && !string.IsNullOrWhiteSpace(status.Message) &&
+                button.Visibility == Visibility.Collapsed && player.MediaPlayer is null,
+                "A missing Apple movie displays a warning without hiding the still");
+
             viewer.OpenImage(appleStill, entries);
             await UntilAsync(() => button.Visibility == Visibility.Visible);
             Invoke(button);
@@ -179,12 +187,22 @@ public partial class App
             Check(button.Visibility == Visibility.Collapsed && !status.IsOpen,
                 "Rapid navigation cancels detection and rejects stale results");
 
+            status.Severity = InfoBarSeverity.Error;
             viewer.OpenImage(malformed, entries);
             await UntilAsync(() => status.IsOpen && viewer.CurrentImage is not null);
-            Check(player.MediaPlayer is null, "Malformed motion metadata reports a limitation while retaining the still");
+            Check(player.MediaPlayer is null && status.Severity == InfoBarSeverity.Warning &&
+                !string.IsNullOrWhiteSpace(status.Message) && status.IsClosable,
+                "Malformed motion metadata shows a dismissible warning while retaining the still");
+            status.IsOpen = false;
+            typeof(ImageViewerOverlay).GetMethod("ReportMotionFailure", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(overlay, ["MotionPhotoTimeout", null]);
+            Check(status.IsOpen && status.Severity == InfoBarSeverity.Warning &&
+                !string.IsNullOrWhiteSpace(status.Message),
+                "A later motion failure reopens the dismissed warning");
             viewer.OpenImage(badMedia, entries);
             await UntilAsync(() => status.IsOpen);
-            Check(player.MediaPlayer is null && viewer.CurrentImage is not null,
+            Check(player.MediaPlayer is null && viewer.CurrentImage is not null &&
+                status.Severity == InfoBarSeverity.Warning,
                 "Invalid media accepted structurally falls back after native decoder failure");
 
             viewer.OpenImage(video, entries);
@@ -205,7 +223,7 @@ public partial class App
             byte[] afterPlayback = await File.ReadAllBytesAsync(motion.FilePath);
             Check(SHA256.HashData(original).SequenceEqual(SHA256.HashData(afterPlayback)) &&
                 written == File.GetLastWriteTimeUtc(motion.FilePath), "All playback lifecycle operations leave source bytes and timestamp unchanged");
-            Check(Directory.GetFiles(folder).Length == 7, "Playback creates no extracted library artifacts");
+            Check(Directory.GetFiles(folder).Length == 8, "Playback creates no extracted library artifacts");
             string[] arguments = Environment.GetCommandLineArgs();
             int sampleArgument = Array.IndexOf(arguments, "--motion-photo-sample");
             string? samplePath = sampleArgument >= 0 ? arguments[sampleArgument + 1] : null;
@@ -240,7 +258,7 @@ public partial class App
             // Only explicitly named generated fixtures belong to this isolated test directory.
             foreach (string name in new[]
                 { "motion.jpg", "still.jpg", "malformed.jpg", "bad-media.jpg", "generated.mp4",
-                  "apple-still.jpg", "apple-unrelated-name.mov" })
+                  "apple-still.jpg", "apple-missing.jpg", "apple-unrelated-name.mov" })
             {
                 string path = Path.Combine(folder, name);
                 if (File.Exists(path)) File.Delete(path);
@@ -302,6 +320,8 @@ public partial class App
         const string appleIdentifier = "123e4567-e89b-12d3-a456-426614174000";
         await File.WriteAllBytesAsync(Path.Combine(folder, "apple-still.jpg"),
             AddAppleExif(image, appleIdentifier));
+        await File.WriteAllBytesAsync(Path.Combine(folder, "apple-missing.jpg"),
+            AddAppleExif(image, "223e4567-e89b-12d3-a456-426614174000"));
         await File.WriteAllBytesAsync(Path.Combine(folder, "apple-unrelated-name.mov"),
             AddAppleMetadataToMovie(video, appleIdentifier));
     }
