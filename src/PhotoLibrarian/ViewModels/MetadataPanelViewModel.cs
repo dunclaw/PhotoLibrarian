@@ -8,6 +8,7 @@ using Microsoft.Windows.ApplicationModel.Resources;
 using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Services;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -76,12 +77,6 @@ public partial class TagDisplayItem : ObservableObject
     }
 }
 
-public sealed record GeotagBatchResult(
-    int AppliedCount,
-    int TotalCount,
-    int SidecarCount,
-    IReadOnlyList<string> Failures);
-
 public partial class MetadataPanelViewModel : ObservableObject
 {
     // Currently-selected entries (1 or more)
@@ -90,7 +85,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     private TagRepository? _tagRepo;
     private FaceRepository? _faceRepo;
     private MainViewModel? _main;
-    private GeotagMetadataWriterService? _geotagWriter;
+    private GeotagEditService? _geotagEditor;
     private CancellationTokenSource? _videoMetadataCancellation;
     private double? _videoLatitude;
     private double? _videoLongitude;
@@ -300,7 +295,8 @@ public partial class MetadataPanelViewModel : ObservableObject
         _tagRepo = tagRepo;
         _faceRepo = faceRepo;
         _main = main;
-        _geotagWriter = new GeotagMetadataWriterService(backupService ?? new OriginalBackupService());
+        _geotagEditor = new GeotagEditService(
+            new GeotagMetadataWriterService(backupService ?? new OriginalBackupService()), imageRepo);
         if (_main is not null)
         {
             _main.PropertyChanged += (_, e) =>
@@ -1065,7 +1061,7 @@ public partial class MetadataPanelViewModel : ObservableObject
 
     public async Task<GeotagBatchResult> SetGeotagAsync(GeoCoordinate coordinate)
     {
-        if (_entries.Count == 0 || !CanEditGeotag || _geotagWriter is null)
+        if (_entries.Count == 0 || !CanEditGeotag || _geotagEditor is null)
             return new GeotagBatchResult(0, _entries.Count, 0, []);
 
         if (_main is not null)
@@ -1074,9 +1070,7 @@ public partial class MetadataPanelViewModel : ObservableObject
             var sidecars = 0;
             var applied = await _main.RunPhotoEditAsync("GPS coordinates", paths, async copies =>
             {
-                foreach (var copy in copies.Values)
-                    if (await _geotagWriter.WriteAsync(copy, coordinate) == GeotagWriteLocation.XmpSidecar)
-                        sidecars++;
+                sidecars = await _geotagEditor.WritePreparedCopiesAsync(copies.Values, coordinate);
             });
             return applied
                 ? new(paths.Count, paths.Count, sidecars, [])
@@ -1084,52 +1078,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         }
 
         var entries = _entries.ToList();
-        var failures = new List<string>();
-        var appliedCount = 0;
-        var sidecarCount = 0;
-        var attempts = await _geotagWriter.WriteBatchAsync(
-            entries.Select(entry => entry.FilePath).ToList(),
-            coordinate);
-
-        for (var index = 0; index < entries.Count; index++)
-        {
-            var entry = entries[index];
-            var attempt = attempts[index];
-            if (attempt.Location is not { } writeLocation)
-            {
-                failures.Add($"{entry.FileName}: {attempt.Error}");
-                continue;
-            }
-
-            if (writeLocation == GeotagWriteLocation.XmpSidecar)
-                sidecarCount++;
-
-            entry.GpsLatitude = coordinate.Latitude;
-            entry.GpsLongitude = coordinate.Longitude;
-            appliedCount++;
-
-            if (_imageRepo is not null && entry.Id > 0)
-            {
-                try
-                {
-                    var fileInfo = new FileInfo(entry.FilePath);
-                    entry.FileSize = fileInfo.Length;
-                    entry.DateModified = fileInfo.LastWriteTimeUtc;
-                    await _imageRepo.UpdateGpsCoordinatesAsync(
-                        entry.Id,
-                        coordinate.Latitude,
-                        coordinate.Longitude,
-                        entry.FileSize,
-                        entry.DateModified);
-                }
-                catch (Exception exception) when (
-                    exception is not OutOfMemoryException and not StackOverflowException)
-                {
-                    failures.Add(
-                        $"{entry.FileName}: coordinates were written, but the library index could not be updated: {exception.Message}");
-                }
-            }
-        }
+        var result = await _geotagEditor.WriteDirectAsync(entries, coordinate);
 
         GpsLatitude = CommonStringOrMixed(
             _entries,
@@ -1138,11 +1087,11 @@ public partial class MetadataPanelViewModel : ObservableObject
             _entries,
             entry => entry.GpsLongitude.HasValue ? $"{entry.GpsLongitude:F6}" : "");
 
-        if (_main is not null && appliedCount > 0)
+        if (_main is not null && result.AppliedCount > 0)
             await _main.ImageGrid.RefreshWatchedItemsAsync(
                 entries.Select(entry => entry.FilePath).ToArray());
 
-        return new GeotagBatchResult(appliedCount, entries.Count, sidecarCount, failures);
+        return result;
     }
 
     /// <summary>

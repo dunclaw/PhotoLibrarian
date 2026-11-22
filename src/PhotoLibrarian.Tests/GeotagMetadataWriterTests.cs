@@ -1,7 +1,10 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using MetadataExtractor.Formats.Exif;
+using Microsoft.Data.Sqlite;
+using PhotoLibrarian.Core.Data;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using XmpCore;
 using Xunit;
@@ -190,6 +193,110 @@ public sealed class GeotagMetadataWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task DirectEdit_ReportsPartialWritesAndUpdatesSuccessfulEntriesAndCache()
+    {
+        var jpegPath = Path.Combine(_directory, "first.jpg");
+        var rawPath = Path.Combine(_directory, "second.cr3");
+        var missingPath = Path.Combine(_directory, "missing.jpg");
+        await WicTestImage.CreateAsync(jpegPath, 16, 16, jpeg: true);
+        await File.WriteAllBytesAsync(rawPath, [1, 2, 3], TestContext.Current.CancellationToken);
+        using var database = new CacheDatabase(Path.Combine(_directory, "cache.db"));
+        await database.InitializeAsync();
+        var repository = new ImageRepository(database);
+        var entries = new[]
+        {
+            new ImageEntry { FilePath = jpegPath, FileName = "first.jpg" },
+            new ImageEntry { FilePath = rawPath, FileName = "second.cr3" },
+            new ImageEntry { FilePath = missingPath, FileName = "missing.jpg" }
+        };
+        foreach (var entry in entries)
+            entry.Id = await repository.UpsertImageAsync(entry);
+        var coordinate = new GeoCoordinate(10, -20);
+        var editor = new GeotagEditService(
+            new GeotagMetadataWriterService(new OriginalBackupService(Path.Combine(_directory, "backups"))),
+            repository);
+
+        var result = await editor.WriteDirectAsync(entries, coordinate);
+
+        Assert.Equal(2, result.AppliedCount);
+        Assert.Equal(3, result.TotalCount);
+        Assert.Equal(1, result.SidecarCount);
+        Assert.Contains("missing.jpg", Assert.Single(result.Failures));
+        foreach (var entry in entries.Take(2))
+        {
+            Assert.Equal(coordinate.Latitude, entry.GpsLatitude);
+            Assert.Equal(coordinate.Longitude, entry.GpsLongitude);
+            var cached = (await repository.GetByPathAsync(entry.FilePath))!;
+            Assert.Equal(coordinate.Latitude, cached.GpsLatitude);
+            Assert.Equal(coordinate.Longitude, cached.GpsLongitude);
+            Assert.Equal(new FileInfo(entry.FilePath).Length, cached.FileSize);
+            Assert.Equal(coordinate.Latitude, new MetadataReaderService().ReadMetadata(entry.FilePath).GpsLatitude);
+        }
+        Assert.Null(entries[2].GpsLatitude);
+        Assert.Null((await repository.GetByPathAsync(missingPath))!.GpsLatitude);
+    }
+
+    [Fact]
+    public async Task DirectEdit_ReportsCacheFailureAfterPortableWrite()
+    {
+        var path = Path.Combine(_directory, "photo.cr3");
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+        using var database = new CacheDatabase(Path.Combine(_directory, "uninitialized.db"));
+        var entry = new ImageEntry { Id = 1, FilePath = path, FileName = "photo.cr3" };
+        var editor = new GeotagEditService(
+            new GeotagMetadataWriterService(new OriginalBackupService(Path.Combine(_directory, "backups"))),
+            new ImageRepository(database));
+        var coordinate = new GeoCoordinate(12, 34);
+
+        var result = await editor.WriteDirectAsync([entry], coordinate);
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Equal(1, result.SidecarCount);
+        Assert.Contains("coordinates were written, but the library index could not be updated",
+            Assert.Single(result.Failures));
+        Assert.Equal(coordinate.Latitude, entry.GpsLatitude);
+        Assert.Equal(coordinate.Longitude, new MetadataReaderService().ReadMetadata(path).GpsLongitude);
+    }
+
+    [Fact]
+    public async Task MetadataPanel_DirectEditKeepsPartialResultAndMixedDisplay()
+    {
+        var path = Path.Combine(_directory, "photo.cr3");
+        await File.WriteAllBytesAsync(path, [1, 2, 3], TestContext.Current.CancellationToken);
+        var photo = new ImageEntry { FilePath = path, FileName = "photo.cr3" };
+        var missing = new ImageEntry
+        {
+            FilePath = Path.Combine(_directory, "missing.cr3"),
+            FileName = "missing.cr3"
+        };
+        var panel = new MetadataPanelViewModel();
+        panel.Initialize(backupService: new OriginalBackupService(Path.Combine(_directory, "backups")));
+        panel.ShowMetadata([photo, missing]);
+
+        var result = await panel.SetGeotagAsync(new GeoCoordinate(10, 20));
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Equal(1, result.SidecarCount);
+        Assert.Contains("missing.cr3", Assert.Single(result.Failures));
+        Assert.Equal("Multiple values", panel.GpsLatitude);
+        Assert.Equal("Multiple values", panel.GpsLongitude);
+    }
+
+    [Fact]
+    public async Task PreparedCopies_PropagatesWriteFailures()
+    {
+        var editor = new GeotagEditService(
+            new GeotagMetadataWriterService(new OriginalBackupService(Path.Combine(_directory, "backups"))),
+            null);
+        var missingPath = Path.Combine(_directory, "missing.jpg");
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            editor.WritePreparedCopiesAsync([missingPath], new GeoCoordinate(10, 20)));
+
+        Assert.False(File.Exists(Path.ChangeExtension(missingPath, ".xmp")));
+    }
+
+    [Fact]
     public async Task LockedImage_DoesNotFallbackToSidecar()
     {
         var imagePath = Path.Combine(_directory, "locked.jpg");
@@ -272,5 +379,16 @@ public sealed class GeotagMetadataWriterTests : IDisposable
         return xmp;
     }
 
-    public void Dispose() => Directory.Delete(_directory, recursive: true);
+    public void Dispose()
+    {
+        foreach (var name in new[] { "cache.db", "uninitialized.db" })
+        {
+            var path = Path.Combine(_directory, name);
+            if (!File.Exists(path)) continue;
+            using var database = new CacheDatabase(path);
+            using var connection = database.CreateConnection();
+            SqliteConnection.ClearPool(connection);
+        }
+        Directory.Delete(_directory, recursive: true);
+    }
 }
