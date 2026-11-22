@@ -100,6 +100,7 @@ public partial class MainViewModel
                 transaction.Dispose();
                 return new(EditHistoryStatus.Empty);
             }
+            using var viewerPause = await ImageViewer.PauseFileReadsAsync();
             EditHistoryResult result;
             try
             {
@@ -113,6 +114,8 @@ public partial class MainViewModel
                             await _imageRepo.UpdateFlagAsync(image.Id, _metadataReader.ReadMetadata(path).IsFlagged);
                     }
                     after = await CaptureCacheAsync(originals);
+                    // Refresh reloads the viewer, so resume reads after publication.
+                    viewerPause.Dispose();
                     await RefreshHistorySurfacesAsync(originals);
                 });
             }
@@ -132,9 +135,11 @@ public partial class MainViewModel
             try
             {
                 await EnsureFaceMetadataPersistedAsync();
+                using var viewerPause = await ImageViewer.PauseFileReadsAsync();
                 return await transaction!.MoveAsync(undo, async () =>
                 {
                     await RestoreCacheAsync(undo ? before : after);
+                    viewerPause.Dispose();
                     await RefreshHistorySurfacesAsync(originals);
                 });
             }

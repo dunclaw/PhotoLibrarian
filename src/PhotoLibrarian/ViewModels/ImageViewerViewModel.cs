@@ -14,6 +14,11 @@ public partial class ImageViewerViewModel : ObservableObject
     private List<ImageEntry> _allImages = [];
     private int _currentIndex;
     private int _loadVersion;
+    private readonly object _readSync = new();
+    private readonly HashSet<TaskCompletionSource> _activeReads = [];
+    private readonly SemaphoreSlim _editReadPause = new(1, 1);
+    private TaskCompletionSource? _resumeReads;
+    private bool _readsStopping;
     private string? _pendingExportPath;
     private readonly ViewerEffectService _effects = new(new OriginalBackupService());
     public bool IsApplyingEffect { get; private set; }
@@ -257,6 +262,69 @@ public partial class ImageViewerViewModel : ObservableObject
         await LoadCurrentImageAsync();
     }
 
+    private sealed class ReadLease(Action release) : IDisposable
+    {
+        private Action? _release = release;
+        public void Dispose() => Interlocked.Exchange(ref _release, null)?.Invoke();
+    }
+
+    private async Task<IDisposable?> BeginFileReadAsync()
+    {
+        while (true)
+        {
+            Task resume;
+            lock (_readSync)
+            {
+                if (_readsStopping) return null;
+                if (_resumeReads is null)
+                {
+                    var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _activeReads.Add(completed);
+                    return new ReadLease(() =>
+                    {
+                        lock (_readSync) _activeReads.Remove(completed);
+                        completed.TrySetResult();
+                    });
+                }
+                resume = _resumeReads.Task;
+            }
+            await resume;
+        }
+    }
+
+    internal async Task<IDisposable> PauseFileReadsAsync()
+    {
+        await _editReadPause.WaitAsync();
+        Task[] reads;
+        TaskCompletionSource resume;
+        lock (_readSync)
+        {
+            resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _resumeReads = resume;
+            reads = _activeReads.Select(read => read.Task).ToArray();
+        }
+        await Task.WhenAll(reads);
+        return new ReadLease(() =>
+        {
+            lock (_readSync) _resumeReads = null;
+            resume.TrySetResult();
+            _editReadPause.Release();
+        });
+    }
+
+    internal async Task StopFileReadsAsync()
+    {
+        Task[] reads;
+        lock (_readSync)
+        {
+            if (!_readsStopping) _loadVersion++;
+            _readsStopping = true;
+            _resumeReads?.TrySetResult();
+            reads = _activeReads.Select(read => read.Task).ToArray();
+        }
+        await Task.WhenAll(reads);
+    }
+
     [RelayCommand]
     private async Task NextImageAsync()
     {
@@ -324,6 +392,8 @@ public partial class ImageViewerViewModel : ObservableObject
 
         try
         {
+            using var read = await BeginFileReadAsync();
+            if (read is null || loadVersion != _loadVersion) return;
             var bmp = await ViewerImageLoader.LoadRasterAsync(entry.FilePath);
             if (loadVersion != _loadVersion) return;
             CurrentImage = bmp;

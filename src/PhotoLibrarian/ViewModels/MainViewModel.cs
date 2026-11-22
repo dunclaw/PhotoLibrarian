@@ -1447,6 +1447,7 @@ public partial class MainViewModel : ObservableObject
     public async Task CleanupAsync()
     {
         await EditHistory.WaitForIdleAsync();
+        await ImageViewer.StopFileReadsAsync();
         Search.Cleanup();
         DebugLog.WriteLine("MainViewModel: Cleanup - canceling background tasks");
         _isShuttingDown = true;
