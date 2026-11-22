@@ -34,6 +34,18 @@ public partial class App
         Check(await neutralTask == ContentDialogResult.Primary,
             "Neutral confirmation returns the primary result without remapping it");
 
+        var printMessage = "Unsupported photos:" + Environment.NewLine + "one.raw" + Environment.NewLine + "two.raw";
+        var printTask = service.ErrorAsync(owner, "Printing unavailable", printMessage, "Close");
+        await UntilAsync(() => FindOpenContentDialog() is not null);
+        var printError = FindOpenContentDialog()!;
+        Check(printError.Title?.ToString() == "Printing unavailable" &&
+            Equals(printError.Content, printMessage) && printError.CloseButtonText == "Close" &&
+            string.IsNullOrEmpty(printError.PrimaryButtonText),
+            "Error dialog preserves multiline print details and exposes only Close");
+        InvokeDialogButton(printError, "Close");
+        Check(await printTask == ContentDialogResult.None,
+            "Closing the print error dismisses it");
+
         var destructiveTask = service.ConfirmDestructiveAsync(
             owner, "Recycle duplicates?", "Synthetic photos only", "Recycle 2 photos", "Cancel");
         await UntilAsync(() => FindOpenContentDialog() is not null);

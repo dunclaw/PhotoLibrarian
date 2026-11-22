@@ -223,17 +223,12 @@ public sealed partial class MainWindow : Window
             photo => photo.FilePath);
     }
 
-    private async Task ShowPrintErrorAsync(string message)
-    {
-        var dialog = new ContentDialog
-        {
-            XamlRoot = AppRoot.XamlRoot,
-            Title = PhotoPrintStrings.Get("PrintErrorTitle"),
-            Content = message,
-            CloseButtonText = PhotoPrintStrings.Get("PrintClose")
-        };
-        await dialog.ShowAsync();
-    }
+    private async Task ShowPrintErrorAsync(string message) =>
+        await DialogService.Instance.ErrorAsync(
+            AppRoot,
+            PhotoPrintStrings.Get("PrintErrorTitle"),
+            message,
+            PhotoPrintStrings.Get("PrintClose"));
 
     private void OnPrintError(object? sender, string message)
     {
@@ -644,16 +639,13 @@ public sealed partial class MainWindow : Window
             .ToList();
         ViewModel.StatusText = summary;
 
-        var resultDialog = new ContentDialog
-        {
-            XamlRoot = AppRoot.XamlRoot,
-            Title = PhotoImportStrings.Get("PhotoImportDeleteResultTitle"),
-            Content = errors.Count == 0
+        await DialogService.Instance.ErrorAsync(
+            AppRoot,
+            PhotoImportStrings.Get("PhotoImportDeleteResultTitle"),
+            errors.Count == 0
                 ? summary
                 : $"{summary}{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, errors)}",
-            CloseButtonText = PhotoImportStrings.Get("PhotoImportClose")
-        };
-        await resultDialog.ShowAsync();
+            PhotoImportStrings.Get("PhotoImportClose"));
     }
 
     private void OnMetadataSidecarFallback(object? sender, MetadataWriteFallbackEventArgs e)
@@ -1645,14 +1637,8 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             ViewModel.PeopleReview.Close();
-            var dialog = new ContentDialog
-            {
-                Title = "People review couldn't be opened",
-                Content = ex.Message,
-                CloseButtonText = "Close",
-                XamlRoot = MainLayout.XamlRoot
-            };
-            await dialog.ShowAsync();
+            await DialogService.Instance.ErrorAsync(
+                MainLayout, "People review couldn't be opened", ex, "Close");
         }
     }
 

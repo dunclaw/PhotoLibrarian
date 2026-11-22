@@ -84,6 +84,15 @@ public sealed class PhotoImportServiceTests
         Assert.Contains("PhotoImportStrings.Get(\"PhotoImportDeleteConfirmButton\")", importFlow[confirmation..approval]);
         Assert.Contains("PhotoImportStrings.Get(\"PhotoImportCancel\")", importFlow[confirmation..approval]);
         Assert.Contains("return;", importFlow[approval..deletion]);
+        var resultDialog = importFlow.IndexOf("DialogService.Instance.ErrorAsync(", deletion, StringComparison.Ordinal);
+        Assert.True(resultDialog > deletion);
+        var result = importFlow[resultDialog..];
+        Assert.Contains("AppRoot,", result);
+        Assert.Contains("PhotoImportStrings.Get(\"PhotoImportDeleteResultTitle\")", result);
+        Assert.Contains("errors.Count == 0", result);
+        Assert.Contains("string.Join(Environment.NewLine, errors)", result);
+        Assert.Contains("PhotoImportStrings.Get(\"PhotoImportClose\")", result);
+        Assert.DoesNotContain("new ContentDialog", result);
     }
 
     [Fact]
