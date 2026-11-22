@@ -14,6 +14,7 @@ public sealed partial class PhotoComparisonPane : UserControl
 {
     private readonly ImageZoomPanController _controller;
     private ComparisonViewport _view = ComparisonViewport.Fit;
+    private XamlRoot? _observedXamlRoot;
     private bool _ready;
     internal bool IsReady => _ready;
     internal ImageEntry Entry { get; }
@@ -33,6 +34,8 @@ public sealed partial class PhotoComparisonPane : UserControl
         AutomationProperties.SetName(RemoveButton, ComparisonStrings.Format("ComparisonRemoveName", entry.FileName));
         AutomationProperties.SetName(RetryButton, ComparisonStrings.Format("ComparisonRetryName", entry.FileName));
         _controller = new ImageZoomPanController(Viewport, ScrollContent, ImageHost, Photo);
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
         Viewport.AddHandler(UIElement.PointerWheelChangedEvent,
             new PointerEventHandler(OnWheel), handledEventsToo: true);
         SetLoading();
@@ -87,6 +90,26 @@ public sealed partial class PhotoComparisonPane : UserControl
     }
 
     private void OnViewportSizeChanged(object sender, SizeChangedEventArgs e) => ApplyView(_view);
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_observedXamlRoot is not null)
+            _observedXamlRoot.Changed -= OnXamlRootChanged;
+        _observedXamlRoot = XamlRoot;
+        if (_observedXamlRoot is null) return;
+        _observedXamlRoot.Changed += OnXamlRootChanged;
+        _controller.HandleRasterizationScaleChanged();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (_observedXamlRoot is not null)
+            _observedXamlRoot.Changed -= OnXamlRootChanged;
+        _observedXamlRoot = null;
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) =>
+        _controller.HandleRasterizationScaleChanged();
+
     private void OnRemove(object sender, RoutedEventArgs e) => RemoveRequested?.Invoke(this);
     private void OnRetry(object sender, RoutedEventArgs e) => RetryRequested?.Invoke(this);
     private void OnWheel(object sender, PointerRoutedEventArgs e)
