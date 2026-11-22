@@ -49,14 +49,15 @@ public partial class App : Application
             $"PhotoLibrarian starting: {typeof(App).Assembly.GetName().Version}, " +
             $"{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
             $"{Environment.OSVersion.VersionString}");
-        var candidates = await Task.Run(() => FileEditRecovery.FindAsync(MainViewModel.EditHistoryRoot));
+        var candidates = await Task.Run(() =>
+            FileEditRecovery.FindAsync(AppDataPaths.EditHistoryDirectory));
         RecoveryWindow? recoveryWindow = null;
         if (candidates.Count > 0)
         {
             recoveryWindow = new RecoveryWindow();
             _window = recoveryWindow;
             recoveryWindow.Activate();
-            if (!await recoveryWindow.ResolveAsync(MainViewModel.EditHistoryRoot, candidates))
+            if (!await recoveryWindow.ResolveAsync(AppDataPaths.EditHistoryDirectory, candidates))
             {
                 recoveryWindow.CloseAfterRecovery();
                 Exit();
@@ -65,10 +66,8 @@ public partial class App : Application
         }
 
         _ = Task.Run(() => new PhotoSharePreparationService().CleanupExpired());
-        var dbPath = Path.Combine(dataDir, "cache.db");
-
         // Create services
-        var db = new CacheDatabase(dbPath);
+        var db = new CacheDatabase(AppDataPaths.CacheDatabaseFile);
         var imageRepo = new ImageRepository(db);
         var tagRepo = new TagRepository(db);
         var faceRepo = new FaceRepository(db);
