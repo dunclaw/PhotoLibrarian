@@ -148,13 +148,16 @@ internal sealed class ImageZoomPanController
             (_scrollViewer.ActualHeight - _imageHost.Height) / 2);
     }
 
-    public void HandleRasterizationScaleChanged()
+    public void HandleRasterizationScaleChanged() =>
+        HandleRasterizationScaleChanged(RasterizationScale);
+
+    internal void HandleRasterizationScaleChanged(double rasterizationScale)
     {
-        if (!_scale.IsActualSize ||
-            Math.Abs(_zoomFactor - ViewerZoomScale.ActualSizeScale(RasterizationScale)) < 1e-10)
-            return;
-        ZoomToCenter(ViewerZoomScale.ActualSizeScale(RasterizationScale));
-        _scale.ActualSize(RasterizationScale);
+        if (!_scale.IsActualSize) return;
+        var actualSizeScale = ViewerZoomScale.ActualSizeScale(rasterizationScale);
+        if (Math.Abs(_zoomFactor - actualSizeScale) < 1e-10) return;
+        ZoomToCenter(actualSizeScale);
+        _scale.ActualSize(rasterizationScale);
     }
 
     public void HandleSizeChanged(Size previousSize)

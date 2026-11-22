@@ -11,6 +11,7 @@ using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.Views;
+using System.Reflection;
 using System.Security.Cryptography;
 using Windows.Graphics;
 using Windows.System;
@@ -82,6 +83,23 @@ public partial class App
         var host = (Grid)panes[0].FindName("ImageHost");
         Check(Math.Abs(host.ActualWidth * root.XamlRoot.RasterizationScale - 640) < 1,
             "100% maps one decoded pixel to one physical display pixel");
+        var controller = (ImageZoomPanController)typeof(PhotoComparisonPane)
+            .GetField("_controller", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(panes[0])!;
+        var comparisonViewport = (ScrollViewer)panes[0].FindName("Viewport");
+        var centerX = (comparisonViewport.ActualWidth / 2 - Canvas.GetLeft(host)) / host.Width;
+        var centerY = (comparisonViewport.ActualHeight / 2 - Canvas.GetTop(host)) / host.Height;
+        var rasterizationScale = root.XamlRoot.RasterizationScale;
+        controller.HandleRasterizationScaleChanged(rasterizationScale * 2);
+        await Task.Delay(100);
+        Check(Math.Abs(host.ActualWidth * rasterizationScale * 2 - 640) < 1 &&
+            Math.Abs(host.ActualHeight * rasterizationScale * 2 - 960) < 1,
+            "Comparison keeps 100% mapped to physical pixels after a display-scale change");
+        Check(Math.Abs((comparisonViewport.ActualWidth / 2 - Canvas.GetLeft(host)) / host.Width - centerX) < 0.001 &&
+            Math.Abs((comparisonViewport.ActualHeight / 2 - Canvas.GetTop(host)) / host.Height - centerY) < 0.001,
+            "Display-scale changes preserve the comparison viewport center");
+        controller.HandleRasterizationScaleChanged(rasterizationScale);
+        await Task.Delay(100);
         var firstViewport = (ScrollViewer)panes[0].FindName("Viewport");
         firstViewport.Focus(FocusState.Keyboard);
         Check(firstViewport.Focus(FocusState.Keyboard) &&
