@@ -28,4 +28,48 @@ public sealed class AppDataPathsTests
 
         Assert.Equal(expected, AppDataPaths.OriginalBackupDirectory);
     }
+
+    [Fact]
+    public void CacheDatabaseFile_PreservesExistingLocalAppDataLocation()
+    {
+        var expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PhotoLibrarian",
+            "cache.db");
+
+        Assert.Equal(expected, AppDataPaths.CacheDatabaseFile);
+    }
+
+    [Fact]
+    public void PresetCatalogFile_PreservesExistingLocalAppDataLocation()
+    {
+        var expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PhotoLibrarian",
+            "presets.json");
+
+        Assert.Equal(expected, AppDataPaths.PresetCatalogFile);
+    }
+
+    [Fact]
+    public void EditHistoryDirectory_PreservesExistingLocalAppDataLocation()
+    {
+        var expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PhotoLibrarian",
+            "EditHistory");
+
+        Assert.Equal(expected, AppDataPaths.EditHistoryDirectory);
+    }
+
+    [Fact]
+    public void ShareCopiesDirectory_PreservesExistingLocalAppDataLocation()
+    {
+        var expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PhotoLibrarian",
+            "ShareCopies");
+
+        Assert.Equal(expected, AppDataPaths.ShareCopiesDirectory);
+    }
 }
