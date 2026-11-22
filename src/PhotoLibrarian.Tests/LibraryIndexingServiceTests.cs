@@ -504,27 +504,53 @@ public sealed class LibraryIndexingServiceTests
             var indexer = new LibraryIndexingService(
                 database, images, new TagRepository(database), new FaceRepository(database),
                 scanner, new MetadataReaderService(), new FaceMetadataStore());
-            using var changes = new WatchedFolderChangeService(
+            await using var changes = new WatchedFolderChangeService(
                 scanner, indexer, images, TimeSpan.FromMilliseconds(250));
             var notifications = 0;
-            var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            changes.LibraryChanged += (_, _) =>
+            var changed = new TaskCompletionSource<WatchedFolderChangeService.WatchedLibraryChangedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            changes.LibraryChanged += (_, args) =>
             {
                 Interlocked.Increment(ref notifications);
-                changed.TrySetResult();
+                changed.TrySetResult(args);
+            };
+            var firstObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var renamedObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            scanner.FileChanged += (_, args) =>
+            {
+                if (args.FilePath == oldPath) firstObserved.TrySetResult();
+                if (args.FilePath == secondPath) secondObserved.TrySetResult();
+                if (args.FilePath == renamedPath) renamedObserved.TrySetResult();
             };
             scanner.SyncWatchedFolders([(directory, false)]);
 
-            await File.WriteAllBytesAsync(oldPath, [1, 2]);
-            await File.WriteAllBytesAsync(secondPath, [3, 4]);
-            await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            // Hold the batch until both watcher events arrive, regardless of scheduling gaps.
+            using (changes.SuspendProcessing())
+            {
+                await File.WriteAllBytesAsync(oldPath, [1, 2], TestContext.Current.CancellationToken);
+                await firstObserved.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+                await Task.Delay(500, TestContext.Current.CancellationToken);
+                Assert.False(changed.Task.IsCompleted);
+                await File.WriteAllBytesAsync(secondPath, [3, 4], TestContext.Current.CancellationToken);
+                await secondObserved.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            }
+            var batch = await changed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            Assert.Contains(oldPath, batch.ChangedImagePaths);
+            Assert.Contains(secondPath, batch.ChangedImagePaths);
             Assert.NotNull(await images.GetByPathAsync(oldPath));
             Assert.NotNull(await images.GetByPathAsync(secondPath));
             Assert.Equal(1, Volatile.Read(ref notifications));
 
-            changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            File.Move(oldPath, renamedPath);
-            await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            changed = new TaskCompletionSource<WatchedFolderChangeService.WatchedLibraryChangedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using (changes.SuspendProcessing())
+            {
+                File.Move(oldPath, renamedPath);
+                await renamedObserved.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            }
+            var renamed = await changed.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            Assert.Contains(renamedPath, renamed.ChangedImagePaths);
             Assert.NotNull(await images.GetByPathAsync(oldPath));
             Assert.NotNull(await images.GetByPathAsync(renamedPath));
         }
