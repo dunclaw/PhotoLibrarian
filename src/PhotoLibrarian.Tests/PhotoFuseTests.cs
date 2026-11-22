@@ -120,40 +120,6 @@ public sealed class PhotoFuseTests : IDisposable
     }
 
     [Fact]
-    public async Task ExpectedRejectionsReturnReasonsWithoutThrowingAndReleaseSourceLeases()
-    {
-        var first = await WriteFrameAsync("base.png", Frame());
-        var flat = Enumerable.Repeat((byte)128, Size * Size * 4).ToArray();
-        for (int i = 3; i < flat.Length; i += 4) flat[i] = 255;
-        var second = await WriteFrameAsync("flat.png", flat);
-        int thrown = 0;
-        void CountRejection(object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs args)
-        {
-            if (args.Exception is InvalidDataException or NotSupportedException) thrown++;
-        }
-        PhotoFuseSession.Preparation preparation;
-        PhotoFuseComposer.Rendering rendering;
-        AppDomain.CurrentDomain.FirstChanceException += CountRejection;
-        try
-        {
-            preparation = await PhotoFuseSession.TryPrepareAsync([first, second], Token);
-            rendering = PhotoFuseComposer.TryRender([Frame(), Frame(changed: 1)], [default, default],
-                Size, Size, [new(1, 76, 80, 24, 24)], Token);
-            var unsupported = await PhotoFuseSession.TryPrepareAsync(["unsupported.dng"], Token);
-            Assert.Null(unsupported.Session);
-            Assert.NotNull(unsupported.Rejection);
-        }
-        finally { AppDomain.CurrentDomain.FirstChanceException -= CountRejection; }
-        Assert.Equal(0, thrown);
-        Assert.Null(preparation.Session);
-        Assert.NotNull(preparation.Rejection);
-        Assert.Null(rendering.Pixels);
-        Assert.NotNull(rendering.Rejection);
-        using (File.Open(first, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
-        using (File.Open(second, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
-    }
-
-    [Fact]
     public void RejectsFlatUnrelatedAndPhotometricallyMismatchedFrames()
     {
         var flat = Enumerable.Repeat((byte)128, Size * Size * 4).ToArray();
@@ -820,7 +786,7 @@ public sealed class PhotoFuseTests : IDisposable
             ColorManagementMode.DoNotColorManage)).DetachPixelData();
     }
 
-    private async Task<string> WriteFrameAsync(string name, byte[] pixels, uint size = Size)
+    internal async Task<string> WriteFrameAsync(string name, byte[] pixels, uint size = Size)
     {
         var path = Path.Combine(_folder, name);
         await using var file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite);
