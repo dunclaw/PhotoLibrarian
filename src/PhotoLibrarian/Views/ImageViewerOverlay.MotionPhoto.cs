@@ -102,7 +102,7 @@ public sealed partial class ImageViewerOverlay
             }
             else
             {
-                MotionPhotoStatus.Message = MotionPhotoStrings.Get(applePair.State switch
+                string message = MotionPhotoStrings.Get(applePair.State switch
                 {
                     AppleLivePhotoPairState.MissingMovie => "AppleLivePhotoMissingMovie",
                     AppleLivePhotoPairState.AmbiguousMovies => "AppleLivePhotoAmbiguous",
@@ -111,7 +111,7 @@ public sealed partial class ImageViewerOverlay
                     AppleLivePhotoPairState.UnsupportedStillFormat => "AppleLivePhotoUnsupportedStillFormat",
                     _ => "AppleLivePhotoUnavailable"
                 });
-                MotionPhotoStatus.IsOpen = true;
+                FeedbackService.Instance.Show(MotionPhotoStatus, FeedbackSeverity.Warning, message);
             }
         }
         catch (OperationCanceledException)
@@ -151,7 +151,7 @@ public sealed partial class ImageViewerOverlay
 
         _motionPaused = false;
         SetMotionButtonLabel(true);
-        MotionPhotoStatus.IsOpen = false;
+        FeedbackService.Instance.Dismiss(MotionPhotoStatus);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         _motionPlaybackCancellation = timeout;
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -258,10 +258,10 @@ public sealed partial class ImageViewerOverlay
     {
         DebugLog.WriteLine($"Motion photo: {key}: {error}");
         StopMotionPlayback();
-        MotionPhotoStatus.Message = key == "MotionPhotoUnavailable"
+        string message = key == "MotionPhotoUnavailable"
             ? string.Format(System.Globalization.CultureInfo.CurrentCulture, MotionPhotoStrings.Get(key), error?.Message)
             : MotionPhotoStrings.Get(key);
-        MotionPhotoStatus.IsOpen = true;
+        FeedbackService.Instance.Show(MotionPhotoStatus, FeedbackSeverity.Warning, message);
     }
 
     private void SetMotionButtonLabel(bool playing)
@@ -317,7 +317,7 @@ public sealed partial class ImageViewerOverlay
         StopMotionPlayback();
         _motionPaused = false;
         MotionPhotoButton.Visibility = Visibility.Collapsed;
-        MotionPhotoStatus.IsOpen = false;
+        FeedbackService.Instance.Dismiss(MotionPhotoStatus);
     }
 
     private static bool IsMotionPhotoStillExtension(string extension) =>
