@@ -135,6 +135,8 @@ peak working set, caller-buffer size and longest individual synchronous call.
 The JSON is emitted by the focused tests. Private-byte growth includes COM/WIC
 setup, conversion buffers and codec internals; it is not attribution to a
 particular codec allocation. Shorter-lived peaks can escape sampling.
+The JPEG and other codec probes run in separate test collections; elapsed times
+from a full parallel suite can include contention and are not isolated benchmarks.
 
 Representative 8,192 x 6,144 (~50 MP) results, subtracting each process's baseline:
 
