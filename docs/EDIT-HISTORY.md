@@ -106,6 +106,9 @@ externally modified, or newly introduced sidecar blocks the whole batch. No
 entry is silently skipped. Background recognition is paused during each
 transaction and its outstanding portable metadata is flushed first; automatic
 changes made later are subject to the same conflict boundary.
+Before publication or replay, outstanding viewer reads finish and new viewer
+reads wait until the files have been published. External locks and changes still
+produce a conflict rather than being overwritten.
 
 Original-backup behavior remains separate from history. Non-RAW originals are
 backed up before editing; RAW recipes and unsupported embedded metadata remain

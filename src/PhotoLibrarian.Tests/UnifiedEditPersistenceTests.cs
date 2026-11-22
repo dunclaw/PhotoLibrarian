@@ -9,6 +9,153 @@ namespace PhotoLibrarian.Tests;
 public sealed class UnifiedEditPersistenceTests
 {
     [Fact]
+    public async Task ShutdownDrainsViewerDecoderLease()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var photo = await library.AddPhotoAsync("viewer-lease.png");
+        var second = await library.AddPhotoAsync("viewer-lease-second.png");
+        await ImageEditService.WritePendingRecipeAsync(photo.FilePath, new EditParameters { Effect = PhotoEffect.Sepia });
+        await ImageEditService.WritePendingRecipeAsync(second.FilePath, new EditParameters { Effect = PhotoEffect.Sepia });
+        var original = await File.ReadAllBytesAsync(photo.FilePath);
+        var enteredFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enteredSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        RasterImageDecoder.SourceLeaseAcquiredObserver.Value = async path =>
+        {
+            if (string.Equals(path, photo.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                enteredFirst.TrySetResult();
+                await releaseFirst.Task;
+            }
+            else if (string.Equals(path, second.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                enteredSecond.TrySetResult();
+                await releaseSecond.Task;
+            }
+        };
+        try
+        {
+            library.Main.ImageViewer.OpenImage(photo, [photo, second]);
+            await enteredFirst.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            library.Main.ImageViewer.OpenImage(second, [photo, second]);
+            await enteredSecond.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            library.Main.ImageViewer.CloseCommand.Execute(null);
+            var shutdown = library.Main.CleanupAsync();
+            await Task.WhenAny(shutdown, Task.Delay(1000, TestContext.Current.CancellationToken));
+            Assert.False(shutdown.IsCompleted);
+            releaseFirst.TrySetResult();
+            await Task.WhenAny(shutdown, Task.Delay(500, TestContext.Current.CancellationToken));
+            Assert.False(shutdown.IsCompleted);
+            releaseSecond.TrySetResult();
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            Assert.Equal(original, await File.ReadAllBytesAsync(photo.FilePath));
+        }
+        finally
+        {
+            releaseFirst.TrySetResult();
+            releaseSecond.TrySetResult();
+            await library.Main.ImageViewer.StopFileReadsAsync().WaitAsync(
+                TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            RasterImageDecoder.SourceLeaseAcquiredObserver.Value = null;
+        }
+    }
+
+    [Fact]
+    public async Task EditWaitsForViewerDecoderLease()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var photo = await library.AddPhotoAsync("viewer-edit.png");
+        await ImageEditService.WritePendingRecipeAsync(photo.FilePath, new EditParameters { Effect = PhotoEffect.Sepia });
+        var original = await File.ReadAllBytesAsync(photo.FilePath);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var prepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        RasterImageDecoder.SourceLeaseAcquiredObserver.Value = async path =>
+        {
+            if (!string.Equals(path, photo.FilePath, StringComparison.OrdinalIgnoreCase)) return;
+            entered.TrySetResult();
+            await release.Task;
+        };
+        try
+        {
+            library.Main.ImageViewer.OpenImage(photo, [photo]);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            var edit = library.Main.RunPhotoEditAsync("caption", [photo.FilePath],
+                async copies =>
+                {
+                    await MetadataWriterService.WriteCaptionAsync(copies[photo.FilePath], "test");
+                    prepared.TrySetResult();
+                });
+            await prepared.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            await Task.WhenAny(edit, Task.Delay(1000, TestContext.Current.CancellationToken));
+            Assert.False(edit.IsCompleted, library.Main.StatusText);
+            Assert.Equal(original, await File.ReadAllBytesAsync(photo.FilePath));
+            release.TrySetResult();
+            Assert.True(await edit.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken),
+                library.Main.StatusText);
+            Assert.Equal("test", new MetadataReaderService().ReadMetadata(photo.FilePath).Caption);
+            Assert.Equal(EditHistoryStatus.Applied, (await library.Main.EditHistory.UndoAsync()).Status);
+            Assert.Equal(original, await File.ReadAllBytesAsync(photo.FilePath));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await library.Main.ImageViewer.StopFileReadsAsync().WaitAsync(
+                TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            RasterImageDecoder.SourceLeaseAcquiredObserver.Value = null;
+        }
+    }
+
+    [Fact]
+    public async Task ViewerReadsWaitForPublicationAndDoNotStartAfterShutdown()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var photo = await library.AddPhotoAsync("viewer-pending.png");
+        await ImageEditService.WritePendingRecipeAsync(photo.FilePath, new EditParameters { Effect = PhotoEffect.Sepia });
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        RasterImageDecoder.SourceLeaseAcquiredObserver.Value = path =>
+        {
+            if (string.Equals(path, photo.FilePath, StringComparison.OrdinalIgnoreCase))
+                entered.TrySetResult();
+            return Task.CompletedTask;
+        };
+        try
+        {
+            using (var pause = await library.Main.ImageViewer.PauseFileReadsAsync())
+            {
+                library.Main.ImageViewer.OpenImage(photo, [photo]);
+                await Task.WhenAny(entered.Task, Task.Delay(500, TestContext.Current.CancellationToken));
+                Assert.False(entered.Task.IsCompleted);
+            }
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+
+            var later = await library.AddPhotoAsync("viewer-after-stop.png");
+            await ImageEditService.WritePendingRecipeAsync(later.FilePath, new EditParameters { Effect = PhotoEffect.Sepia });
+            var laterEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            RasterImageDecoder.SourceLeaseAcquiredObserver.Value = path =>
+            {
+                if (string.Equals(path, later.FilePath, StringComparison.OrdinalIgnoreCase))
+                    laterEntered.TrySetResult();
+                return Task.CompletedTask;
+            };
+            using (var pause = await library.Main.ImageViewer.PauseFileReadsAsync())
+            {
+                library.Main.ImageViewer.OpenImage(later, [later]);
+                await library.Main.ImageViewer.StopFileReadsAsync();
+            }
+            await Task.WhenAny(laterEntered.Task, Task.Delay(500, TestContext.Current.CancellationToken));
+            Assert.False(laterEntered.Task.IsCompleted);
+        }
+        finally
+        {
+            await library.Main.ImageViewer.StopFileReadsAsync().WaitAsync(
+                TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            RasterImageDecoder.SourceLeaseAcquiredObserver.Value = null;
+        }
+    }
+
+    [Fact]
     public async Task CurveSaveAndResetUseSharedHistoryWithoutChangingPixels()
     {
         await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();

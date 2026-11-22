@@ -10,12 +10,16 @@ public sealed record RasterImageDecodeResult(
 /// <summary>Oriented, premultiplied BGRA8 sRGB working pixels for raster previews and rendering.</summary>
 public static class RasterImageDecoder
 {
+    // Scoped to the initiating async context so tests can hold a real decoder lease.
+    internal static AsyncLocal<Func<string, Task>?> SourceLeaseAcquiredObserver { get; } = new();
+
     public static async Task<RasterImageDecodeResult> DecodeAsync(
         string path, uint maximumDimension = uint.MaxValue, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         // Keep profile and pixel reads on the same stable file version.
         await using var sourceLease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (SourceLeaseAcquiredObserver.Value is { } observer) await observer(path);
         var profile = await Task.Run(() => RasterColorProfile.Read(path), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (!profile.IsSupported) return new(profile);
