@@ -760,7 +760,7 @@ public sealed partial class MetadataPanel : UserControl
     private async void OnApplyShiftClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel is null) return;
-        var offset = BuildShiftOffset();
+        if (!TryBuildShiftOffset(out var offset)) return;
         if (offset == TimeSpan.Zero) return;
 
         ApplyShiftButton.IsEnabled = false;
@@ -802,15 +802,24 @@ public sealed partial class MetadataPanel : UserControl
         UpdateShiftPreview();
     }
 
-    private TimeSpan BuildShiftOffset()
+    private bool TryBuildShiftOffset(out TimeSpan offset)
     {
+        offset = TimeSpan.Zero;
         if (ShiftDaysBox is null || ShiftHoursBox is null
-            || ShiftMinutesBox is null || ShiftSecondsBox is null) return TimeSpan.Zero;
-        int days = double.IsNaN(ShiftDaysBox.Value) ? 0 : (int)ShiftDaysBox.Value;
-        int hours = double.IsNaN(ShiftHoursBox.Value) ? 0 : (int)ShiftHoursBox.Value;
-        int minutes = double.IsNaN(ShiftMinutesBox.Value) ? 0 : (int)ShiftMinutesBox.Value;
-        int seconds = double.IsNaN(ShiftSecondsBox.Value) ? 0 : (int)ShiftSecondsBox.Value;
-        return new TimeSpan(days, hours, minutes, seconds);
+            || ShiftMinutesBox is null || ShiftSecondsBox is null) return false;
+        var values = new[] { ShiftDaysBox.Value, ShiftHoursBox.Value, ShiftMinutesBox.Value, ShiftSecondsBox.Value };
+        if (values.Any(value => !double.IsNaN(value) &&
+            (!double.IsFinite(value) || value < int.MinValue || value > int.MaxValue)))
+            return false;
+        var days = double.IsNaN(values[0]) ? 0 : (int)values[0];
+        var hours = double.IsNaN(values[1]) ? 0 : (int)values[1];
+        var minutes = double.IsNaN(values[2]) ? 0 : (int)values[2];
+        var seconds = double.IsNaN(values[3]) ? 0 : (int)values[3];
+        var ticks = (decimal)days * TimeSpan.TicksPerDay + (decimal)hours * TimeSpan.TicksPerHour +
+            (decimal)minutes * TimeSpan.TicksPerMinute + (decimal)seconds * TimeSpan.TicksPerSecond;
+        if (ticks <= long.MinValue || ticks > long.MaxValue) return false;
+        offset = TimeSpan.FromTicks((long)ticks);
+        return true;
     }
 
     private void ResetShiftFields()
@@ -834,7 +843,12 @@ public sealed partial class MetadataPanel : UserControl
     {
         if (ViewModel is null || ShiftPreviewText is null || ApplyShiftButton is null) return;
 
-        var offset = BuildShiftOffset();
+        if (!TryBuildShiftOffset(out var offset) || !ViewModel.CanOffsetDateTaken(offset))
+        {
+            ShiftPreviewText.Text = ResourceStrings.Get("MetadataDateShiftOutOfRange");
+            ApplyShiftButton.IsEnabled = false;
+            return;
+        }
         if (offset == TimeSpan.Zero)
         {
             ShiftPreviewText.Text = "Enter a non-zero shift (negative values shift earlier).";
@@ -848,9 +862,14 @@ public sealed partial class MetadataPanel : UserControl
 
         if (ViewModel.CommonDateTaken.HasValue && !ViewModel.IsDateMixed)
         {
-            var newDate = ViewModel.CommonDateTaken.Value + offset;
+            if (!CaptureDateEditService.TryOffset(ViewModel.CommonDateTaken.Value.LocalDateTime, offset, out var newDate))
+            {
+                ShiftPreviewText.Text = ResourceStrings.Get("MetadataDateShiftOutOfRange");
+                ApplyShiftButton.IsEnabled = false;
+                return;
+            }
             ShiftPreviewText.Text =
-                $"{sign}{magnitude}  →  {newDate.LocalDateTime:M/d/yyyy h:mm:ss tt}";
+                $"{sign}{magnitude}  →  {newDate:M/d/yyyy h:mm:ss tt}";
         }
         else
         {

@@ -709,6 +709,7 @@ Backup: {3}
   <data name="PhotoImportDialogTitle" xml:space="preserve"><value>Import from camera or card</value></data>
   <data name="PhotoImportListItemName" xml:space="preserve"><value>{0} · {1:N0} bytes</value></data>
   <data name="PhotoImportCaptureDate" xml:space="preserve"><value>Capture date: {0}</value></data>
+  <data name="MetadataDateShiftOutOfRange" xml:space="preserve"><value>This shift would put a capture date outside the supported range.</value></data>
   <data name="PhotoImportFileDate" xml:space="preserve"><value>File date: {0}</value></data>
   <data name="PhotoImportDestinationPreview" xml:space="preserve"><value>Destination: {0}</value></data>
   <data name="PhotoImportTemplateInvalid" xml:space="preserve"><value>Invalid template. Use only {name}, {date}, {year}, {month}, {day}, and {counter}.</value></data>
