@@ -1,6 +1,5 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Diagnostics;
-using System.Text.Json;
 
 namespace PhotoLibrarian.Core.Services;
 
@@ -50,21 +49,21 @@ public sealed class NavigationPaneStateStore
     {
         try
         {
-            if (!File.Exists(_path)) return new NavigationPaneState();
-            var state = JsonSerializer.Deserialize<NavigationPaneState>(File.ReadAllText(_path));
-            if (state is null || state.Version != 1 || state.Trees is null)
-                throw new JsonException("Invalid or unsupported navigation preferences.");
-
-            foreach (var nodes in state.Trees.Values)
+            var result = AppSettingsFile.ReadJson<NavigationPaneState>(_path, IsValid);
+            if (result.Status == AppSettingsReadStatus.Missing)
+                return new NavigationPaneState();
+            if (result.Value is not { } state)
             {
-                if (nodes is null || nodes.Any(node => node.Value is null))
-                    throw new JsonException("Invalid navigation node preferences.");
+                DebugLog.WriteLine("Invalid navigation preferences; using defaults.");
+                return new NavigationPaneState();
             }
 
+            if (result.Status == AppSettingsReadStatus.RecoveredFromBackup)
+                DebugLog.WriteLine("Recovered navigation preferences from backup.");
             return state;
         }
         catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or JsonException)
+            exception is IOException or UnauthorizedAccessException)
         {
             DebugLog.WriteLine($"Could not load navigation preferences: {exception.Message}");
             return new NavigationPaneState();
@@ -73,6 +72,11 @@ public sealed class NavigationPaneStateStore
 
     public void Save(NavigationPaneState state)
     {
-        AppSettingsFile.WriteAllText(_path, JsonSerializer.Serialize(state));
+        AppSettingsFile.WriteJson(_path, state, isValid: IsValid);
     }
+
+    private static bool IsValid(NavigationPaneState state) =>
+        state.Version == 1 &&
+        state.Trees is not null &&
+        state.Trees.Values.All(nodes => nodes is not null && nodes.All(node => node.Value is not null));
 }

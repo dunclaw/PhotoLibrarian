@@ -68,6 +68,66 @@ public sealed class NavigationPaneStateStoreTests : IDisposable
         Assert.Equal(json, File.ReadAllText(SettingsPath));
     }
 
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("null")]
+    [InlineData("""{"Version":2,"Trees":{}}""")]
+    [InlineData("""{"Version":1,"Trees":null}""")]
+    [InlineData("""{"Version":1,"Trees":{"TagsTree":null}}""")]
+    [InlineData("""{"Version":1,"Trees":{"TagsTree":{"root":null}}}""")]
+    public void InvalidPrimary_RecoversBackupAndPreservesItOnSave(string invalidPrimary)
+    {
+        var store = new NavigationPaneStateStore(SettingsPath);
+        var backupState = new NavigationPaneState();
+        backupState.SetNode("TagsTree", "root", new(true, true));
+        store.Save(backupState);
+        store.Save(new NavigationPaneState());
+        var backup = File.ReadAllText(SettingsPath + ".bak");
+        File.WriteAllText(SettingsPath, invalidPrimary);
+
+        var recovered = store.Load();
+        Assert.Equal(new NavigationNodeState(true, true), recovered.GetNode("TagsTree", "root"));
+        Assert.Equal(invalidPrimary, File.ReadAllText(SettingsPath));
+        recovered.SetNode("TagsTree", "root", new(false, false));
+        store.Save(recovered);
+
+        Assert.Equal(backup, File.ReadAllText(SettingsPath + ".bak"));
+        Assert.Equal(new NavigationNodeState(false, false), store.Load().GetNode("TagsTree", "root"));
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("""{"Version":2,"Trees":{}}""")]
+    [InlineData("""{"Version":1,"Trees":{"TagsTree":{"root":null}}}""")]
+    public void InvalidBackup_IsNotAcceptedWhenPrimaryIsInvalidOrMissing(string invalidBackup)
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(SettingsPath + ".bak", invalidBackup);
+        var store = new NavigationPaneStateStore(SettingsPath);
+
+        Assert.Empty(store.Load().Trees);
+        File.WriteAllText(SettingsPath, """{"Version":2,"Trees":{}}""");
+        Assert.Empty(store.Load().Trees);
+        Assert.Equal(invalidBackup, File.ReadAllText(SettingsPath + ".bak"));
+    }
+
+    [Fact]
+    public void MissingPrimary_RecoversAndPreservesBackupOnSave()
+    {
+        var store = new NavigationPaneStateStore(SettingsPath);
+        var state = new NavigationPaneState();
+        state.SetNode("TagsTree", "root", new(true, true));
+        store.Save(state);
+        store.Save(new NavigationPaneState());
+        var backup = File.ReadAllText(SettingsPath + ".bak");
+        File.Delete(SettingsPath);
+
+        var recovered = store.Load();
+        Assert.Equal(new NavigationNodeState(true, true), recovered.GetNode("TagsTree", "root"));
+        store.Save(recovered);
+        Assert.Equal(backup, File.ReadAllText(SettingsPath + ".bak"));
+    }
+
     [Fact]
     public void UnknownAndRenamedNodes_DoNotInheritOldChecks()
     {
