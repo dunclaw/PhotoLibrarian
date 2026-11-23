@@ -45,6 +45,13 @@ treated as moves. Available destination files are indexed independently, and
 the old missing paths are eligible for cleanup only if they hold no protected
 metadata. No filename-only matching is used.
 
+If any watched location or entry cannot be scanned, or a possible hash
+candidate cannot be inspected or read, repair skips all move matching and
+missing-entry cleanup for that run and reports the cause. Accessible files
+are still indexed independently. If a destination is indexed during that
+partial run, a later retry will not automatically transfer the old row to it;
+the old row remains when it contains protected metadata.
+
 Canceling or encountering an error keeps already completed per-file indexing
 and relocation work. Cancellation or failure during missing-entry cleanup rolls
 back the entire cleanup batch, including cascaded rows.

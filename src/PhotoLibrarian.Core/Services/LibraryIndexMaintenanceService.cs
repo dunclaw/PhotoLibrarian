@@ -108,9 +108,10 @@ public sealed class LibraryIndexMaintenanceService
                     !entry.FaceMetadataExportRequired &&
                     entry.FaceMetadataImported)
                 .ToList();
-            if (repairCandidates.Count > 0)
+            var moveEvidenceComplete = issues.Count == 0;
+            if (repairCandidates.Count > 0 && moveEvidenceComplete)
             {
-                var repairedPaths = await RepairUniqueMovesAsync(
+                var (repairedPaths, verificationComplete) = await RepairUniqueMovesAsync(
                     repairCandidates,
                     filesFound,
                     entriesByPath,
@@ -118,6 +119,14 @@ public sealed class LibraryIndexMaintenanceService
                     progress,
                     cancellationToken);
                 repairedMoves = repairedPaths.Count;
+                moveEvidenceComplete = verificationComplete;
+            }
+            if (!moveEvidenceComplete && missingEntries.Count > 0)
+            {
+                issues.Add(new LibraryIndexMaintenanceIssue(
+                    LibraryIndexMaintenanceIssueKind.IncompleteMoveVerification,
+                    "",
+                    "Move matching and missing-entry cleanup were skipped because some locations or files could not be verified. Resolve the reported issues and retry."));
             }
 
             var candidateFiles = filesFound
@@ -171,7 +180,7 @@ public sealed class LibraryIndexMaintenanceService
                     path));
             }
 
-            if (missingEntries.Count > repairedMoves)
+            if (moveEvidenceComplete && missingEntries.Count > repairedMoves)
             {
                 await RemoveConfirmedMissingAsync(missingEntries, watchedFolders);
             }
@@ -465,7 +474,7 @@ public sealed class LibraryIndexMaintenanceService
         return components;
     }
 
-    private async Task<HashSet<string>> RepairUniqueMovesAsync(
+    private async Task<(HashSet<string> Repaired, bool Complete)> RepairUniqueMovesAsync(
         IReadOnlyList<ImageEntry> missingEntries,
         IReadOnlySet<string> filesFound,
         IReadOnlyDictionary<string, ImageEntry> entriesByPath,
@@ -511,7 +520,7 @@ public sealed class LibraryIndexMaintenanceService
 
         if (expectedHashes.Count == 0)
         {
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            return (new HashSet<string>(StringComparer.OrdinalIgnoreCase), true);
         }
 
         var targetSizes = expectedHashes.Values
@@ -519,6 +528,7 @@ public sealed class LibraryIndexMaintenanceService
             .Select(image => image.FileSize)
             .ToHashSet();
         var candidatePaths = new List<string>();
+        var verificationComplete = true;
         foreach (var path in filesFound)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -526,7 +536,7 @@ public sealed class LibraryIndexMaintenanceService
             {
                 var fileInfo = new FileInfo(path);
                 fileInfo.Refresh();
-                if (fileInfo.Exists && targetSizes.Contains(fileInfo.Length))
+                if (targetSizes.Contains(fileInfo.Length))
                 {
                     candidatePaths.Add(path);
                 }
@@ -534,6 +544,7 @@ public sealed class LibraryIndexMaintenanceService
             catch (Exception exception) when (
                 exception is UnauthorizedAccessException or IOException)
             {
+                verificationComplete = false;
                 issues.Add(new LibraryIndexMaintenanceIssue(
                     exception is UnauthorizedAccessException
                         ? LibraryIndexMaintenanceIssueKind.AccessDenied
@@ -580,6 +591,7 @@ public sealed class LibraryIndexMaintenanceService
             }
             catch (Exception exception)
             {
+                verificationComplete = false;
                 issues.Add(new LibraryIndexMaintenanceIssue(
                     exception is UnauthorizedAccessException
                         ? LibraryIndexMaintenanceIssueKind.AccessDenied
@@ -590,6 +602,11 @@ public sealed class LibraryIndexMaintenanceService
         }
 
         var repaired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!verificationComplete)
+        {
+            return (repaired, false);
+        }
+
         foreach (var match in expectedHashes)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -665,7 +682,7 @@ public sealed class LibraryIndexMaintenanceService
             }
         }
 
-        return repaired;
+        return (repaired, true);
     }
 
     private static bool HasSameSidecarState(
@@ -833,5 +850,6 @@ public enum LibraryIndexMaintenanceIssueKind
     PendingMetadataExport,
     ReparsePointSkipped,
     CleanupFailed,
-    MissingMetadataRetained
+    MissingMetadataRetained,
+    IncompleteMoveVerification
 }
