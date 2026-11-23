@@ -86,6 +86,7 @@ public partial class MetadataPanelViewModel : ObservableObject
     private FaceRepository? _faceRepo;
     private MainViewModel? _main;
     private GeotagEditService? _geotagEditor;
+    private CaptureDateEditService _captureDateEditor = new(null);
     private CancellationTokenSource? _videoMetadataCancellation;
     private double? _videoLatitude;
     private double? _videoLongitude;
@@ -295,6 +296,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         _tagRepo = tagRepo;
         _faceRepo = faceRepo;
         _main = main;
+        _captureDateEditor = new CaptureDateEditService(imageRepo);
         _geotagEditor = new GeotagEditService(
             new GeotagMetadataWriterService(backupService ?? new OriginalBackupService()), imageRepo);
         if (_main is not null)
@@ -1030,32 +1032,25 @@ public partial class MetadataPanelViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Sets the same capture date on every selected image (XMP sidecar + DB cache).
+    /// Sets the same capture date on every selected image.
     /// </summary>
     public async Task<bool> SetDateTakenAsync(DateTime dt)
     {
         if (_entries.Count == 0) return false;
+        var edits = CaptureDateEditService.PrepareSet(_entries, dt);
         if (_main is not null)
         {
-            return await _main.RunPhotoEditAsync("capture date", SelectedFilePaths, async copies =>
-            {
-                foreach (var path in copies.Values)
-                    await MetadataWriterService.WriteDateTakenAsync(path, dt);
-            });
+            return await _main.RunPhotoEditAsync("capture date", SelectedFilePaths,
+                copies => _captureDateEditor.WritePreparedCopiesAsync(edits, copies));
         }
-        CommonDateTaken = dt;
-        IsDateMixed = false;
-        DateTaken = dt.ToString("M/d/yyyy h:mm tt");
-
-        foreach (var entry in _entries)
+        try
         {
-            entry.DateTaken = dt;
-            await MetadataWriterService.WriteDateTakenAsync(entry.FilePath, dt);
-            if (_imageRepo != null && entry.Id > 0)
-                await _imageRepo.UpdateDateTakenAsync(entry.Id, dt);
+            await _captureDateEditor.WriteDirectAsync(edits);
         }
-
-        if (_main != null) await _main.RefreshAfterDateChangeAsync();
+        finally
+        {
+            RefreshDateTakenDisplay();
+        }
         return true;
     }
 
@@ -1101,29 +1096,35 @@ public partial class MetadataPanelViewModel : ObservableObject
     public async Task<bool> OffsetDateTakenAsync(TimeSpan offset)
     {
         if (_entries.Count == 0 || offset == TimeSpan.Zero) return false;
+        if (!CaptureDateEditService.TryPrepareOffset(_entries, offset, out var edits))
+        {
+            if (_main is not null)
+                _main.StatusText = ResourceStrings.Get("MetadataDateShiftOutOfRange");
+            return false;
+        }
+        if (edits.Count == 0) return false;
         if (_main is not null)
         {
-            var entries = _entries.Where(entry => entry.DateTaken.HasValue).ToArray();
-            return await _main.RunPhotoEditAsync("shift capture dates", entries.Select(entry => entry.FilePath).ToArray(),
-                async copies =>
-                {
-                    foreach (var entry in entries)
-                        await MetadataWriterService.WriteDateTakenAsync(
-                            copies[Path.GetFullPath(entry.FilePath)], entry.DateTaken!.Value + offset);
-                });
+            return await _main.RunPhotoEditAsync("shift capture dates",
+                edits.Select(edit => edit.Entry.FilePath).ToArray(),
+                copies => _captureDateEditor.WritePreparedCopiesAsync(edits, copies));
         }
-
-        foreach (var entry in _entries)
+        try
         {
-            if (!entry.DateTaken.HasValue) continue;
-            var newDate = entry.DateTaken.Value + offset;
-            entry.DateTaken = newDate;
-            await MetadataWriterService.WriteDateTakenAsync(entry.FilePath, newDate);
-            if (_imageRepo != null && entry.Id > 0)
-                await _imageRepo.UpdateDateTakenAsync(entry.Id, newDate);
+            await _captureDateEditor.WriteDirectAsync(edits);
         }
+        finally
+        {
+            RefreshDateTakenDisplay();
+        }
+        return true;
+    }
 
-        // Refresh derived display fields
+    internal bool CanOffsetDateTaken(TimeSpan offset) =>
+        CaptureDateEditService.TryPrepareOffset(_entries, offset, out _);
+
+    private void RefreshDateTakenDisplay()
+    {
         var distinct = _entries.Select(e => e.DateTaken).Distinct().ToList();
         if (distinct.Count == 1)
         {
@@ -1137,9 +1138,6 @@ public partial class MetadataPanelViewModel : ObservableObject
             IsDateMixed = true;
             DateTaken = MixedMarker;
         }
-
-        if (_main != null) await _main.RefreshAfterDateChangeAsync();
-        return true;
     }
 
     private static string FormatExposureForDisplay(string? raw)

@@ -241,6 +241,56 @@ public sealed class UnifiedEditPersistenceTests
     }
 
     [Fact]
+    public async Task CaptureDateBatchSetAndOffset_SkipUndatedAndReplayHistory()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var first = await library.AddPhotoAsync("date-first.png");
+        var second = await library.AddPhotoAsync("date-second.png");
+        var undated = await library.AddPhotoAsync("date-undated.png");
+        var main = library.Main;
+        var date = new DateTime(2020, 3, 5, 10, 0, 0);
+        main.MetadataPanel.ShowMetadata([first, second]);
+        Assert.True(await main.MetadataPanel.SetDateTakenAsync(date), main.StatusText);
+
+        first = (await library.Images.GetByPathAsync(first.FilePath))!;
+        second = (await library.Images.GetByPathAsync(second.FilePath))!;
+        main.MetadataPanel.ShowMetadata([first, second, undated]);
+        Assert.True(await main.MetadataPanel.OffsetDateTakenAsync(TimeSpan.FromHours(-3)), main.StatusText);
+        foreach (var entry in new[] { first, second })
+        {
+            Assert.Equal(date.AddHours(-3), new MetadataReaderService().ReadMetadata(entry.FilePath).DateTaken);
+            Assert.Equal(date.AddHours(-3), (await library.Images.GetByPathAsync(entry.FilePath))!.DateTaken);
+        }
+        Assert.Null(new MetadataReaderService().ReadMetadata(undated.FilePath).DateTaken);
+        Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.UndoAsync()).Status);
+        Assert.Equal(date, (await library.Images.GetByPathAsync(first.FilePath))!.DateTaken);
+        Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.UndoAsync()).Status);
+        Assert.Null(new MetadataReaderService().ReadMetadata(second.FilePath).DateTaken);
+        Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.RedoAsync()).Status);
+        Assert.Equal(EditHistoryStatus.Applied, (await main.EditHistory.RedoAsync()).Status);
+        Assert.Equal(date.AddHours(-3), (await library.Images.GetByPathAsync(second.FilePath))!.DateTaken);
+        Assert.Null((await library.Images.GetByPathAsync(undated.FilePath))!.DateTaken);
+    }
+
+    [Fact]
+    public async Task CaptureDateOffset_OutOfRangeReportsFailureWithoutPublishing()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var first = await library.AddPhotoAsync("date-valid.png");
+        var extreme = await library.AddPhotoAsync("date-extreme.png");
+        first.DateTaken = new DateTime(2020, 1, 2);
+        extreme.DateTaken = DateTime.MaxValue;
+        var main = library.Main;
+        main.MetadataPanel.ShowMetadata([first, extreme]);
+
+        Assert.False(await main.MetadataPanel.OffsetDateTakenAsync(TimeSpan.FromSeconds(1)));
+        Assert.Contains("outside the supported range", main.StatusText);
+        Assert.False(main.EditHistory.CanUndo);
+        Assert.Null(new MetadataReaderService().ReadMetadata(first.FilePath).DateTaken);
+        Assert.Null((await library.Images.GetByPathAsync(first.FilePath))!.DateTaken);
+    }
+
+    [Fact]
     public async Task MetadataBatchesAndCropShareHistoryAndRestorePortableFilesAndCache()
     {
         await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
