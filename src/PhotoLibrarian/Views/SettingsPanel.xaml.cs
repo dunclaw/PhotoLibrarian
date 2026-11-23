@@ -18,6 +18,7 @@ public sealed partial class SettingsPanel : UserControl
     private bool _isUpdatingDisplay;
     private bool _isBenchmarkVisible;
     private bool _focusInitialControlOnLoad;
+    private bool _focusIndexMaintenanceOnLoad;
 
     public SettingsPanel()
     {
@@ -44,6 +45,27 @@ public sealed partial class SettingsPanel : UserControl
             _focusInitialControlOnLoad = false;
             FocusInitialControlIfOpen();
         }
+        if (_focusIndexMaintenanceOnLoad)
+        {
+            _focusIndexMaintenanceOnLoad = false;
+            FocusIndexMaintenance();
+        }
+    }
+
+    internal void FocusIndexMaintenance()
+    {
+        if (!IsLoaded)
+        {
+            _focusIndexMaintenanceOnLoad = true;
+            return;
+        }
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (ViewModel?.IsOpen != true) return;
+            RepairLibraryIndexButton.StartBringIntoView();
+            RepairLibraryIndexButton.Focus(FocusState.Programmatic);
+        });
     }
 
     internal void FocusInitialControl()

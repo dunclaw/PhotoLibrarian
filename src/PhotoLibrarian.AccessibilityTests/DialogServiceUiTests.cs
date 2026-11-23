@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Services;
+using PhotoLibrarian.Views;
 using Windows.System;
 
 namespace PhotoLibrarian.AccessibilityTests;
@@ -21,6 +22,24 @@ public partial class App
         _window.Activate();
         await UntilAsync(() => owner.IsLoaded);
         var service = DialogService.Instance;
+
+        var folders = new ManageFoldersDialog { XamlRoot = owner.XamlRoot };
+        var foldersTask = folders.ShowAsync().AsTask();
+        await UntilAsync(() => FindOpenContentDialog() is not null);
+        var maintenanceButton = (Button)folders.FindName("IndexMaintenanceButton");
+        var maintenancePeer = FrameworkElementAutomationPeer.CreatePeerForElement(maintenanceButton);
+        ((IInvokeProvider)maintenancePeer.GetPattern(PatternInterface.Invoke)).Invoke();
+        await foldersTask;
+        Check(folders.IndexMaintenanceRequested && FindOpenContentDialog() is null,
+            "Manage Folders closes before requesting index maintenance");
+
+        folders = new ManageFoldersDialog { XamlRoot = owner.XamlRoot };
+        foldersTask = folders.ShowAsync().AsTask();
+        await UntilAsync(() => FindOpenContentDialog() is not null);
+        InvokeDialogButton(folders, "Close");
+        await foldersTask;
+        Check(!folders.IndexMaintenanceRequested,
+            "Closing Manage Folders does not request index maintenance");
 
         var neutralTask = service.ConfirmAsync(
             owner, "Keep changes?", "Synthetic confirmation", "Keep changes", "Cancel",

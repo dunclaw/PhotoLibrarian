@@ -40,7 +40,7 @@ PhotoLibrarian routes photo metadata changes through one storage policy so edits
 
 1. **Embedded in the image file** whenever that format can store the requested property. Writes preserve unrelated metadata and verify the embedded value before migrating an owned legacy-sidecar value. Tags use XMP `dc:subject` plus the format's keyword fields; ratings use XMP `xmp:Rating`; captions use standard title/comment fields; capture dates and GPS use their EXIF fields; color labels use XMP `xmp:Label`; flags, face regions, and pending edit recipes use PhotoLibrarian XMP properties.
 2. **XMP sidecar** only when the image format cannot store that property (for example, RAW originals). A failed write to a supported format is reported; it is never redirected to a sidecar. Keep any required sidecar with its photo. RAW/raster companion sidecars remain distinct, and unrelated or ambiguous legacy values are preserved rather than overwritten.
-3. **SQLite cache** at `%LOCALAPPDATA%\PhotoLibrarian\cache.db` is an index only, never the sole portable copy. Wipe and re-index any time.
+3. **SQLite cache** at `%LOCALAPPDATA%\PhotoLibrarian\cache.db` is intended as an index, not the sole portable copy. Older or pending data may exist only there; do not delete it. Settings provides incremental repair, while a preservation-safe full rebuild remains future work.
 
 Move a JPEG to another drive or another machine and every edit goes with it.
 
