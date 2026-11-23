@@ -15,6 +15,8 @@ namespace PhotoLibrarian.Views;
 
 public sealed partial class FolderNavigationPanel : UserControl
 {
+    public event EventHandler? IndexMaintenanceRequested;
+
     private FolderNavigationViewModel? ViewModel => App.ViewModel?.FolderNav;
     private readonly SemaphoreSlim _tagRefreshGate = new(1, 1);
     private bool _isRefreshingTagTree;
@@ -508,6 +510,8 @@ public sealed partial class FolderNavigationPanel : UserControl
         
         // Refresh tree after dialog closes
         RefreshLibraryTree();
+        if (dialog.IndexMaintenanceRequested)
+            IndexMaintenanceRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)

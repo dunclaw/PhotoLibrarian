@@ -1,7 +1,8 @@
 # Library index maintenance
 
 Use **Settings > Library index maintenance > Repair library index** to scan
-the configured watched folders. The operation reads local files and updates
+the configured watched folders. **Manage Library Folders** also links to this
+section of Settings. The operation reads local files and updates
 the existing SQLite database incrementally; it does not drop, recreate, or
 vacuum the database. Newly discovered or changed media is indexed through the
 normal indexing service.

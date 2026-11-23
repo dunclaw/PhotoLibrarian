@@ -96,6 +96,15 @@
     <None Include="..\PhotoLibrarian\Views\FolderNavigationPanel.xaml"
           Link="TestAssets\FolderNavigationPanel.xaml"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\FolderNavigationPanel.xaml.cs"
+          Link="TestAssets\FolderNavigationPanel.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ManageFoldersDialog.xaml"
+          Link="TestAssets\ManageFoldersDialog.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\PhotoLibrarian\Views\ManageFoldersDialog.xaml.cs"
+          Link="TestAssets\ManageFoldersDialog.xaml.cs"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\PhotoLibrarian\Views\ImageEditorView.xaml"
           Link="TestAssets\ImageEditorView.xaml"
           CopyToOutputDirectory="PreserveNewest" />

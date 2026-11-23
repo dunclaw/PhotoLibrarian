@@ -1628,6 +1628,12 @@ public sealed partial class MainWindow : Window
         ViewModel.Settings.OpenCommand.Execute(null);
     }
 
+    private void OnIndexMaintenanceRequested(object? sender, EventArgs e)
+    {
+        ViewModel.Settings.OpenCommand.Execute(null);
+        SettingsPanel.FocusIndexMaintenance();
+    }
+
     private async void OnPeopleReviewClick(object sender, RoutedEventArgs e)
     {
         try

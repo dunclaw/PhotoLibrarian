@@ -464,6 +464,7 @@ Backup: {3}
   <data name="IndexMaintenanceTitle.Text" xml:space="preserve"><value>Library index maintenance</value></data>
   <data name="IndexMaintenanceDescription.Text" xml:space="preserve"><value>Repair moves and remove stale index entries for files verified missing from accessible watched folders. Unavailable locations are retained. Photos and sidecars are never changed. This repairs the existing index, not a clean rebuild.</value></data>
   <data name="IndexMaintenanceRepairButton.Content" xml:space="preserve"><value>Repair library index</value></data>
+  <data name="ManageFoldersIndexMaintenanceButton.Content" xml:space="preserve"><value>Library index maintenance in Settings</value></data>
   <data name="IndexMaintenanceCancelButton.Content" xml:space="preserve"><value>Cancel</value></data>
   <data name="IndexMaintenanceDatabaseSize" xml:space="preserve"><value>Library database size: {0:N0} MB</value></data>
   <data name="IndexMaintenanceConfirmTitle" xml:space="preserve"><value>Repair the library index?</value></data>
