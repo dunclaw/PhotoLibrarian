@@ -78,6 +78,41 @@ public sealed class AppSettingsFileTests : IDisposable
     }
 
     [Fact]
+    public void SemanticValidation_AppliesToPrimaryBackupAndBackupPreservation()
+    {
+        var path = Path.Combine(_directory, "preferences.json");
+        static bool IsValid(Preferences value) => value.Value > 0;
+        AppSettingsFile.WriteJson(path, new Preferences(1), isValid: IsValid);
+        AppSettingsFile.WriteJson(path, new Preferences(2), isValid: IsValid);
+        File.WriteAllText(path, """{"Value":0}""");
+
+        var recovered = AppSettingsFile.ReadJson<Preferences>(path, IsValid);
+        Assert.Equal(AppSettingsReadStatus.RecoveredFromBackup, recovered.Status);
+        Assert.Equal(new Preferences(1), recovered.Value);
+        AppSettingsFile.WriteJson(path, new Preferences(3), isValid: IsValid);
+        Assert.Equal("""{"Value":1}""", File.ReadAllText(path + ".bak"));
+
+        File.WriteAllText(path, """{"Value":0}""");
+        File.WriteAllText(path + ".bak", """{"Value":-1}""");
+        var invalid = AppSettingsFile.ReadJson<Preferences>(path, IsValid);
+        Assert.Equal(AppSettingsReadStatus.Corrupt, invalid.Status);
+        Assert.Null(invalid.Value);
+    }
+
+    [Fact]
+    public void InaccessiblePrimary_ReportsFailureInsteadOfRecoveringBackup()
+    {
+        var path = Path.Combine(_directory, "preferences.json");
+        AppSettingsFile.WriteJson(path, new Preferences(1));
+        AppSettingsFile.WriteJson(path, new Preferences(2));
+        using var locked = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        Assert.ThrowsAny<IOException>(() => AppSettingsFile.ReadJson<Preferences>(path));
+        Assert.ThrowsAny<IOException>(() => AppSettingsFile.WriteJson(path, new Preferences(3)));
+        Assert.Equal("""{"Value":1}""", File.ReadAllText(path + ".bak"));
+    }
+
+    [Fact]
     public void ReplacingSettings_PreservesPreviousContentsInBackup()
     {
         var path = Path.Combine(_directory, "preferences.json");

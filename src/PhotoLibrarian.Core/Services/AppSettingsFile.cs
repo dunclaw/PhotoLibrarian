@@ -16,15 +16,15 @@ public sealed record AppSettingsReadResult<T>(AppSettingsReadStatus Status, T? V
 
 public static class AppSettingsFile
 {
-    public static AppSettingsReadResult<T> ReadJson<T>(string path) where T : class
+    public static AppSettingsReadResult<T> ReadJson<T>(string path, Func<T, bool>? isValid = null) where T : class
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var primary = ReadJsonFile<T>(path);
+        var primary = ReadJsonFile(path, isValid);
         if (primary.Status == AppSettingsReadStatus.Success)
             return primary;
 
-        var backup = ReadJsonFile<T>(path + ".bak");
+        var backup = ReadJsonFile(path + ".bak", isValid);
         if (backup.Status == AppSettingsReadStatus.Success)
             return new(AppSettingsReadStatus.RecoveredFromBackup, backup.Value);
 
@@ -35,21 +35,22 @@ public static class AppSettingsFile
             null);
     }
 
-    public static void WriteJson<T>(string path, T value, JsonSerializerOptions? options = null) where T : class
+    public static void WriteJson<T>(
+        string path, T value, JsonSerializerOptions? options = null, Func<T, bool>? isValid = null) where T : class
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(value);
 
         // Do not replace the only good backup with a corrupt primary after recovery.
         var preserveBackup = File.Exists(path + ".bak") &&
-            ReadJsonFile<T>(path).Status == AppSettingsReadStatus.Corrupt;
+            ReadJsonFile(path, isValid).Status == AppSettingsReadStatus.Corrupt;
         WriteAllText(path, JsonSerializer.Serialize(value, options), preserveBackup);
     }
 
     public static void WriteAllText(string path, string contents)
         => WriteAllText(path, contents, preserveBackup: false);
 
-    private static AppSettingsReadResult<T> ReadJsonFile<T>(string path) where T : class
+    private static AppSettingsReadResult<T> ReadJsonFile<T>(string path, Func<T, bool>? isValid) where T : class
     {
         if (!File.Exists(path))
             return new(AppSettingsReadStatus.Missing, null);
@@ -57,7 +58,7 @@ public static class AppSettingsFile
         try
         {
             var value = JsonSerializer.Deserialize<T>(File.ReadAllText(path));
-            return value is null
+            return value is null || (isValid is not null && !isValid(value))
                 ? new(AppSettingsReadStatus.Corrupt, null)
                 : new(AppSettingsReadStatus.Success, value);
         }
