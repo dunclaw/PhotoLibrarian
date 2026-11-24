@@ -76,11 +76,16 @@
     </ItemGroup>
   </Target>
 
-  <Target Name="IncludeCompiledXamlInPublish" BeforeTargets="ComputeFilesToPublish"
+  <Target Name="IncludeWinUIResourcesInPublish" BeforeTargets="ComputeFilesToPublish"
           DependsOnTargets="Prep_ComputeProcessXamlFiles">
     <ItemGroup>
       <ResolvedFileToPublish Include="@(GeneratedXamlDest)">
         <RelativePath>$([MSBuild]::MakeRelative('$(TargetDir)', '%(FullPath)'))</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(ProjectPriFullPath)"
+                             Condition="'$(WindowsPackageType)' == 'MSIX' and '$(AppxGeneratePriEnabled)' == 'true'">
+        <RelativePath>$(ProjectPriFileName)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>
     </ItemGroup>

@@ -15,7 +15,9 @@ makes the manual **Run workflow** button available.
   `dotnet test` VSTest invocation with the .NET 10 SDK.
 - Independently publishes self-contained x64 and ARM64 application layouts,
   including both .NET and the Windows App SDK, and validates/packages them with
-  the Windows SDK's MakeAppx tool.
+  the Windows SDK's MakeAppx tool. Packaging checks for localized strings in
+  both `PhotoLibrarian.pri` (opened by the app at startup) and `resources.pri`
+  (used by packaged XAML).
 - Uploads unsigned `.msix` files and a combined unsigned `.msixbundle`.
   Packaging is independent of the test job for inspection, but a failing test
   job still fails the overall workflow. Do not release a failing run.
@@ -76,6 +78,15 @@ Windows App Certification Kit checks or Store certification. Packaged desktop
 apps can have different app-data virtualization behavior from unpackaged
 builds; verify cache/settings behavior and do not assume an existing unpackaged
 profile is automatically migrated.
+
+If the Store reports a successful install but the Start menu shortcut does not
+open a window, try launching once as the signed-in tester, then check **Event
+Viewer > Windows Logs > Application** for a matching **.NET Runtime** or
+**Application Error** event. Also check **Applications and Services Logs >
+Microsoft > Windows > AppModel-Runtime > Admin** for an activation error.
+Record the installed package version and architecture with
+`Get-AppxPackage -Name '43930Lawler.PhotoLibrarian' | Select-Object Version, Architecture`.
+Running as administrator does not fix a missing package resource.
 
 Automatic Partner Center submission is deliberately not enabled. That requires
 separate Partner Center API enrollment and credentials; a developer account

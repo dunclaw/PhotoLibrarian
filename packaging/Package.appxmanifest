@@ -10,7 +10,7 @@
     Version="1.0.0.0"
     ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>PhotoLibrarian</DisplayName>
+    <DisplayName>Photo Librarian</DisplayName>
     <PublisherDisplayName>Lawler</PublisherDisplayName>
     <Logo>PackageAssets\StoreLogo.png</Logo>
     <Description>A local photo library manager for Windows.</Description>
@@ -24,7 +24,7 @@
   <Applications>
     <Application Id="App" Executable="PhotoLibrarian.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="PhotoLibrarian"
+        DisplayName="Photo Librarian"
         Description="A local photo library manager for Windows."
         BackgroundColor="transparent"
         Square150x150Logo="PackageAssets\Square150x150Logo.png"

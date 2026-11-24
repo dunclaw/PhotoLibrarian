@@ -52,7 +52,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "MSBuild publish failed with exit code $LASTEXITCODE."
 }
 
-foreach ($requiredFile in @('PhotoLibrarian.exe', 'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'App.xbf', 'MainWindow.xbf')) {
+foreach ($requiredFile in @(
+    'PhotoLibrarian.exe', 'coreclr.dll', 'Microsoft.UI.Xaml.dll',
+    'App.xbf', 'MainWindow.xbf', 'PhotoLibrarian.pri'
+)) {
     if (-not (Test-Path (Join-Path $layout $requiredFile))) {
         throw "The self-contained layout is missing $requiredFile."
     }
@@ -106,9 +109,33 @@ $priIndexer = $config.SelectSingleNode("/resources/index/indexer-config[@type='P
 $priIndexer.ParentNode.RemoveChild($priIndexer) | Out-Null
 $config.resources.RemoveChild($config.resources.packaging) | Out-Null
 $config.Save($priConfig)
-& $makePri new /pr $layout /cf $priConfig /in $manifest.Package.Identity.Name /of (Join-Path $layout 'resources.pri') /o
-if ($LASTEXITCODE -ne 0) {
-    throw "MakePri new failed with exit code $LASTEXITCODE."
+
+# Loose .resw inputs let the package-wide PRI resolve XAML x:Uid independently
+# of the app PRI that C# resource loaders open by filename.
+$strings = Join-Path $layout 'Strings'
+Copy-Item -LiteralPath (Join-Path $repoRoot 'src\PhotoLibrarian\Strings') -Destination $strings -Recurse
+try {
+    $packagePri = Join-Path $layout 'resources.pri'
+    & $makePri new /pr $layout /cf $priConfig /in $manifest.Package.Identity.Name /of $packagePri /o
+    if ($LASTEXITCODE -ne 0) {
+        throw "MakePri new failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
+    Remove-Item -LiteralPath $strings -Recurse
+}
+
+foreach ($priName in @('PhotoLibrarian.pri', 'resources.pri')) {
+    $priPath = Join-Path $layout $priName
+    $priDump = Join-Path $outputRoot "$Architecture-$priName.xml"
+    & $makePri dump /if $priPath /of $priDump /dt basic /o
+    if ($LASTEXITCODE -ne 0) {
+        throw "MakePri dump failed for $priName with exit code $LASTEXITCODE."
+    }
+    [xml]$resourceIndex = Get-Content -LiteralPath $priDump -Raw
+    if (-not $resourceIndex.SelectSingleNode('//NamedResource[@name="DuplicateInitialStatus"]')) {
+        throw "The package resource index $priName is missing application strings."
+    }
 }
 
 $packagePath = Join-Path $packageDirectory "PhotoLibrarian_${Version}_$Architecture.msix"
