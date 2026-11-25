@@ -15,9 +15,11 @@ makes the manual **Run workflow** button available.
   `dotnet test` VSTest invocation with the .NET 10 SDK.
 - Independently publishes self-contained x64 and ARM64 application layouts,
   including both .NET and the Windows App SDK, and validates/packages them with
-  the Windows SDK's MakeAppx tool. Packaging checks for localized strings in
-  both `PhotoLibrarian.pri` (opened by the app at startup) and `resources.pri`
-  (used by packaged XAML).
+  the Windows SDK's MakeAppx tool. Packaging validates the SDK-generated PRI's
+  package identity, app strings, and compiled XAML, including the WinUI theme
+  resources needed before the window opens. It ships the same index as
+  `resources.pri` for packaged XAML and as `PhotoLibrarian.pri` for code that
+  opens it by filename.
 - Uploads unsigned `.msix` files and a combined unsigned `.msixbundle`.
   Packaging is independent of the test job for inspection, but a failing test
   job still fails the overall workflow. Do not release a failing run.
@@ -86,7 +88,9 @@ Viewer > Windows Logs > Application** for a matching **.NET Runtime** or
 Microsoft > Windows > AppModel-Runtime > Admin** for an activation error.
 Record the installed package version and architecture with
 `Get-AppxPackage -Name '43930Lawler.PhotoLibrarian' | Select-Object Version, Architecture`.
-Running as administrator does not fix a missing package resource.
+Running as administrator does not fix a missing package resource. Test launch
+from Start after installing the Store build; unpackaged runs or deployment
+tools that regenerate `resources.pri` do not exercise the Store resource index.
 
 Automatic Partner Center submission is deliberately not enabled. That requires
 separate Partner Center API enrollment and credentials; a developer account

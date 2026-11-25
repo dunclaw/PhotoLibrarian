@@ -39,6 +39,11 @@ if (-not (Test-Path $makePri)) {
     throw 'MakePri.exe was not found alongside MakeAppx.exe.'
 }
 
+[xml]$manifest = Get-Content (Join-Path $repoRoot 'packaging\Package.appxmanifest') -Raw
+$manifest.Package.Identity.Version = $Version
+$manifest.Package.Identity.ProcessorArchitecture = $Architecture.ToLowerInvariant()
+$packageIdentity = $manifest.Package.Identity.Name
+
 New-Item $packageDirectory -ItemType Directory -Force | Out-Null
 $runtime = "win-$($Architecture.ToLowerInvariant())"
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -47,6 +52,7 @@ if ($LASTEXITCODE -ne 0 -or -not $msbuild) { throw 'Install Visual Studio MSBuil
 & $msbuild (Join-Path $repoRoot 'src\PhotoLibrarian\PhotoLibrarian.csproj') `
     /restore /t:Publish /m /p:Configuration=Release "/p:RuntimeIdentifier=$runtime" /p:SelfContained=true `
     "/p:Platform=$Architecture" /p:WindowsPackageType=MSIX /p:EnableMsixTooling=false `
+    "/p:ProjectPriIndexName=$packageIdentity" `
     /p:PublishTrimmed=false /p:PublishReadyToRun=false "/p:PublishDir=$layout\"
 if ($LASTEXITCODE -ne 0) {
     throw "MSBuild publish failed with exit code $LASTEXITCODE."
@@ -61,9 +67,6 @@ foreach ($requiredFile in @(
     }
 }
 
-[xml]$manifest = Get-Content (Join-Path $repoRoot 'packaging\Package.appxmanifest') -Raw
-$manifest.Package.Identity.Version = $Version
-$manifest.Package.Identity.ProcessorArchitecture = $Architecture.ToLowerInvariant()
 $manifest.Save((Join-Path $layout 'AppxManifest.xml'))
 
 # Generate package-specific logo sizes from the existing application artwork.
@@ -98,45 +101,31 @@ finally {
     $source.Dispose()
 }
 
-$priConfig = Join-Path $outputRoot "priconfig-$Architecture.xml"
-& $makePri createconfig /cf $priConfig /dq en-US /o
+$appPri = Join-Path $layout 'PhotoLibrarian.pri'
+$priDump = Join-Path $outputRoot "$Architecture-pri.xml"
+& $makePri dump /if $appPri /of $priDump /dt basic /o
 if ($LASTEXITCODE -ne 0) {
-    throw "MakePri createconfig failed with exit code $LASTEXITCODE."
+    throw "MakePri dump failed for $appPri with exit code $LASTEXITCODE."
 }
-# Framework PRI files remain separate; re-indexing them conflicts with their loose assets.
-[xml]$config = Get-Content $priConfig -Raw
-$priIndexer = $config.SelectSingleNode("/resources/index/indexer-config[@type='PRI']")
-$priIndexer.ParentNode.RemoveChild($priIndexer) | Out-Null
-$config.resources.RemoveChild($config.resources.packaging) | Out-Null
-$config.Save($priConfig)
-
-# Loose .resw inputs let the package-wide PRI resolve XAML x:Uid independently
-# of the app PRI that C# resource loaders open by filename.
-$strings = Join-Path $layout 'Strings'
-Copy-Item -LiteralPath (Join-Path $repoRoot 'src\PhotoLibrarian\Strings') -Destination $strings -Recurse
-try {
-    $packagePri = Join-Path $layout 'resources.pri'
-    & $makePri new /pr $layout /cf $priConfig /in $manifest.Package.Identity.Name /of $packagePri /o
-    if ($LASTEXITCODE -ne 0) {
-        throw "MakePri new failed with exit code $LASTEXITCODE."
+[xml]$resourceIndex = Get-Content -LiteralPath $priDump -Raw
+$mainMap = $resourceIndex.SelectSingleNode('//ResourceMap[@primary="true"]')
+if (-not $mainMap -or $mainMap.GetAttribute('name') -ne $packageIdentity) {
+    throw "The app resource index must use the package identity $packageIdentity."
+}
+foreach ($resource in @(
+    'Resources/DuplicateInitialStatus',
+    'Files/App.xbf', 'Files/MainWindow.xbf',
+    'Files/Microsoft.UI.Xaml/Themes/themeresources.xbf'
+)) {
+    $uri = "ms-resource://$packageIdentity/$resource"
+    if (-not $mainMap.SelectSingleNode(".//NamedResource[@uri='$uri']")) {
+        throw "The app resource index is missing $resource."
     }
-}
-finally {
-    Remove-Item -LiteralPath $strings -Recurse
 }
 
-foreach ($priName in @('PhotoLibrarian.pri', 'resources.pri')) {
-    $priPath = Join-Path $layout $priName
-    $priDump = Join-Path $outputRoot "$Architecture-$priName.xml"
-    & $makePri dump /if $priPath /of $priDump /dt basic /o
-    if ($LASTEXITCODE -ne 0) {
-        throw "MakePri dump failed for $priName with exit code $LASTEXITCODE."
-    }
-    [xml]$resourceIndex = Get-Content -LiteralPath $priDump -Raw
-    if (-not $resourceIndex.SelectSingleNode('//NamedResource[@name="DuplicateInitialStatus"]')) {
-        throw "The package resource index $priName is missing application strings."
-    }
-}
+# Preserve the SDK's embedded WinUI resources for XAML activation. The app's
+# explicit resource loaders still open PhotoLibrarian.pri by filename.
+Copy-Item -LiteralPath $appPri -Destination (Join-Path $layout 'resources.pri')
 
 $packagePath = Join-Path $packageDirectory "PhotoLibrarian_${Version}_$Architecture.msix"
 & $makeAppx pack /d $layout /p $packagePath /o
