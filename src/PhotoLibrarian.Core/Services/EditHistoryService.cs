@@ -1,7 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 namespace PhotoLibrarian.Core.Services;
 
-public enum EditHistoryStatus { Applied, Empty, Busy, Conflict }
+public enum EditHistoryStatus { Applied, Empty, Busy, Conflict, Failed }
 
 public sealed record EditHistoryResult(EditHistoryStatus Status, string? Message = null);
 

@@ -24,6 +24,19 @@ public partial class MainViewModel
         IReadOnlyDictionary<string, string>? expectedIdentities = null)
     {
         if (paths.Count == 0) return false;
+        var result = await RunPhotoEditWithResultAsync(label, paths, prepare, expectedIdentity, expectedIdentities);
+        if (result.Message is not null) StatusText = result.Message;
+        return result.Status is EditHistoryStatus.Applied or EditHistoryStatus.Empty;
+    }
+
+    internal async Task<EditHistoryResult> RunPhotoEditWithResultAsync(
+        string label, IReadOnlyCollection<string> paths,
+        Func<IReadOnlyDictionary<string, string>, Task> prepare,
+        string? expectedIdentity = null,
+        IReadOnlyDictionary<string, string>? expectedIdentities = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (paths.Count == 0) return new(EditHistoryStatus.Empty);
         var originals = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         label += originals.Length == 1
             ? $" - {Path.GetFileName(originals[0])}"
@@ -34,15 +47,18 @@ public partial class MainViewModel
         var resume = false;
         try
         {
-            var result = await EditHistory.ExecuteAsync(label, ApplyAsync, MoveAsync, Release);
-            if (result.Message is not null) StatusText = result.Message;
-            return result.Status is EditHistoryStatus.Applied or EditHistoryStatus.Empty;
+            return await EditHistory.ExecuteAsync(label, ApplyAsync, MoveAsync, Release);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            transaction?.Dispose();
+            throw;
         }
         catch (Exception exception)
         {
-            StatusText = $"{label} failed: {exception.Message}";
-            Diagnostics.DebugLog.WriteLine($"[HISTORY] {StatusText}\n{exception}");
-            return false;
+            var message = $"{label} failed: {exception.Message}";
+            Diagnostics.DebugLog.WriteLine($"[HISTORY] {message}\n{exception}");
+            return new(EditHistoryStatus.Failed, message);
         }
         finally
         {
@@ -51,6 +67,7 @@ public partial class MainViewModel
 
         async Task<EditHistoryResult> ApplyAsync()
         {
+            cancellationToken.ThrowIfCancellationRequested();
             resume = await PauseFaceDetectionAsync();
             await EnsureFaceMetadataPersistedAsync();
             if (expectedIdentity is not null &&
@@ -64,18 +81,22 @@ public partial class MainViewModel
                 foreach (var path in originals)
                 {
                     if (expectedIdentities.TryGetValue(path, out var identity) &&
-                        await FileEditTransaction.ReadIdentityAsync(path) != identity)
+                        await FileEditTransaction.ReadIdentityAsync(path, cancellationToken) != identity)
                     {
                         return new(EditHistoryStatus.Conflict,
                             $"The photo or its metadata changed before the batch edit: {Path.GetFileName(path)}.");
                     }
                 }
             }
-            before = await CaptureCacheAsync(originals);
+            before = await CaptureCacheAsync(originals, cancellationToken);
             foreach (var path in originals)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!RawToneMappingService.IsRaw(path))
                     await _backupService.BackupOriginalAsync(path);
-            transaction = await FileEditTransaction.PrepareAsync(_editHistoryDirectory, originals, prepare);
+            }
+            transaction = await FileEditTransaction.PrepareAsync(
+                _editHistoryDirectory, originals, prepare, cancellationToken);
             if (expectedIdentity is not null && transaction.InputIdentity(originals.Single()) != expectedIdentity)
             {
                 transaction.Dispose();
@@ -117,7 +138,12 @@ public partial class MainViewModel
                     // Refresh reloads the viewer, so resume reads after publication.
                     viewerPause.Dispose();
                     await RefreshHistorySurfacesAsync(originals);
-                });
+                }, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Cancellation is only observed before publication; there is no cache edit to roll back.
+                throw;
             }
             catch
             {
@@ -154,11 +180,13 @@ public partial class MainViewModel
         void Release() => transaction?.Dispose();
     }
 
-    private async Task<IReadOnlyList<CachedEditState>> CaptureCacheAsync(IEnumerable<string> paths)
+    private async Task<IReadOnlyList<CachedEditState>> CaptureCacheAsync(
+        IEnumerable<string> paths, CancellationToken cancellationToken = default)
     {
         var states = new List<CachedEditState>();
         foreach (var path in paths)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var image = await _imageRepo.GetByPathAsync(path);
             if (image is not null)
                 states.Add(new(image, await _tagRepo.GetTagsAsync(image.Id)));

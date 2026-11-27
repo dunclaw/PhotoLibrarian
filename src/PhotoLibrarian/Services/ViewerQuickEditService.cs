@@ -38,21 +38,35 @@ internal static class ViewerQuickEditService
             return true;
         }
 
-        if (action == ViewerQuickEdit.AutoBrightness)
-        {
-            var tone = AutoEnhanceAnalyzer.Analyze(pixels);
-            var changed = parameters.Brightness != 0 || parameters.Exposure != tone.Exposure ||
-                parameters.Contrast != tone.Contrast || parameters.Highlights != tone.Highlights ||
-                parameters.Shadows != tone.Shadows;
-            parameters.Brightness = 0;
-            parameters.Exposure = tone.Exposure;
-            parameters.Contrast = tone.Contrast;
-            parameters.Highlights = tone.Highlights;
-            parameters.Shadows = tone.Shadows;
-            return changed;
-        }
+        return action == ViewerQuickEdit.AutoBrightness
+            ? ApplyTone(parameters, AutoEnhanceAnalyzer.Analyze(pixels))
+            : ApplyColor(parameters, AutoEnhanceAnalyzer.AnalyzeColor(pixels));
+    }
 
-        var color = AutoEnhanceAnalyzer.AnalyzeColor(pixels);
+    internal static bool ApplyAutoAdjust(EditParameters parameters, byte[] pixels)
+    {
+        var tone = AutoEnhanceAnalyzer.Analyze(pixels);
+        var color = AutoEnhanceAnalyzer.AnalyzeColor(pixels, tone.Saturation);
+        var toneChanged = ApplyTone(parameters, tone);
+        var colorChanged = ApplyColor(parameters, color);
+        return toneChanged || colorChanged;
+    }
+
+    private static bool ApplyTone(EditParameters parameters, EditParameters tone)
+    {
+        var changed = parameters.Brightness != 0 || parameters.Exposure != tone.Exposure ||
+            parameters.Contrast != tone.Contrast || parameters.Highlights != tone.Highlights ||
+            parameters.Shadows != tone.Shadows;
+        parameters.Brightness = 0;
+        parameters.Exposure = tone.Exposure;
+        parameters.Contrast = tone.Contrast;
+        parameters.Highlights = tone.Highlights;
+        parameters.Shadows = tone.Shadows;
+        return changed;
+    }
+
+    private static bool ApplyColor(EditParameters parameters, EditParameters color)
+    {
         var colorChanged = parameters.Saturation != color.Saturation ||
             parameters.Temperature != color.Temperature || parameters.Tint != color.Tint;
         parameters.Saturation = color.Saturation;

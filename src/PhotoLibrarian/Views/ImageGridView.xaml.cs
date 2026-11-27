@@ -835,6 +835,14 @@ public sealed partial class ImageGridView : UserControl
         var selectedEntriesForEdit = selected.Select(item => item.Entry).ToArray();
         bool canEditSelection = selectedEntriesForEdit.Length > 0 &&
             selectedEntriesForEdit.All(entry => entry.MediaType == MediaType.Image);
+        if (!isViewer && isMulti && selectedEntriesForEdit.Any(entry => entry.MediaType == MediaType.Image))
+        {
+            AddAction(new MenuFlyoutItem
+            {
+                Text = PhotoContextMenuStrings.Get("BatchAutoAdjustAction"),
+                IsEnabled = !editViewModel.EditHistory.IsBusy
+            }, () => ShowAutoAdjustAsync(editViewModel, selectedEntriesForEdit), "AutoAdjust");
+        }
         var copyEdits = new MenuFlyoutItem
         {
             Text = PhotoContextMenuStrings.Get("EditCopySettings"),

@@ -63,7 +63,14 @@ public sealed class ImageEditService
 
     /// <summary>Writes a recipe on a transaction's private copy; the caller owns original backup.</summary>
     public static Task WritePendingRecipeAsync(string filePath, EditParameters parameters) =>
-        SavePendingRecipeAtomicallyAsync(filePath, parameters);
+        WritePendingRecipeAsync(filePath, parameters, CancellationToken.None);
+
+    public static Task WritePendingRecipeAsync(
+        string filePath, EditParameters parameters, CancellationToken cancellationToken) =>
+        SavePendingRecipeAtomicallyAsync(filePath, parameters, cancellationToken);
+
+    public static bool SupportsEmbeddedRecipe(string filePath) =>
+        MetadataWriterService.SupportsEmbeddedWrite(filePath, MetadataWriteProperty.PendingEditRecipe);
 
     /// <summary>Atomically keeps a portable RAW preview recipe without touching sensor bytes.</summary>
     public static async Task SaveRawPreviewRecipeAsync(string filePath, EditParameters parameters,
@@ -136,8 +143,7 @@ public sealed class ImageEditService
             filePath, MetadataSidecarLocator.OwnsPendingEditRecipe);
         var xmp = sidecar is not null
             ? LoadRecipeSidecar(sidecar)
-            : MetadataWriterService.SupportsEmbeddedWrite(
-                filePath, MetadataWriteProperty.PendingEditRecipe)
+            : SupportsEmbeddedRecipe(filePath)
                 ? LoadEmbeddedXmp(filePath) ?? XmpMetaFactory.Create()
                 : XmpMetaFactory.Create();
         if (RawToneMappingService.IsRaw(filePath) &&
