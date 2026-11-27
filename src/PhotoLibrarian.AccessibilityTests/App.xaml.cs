@@ -56,6 +56,11 @@ public partial class App : Application
                 await FinishAsync(null);
                 return;
             }
+            if (Environment.GetCommandLineArgs().Contains("--map-geotag"))
+            {
+                if (await RunMapGeotagDialogTestsAsync()) await FinishAsync(null);
+                return;
+            }
             if (Environment.GetCommandLineArgs().Contains("--recovery"))
             {
                 if (Environment.GetCommandLineArgs().Contains("--preview"))

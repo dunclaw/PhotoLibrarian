@@ -78,6 +78,27 @@
   <data name="ViewerQuickAutoColor.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace color settings with conservative automatic white balance and saturation. Undo is available.</value></data>
   <data name="GeotagMapLink.Content" xml:space="preserve"><value>Open map</value></data>
   <data name="GeotagMapLink.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open geotag coordinates on a map</value></data>
+  <data name="GeotagPasteMapLink.Content" xml:space="preserve"><value>Paste map link</value></data>
+  <data name="GeotagPasteMapTitle" xml:space="preserve"><value>Geotag from a map link</value></data>
+  <data name="GeotagPasteMapTargetSingle" xml:space="preserve"><value>Apply to {0}</value></data>
+  <data name="GeotagPasteMapTargetMultiple" xml:space="preserve"><value>Apply to all {0} selected photos</value></data>
+  <data name="GeotagPasteMapHelp" xml:space="preserve"><value>Copy the full link to a Google Maps place, a single Bing Maps pin, or an OpenStreetMap marker (Share &gt; Include marker &gt; Link).</value></data>
+  <data name="GeotagPasteMapBrowse" xml:space="preserve"><value>Open map in browser</value></data>
+  <data name="GeotagPasteMapInput" xml:space="preserve"><value>Full link to a map pin</value></data>
+  <data name="GeotagPasteMapCoordinates" xml:space="preserve"><value>Latitude: {0}  Longitude: {1}</value></data>
+  <data name="GeotagPasteMapInvalid" xml:space="preserve"><value>No supported point found. Copy a full link to a pin, not a short link or a map view.</value></data>
+  <data name="GeotagPasteMapApply" xml:space="preserve"><value>Apply geotag</value></data>
+  <data name="GeotagPasteMapCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="GeotagPasteMapSelectionChanged" xml:space="preserve"><value>The photo selection changed. Open Paste map link again to apply a geotag.</value></data>
+  <data name="GeotagPasteMapBusy" xml:space="preserve"><value>A geotag is being saved. Wait for it to finish, then try again.</value></data>
+  <data name="GeotagPasteMapDialogError" xml:space="preserve"><value>Could not open the map link editor: {0}</value></data>
+  <data name="GeotagSaved" xml:space="preserve"><value>Saved geotag for {0} photo(s).</value></data>
+  <data name="GeotagLatitudeOutOfRange" xml:space="preserve"><value>Latitude must be between -90 and 90 degrees.</value></data>
+  <data name="GeotagLongitudeOutOfRange" xml:space="preserve"><value>Longitude must be between -180 and 180 degrees.</value></data>
+  <data name="GeotagSavePartial" xml:space="preserve"><value>Updated GPS coordinates for {0} of {1} photo(s); {2} item(s) need attention.</value></data>
+  <data name="GeotagSaveErrorTitle" xml:space="preserve"><value>Some geotags need attention</value></data>
+  <data name="GeotagDialogClose" xml:space="preserve"><value>Close</value></data>
+  <data name="GeotagSaveError" xml:space="preserve"><value>Could not finish the geotag update: {0}</value></data>
   <data name="MapProviderCombo.Header" xml:space="preserve"><value>Map provider</value></data>
   <data name="MapProviderCombo.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Map provider</value></data>
   <data name="MapProviderPrivacy.Text" xml:space="preserve"><value>Opening coordinates sends them to the selected map provider in your browser.</value></data>

@@ -1,6 +1,7 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
+using PhotoLibrarian.Services;
 using Windows.Graphics.Imaging;
 using Xunit;
 
@@ -238,6 +239,74 @@ public sealed class UnifiedEditPersistenceTests
         Assert.Equal(date.AddHours(2), new MetadataReaderService().ReadMetadata(photo.FilePath).DateTaken);
         await main.EditHistory.UndoAsync();
         Assert.Equal(date, (await library.Images.GetByPathAsync(photo.FilePath))!.DateTaken);
+    }
+
+    [Fact]
+    public async Task MapPinIsReadOnlyUntilAppliedAndReplaysAsOnePortableBatch()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var jpeg = await library.AddPhotoAsync("map-embedded.jpg", jpeg: true);
+        var png = await library.AddPhotoAsync("map-sidecar.png");
+        var other = await library.AddPhotoAsync("unselected.png");
+        var panel = library.Main.MetadataPanel;
+        var history = library.Main.EditHistory;
+        var reader = new MetadataReaderService();
+        panel.ShowMetadata([jpeg, png]);
+        var selection = panel.GeotagSelectionRevision;
+
+        Assert.True(MapLinkService.TryParsePoint(
+            "https://www.openstreetmap.org/?mlat=-33.875&mlon=151.25#map=9/-34/152", out var point));
+        Assert.Null(reader.ReadMetadata(jpeg.FilePath).GpsLatitude);
+        Assert.Null(reader.ReadMetadata(png.FilePath).GpsLatitude);
+        Assert.False(history.CanUndo);
+
+        // A metadata refresh of the same photos must not invalidate the confirmation.
+        panel.ShowMetadata([(await library.Images.GetByPathAsync(jpeg.FilePath))!, png]);
+        var result = await panel.SetGeotagForSelectionAsync(point, selection);
+        Assert.NotNull(result);
+        Assert.Empty(result.Failures);
+        Assert.Equal(2, result.AppliedCount);
+        Assert.Equal(1, result.SidecarCount);
+        Assert.Empty(MetadataSidecarLocator.GetOwnedSidecarPaths(jpeg.FilePath));
+        Assert.Single(MetadataSidecarLocator.GetOwnedSidecarPaths(png.FilePath));
+        foreach (var photo in new[] { jpeg, png })
+        {
+            var metadata = reader.ReadMetadata(photo.FilePath);
+            Assert.Equal(point.Latitude, metadata.GpsLatitude);
+            Assert.Equal(point.Longitude, metadata.GpsLongitude);
+            Assert.Equal(point.Latitude, (await library.Images.GetByPathAsync(photo.FilePath))!.GpsLatitude);
+        }
+        Assert.Null(reader.ReadMetadata(other.FilePath).GpsLatitude);
+
+        Assert.Equal(EditHistoryStatus.Applied, (await history.UndoAsync()).Status);
+        Assert.False(history.CanUndo);
+        Assert.Null(reader.ReadMetadata(jpeg.FilePath).GpsLatitude);
+        Assert.Null(reader.ReadMetadata(png.FilePath).GpsLatitude);
+        Assert.Equal(EditHistoryStatus.Applied, (await history.RedoAsync()).Status);
+        Assert.Equal(point.Longitude, reader.ReadMetadata(jpeg.FilePath).GpsLongitude);
+        Assert.Equal(point.Longitude, reader.ReadMetadata(png.FilePath).GpsLongitude);
+    }
+
+    [Fact]
+    public async Task MapPinCannotApplyAfterSameCountSelectionChangesOrReturns()
+    {
+        await using var library = await StabilizedVideoLibraryTests.LibraryFixture.CreateAsync();
+        var first = await library.AddPhotoAsync("map-first.png");
+        var second = await library.AddPhotoAsync("map-second.png");
+        var panel = library.Main.MetadataPanel;
+        panel.ShowMetadata(first);
+        var selection = panel.GeotagSelectionRevision;
+        var point = new GeoCoordinate(10, -20);
+
+        panel.ShowMetadata(second);
+        Assert.Null(await panel.SetGeotagForSelectionAsync(point, selection));
+        panel.ShowMetadata(first);
+        Assert.Null(await panel.SetGeotagForSelectionAsync(point, selection));
+
+        var reader = new MetadataReaderService();
+        Assert.Null(reader.ReadMetadata(first.FilePath).GpsLatitude);
+        Assert.Null(reader.ReadMetadata(second.FilePath).GpsLatitude);
+        Assert.False(library.Main.EditHistory.CanUndo);
     }
 
     [Fact]

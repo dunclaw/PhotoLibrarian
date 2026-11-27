@@ -14,14 +14,28 @@ public readonly record struct GeoCoordinate
 
     public GeoCoordinate(double latitude, double longitude)
     {
-        if (!double.IsFinite(latitude) || latitude is < -90 or > 90)
+        if (!IsValidLatitude(latitude))
             throw new ArgumentOutOfRangeException(nameof(latitude), "Latitude must be between -90 and 90 degrees.");
-        if (!double.IsFinite(longitude) || longitude is < -180 or > 180)
+        if (!IsValidLongitude(longitude))
             throw new ArgumentOutOfRangeException(nameof(longitude), "Longitude must be between -180 and 180 degrees.");
 
         Latitude = latitude;
         Longitude = longitude;
     }
+
+    public static bool TryCreate(double latitude, double longitude, out GeoCoordinate coordinate)
+    {
+        coordinate = default;
+        if (!IsValidLatitude(latitude) || !IsValidLongitude(longitude))
+            return false;
+
+        coordinate = new GeoCoordinate(latitude, longitude);
+        return true;
+    }
+
+    private static bool IsValidLatitude(double value) => value is >= -90 and <= 90;
+
+    private static bool IsValidLongitude(double value) => value is >= -180 and <= 180;
 }
 
 public enum GeotagWriteLocation
