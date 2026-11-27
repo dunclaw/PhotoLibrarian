@@ -213,13 +213,18 @@ public sealed class FileEditTransaction : IDisposable
     }
 
     public Task<EditHistoryResult> MoveAsync(bool undo, Func<Task> refresh) =>
-        MoveCoreAsync(undo, refresh, null);
+        MoveAsync(undo, refresh, CancellationToken.None);
+
+    public Task<EditHistoryResult> MoveAsync(
+        bool undo, Func<Task> refresh, CancellationToken cancellationToken) =>
+        MoveCoreAsync(undo, refresh, null, cancellationToken);
 
     internal Task<EditHistoryResult> MoveWithPublicationObserverAsync(
         bool undo, Func<Task> refresh, Action afterRename) =>
-        MoveCoreAsync(undo, refresh, afterRename);
+        MoveCoreAsync(undo, refresh, afterRename, CancellationToken.None);
 
-    private async Task<EditHistoryResult> MoveCoreAsync(bool undo, Func<Task> refresh, Action? afterRename)
+    private async Task<EditHistoryResult> MoveCoreAsync(
+        bool undo, Func<Task> refresh, Action? afterRename, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var leases = new List<Lease>();
@@ -247,6 +252,7 @@ public sealed class FileEditTransaction : IDisposable
                     "Edit recovery cannot safely use a path containing a reparse point.");
             foreach (var change in _changes.OrderBy(change => change.Path, StringComparer.OrdinalIgnoreCase))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var expected = undo ? change.After : change.Before;
                 if (File.Exists(change.Path) != (expected.Hash is not null))
                     return Conflict(change.Path);
@@ -268,7 +274,7 @@ public sealed class FileEditTransaction : IDisposable
                 if (created) lease.RecoveryPath = leasedPath;
                 leases.Add(lease);
                 if (expected.Hash is not null &&
-                    Convert.ToHexString(await SHA256.HashDataAsync(stream)) != expected.Hash)
+                    Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken)) != expected.Hash)
                     return Conflict(change.Path);
             }
             foreach (var lease in leases.Where(lease => lease.Created))
@@ -288,6 +294,7 @@ public sealed class FileEditTransaction : IDisposable
             // original is not supported by Windows, even after its read stream is closed.
             foreach (var lease in leases.Where(lease => lease.Writable))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var version = undo ? lease.Change.Before : lease.Change.After;
                 if (version.Hash is null) continue;
                 var temporary = TemporarySibling(lease.Change.Path);
@@ -300,7 +307,7 @@ public sealed class FileEditTransaction : IDisposable
                 }
                 lease.ReplacementPath = temporary;
                 lease.Replacement = new FileStream(handle, FileAccess.ReadWrite);
-                await WriteAsync(lease.Replacement, version);
+                await WriteAsync(lease.Replacement, version, cancellationToken);
             }
 
             if (_durableRecovery)
@@ -323,6 +330,8 @@ public sealed class FileEditTransaction : IDisposable
                         "The photo's same-name companions changed during the edit.");
             }
 
+            // Once publication starts, complete or roll back the whole transaction.
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 foreach (var lease in leases.Where(lease => lease.Writable))
@@ -427,16 +436,17 @@ public sealed class FileEditTransaction : IDisposable
     private Task<EditHistoryResult> MoveWithoutRefreshAsync(bool undo) =>
         MoveAsync(undo, () => Task.CompletedTask);
 
-    private static async Task WriteAsync(FileStream destination, Version version)
+    private static async Task WriteAsync(
+        FileStream destination, Version version, CancellationToken cancellationToken)
     {
         destination.Position = 0;
         if (version.Copy is { } copy)
         {
             await using var source = File.OpenRead(copy);
-            if (Convert.ToHexString(await SHA256.HashDataAsync(source)) != version.Hash)
+            if (Convert.ToHexString(await SHA256.HashDataAsync(source, cancellationToken)) != version.Hash)
                 throw new IOException($"The edit-history checkpoint is damaged: {copy}");
             source.Position = 0;
-            await source.CopyToAsync(destination);
+            await source.CopyToAsync(destination, cancellationToken);
         }
         destination.SetLength(destination.Position);
         destination.Flush(flushToDisk: true);

@@ -102,9 +102,12 @@ public static class AutoEnhanceAnalyzer
     }
 
     /// <summary>Conservative neutral-pixel white balance plus the existing saturation estimate.</summary>
-    public static EditParameters AnalyzeColor(byte[] bgraPixels)
+    public static EditParameters AnalyzeColor(byte[] bgraPixels) =>
+        AnalyzeColor(bgraPixels, Analyze(bgraPixels).Saturation);
+
+    internal static EditParameters AnalyzeColor(byte[] bgraPixels, double saturation)
     {
-        var result = new EditParameters { Saturation = Analyze(bgraPixels).Saturation };
+        var result = new EditParameters { Saturation = saturation };
         double redTotal = 0, greenTotal = 0, blueTotal = 0;
         var neutralCount = 0;
         for (var offset = 0; offset < bgraPixels.Length; offset += 4)

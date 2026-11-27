@@ -63,6 +63,22 @@ the photo when moving it. Each changed recipe is one shared Undo/Redo step;
 no-op auto actions preserve Redo. **Adjust** can fine-tune or bake the recipe
 later. The source and full-resolution render have no new image-size limit.
 
+### Batch Auto-adjust
+
+Select multiple photos in the grid, right-click, and choose **Auto-adjust**.
+It analyzes each JPEG (`.jpg`, `.jpeg`) and PNG still independently from a
+local, oriented, color-managed source sample. It replaces the same brightness
+and color settings as the viewer's quick actions without stacking corrections
+or changing crop, rotation, effects, retouch, or detail settings.
+
+Changed recipes are embedded in the photos without re-encoding their pixels.
+Unsupported items and analysis failures are listed by file and do not stop the
+other photos. The prepared edits are saved together as one Undo/Redo step.
+If any prepared recipe cannot be saved, the batch does not commit.
+You can cancel during analysis or preparation without saving any adjustments;
+once publication starts the shared edit transaction finishes or rolls back.
+There is no new limit on photo dimensions or selection size.
+
 ### Photo effects
 
 The full-photo view's top toolbar **Effects** button, immediately after **Adjust**,

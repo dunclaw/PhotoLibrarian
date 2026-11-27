@@ -145,6 +145,28 @@ public sealed class FileEditTransactionTests : IDisposable
     }
 
     [Fact]
+    public async Task CancelledPublicationDoesNotPublishPreparedFilesOrRefresh()
+    {
+        var first = CreatePhoto("first.jpg", [1]);
+        var second = CreatePhoto("second.jpg", [2]);
+        using var transaction = await PrepareAsync([first, second], async copies =>
+        {
+            foreach (var copy in copies.Values) await File.WriteAllBytesAsync(copy, [3]);
+        });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var refreshed = false;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transaction.MoveAsync(false, () =>
+        {
+            refreshed = true;
+            return Task.CompletedTask;
+        }, cancellation.Token));
+        Assert.False(refreshed);
+        Assert.Equal(new byte[] { 1 }, File.ReadAllBytes(first));
+        Assert.Equal(new byte[] { 2 }, File.ReadAllBytes(second));
+    }
+
+    [Fact]
     public async Task RefreshFailureRollsBackFilesAndHistoryCanRetry()
     {
         var photo = CreatePhoto("first.jpg", [1, 2]);

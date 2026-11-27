@@ -767,6 +767,18 @@ Backup: {3}
   <data name="PhotoContextRecycled" xml:space="preserve"><value>Moved file to the Recycle Bin.</value></data>
   <data name="PhotoContextNotRecycled" xml:space="preserve"><value>The file was not moved to the Recycle Bin. The operation may have been cancelled or the file may be unavailable.</value></data>
   <data name="EditCopySettings" xml:space="preserve"><value>Copy edit settings...</value></data>
+  <data name="BatchAutoAdjustAction" xml:space="preserve"><value>Auto-adjust</value></data>
+  <data name="BatchAutoAdjustProgress" xml:space="preserve"><value>Checked {0:N0} of {1:N0} selected items.</value></data>
+  <data name="BatchAutoAdjustSaving" xml:space="preserve"><value>Saving photo edits…</value></data>
+  <data name="BatchAutoAdjustCancelling" xml:space="preserve"><value>Cancelling if edits have not been applied yet…</value></data>
+  <data name="BatchAutoAdjustCancelled" xml:space="preserve"><value>Auto-adjust cancelled. No adjustments were saved.</value></data>
+  <data name="BatchAutoAdjustNotSaved" xml:space="preserve"><value>Auto-adjust could not save the prepared edits for {0:N0} photos.</value></data>
+  <data name="BatchAutoAdjustSummary" xml:space="preserve"><value>Auto-adjust: {0:N0} adjusted, {1:N0} unchanged, {2:N0} skipped, {3:N0} failed.</value></data>
+  <data name="BatchAutoAdjustUnsupported" xml:space="preserve"><value>Auto-adjust supports JPEG (.jpg, .jpeg) and PNG still photos.</value></data>
+  <data name="BatchAutoAdjustNoVisiblePixels" xml:space="preserve"><value>No visible pixels in the analysis sample.</value></data>
+  <data name="BatchAutoAdjustFailedItem" xml:space="preserve"><value>Failed: {0} — {1}</value></data>
+  <data name="BatchAutoAdjustSkippedItem" xml:space="preserve"><value>Skipped: {0} — {1}</value></data>
+  <data name="BatchAutoAdjustClose" xml:space="preserve"><value>Close</value></data>
   <data name="EditPasteSettings" xml:space="preserve"><value>Paste edit settings...</value></data>
   <data name="EditSyncSettings" xml:space="preserve"><value>Sync edit settings across selection...</value></data>
   <data name="EditChooseGroupsTitle" xml:space="preserve"><value>Choose setting groups</value></data>
