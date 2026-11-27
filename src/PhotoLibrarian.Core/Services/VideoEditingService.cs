@@ -14,11 +14,20 @@ public sealed record VideoEditOptions(
     StabilizationOptions? Stabilization = null,
     TimeSpan? TrimStart = null,
     TimeSpan? TrimEnd = null,
-    int PlaybackSpeedPercent = 100);
+    int PlaybackSpeedPercent = 100,
+    string? SoundtrackPath = null);
+
+public enum VideoPreviewPreparationResult
+{
+    Ready,
+    UnsupportedSoundtrack
+}
 
 /// <summary>Prepares one local MP4; preview and save use those exact bytes.</summary>
 public sealed class VideoEditingService : IDisposable
 {
+    public static IReadOnlyList<string> SoundtrackExtensions { get; } = Array.AsReadOnly(new[] { ".wav", ".mp3" });
+
     private static readonly Guid RotationKey = new("C380465D-2271-428C-9B83-ECEA3B4A85C1");
     private readonly StorageFile _source;
     private readonly MediaEncodingProfile _profile;
@@ -83,17 +92,32 @@ public sealed class VideoEditingService : IDisposable
         return new VideoEditingService(source, properties.Duration, editedDuration, profile, options);
     }
 
-    public Task PreparePreviewAsync(IProgress<double>? progress = null,
+    public Task<VideoPreviewPreparationResult> PreparePreviewAsync(IProgress<double>? progress = null,
         CancellationToken token = default) => Task.Run(async () =>
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (PreviewPath is not null) return;
+        if (PreviewPath is not null) return VideoPreviewPreparationResult.Ready;
         token.ThrowIfCancellationRequested();
         using var sourceLock = new FileStream(_source.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
         _metadata = await VideoDerivativeMetadata.ReadAsync(_source, token);
         bool preparedSuccessfully = false;
         try
         {
+            string? soundtrackPath = _options.SoundtrackPath;
+            if (soundtrackPath is not null && (!Path.IsPathFullyQualified(soundtrackPath) ||
+                !SoundtrackExtensions.Contains(Path.GetExtension(soundtrackPath), StringComparer.OrdinalIgnoreCase)))
+                return VideoPreviewPreparationResult.UnsupportedSoundtrack;
+            using var soundtrackLock = soundtrackPath is not null
+                ? new FileStream(soundtrackPath, FileMode.Open, FileAccess.Read, FileShare.Read)
+                : null;
+            VideoSoundtrackSource? replacement = null;
+            if (soundtrackPath is not null &&
+                !VideoSoundtrackSource.TryOpen(soundtrackPath, Duration, token, out replacement))
+                return VideoPreviewPreparationResult.UnsupportedSoundtrack;
+            using var soundtrack = replacement;
+            if (soundtrack is not null)
+                _profile.Audio = AudioEncodingProperties.CreateAac(48_000, soundtrack.Channels, 192_000);
+
             VideoFrameStabilizer? stabilizer = null;
             VideoFrameStabilizer.Correction[] corrections = [];
             IProgress<double>? encodeProgress = progress;
@@ -111,7 +135,7 @@ public sealed class VideoEditingService : IDisposable
                        _source.Path, _profile, _sourceDuration, stabilizer, corrections, token,
                        _options.Brightness, _options.Contrast,
                        _options.TrimStart ?? TimeSpan.Zero, _options.TrimEnd,
-                       _options.PlaybackSpeedPercent))
+                       _options.PlaybackSpeedPercent, soundtrack))
             using (var fileStream = new FileStream(_stagingPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
             {
                 _ownsStagingFile = true;
@@ -130,6 +154,8 @@ public sealed class VideoEditingService : IDisposable
                     token.ThrowIfCancellationRequested();
                     throw new InvalidOperationException($"Windows could not decode this video: {input.Failure.Message}", input.Failure);
                 }
+                if (input.Failure is { } failure)
+                    throw new InvalidOperationException($"Windows could not decode this video: {failure.Message}", failure);
                 await output.FlushAsync().AsTask(token);
             }
             token.ThrowIfCancellationRequested();
@@ -149,6 +175,7 @@ public sealed class VideoEditingService : IDisposable
             token.ThrowIfCancellationRequested();
             PreviewPath = _stagingPath;
             preparedSuccessfully = true;
+            return VideoPreviewPreparationResult.Ready;
         }
         catch (Exception ex) when (token.IsCancellationRequested)
         {

@@ -136,6 +136,11 @@ public partial class App : Application
             {
                 await RunViewerFocusTestsAsync();
             }
+            else if (Environment.GetCommandLineArgs().Contains("--video-soundtrack"))
+            {
+                await RunVideoSoundtrackTestsAsync(Environment.GetCommandLineArgs().Contains("--preview"));
+                if (Environment.GetCommandLineArgs().Contains("--preview")) return;
+            }
             else if (Environment.GetCommandLineArgs().Contains("--viewer-context-menu"))
             {
                 await RunViewerContextMenuTestsAsync();
@@ -319,6 +324,75 @@ public partial class App : Application
     {
         if (!condition) throw new InvalidOperationException(name);
         _passed.Add(name);
+    }
+
+    private async Task RunVideoSoundtrackTestsAsync(bool preview)
+    {
+        var ribbon = new TopRibbon();
+        var layout = new Grid { Style = (Style)Resources["TestSurfaceStyle"] };
+        ribbon.VerticalAlignment = VerticalAlignment.Top;
+        layout.Children.Add(ribbon);
+        if (preview)
+            layout.RequestedTheme = Environment.GetCommandLineArgs().Contains("--dark") ? ElementTheme.Dark : ElementTheme.Light;
+        _window = new Window { Title = "Video soundtrack toolbar test", Content = layout };
+        int width = preview && Environment.GetCommandLineArgs().Contains("--compact") ? 950 : 1400;
+        _window.AppWindow.Resize(new SizeInt32(width, 360));
+        ribbon.SetPhotoContext(hasPhoto: true, editorActive: false);
+        ribbon.SetVideoMode(true);
+        if (preview)
+            ribbon.SetVideoSoundtrackPath(@"C:\SyntheticPhotos\track.wav");
+        _window.Activate();
+        if (preview) return;
+        await Task.Delay(150);
+
+        var toolbar = (CommandBar)FindControl(ribbon, "VideoEditToolbar");
+        var music = (AppBarButton)FindVideoCommand("VideoEditSoundtrack");
+        var remove = (AppBarToggleButton)FindVideoCommand("VideoEditRemoveAudio");
+        var export = (AppBarButton)FindVideoCommand("VideoEditExport");
+        var menu = (MenuFlyout)music.Flyout;
+        var choose = (MenuFlyoutItem)menu.Items[0];
+        var clear = (MenuFlyoutItem)menu.Items[1];
+        int pickerRequests = 0;
+        int changes = 0;
+        ribbon.VideoSoundtrackPickerClicked += (_, _) => pickerRequests++;
+        ribbon.VideoEditOptionsChanged += (_, _) => changes++;
+
+        Check(music.IsEnabled && !clear.IsEnabled && !ribbon.HasVideoEditChanges,
+            "Music selection is optional and available in the video ribbon");
+        Check(AutomationProperties.GetName(music) == "Add music" &&
+            choose.Text == "Choose audio file\u2026" && clear.Text == "Clear music",
+            "Music commands have localized, accessible labels");
+
+        menu.ShowAt(music);
+        await Task.Delay(100);
+        var choosePeer = FrameworkElementAutomationPeer.CreatePeerForElement(choose);
+        ((IInvokeProvider)choosePeer.GetPattern(PatternInterface.Invoke)).Invoke();
+        await Task.Delay(100);
+        Check(pickerRequests == 1 && changes == 0, "Opening the picker does not change the edit");
+
+        foreach (bool removeAudio in new[] { false, true })
+        {
+            remove.IsChecked = removeAudio;
+            ribbon.SetVideoSoundtrackPath(@"C:\SyntheticPhotos\track.wav");
+            Check(ribbon.TryGetVideoEditOptions(out var selected) && selected.SoundtrackPath is not null &&
+                ribbon.HasVideoEditChanges && clear.IsEnabled && !remove.IsEnabled &&
+                AutomationProperties.GetName(music) == "Music: track.wav", "Selected music replaces the source audio mode");
+            ribbon.SetVideoEditState(false, preparing: false, hasPreview: true, progress: 100, status: "");
+            menu.ShowAt(music);
+            await Task.Delay(100);
+            int beforeClear = changes;
+            var clearPeer = FrameworkElementAutomationPeer.CreatePeerForElement(clear);
+            ((IInvokeProvider)clearPeer.GetPattern(PatternInterface.Invoke)).Invoke();
+            await Task.Delay(100);
+            Check(ribbon.TryGetVideoEditOptions(out var cleared) && cleared.SoundtrackPath is null && !export.IsEnabled &&
+                cleared.RemoveAudio == removeAudio && remove.IsEnabled && !clear.IsEnabled &&
+                ribbon.HasVideoEditChanges == removeAudio && changes == beforeClear + 1,
+                "Clearing music restores the prior audio mode and invalidates the prepared preview");
+        }
+
+        Control FindVideoCommand(string id) => toolbar.PrimaryCommands.OfType<Control>()
+            .Concat(toolbar.SecondaryCommands.OfType<Control>())
+            .Single(control => AutomationProperties.GetAutomationId(control) == id);
     }
 
     private async Task RunViewerCommandTestsAsync()

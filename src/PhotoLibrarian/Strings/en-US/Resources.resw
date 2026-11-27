@@ -604,6 +604,14 @@ Backup: {3}
   <data name="VideoEditRotateRight.Label" xml:space="preserve"><value>Rotate right</value></data>
   <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Rotate 90 degrees clockwise</value></data>
   <data name="VideoEditRemoveAudio.Label" xml:space="preserve"><value>Remove audio</value></data>
+  <data name="VideoEditSoundtrack.Label" xml:space="preserve"><value>Add music</value></data>
+  <data name="VideoEditSoundtrackSelected" xml:space="preserve"><value>Music selected</value></data>
+  <data name="VideoEditSoundtrackFile" xml:space="preserve"><value>Music: {0}</value></data>
+  <data name="VideoEditSoundtrack.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Replace the original audio with a local MP3 or WAV file.</value></data>
+  <data name="VideoEditChooseSoundtrack.Text" xml:space="preserve"><value>Choose audio file…</value></data>
+  <data name="VideoEditClearSoundtrack.Text" xml:space="preserve"><value>Clear music</value></data>
+  <data name="VideoEditSoundtrackPickerFailed" xml:space="preserve"><value>Could not open the music picker: {0}</value></data>
+  <data name="VideoEditUnsupportedSoundtrack" xml:space="preserve"><value>This music file cannot be used. Choose a mono or stereo MP3 or 16-bit PCM WAV at 44.1 or 48 kHz, or clear music.</value></data>
   <data name="VideoEditBrightnessLabel.Text" xml:space="preserve"><value>Brightness</value></data>
   <data name="VideoEditBrightnessSlider.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Video brightness</value></data>
   <data name="VideoEditContrastLabel.Text" xml:space="preserve"><value>Contrast</value></data>
@@ -629,7 +637,7 @@ Backup: {3}
   <data name="VideoEditRotateLeft.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees counterclockwise.</value></data>
   <data name="VideoEditResetRotation.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Restore the video's original orientation.</value></data>
   <data name="VideoEditRotateRight.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Rotate the video 90 degrees clockwise.</value></data>
-  <data name="VideoEditRemoveAudio.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Remove the audio track from the exported copy.</value></data>
+  <data name="VideoEditRemoveAudio.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Remove the audio track from the exported copy when no music is selected.</value></data>
   <data name="VideoEditStabilize.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Reduce camera shake in the video.</value></data>
   <data name="VideoEditTrim.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Show the trim bar; drag its left and right handles to choose the part to keep.</value></data>
   <data name="VideoEditPrepare.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Retry building the preview with the current edits.</value></data>

@@ -9,8 +9,8 @@ namespace PhotoLibrarian.Core.Services;
 internal readonly record struct DecodedSample(byte[] Data, long Timestamp, long Duration);
 
 /// <summary>
-/// Synchronous Windows Media Foundation decoder producing tightly packed NV12 video frames
-/// (decoder padding removed) and, optionally, 16-bit PCM audio. Not thread-safe.
+/// Synchronous Windows Media Foundation decoder for tightly packed NV12 video frames
+/// (decoder padding removed) and/or 16-bit PCM audio. Not thread-safe.
 /// </summary>
 internal sealed class MediaFoundationFrameReader : IDisposable
 {
@@ -23,13 +23,26 @@ internal sealed class MediaFoundationFrameReader : IDisposable
 
     public uint AudioRate { get; }
     public uint AudioChannels { get; }
+    public Guid NativeAudioSubtype { get; }
+    public uint AudioBitsPerSample { get; }
     public uint SourceVideoNominalRange { get; private set; }
     public uint VideoNominalRange { get; private set; }
 
     public MediaFoundationFrameReader(string sourcePath, int width, int height, bool includeAudio,
         CancellationToken cancellationToken = default)
+        : this(sourcePath, width, height, includeVideo: true, includeAudio, cancellationToken)
     {
-        if (width < 2 || height < 2 || (width & 1) != 0 || (height & 1) != 0)
+    }
+
+    public MediaFoundationFrameReader(string audioPath, CancellationToken cancellationToken)
+        : this(audioPath, 0, 0, includeVideo: false, includeAudio: true, cancellationToken)
+    {
+    }
+
+    private MediaFoundationFrameReader(string sourcePath, int width, int height, bool includeVideo,
+        bool includeAudio, CancellationToken cancellationToken)
+    {
+        if (includeVideo && (width < 2 || height < 2 || (width & 1) != 0 || (height & 1) != 0))
             throw new NotSupportedException("This video's decoded dimensions or pixel layout are not supported.");
         _width = width;
         _height = height;
@@ -38,24 +51,28 @@ internal sealed class MediaFoundationFrameReader : IDisposable
         try
         {
             reader = MFCreateSourceReaderFromURL(sourcePath, null);
-            using (var native = reader.GetNativeMediaType(SourceReaderIndex.FirstVideoStream, 0))
+            reader.SetStreamSelection(SourceReaderIndex.AllStreams, false);
+            if (includeVideo)
             {
+                using var native = reader.GetNativeMediaType(SourceReaderIndex.FirstVideoStream, 0);
                 if (native.GetUInt32(MediaTypeAttributeKeys.VideoNominalRange, out uint sourceRange).Success)
                     SourceVideoNominalRange = sourceRange;
-            }
-            reader.SetStreamSelection(SourceReaderIndex.AllStreams, false);
-            using (var type = MFCreateMediaType())
-            {
+                using var type = MFCreateMediaType();
                 type.Set(MediaTypeAttributeKeys.MajorType, MediaTypeGuids.Video).CheckError();
                 type.Set(MediaTypeAttributeKeys.Subtype, VideoFormatGuids.NV12).CheckError();
                 reader.SetCurrentMediaType(SourceReaderIndex.FirstVideoStream, type);
-            }
-            reader.SetStreamSelection(SourceReaderIndex.FirstVideoStream, true);
-            using (var decoded = reader.GetCurrentMediaType(SourceReaderIndex.FirstVideoStream))
+                reader.SetStreamSelection(SourceReaderIndex.FirstVideoStream, true);
+                using var decoded = reader.GetCurrentMediaType(SourceReaderIndex.FirstVideoStream);
                 UpdateVideoFormat(decoded);
+            }
 
             if (includeAudio)
             {
+                if (!includeVideo)
+                {
+                    using var native = reader.GetNativeMediaType(SourceReaderIndex.FirstAudioStream, 0);
+                    NativeAudioSubtype = native.GetGUID(MediaTypeAttributeKeys.Subtype);
+                }
                 using var audioType = MFCreateMediaType();
                 audioType.Set(MediaTypeAttributeKeys.MajorType, MediaTypeGuids.Audio).CheckError();
                 audioType.Set(MediaTypeAttributeKeys.Subtype, AudioFormatGuids.Pcm).CheckError();
@@ -65,11 +82,14 @@ internal sealed class MediaFoundationFrameReader : IDisposable
                 using var audio = reader.GetCurrentMediaType(SourceReaderIndex.FirstAudioStream);
                 AudioRate = audio.GetUInt32(MediaTypeAttributeKeys.AudioSamplesPerSecond);
                 AudioChannels = audio.GetUInt32(MediaTypeAttributeKeys.AudioNumChannels);
+                if (!includeVideo)
+                    AudioBitsPerSample = audio.GetUInt32(MediaTypeAttributeKeys.AudioBitsPerSample);
             }
             _reader = reader;
             // Some decoders (including HEVC) publish the actual range/aperture only when
             // reading the first sample. Negotiate before consumers create their encoder type.
-            _pendingVideoSample = ReadCore(video: true, cancellationToken);
+            if (includeVideo)
+                _pendingVideoSample = ReadCore(video: true, cancellationToken);
         }
         catch
         {
