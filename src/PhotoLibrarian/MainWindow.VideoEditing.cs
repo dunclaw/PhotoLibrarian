@@ -1,4 +1,5 @@
 // Copyright (c) Duncan Lawler. All Rights Reserved.
+using Microsoft.Windows.Storage.Pickers;
 using PhotoLibrarian.Core.Diagnostics;
 using PhotoLibrarian.Core.Models;
 using PhotoLibrarian.Core.Services;
@@ -21,6 +22,7 @@ public sealed partial class MainWindow
     private Task _videoPreviewUpdateTask = Task.CompletedTask;
     private int _videoOptionsVersion;
     private bool _videoExporting;
+    private bool _videoSoundtrackPickerOpen;
 
     private void BeginVideoEditing()
     {
@@ -94,6 +96,39 @@ public sealed partial class MainWindow
 
     private void OnVideoEditPrepareClicked(object? sender, EventArgs args) =>
         OnVideoEditOptionsChanged(sender, args);
+
+    private async void OnVideoSoundtrackPickerClicked(object? sender, EventArgs args)
+    {
+        if (_videoSoundtrackPickerOpen || _videoExporting || _videoEditExitInProgress ||
+            _videoToolbarSourcePath is not { } sourcePath || !IsCurrentVideoEditSource(sourcePath))
+            return;
+
+        int version = _videoOptionsVersion;
+        _videoSoundtrackPickerOpen = true;
+        try
+        {
+            var picker = new FileOpenPicker(AppWindow.Id)
+            {
+                SuggestedStartLocation = PickerLocationId.MusicLibrary
+            };
+            foreach (string extension in VideoEditingService.SoundtrackExtensions)
+                picker.FileTypeFilter.Add(extension);
+            var selected = await picker.PickSingleFileAsync();
+            if (selected is not null && !_videoExporting &&
+                version == _videoOptionsVersion && IsCurrentVideoEditSource(sourcePath))
+                TopRibbon.SetVideoSoundtrackPath(selected.Path);
+        }
+        catch (Exception ex)
+        {
+            DebugLog.WriteLine($"Could not pick a video soundtrack: {ex}");
+            if (version == _videoOptionsVersion && IsCurrentVideoEditSource(sourcePath))
+                ViewModel.StatusText = VideoEditStrings.Format("VideoEditSoundtrackPickerFailed", ex.Message);
+        }
+        finally
+        {
+            _videoSoundtrackPickerOpen = false;
+        }
+    }
 
     private async void OnVideoEditExportClicked(object? sender, EventArgs args)
     {
@@ -182,8 +217,15 @@ public sealed partial class MainWindow
                 if (!token.IsCancellationRequested && IsCurrentVideoEditSource(sourcePath))
                     TopRibbon.SetVideoEditProgress(value);
             });
-            await editing.PreparePreviewAsync(progress, token);
+            var result = await editing.PreparePreviewAsync(progress, token);
             EnsureVideoEditSourceIsCurrent(sourcePath, token);
+            if (result == VideoPreviewPreparationResult.UnsupportedSoundtrack)
+            {
+                string? error = await ReleaseVideoEditPreviewAsync(restoreSource: false);
+                TopRibbon.SetVideoEditState(false, preparing: false, hasPreview: false, progress: 0,
+                    VideoEditStrings.Get("VideoEditUnsupportedSoundtrack"), error);
+                return;
+            }
 
             if (editing.PreviewPath is not { } previewPath ||
                 !await ViewerOverlay.ShowVideoEditPreviewAsync(sourcePath, previewPath))

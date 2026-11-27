@@ -267,6 +267,18 @@
                                     Icon="Mute" Checked="OnVideoEditAudioChanged"
                                     Unchecked="OnVideoEditAudioChanged"
                                     AutomationProperties.AutomationId="VideoEditRemoveAudio" />
+                <AppBarButton x:Name="VideoSoundtrackButton" x:Uid="VideoEditSoundtrack" Icon="Audio"
+                              AutomationProperties.AutomationId="VideoEditSoundtrack">
+                    <AppBarButton.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem x:Uid="VideoEditChooseSoundtrack" Click="OnChooseVideoSoundtrackClick"
+                                            AutomationProperties.AutomationId="VideoEditChooseSoundtrack" />
+                            <MenuFlyoutItem x:Name="ClearVideoSoundtrackItem" x:Uid="VideoEditClearSoundtrack"
+                                            Click="OnClearVideoSoundtrackClick"
+                                            AutomationProperties.AutomationId="VideoEditClearSoundtrack" />
+                        </MenuFlyout>
+                    </AppBarButton.Flyout>
+                </AppBarButton>
                 <AppBarToggleButton x:Name="StabilizeVideoButton" x:Uid="VideoEditStabilize"
                                     Checked="OnVideoEditAudioChanged" Unchecked="OnVideoEditAudioChanged"
                                     Icon="Video"

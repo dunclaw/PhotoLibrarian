@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using PhotoLibrarian.Core.Models;
 using System;
 using System.Globalization;
+using System.IO;
 using CommunityToolkit.WinUI.Controls;
 
 namespace PhotoLibrarian.Views;
@@ -28,6 +29,9 @@ public sealed partial class TopRibbon : UserControl
     private bool _videoEditPreviewReady;
     private string _videoEditStatus = "";
     private int _videoRotationQuarterTurns;
+    private string? _videoSoundtrackPath;
+    private readonly string _addSoundtrackLabel;
+    private readonly object _addSoundtrackToolTip;
     private VideoTrimInfo? _videoTrimInfo;
     private bool _quickEditsAvailable;
     private Button? _historyFocus;
@@ -47,6 +51,7 @@ public sealed partial class TopRibbon : UserControl
     public event EventHandler<SlideshowTheme>? SlideshowThemeChanged;
     public event EventHandler? PhotoFuseClicked;
     public event EventHandler? VideoEditOptionsChanged;
+    public event EventHandler? VideoSoundtrackPickerClicked;
     public event EventHandler? VideoEditPrepareClicked;
     public event EventHandler? VideoEditExportClicked;
     public event EventHandler? VideoEditCancelClicked;
@@ -60,6 +65,8 @@ public sealed partial class TopRibbon : UserControl
     public TopRibbon()
     {
         this.InitializeComponent();
+        _addSoundtrackLabel = VideoSoundtrackButton.Label;
+        _addSoundtrackToolTip = ToolTipService.GetToolTip(VideoSoundtrackButton);
         SetPhotoContext(hasPhoto: false, editorActive: false);
     }
 
@@ -140,6 +147,7 @@ public sealed partial class TopRibbon : UserControl
         ContrastSlider.Value = 100;
         VideoEditSpeedBox.SelectedIndex = 2;
         RemoveAudioBox.IsChecked = false;
+        _videoSoundtrackPath = null;
         StabilizeVideoButton.IsChecked = false;
         TrimVideoButton.IsChecked = false;
         VideoTrimControls.Visibility = Visibility.Collapsed;
@@ -190,7 +198,7 @@ public sealed partial class TopRibbon : UserControl
             : null;
         options = new(_videoRotationQuarterTurns, RemoveAudioBox.IsChecked == true,
             (int)BrightnessSlider.Value, (int)ContrastSlider.Value, stabilization,
-            PlaybackSpeedPercent: playbackSpeedPercent);
+            PlaybackSpeedPercent: playbackSpeedPercent, SoundtrackPath: _videoSoundtrackPath);
         if (TrimVideoButton.IsChecked != true) return true;
         if (_videoTrimInfo is not { } info) return false;
         double start = VideoTrimRange.RangeStart / info.FramesPerSecond;
@@ -224,7 +232,7 @@ public sealed partial class TopRibbon : UserControl
         RotateVideoLeftButton.IsEnabled = editable;
         ResetRotationButton.IsEnabled = editable;
         RotateVideoRightButton.IsEnabled = editable;
-        RemoveAudioBox.IsEnabled = editable;
+        UpdateVideoSoundtrackControls(editable);
         PrepareVideoEditButton.IsEnabled = !busy && HasVideoEditChanges && TryGetVideoEditOptions(out _);
         ExportVideoEditButton.IsEnabled = !busy && hasPreview;
         CancelVideoEditButton.IsEnabled = true;
@@ -254,6 +262,7 @@ public sealed partial class TopRibbon : UserControl
 
     public bool HasVideoEditChanges =>
         _videoRotationQuarterTurns != 0 || RemoveAudioBox.IsChecked == true ||
+        _videoSoundtrackPath is not null ||
         BrightnessSlider.Value != 0 || ContrastSlider.Value != 100 ||
         VideoEditSpeedBox.SelectedIndex != 2 ||
         StabilizeVideoButton.IsChecked == true || TrimVideoButton.IsChecked == true;
@@ -305,6 +314,35 @@ public sealed partial class TopRibbon : UserControl
 
     private void OnVideoEditAudioChanged(object sender, RoutedEventArgs args) =>
         NotifyVideoEditOptionsChanged();
+
+    private void OnChooseVideoSoundtrackClick(object sender, RoutedEventArgs args) =>
+        VideoSoundtrackPickerClicked?.Invoke(this, EventArgs.Empty);
+
+    private void OnClearVideoSoundtrackClick(object sender, RoutedEventArgs args) =>
+        SetVideoSoundtrackPath(null);
+
+    public void SetVideoSoundtrackPath(string? path)
+    {
+        if (!_videoEditActive) return;
+        _videoSoundtrackPath = path;
+        UpdateVideoSoundtrackControls(editable: true);
+        NotifyVideoEditOptionsChanged();
+    }
+
+    private void UpdateVideoSoundtrackControls(bool editable)
+    {
+        bool hasMusic = _videoSoundtrackPath is not null;
+        RemoveAudioBox.IsEnabled = editable && !hasMusic;
+        VideoSoundtrackButton.IsEnabled = editable;
+        ClearVideoSoundtrackItem.IsEnabled = editable && hasMusic;
+        string label = hasMusic ? VideoEditStrings.Get("VideoEditSoundtrackSelected") : _addSoundtrackLabel;
+        VideoSoundtrackButton.Label = label;
+        string name = hasMusic
+            ? VideoEditStrings.Format("VideoEditSoundtrackFile", Path.GetFileName(_videoSoundtrackPath))
+            : label;
+        AutomationProperties.SetName(VideoSoundtrackButton, name);
+        ToolTipService.SetToolTip(VideoSoundtrackButton, hasMusic ? name : _addSoundtrackToolTip);
+    }
 
     private void OnVideoRotateLeftClick(object sender, RoutedEventArgs args) =>
         ChangeVideoRotation(-1);

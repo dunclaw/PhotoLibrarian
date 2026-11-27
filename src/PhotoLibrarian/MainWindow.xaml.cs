@@ -453,6 +453,7 @@ public sealed partial class MainWindow : Window
         ViewerOverlay.PhotoFuseDiscardRequested += async (_, _) => await FinishPhotoFuseAsync(discard: true);
         ViewerOverlay.VideoEditCancelRequested += OnVideoEditCancelClicked;
         TopRibbon.VideoEditOptionsChanged += OnVideoEditOptionsChanged;
+        TopRibbon.VideoSoundtrackPickerClicked += OnVideoSoundtrackPickerClicked;
         TopRibbon.VideoEditPrepareClicked += OnVideoEditPrepareClicked;
         TopRibbon.VideoEditExportClicked += OnVideoEditExportClicked;
         TopRibbon.VideoEditCancelClicked += OnVideoEditCancelClicked;

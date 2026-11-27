@@ -282,6 +282,173 @@ public sealed class VideoEditingTests : IDisposable
         Assert.Equal(sourceHash, SHA256.HashData(await File.ReadAllBytesAsync(Source, Token)));
     }
 
+    [Theory]
+    [InlineData(".wav", 3.0, 44_100, 2, 50, true, false)]
+    [InlineData(".wav", 0.6, 48_000, 1, 100, false, false)]
+    [InlineData(".mp3", 0.6, 44_100, 2, 75, true, true)]
+    public async Task SoundtrackStartsAtZeroAndKeepsItsSpeedWithoutChangingVideoEdits(
+        string extension, double trackSeconds, int rate, int channels, int playbackSpeed,
+        bool sourceHasAudio, bool removeAudio)
+    {
+        await CreateFixtureAsync(90, sourceHasAudio);
+        string wave = CreateSoundtrackWave(trackSeconds, rate, channels);
+        string music = extension == ".wav" ? wave : await CreateSoundtrackMp3Async(wave);
+        byte[] sourceBytes = await File.ReadAllBytesAsync(Source, Token);
+        byte[] musicBytes = await File.ReadAllBytesAsync(music, Token);
+        using var editing = await VideoEditingService.CreateAsync(Source,
+            new(ClockwiseQuarterTurns: 1, RemoveAudio: removeAudio, Brightness: 20,
+                Stabilization: StabilizationOptions.Default,
+                TrimStart: TimeSpan.FromSeconds(0.5), TrimEnd: TimeSpan.FromSeconds(1.5),
+                PlaybackSpeedPercent: playbackSpeed, SoundtrackPath: music), Token);
+
+        Assert.Equal(VideoPreviewPreparationResult.Ready, await editing.PreparePreviewAsync(token: Token));
+        byte[] previewBytes = await File.ReadAllBytesAsync(editing.PreviewPath!, Token);
+        await editing.ExportAsync(Output, Token);
+        Assert.Equal(previewBytes, await File.ReadAllBytesAsync(Output, Token));
+        var properties = await (await StorageFile.GetFileFromPathAsync(Output)).Properties.GetVideoPropertiesAsync();
+        Assert.Equal(180u, (uint)properties.Orientation);
+        double duration = 100d / playbackSpeed;
+        Assert.InRange(properties.Duration.TotalSeconds, duration - 0.07, duration + 0.07);
+
+        using (var reader = new MediaFoundationFrameReader(Output, 192, 128, includeAudio: true))
+        {
+            long videoEnd = 0;
+            int frames = 0;
+            while (reader.Read(video: true, Token) is { } frame)
+            {
+                if (frames++ == 0) Assert.InRange(frame.Timestamp, 0, TimeSpan.FromMilliseconds(42).Ticks);
+                videoEnd = frame.Timestamp + frame.Duration;
+            }
+            Assert.Equal((int)Math.Round(24 * duration), frames);
+            Assert.InRange(TimeSpan.FromTicks(videoEnd).TotalSeconds, duration - 0.06, duration + 0.06);
+            Assert.Equal((uint)channels, reader.AudioChannels);
+            long audioStart = long.MinValue, audioEnd = 0;
+            var startTone = new List<short>();
+            var endAudio = new List<short>();
+            while (reader.Read(video: false, Token) is { } audio)
+            {
+                if (audioStart == long.MinValue) audioStart = audio.Timestamp;
+                audioEnd = audio.Timestamp + audio.Duration;
+                for (int offset = 0; offset < audio.Data.Length; offset += channels * sizeof(short))
+                {
+                    double time = audio.Timestamp / (double)TimeSpan.TicksPerSecond +
+                                  offset / (channels * sizeof(short) * (double)reader.AudioRate);
+                    short value = BitConverter.ToInt16(audio.Data, offset);
+                    if (time is >= 0.04 and < 0.24) startTone.Add(value);
+                    if (time >= duration - 0.2 && time < duration - 0.05) endAudio.Add(value);
+                }
+            }
+            Assert.InRange(TimeSpan.FromTicks(audioStart).TotalMilliseconds, -30, 30);
+            Assert.InRange(TimeSpan.FromTicks(audioEnd - videoEnd).TotalMilliseconds, -65, 65);
+            AssertTone(startTone, reader.AudioRate);
+            if (trackSeconds > duration)
+                AssertTone(endAudio, reader.AudioRate);
+            else
+                Assert.InRange(Rms(endAudio), 0, 50);
+        }
+        Assert.Equal(sourceBytes, await File.ReadAllBytesAsync(Source, Token));
+        Assert.Equal(musicBytes, await File.ReadAllBytesAsync(music, Token));
+        AssertNoTemporaryFiles();
+    }
+
+    [Fact]
+    public async Task UnsupportedSoundtrackDoesNotFallBackToOriginalAudio()
+    {
+        await CreateFixtureAsync(0, withAudio: true);
+        string music = CreateSoundtrackWave(1, 32_000, 1);
+        using var editing = await VideoEditingService.CreateAsync(Source, new(SoundtrackPath: music), Token);
+
+        Assert.Equal(VideoPreviewPreparationResult.UnsupportedSoundtrack,
+            await editing.PreparePreviewAsync(token: Token));
+        Assert.Null(editing.PreviewPath);
+        Assert.False(File.Exists(editing.TemporaryPreviewPath));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => editing.ExportAsync(Output, Token));
+        Assert.False(File.Exists(Output));
+    }
+
+    [Fact]
+    public async Task CanceledSoundtrackPreparationLeavesNeitherPreviewNorChangesAndCanRetry()
+    {
+        await CreateFixtureAsync(0, withAudio: true);
+        string music = CreateSoundtrackWave(0.6, 48_000, 1);
+        byte[] sourceBefore = await File.ReadAllBytesAsync(Source, Token);
+        byte[] musicBefore = await File.ReadAllBytesAsync(music, Token);
+        using var editing = await VideoEditingService.CreateAsync(Source, new(SoundtrackPath: music), Token);
+        using var canceled = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        Task? cancelTask = null;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            editing.PreparePreviewAsync(new CallbackProgress(_ =>
+            {
+                cancelTask ??= Task.Run(() => canceled.Cancel(), CancellationToken.None);
+            }), canceled.Token));
+        Assert.NotNull(cancelTask);
+        await cancelTask;
+        Assert.Null(editing.PreviewPath);
+        Assert.False(File.Exists(editing.TemporaryPreviewPath));
+        Assert.False(File.Exists(Output));
+        Assert.Equal(sourceBefore, await File.ReadAllBytesAsync(Source, Token));
+        Assert.Equal(musicBefore, await File.ReadAllBytesAsync(music, Token));
+        Assert.Equal(VideoPreviewPreparationResult.Ready, await editing.PreparePreviewAsync(token: Token));
+    }
+
+    private string CreateSoundtrackWave(double duration, int rate, int channels)
+    {
+        string path = Path.Combine(_directory, "music.wav");
+        int blockSize = channels * sizeof(short);
+        int frames = (int)Math.Round(duration * rate);
+        int dataLength = frames * blockSize;
+        using var writer = new BinaryWriter(File.Create(path));
+        writer.Write("RIFF"u8);
+        writer.Write(36 + dataLength);
+        writer.Write("WAVEfmt "u8);
+        writer.Write(16);
+        writer.Write((short)1);
+        writer.Write((short)channels);
+        writer.Write(rate);
+        writer.Write(rate * blockSize);
+        writer.Write((short)blockSize);
+        writer.Write((short)16);
+        writer.Write("data"u8);
+        writer.Write(dataLength);
+        for (int frame = 0; frame < frames; frame++)
+        {
+            short sample = (short)(6000 * Math.Sin(2 * Math.PI * 730 * frame / rate));
+            for (int channel = 0; channel < channels; channel++)
+                writer.Write(sample);
+        }
+        return path;
+    }
+
+    private async Task<string> CreateSoundtrackMp3Async(string wave)
+    {
+        var input = await StorageFile.GetFileFromPathAsync(wave);
+        string path = Path.ChangeExtension(wave, ".mp3");
+        var folder = await StorageFolder.GetFolderFromPathAsync(_directory);
+        var output = await folder.CreateFileAsync(Path.GetFileName(path), CreationCollisionOption.FailIfExists);
+        var prepared = await new MediaTranscoder().PrepareFileTranscodeAsync(
+            input, output, MediaEncodingProfile.CreateMp3(AudioEncodingQuality.High)).AsTask(Token);
+        Assert.True(prepared.CanTranscode, prepared.FailureReason.ToString());
+        await prepared.TranscodeAsync().AsTask(Token);
+        return path;
+    }
+
+    private static double Rms(List<short> samples)
+    {
+        Assert.NotEmpty(samples);
+        return Math.Sqrt(samples.Average(sample => (double)sample * sample));
+    }
+
+    private static void AssertTone(List<short> samples, uint rate)
+    {
+        Assert.InRange(Rms(samples), 3_000, 5_000);
+        int crossings = 0;
+        for (int index = 1; index < samples.Count; index++)
+        {
+            if (samples[index - 1] < 0 && samples[index] >= 0) crossings++;
+        }
+        Assert.InRange(crossings * (double)rate / samples.Count, 705, 755);
+    }
+
     [Fact]
     public async Task FullRangeSourceRangeIsPreservedForAdjustment()
     {

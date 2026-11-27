@@ -13,6 +13,7 @@ namespace PhotoLibrarian.Core.Services;
 internal sealed class WindowsStabilizedVideoSource : IDisposable
 {
     private readonly MediaFoundationFrameReader _reader;
+    private readonly VideoSoundtrackSource? _soundtrack;
     private readonly object _gate = new();
     private readonly CancellationToken _cancellationToken;
     private readonly VideoFrameStabilizer? _stabilizer;
@@ -35,11 +36,13 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
         string sourcePath, MediaEncodingProfile profile, TimeSpan duration,
         VideoFrameStabilizer? stabilizer, IReadOnlyList<VideoFrameStabilizer.Correction> corrections,
         CancellationToken cancellationToken, int brightness = 0, int contrast = 100,
-        TimeSpan trimStart = default, TimeSpan? trimEnd = null, int playbackSpeedPercent = 100)
+        TimeSpan trimStart = default, TimeSpan? trimEnd = null, int playbackSpeedPercent = 100,
+        VideoSoundtrackSource? soundtrack = null)
     {
         if (playbackSpeedPercent is not (50 or 75 or 100))
             throw new ArgumentOutOfRangeException(nameof(playbackSpeedPercent));
         _cancellationToken = cancellationToken;
+        _soundtrack = soundtrack;
         _playbackTimeScale = 100d / playbackSpeedPercent;
         _stabilizer = stabilizer;
         _corrections = corrections;
@@ -52,7 +55,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
         _width = width;
         _height = height;
         _reader = new MediaFoundationFrameReader(sourcePath, width, height,
-            includeAudio: profile.Audio is not null, cancellationToken);
+            includeAudio: profile.Audio is not null && soundtrack is null, cancellationToken);
         try
         {
             var video = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Nv12, (uint)width, (uint)height);
@@ -68,11 +71,11 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
             var videoDescriptor = new VideoStreamDescriptor(video);
             if (profile.Audio is not null)
             {
-                uint slowedAudioRate = checked((uint)Math.Round(
+                uint rate = soundtrack?.Rate ?? checked((uint)Math.Round(
                     _reader.AudioRate * (playbackSpeedPercent / 100d)));
-                if (slowedAudioRate == 0)
+                if (rate == 0)
                     throw new NotSupportedException("The selected playback speed is not supported by this audio track.");
-                var audio = AudioEncodingProperties.CreatePcm(slowedAudioRate, _reader.AudioChannels, 16);
+                var audio = AudioEncodingProperties.CreatePcm(rate, soundtrack?.Channels ?? _reader.AudioChannels, 16);
                 StreamSource = new MediaStreamSource(videoDescriptor, new AudioStreamDescriptor(audio));
             }
             else
@@ -104,6 +107,12 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
             {
                 _cancellationToken.ThrowIfCancellationRequested();
                 bool isVideo = args.Request.StreamDescriptor is VideoStreamDescriptor;
+                if (!isVideo && _soundtrack is { } soundtrack)
+                {
+                    if (soundtrack.Read(_cancellationToken) is { } audio)
+                        args.Request.Sample = CreateSample(audio.Data, audio);
+                    return;
+                }
                 DecodedSample sample;
                 VideoFrameStabilizer.Correction correction = default;
                 while (true)
@@ -161,9 +170,7 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                 if (isVideo && (_brightness != 0 || _contrast != 100))
                     VideoToneAdjustment.ApplyBrightnessContrastNv12(
                         data, _width, _height, _reader.VideoNominalRange, _brightness, _contrast);
-                var output = MediaStreamSample.CreateFromBuffer(data.AsBuffer(), TimeSpan.FromTicks(sample.Timestamp));
-                output.Duration = TimeSpan.FromTicks(sample.Duration);
-                args.Request.Sample = output;
+                args.Request.Sample = CreateSample(data, sample);
             }
             catch (Exception ex)
             {
@@ -171,6 +178,13 @@ internal sealed class WindowsStabilizedVideoSource : IDisposable
                 sender.NotifyError(MediaStreamSourceErrorStatus.Other);
             }
         }
+    }
+
+    private static MediaStreamSample CreateSample(byte[] data, DecodedSample sample)
+    {
+        var output = MediaStreamSample.CreateFromBuffer(data.AsBuffer(), TimeSpan.FromTicks(sample.Timestamp));
+        output.Duration = TimeSpan.FromTicks(sample.Duration);
+        return output;
     }
 
     private long ScaleTicks(long ticks)
