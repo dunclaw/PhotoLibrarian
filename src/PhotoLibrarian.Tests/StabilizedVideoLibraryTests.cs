@@ -313,11 +313,11 @@ public sealed class StabilizedVideoLibraryTests
             return (await Images.GetByPathAsync(path))!;
         }
 
-        public async Task<ImageEntry> AddPhotoAsync(string name)
+        public async Task<ImageEntry> AddPhotoAsync(string name, bool jpeg = false)
         {
             var path = Path.Combine(Photos, name);
             await RenderQualityFixtures.WriteImageAsync(path, 32, 24,
-                RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 32, 24));
+                RenderQualityFixtures.CreatePixels(RenderQualityFixtureKind.Gradient, 32, 24), jpeg: jpeg);
             await _indexer.IndexFileAsync(path);
             return (await Images.GetByPathAsync(path))!;
         }

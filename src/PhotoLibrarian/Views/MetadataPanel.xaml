@@ -116,6 +116,12 @@
                                      HorizontalAlignment="Left"
                                      Visibility="Collapsed"
                                      Click="OnMapCoordinatesClick" />
+                    <HyperlinkButton x:Name="GeotagPasteMapLink"
+                                     x:Uid="GeotagPasteMapLink"
+                                     AutomationProperties.AutomationId="GeotagPasteMapLink"
+                                     HorizontalAlignment="Left"
+                                     Visibility="Collapsed"
+                                     Click="OnGeotagPasteMapLinkClick" />
 
                     <TextBlock Text="Caption" Style="{StaticResource SectionHeaderStyle}" />
                     <TextBox x:Name="CaptionBox"

@@ -110,6 +110,8 @@ public partial class MetadataPanelViewModel : ObservableObject
     public IReadOnlyList<string> SelectedFilePaths =>
         _entries.Select(entry => entry.FilePath).ToArray();
 
+    internal long GeotagSelectionRevision { get; private set; }
+
     [ObservableProperty]
     public partial bool CanEditGeotag { get; set; }
 
@@ -332,7 +334,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         CancelVideoMetadataRead();
         CancelPlaceNameRead();
         ResetVideoMetadata();
-        _entries = entries.ToList();
+        SetSelectedEntries(entries);
         _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = true;
         SelectionCount = _entries.Count;
@@ -759,7 +761,7 @@ public partial class MetadataPanelViewModel : ObservableObject
         CancelVideoMetadataRead();
         CancelPlaceNameRead();
         ResetVideoMetadata();
-        _entries = new();
+        SetSelectedEntries([]);
         _main?.AutoTagReview.CloseIfSelectionChanged(_entries);
         HasImage = false;
         IsMultiSelect = false;
@@ -777,6 +779,19 @@ public partial class MetadataPanelViewModel : ObservableObject
         IsCaptionMixed = false;
         IsFlagged = false;
         IsFlagMixed = false;
+    }
+
+    private void SetSelectedEntries(IReadOnlyList<ImageEntry> entries)
+    {
+        // A metadata refresh keeps a pending preview; leaving and returning to the same photos does not.
+        var selectionChanged = !_entries.Select(entry => entry.FilePath).SequenceEqual(
+            entries.Select(entry => entry.FilePath), StringComparer.OrdinalIgnoreCase);
+        _entries = entries.ToList();
+        if (selectionChanged)
+        {
+            GeotagSelectionRevision++;
+            OnPropertyChanged(nameof(GeotagSelectionRevision));
+        }
     }
 
     /// <summary>
@@ -1052,6 +1067,16 @@ public partial class MetadataPanelViewModel : ObservableObject
             RefreshDateTakenDisplay();
         }
         return true;
+    }
+
+    internal async Task<GeotagBatchResult?> SetGeotagForSelectionAsync(
+        GeoCoordinate coordinate, long selectionRevision)
+    {
+        if (selectionRevision != GeotagSelectionRevision ||
+            _isStopping || _entries.Count == 0 || !CanEditGeotag || _geotagEditor is null)
+            return null;
+
+        return await SetGeotagAsync(coordinate);
     }
 
     public async Task<GeotagBatchResult> SetGeotagAsync(GeoCoordinate coordinate)

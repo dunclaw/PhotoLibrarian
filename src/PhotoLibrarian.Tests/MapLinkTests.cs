@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Xml.Linq;
 using PhotoLibrarian.Core.Models;
+using PhotoLibrarian.Core.Services;
 using PhotoLibrarian.Services;
 using PhotoLibrarian.ViewModels;
 using Xunit;
@@ -15,7 +16,7 @@ public sealed class MapLinkTests : IDisposable
         Path.GetTempPath(), $"PhotoLibrarian-Map-{Guid.NewGuid():N}");
 
     [Fact]
-    public void OpenMapLinkIsDirectlyAfterTheGeotagEditor()
+    public void MapActionsAreDirectlyAfterTheGeotagEditor()
     {
         var document = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "TestAssets", "MetadataPanel.xaml"));
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
@@ -26,6 +27,9 @@ public sealed class MapLinkTests : IDisposable
         Assert.Equal("GeotagMapLink", (string?)link.Attribute(xaml + "Name"));
         Assert.Equal("GeotagMapLink", (string?)link.Attribute(xaml + "Uid"));
         Assert.Equal("OnMapCoordinatesClick", (string?)link.Attribute("Click"));
+        var paste = link.ElementsAfterSelf().First();
+        Assert.Equal("HyperlinkButton", paste.Name.LocalName);
+        Assert.Equal("GeotagPasteMapLink", (string?)paste.Attribute(xaml + "Name"));
     }
 
     [Theory]
@@ -44,6 +48,59 @@ public sealed class MapLinkTests : IDisposable
         {
             CultureInfo.CurrentCulture = previous;
         }
+    }
+
+    [Theory]
+    [InlineData(" https://www.google.com/maps/search/?api=1&query=47.123456789%2C+-122.25 ", 47.123456789, -122.25)]
+    [InlineData("https://www.google.com/maps/place/Scenic+Point/@10,20,17z/data=!4m6!3m5!1s0x1:0x2!8m2!3d-33.8688!4d151.2093!16s%2Fg%2F123?entry=ttu", -33.8688, 151.2093)]
+    [InlineData("https://bing.com/maps/default.aspx?cp=10~20&sp=point.0_-180_Test%20pin", 0, -180)]
+    [InlineData("https://www.openstreetmap.org/?mlon=180&mlat=-90#map=12/10/20", -90, 180)]
+    public void FullMapLinksParseTheExplicitPointInAnyCulture(string link, double latitude, double longitude)
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+
+            Assert.True(MapLinkService.TryParsePoint(link, out var point));
+            Assert.Equal(new GeoCoordinate(latitude, longitude), point);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
+
+    [Theory]
+    [InlineData("https://www.google.com/maps/@47,-122,12z")]
+    [InlineData("https://www.bing.com/maps?cp=47~-122&lvl=16")]
+    [InlineData("https://www.openstreetmap.org/#map=12/47/-122")]
+    [InlineData("https://maps.app.goo.gl/example")]
+    [InlineData("https://binged.it/example")]
+    [InlineData("https://www.openstreetmap.org/go/example")]
+    [InlineData("https://www.google.com/maps/search/?api=1&query=Seattle")]
+    [InlineData("https://www.google.com/maps/search/?api=1&query=47,-122&query_place_id=somewhere-else")]
+    [InlineData("https://www.google.com/maps/search/?api=1&query=47,-122&%71uery=1,2")]
+    [InlineData("https://www.google.com/maps/search/?api=1&query=91,-122")]
+    [InlineData("https://www.google.com/maps/search/?api=1&query=NaN,-122")]
+    [InlineData("https://www.google.com/maps/search/?api=1&query=47,-122%00")]
+    [InlineData("https://www.google.com/maps/search/?api=1&query=47,-122%")]
+    [InlineData("https://www.google.com/maps/place/Park/@47,-122,17z/data=!8m2!3d47!4d-122!8m2!3d48!4d-123")]
+    [InlineData("https://www.google.com/maps/place/Park/@47,-122,17z/data=!8m2!3d47!4d")]
+    [InlineData("https://www.google.com/maps/place/Park/@47,-122,17z/data=!1slabel%218m2%213d47%214d-122")]
+    [InlineData("https://www.google.com/maps/dir/Start/End/data=!8m2!3d47!4d-122")]
+    [InlineData("https://www.google.com/maps/place/Park/@47,-122,17z")]
+    [InlineData("https://www.bing.com/maps?sp=point.47_-122_First~point.48_-123_Second")]
+    [InlineData("https://www.bing.com/maps?sp=point.47_-122&rtp=pos.47_-122~pos.48_-123")]
+    [InlineData("https://www.openstreetmap.org/?mlat=47#map=12/47/-122")]
+    [InlineData("https://www.openstreetmap.org/?mlat=47&mlon=-122&mlat=48")]
+    [InlineData("https://www.openstreetmap.org/directions?mlat=47&mlon=-122")]
+    [InlineData("https://www.google.com.example/maps/search/?api=1&query=47,-122")]
+    [InlineData("https://example@www.google.com/maps/search/?api=1&query=47,-122")]
+    [InlineData("http://www.google.com/maps/search/?api=1&query=47,-122")]
+    public void NonPointAndAmbiguousLinksAreRejected(string link)
+    {
+        Assert.False(MapLinkService.TryParsePoint(link, out _));
     }
 
     [Theory]

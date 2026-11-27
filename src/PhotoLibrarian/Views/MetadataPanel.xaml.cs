@@ -13,6 +13,7 @@ using PhotoLibrarian.Services;
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace PhotoLibrarian.Views;
 
@@ -30,7 +31,7 @@ public sealed partial class MetadataPanel : UserControl
     private string _lastLoadedDateText = "";
     private DispatcherQueueTimer? _geotagSaveTimer;
     private string _lastLoadedGeotagCoordinates = "";
-    private string[] _geotagSelectionPaths = [];
+    private long _displayedGeotagSelectionRevision = -1;
     private bool _suppressGeotagTextChanged;
     private bool _isSavingGeotag;
 
@@ -80,6 +81,7 @@ public sealed partial class MetadataPanel : UserControl
             case nameof(MetadataPanelViewModel.IsMultiSelect):
             case nameof(MetadataPanelViewModel.ColorLabelDisplay):
             case nameof(MetadataPanelViewModel.CanEditGeotag):
+            case nameof(MetadataPanelViewModel.GeotagSelectionRevision):
             case nameof(MetadataPanelViewModel.FilePath):
             case nameof(MetadataPanelViewModel.FolderPath):
                 DispatcherQueue.TryEnqueue(UpdateDisplay);
@@ -195,20 +197,15 @@ public sealed partial class MetadataPanel : UserControl
         // Date taken — compact text editor
         RefreshDateDisplay();
 
-        var geotagSelectionPaths = ViewModel.SelectedFilePaths.ToArray();
-        var sameGeotagSelection = _geotagSelectionPaths.SequenceEqual(
-            geotagSelectionPaths, StringComparer.OrdinalIgnoreCase);
-        if (!sameGeotagSelection ||
+        if (_displayedGeotagSelectionRevision != ViewModel.GeotagSelectionRevision ||
             (GeotagCoordinatesBox.FocusState == FocusState.Unfocused && !_isSavingGeotag))
         {
             _geotagSaveTimer?.Stop();
-            _suppressGeotagTextChanged = true;
-            GeotagCoordinatesBox.Text = ViewModel.GpsCoordinates;
-            _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
-            _suppressGeotagTextChanged = false;
+            ReloadGeotagCoordinates(ViewModel);
         }
-        _geotagSelectionPaths = geotagSelectionPaths;
+        _displayedGeotagSelectionRevision = ViewModel.GeotagSelectionRevision;
         GeotagCoordinatesBox.IsEnabled = ViewModel.CanEditGeotag;
+        GeotagPasteMapLink.Visibility = ViewModel.CanEditGeotag ? Visibility.Visible : Visibility.Collapsed;
 
         // Information section
         InfoFileName.Text = ViewModel.FileName;
@@ -308,17 +305,8 @@ public sealed partial class MetadataPanel : UserControl
             !MapLinkService.TryCreateUri(App.ViewModel.Settings.MapProvider, latitude, longitude, out var uri))
             return;
 
-        try
-        {
-            if (!await Windows.System.Launcher.LaunchUriAsync(uri!))
-                App.ViewModel.StatusText = MapStrings.Get("MapLaunchFailed");
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException or
-                                   System.Runtime.InteropServices.COMException)
-        {
-            PhotoLibrarian.Diagnostics.DebugLog.WriteLine($"[MAP] Could not open map: {ex.Message}");
-            App.ViewModel.StatusText = MapStrings.Format("MapLaunchError", ex.Message);
-        }
+        if (await LaunchMapInBrowserAsync(uri!) is { } error)
+            App.ViewModel.StatusText = error;
     }
 
     private void OnCopyFileNameClick(object sender, RoutedEventArgs e) =>
@@ -356,10 +344,7 @@ public sealed partial class MetadataPanel : UserControl
         if (GeotagCoordinatesBox.Text == _lastLoadedGeotagCoordinates &&
             ViewModel is { } viewModel)
         {
-            _suppressGeotagTextChanged = true;
-            GeotagCoordinatesBox.Text = viewModel.GpsCoordinates;
-            _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
-            _suppressGeotagTextChanged = false;
+            ReloadGeotagCoordinates(viewModel);
         }
         _ = SaveGeotagCoordinatesAsync(showInvalidInput: true);
     }
@@ -368,6 +353,7 @@ public sealed partial class MetadataPanel : UserControl
     {
         if (_isSavingGeotag ||
             ViewModel is not { HasImage: true, CanEditGeotag: true } viewModel ||
+            _displayedGeotagSelectionRevision != viewModel.GeotagSelectionRevision ||
             GeotagCoordinatesBox.Text == _lastLoadedGeotagCoordinates)
             return;
 
@@ -389,44 +375,58 @@ public sealed partial class MetadataPanel : UserControl
             return;
         }
 
-        GeoCoordinate coordinate;
-        try
-        {
-            coordinate = new GeoCoordinate(latitude, longitude);
-        }
-        catch (ArgumentOutOfRangeException exception)
+        if (!GeoCoordinate.TryCreate(latitude, longitude, out var coordinate))
         {
             if (showInvalidInput)
-                App.ViewModel.StatusText = exception.Message;
+            {
+                App.ViewModel.StatusText = latitude is >= -90 and <= 90
+                    ? ResourceStrings.Get("GeotagLongitudeOutOfRange")
+                    : ResourceStrings.Get("GeotagLatitudeOutOfRange");
+            }
             return;
         }
 
+        await ApplyGeotagAsync(viewModel, coordinate, _displayedGeotagSelectionRevision, fromMapLink: false);
+    }
+
+    private void ReloadGeotagCoordinates(MetadataPanelViewModel viewModel)
+    {
+        _suppressGeotagTextChanged = true;
+        GeotagCoordinatesBox.Text = viewModel.GpsCoordinates;
+        _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
+        _suppressGeotagTextChanged = false;
+    }
+
+    private async Task ApplyGeotagAsync(
+        MetadataPanelViewModel viewModel, GeoCoordinate coordinate, long selectionRevision, bool fromMapLink)
+    {
         var submittedText = GeotagCoordinatesBox.Text;
-        var submittedPaths = viewModel.SelectedFilePaths.ToArray();
         var saveSucceeded = false;
         var selectionStillMatches = false;
         _isSavingGeotag = true;
         try
         {
-            var result = await viewModel.SetGeotagAsync(coordinate);
-            selectionStillMatches = viewModel.SelectedFilePaths.SequenceEqual(
-                submittedPaths,
-                StringComparer.OrdinalIgnoreCase);
+            var result = await viewModel.SetGeotagForSelectionAsync(coordinate, selectionRevision);
+            if (result is null)
+            {
+                if (fromMapLink)
+                    App.ViewModel.StatusText = ResourceStrings.Get("GeotagPasteMapSelectionChanged");
+                return;
+            }
+
+            selectionStillMatches = viewModel.GeotagSelectionRevision == selectionRevision;
             saveSucceeded = result.Failures.Count == 0;
             App.ViewModel.StatusText = saveSucceeded
-                ? $"Saved geotag for {result.AppliedCount} photo(s)."
-                : $"Updated GPS coordinates for {result.AppliedCount} of {result.TotalCount} photo(s); {result.Failures.Count} item(s) need attention.";
+                ? ResourceStrings.Format("GeotagSaved", result.AppliedCount)
+                : ResourceStrings.Format("GeotagSavePartial", result.AppliedCount, result.TotalCount, result.Failures.Count);
 
-            if (saveSucceeded && selectionStillMatches &&
-                GeotagCoordinatesBox.Text == submittedText)
+            if (saveSucceeded && selectionStillMatches)
             {
-                _lastLoadedGeotagCoordinates = submittedText;
-                if (GeotagCoordinatesBox.FocusState == FocusState.Unfocused)
+                _lastLoadedGeotagCoordinates = fromMapLink ? viewModel.GpsCoordinates : submittedText;
+                if (GeotagCoordinatesBox.Text == submittedText &&
+                    (fromMapLink || GeotagCoordinatesBox.FocusState == FocusState.Unfocused))
                 {
-                    _suppressGeotagTextChanged = true;
-                    GeotagCoordinatesBox.Text = viewModel.GpsCoordinates;
-                    _lastLoadedGeotagCoordinates = GeotagCoordinatesBox.Text;
-                    _suppressGeotagTextChanged = false;
+                    ReloadGeotagCoordinates(viewModel);
                 }
             }
 
@@ -442,18 +442,19 @@ public sealed partial class MetadataPanel : UserControl
                     }
                 };
                 await DialogService.Instance.ErrorAsync(
-                    this, "Some geotags need attention", failures, "Close");
+                    this, ResourceStrings.Get("GeotagSaveErrorTitle"), failures, ResourceStrings.Get("GeotagDialogClose"));
             }
         }
-        catch (Exception exception)
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or InvalidOperationException or COMException)
         {
-            App.ViewModel.StatusText = $"Could not finish the geotag update: {exception.Message}";
+            App.ViewModel.StatusText = ResourceStrings.Format("GeotagSaveError", exception.Message);
         }
         finally
         {
             _isSavingGeotag = false;
             if (saveSucceeded && selectionStillMatches &&
-                GeotagCoordinatesBox.Text != submittedText)
+                GeotagCoordinatesBox.Text != _lastLoadedGeotagCoordinates)
             {
                 _geotagSaveTimer?.Start();
             }
